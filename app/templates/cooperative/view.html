@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+{% block title %}Реквизиты кооператива{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h3>{{ _("Реквизиты кооператива") }}</h3>
+  {% if current_user.role.value == 'chairman' %}
+  <a class="btn btn-primary" href="{{ url_for('cooperative.edit') }}">{{ _("Редактировать") }}</a>
+  {% endif %}
+</div>
+
+{% if coop %}
+<table class="table table-bordered bg-body">
+  <tr><th style="width:280px">{{ _("Полное наименование") }}</th><td>{{ coop.full_name }}</td></tr>
+  <tr><th>{{ _("Краткое наименование") }}</th><td>{{ coop.short_name or "—" }}</td></tr>
+  <tr><th>{{ _("ИНН") }}</th><td>{{ coop.inn }}</td></tr>
+  <tr><th>{{ _("КПП") }}</th><td>{{ coop.kpp }}</td></tr>
+  <tr><th>{{ _("ОГРН") }}</th><td>{{ coop.ogrn }}</td></tr>
+  <tr><th>{{ _("Юридический адрес") }}</th><td>{{ coop.legal_address or "—" }}</td></tr>
+  <tr><th>{{ _("Почтовый адрес") }}</th><td>{{ coop.postal_address or "—" }}</td></tr>
+  <tr><th>{{ _("Дата регистрации") }}</th><td>{{ fmt_date(coop.registration_date) }}</td></tr>
+  <tr><th>{{ _("Площадь кооператива") }}</th><td>{{ (fmt2(coop.total_area) ~ " м²") if coop.total_area is not none else "—" }}</td></tr>
+  <tr><th>{{ _("Площадь под гаражами") }}</th><td>{{ (fmt2(coop.garage_area) ~ " м²") if coop.garage_area is not none else "—" }}</td></tr>
+  <tr><th>{{ _("Площадь общего пользования") }}</th><td>{{ (fmt2(coop.common_area) ~ " м²") if coop.common_area is not none else "—" }}</td></tr>
+  <tr><th>{{ _("Стандартная площадь под гараж, м²") }}</th><td>{{ fmt2(coop.standard_garage_land_area) }} м²</td></tr>
+  <tr><th>{{ _("Ставка налога, % от кадастровой стоимости") }}</th><td>{{ fmt2(coop.land_tax_rate_percent) }}%</td></tr>
+  <tr><th>{{ _("% банка за обслуживание") }}</th><td>{{ (fmt2(coop.bank_fee_percent) ~ "%") if coop.bank_fee_percent is not none else "—" }}</td></tr>
+  <tr><th>{{ _("Комментарий") }}</th><td>{{ coop.comment or "—" }}</td></tr>
+</table>
+{% else %}
+<p class="text-muted">{{ _("Реквизиты ещё не заполнены.") }}</p>
+{% endif %}
+
+<div class="d-flex justify-content-between align-items-center mb-3 mt-4">
+  <h4>{{ _("Расчётные счета") }}</h4>
+  {% if current_user.role.value == 'chairman' %}
+  <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#createBankAccountModal">+ {{ _("Добавить счёт") }}</button>
+  {% endif %}
+</div>
+<table class="table table-bordered bg-body sortable">
+  <thead><tr><th>{{ _("Банк") }}</th><th>{{ _("БИК") }}</th><th>{{ _("Расчётный счёт") }}</th><th>{{ _("Корр. счёт") }}</th><th>{{ _("Основной") }}</th><th>{{ _("Комментарий") }}</th>{% if current_user.role.value == 'chairman' %}<th class="no-sort"></th>{% endif %}</tr></thead>
+  <tbody>
+    {% for account in bank_accounts %}
+    <tr>
+      <td>{{ account.bank_name }}</td>
+      <td>{{ account.bik or "—" }}</td>
+      <td>{{ account.checking_account }}</td>
+      <td>{{ account.correspondent_account or "—" }}</td>
+      <td>{% if account.is_primary %}<span class="badge bg-primary">{{ _("основной") }}</span>{% endif %}</td>
+      <td>{{ account.comment or "—" }}</td>
+      {% if current_user.role.value == 'chairman' %}
+      <td class="text-nowrap">
+        <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#editBankAccountModal{{ account.id }}">{{ _("Изменить") }}</button>
+        <form method="post" action="{{ url_for('cooperative.delete_bank_account', account_id=account.id) }}" class="d-inline" onsubmit="return confirm('{{ _("Удалить расчётный счёт?") }}')">
+          <button class="btn btn-sm btn-outline-danger">{{ _("Удалить") }}</button>
+        </form>
+      </td>
+      {% endif %}
+    </tr>
+    {% else %}
+    <tr><td colspan="7" class="text-muted">{{ _("Расчётных счетов пока нет.") }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+{% if current_user.role.value == 'chairman' %}
+<div class="modal fade" id="createBankAccountModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" action="{{ url_for('cooperative.create_bank_account') }}">
+        <div class="modal-header">
+          <h5 class="modal-title">{{ _("Новый расчётный счёт") }}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          {% set account = None %}
+          {% include "cooperative/_bank_account_fields.html" %}
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+          <button class="btn btn-primary">{{ _("Сохранить") }}</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+{% for account in bank_accounts %}
+<div class="modal fade" id="editBankAccountModal{{ account.id }}" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" action="{{ url_for('cooperative.edit_bank_account', account_id=account.id) }}">
+        <div class="modal-header">
+          <h5 class="modal-title">{{ account.bank_name }}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          {% include "cooperative/_bank_account_fields.html" %}
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+          <button class="btn btn-primary">{{ _("Сохранить") }}</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endfor %}
+{% endif %}
+{% endblock %}

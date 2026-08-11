@@ -1,0 +1,90 @@
+{# Ожидает переменную person (объект или None). Только поля, без <form> и кнопок. #}
+<div class="row g-3">
+  <div class="col-12">
+    <label class="form-label">{{ _("ФИО") }}</label>
+    <input class="form-control" name="full_name" value="{{ person.full_name if person else '' }}" required>
+  </div>
+  <div class="col-md-6">
+    <label class="form-label">{{ _("Телефоны (через запятую)") }}</label>
+    <input class="form-control" name="phones" value="{{ person.phones|map(attribute='number')|join(', ') if person else '' }}">
+  </div>
+  <div class="col-md-6">
+    <label class="form-label">{{ _("Email") }}</label>
+    <input class="form-control" name="email" value="{{ (person.email or '') if person else '' }}">
+  </div>
+  <div class="col-md-6">
+    <label class="form-label">{{ _("Telegram") }}</label>
+    <input class="form-control" name="telegram" value="{{ (person.telegram or '') if person else '' }}">
+  </div>
+  <div class="col-md-6"></div>
+  <div class="col-md-6">
+    <label class="form-label">{{ _("Адрес регистрации (прописки)") }}</label>
+    <input class="form-control" name="registration_address" value="{{ (person.registration_address or '') if person else '' }}">
+  </div>
+  <div class="col-md-6">
+    <label class="form-label">{{ _("Адрес проживания") }}</label>
+    <input class="form-control" name="residence_address" value="{{ (person.residence_address or '') if person else '' }}">
+  </div>
+
+  <div class="col-12"><hr><h6>{{ _("Паспорт РФ") }}</h6></div>
+  <div class="col-md-2">
+    <label class="form-label">{{ _("Серия") }}</label>
+    <input class="form-control" name="passport_series" value="{{ (person.passport_series or '') if person else '' }}">
+  </div>
+  <div class="col-md-2">
+    <label class="form-label">{{ _("Номер") }}</label>
+    <input class="form-control" name="passport_number" value="{{ (person.passport_number or '') if person else '' }}">
+  </div>
+  <div class="col-md-4">
+    <label class="form-label">{{ _("Код подразделения") }}</label>
+    <input class="form-control" name="passport_department_code" value="{{ (person.passport_department_code or '') if person else '' }}">
+  </div>
+  <div class="col-md-4">
+    <label class="form-label">{{ _("Дата выдачи") }}</label>
+    <input class="form-control" type="date" name="passport_issue_date" value="{{ (person.passport_issue_date or '') if person else '' }}">
+  </div>
+  <div class="col-12">
+    <label class="form-label">{{ _("Кем выдан") }}</label>
+    <input class="form-control" name="passport_issued_by" value="{{ (person.passport_issued_by or '') if person else '' }}">
+  </div>
+
+  {% if current_user.role.value in ('board', 'chairman', 'accountant') %}
+  <div class="col-12">
+    <label class="form-label">{{ _("Комментарий") }}</label>
+    <textarea class="form-control" name="comment">{{ (person.comment or '') if person else '' }}</textarea>
+  </div>
+  {% endif %}
+
+  <div class="col-12"><hr><h6>{{ _("Членство") }}</h6></div>
+  <div class="col-md-6">
+    <label class="form-label">{{ _("Дата вступления в кооператив") }}</label>
+    <input class="form-control" type="date" name="membership_start_date" value="{{ (person.membership_start_date or '') if person else '' }}">
+  </div>
+  <div class="col-md-6">
+    <label class="form-label">{{ _("Дата выхода из кооператива") }}</label>
+    <input class="form-control" type="date" name="membership_end_date" value="{{ (person.membership_end_date or '') if person else '' }}">
+  </div>
+
+  {% if current_user.role.value == 'chairman' %}
+  <div class="col-12"><hr><h6>{{ _("Управление кооперативом") }}</h6></div>
+  <div class="col-md-4">
+    <div class="form-check">
+      <input class="form-check-input" type="checkbox" name="is_board_member" id="isBoardMember" {{ "checked" if person and person.is_board_member }}>
+      <label class="form-check-label" for="isBoardMember">{{ _("Член правления") }}</label>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="form-check">
+      <input class="form-check-input" type="checkbox" name="is_accountant" id="isAccountant" {{ "checked" if person and person.is_accountant }}>
+      <label class="form-check-label" for="isAccountant">{{ _("Бухгалтер") }}</label>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="form-check">
+      <input class="form-check-input" type="checkbox" name="is_chairman" id="isChairman" {{ "checked" if person and person.is_chairman }}>
+      <label class="form-check-label" for="isChairman">{{ _("Председатель") }}</label>
+    </div>
+    <div class="form-text">{{ _("Может быть только у одного человека — при назначении снимается с предыдущего.") }}</div>
+  </div>
+  {% endif %}
+</div>

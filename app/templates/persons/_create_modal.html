@@ -1,0 +1,22 @@
+{# Параметры: modal_id (по умолчанию createPersonModal), next_url (куда вернуться после сохранения) #}
+<div class="modal fade" id="{{ modal_id|default('createPersonModal') }}" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <form method="post" action="{{ url_for('persons.create') }}" enctype="application/x-www-form-urlencoded">
+        <div class="modal-header">
+          <h5 class="modal-title">{{ _("Новый член кооператива") }}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          {% set person = None %}
+          {% include "persons/_fields.html" %}
+          <input type="hidden" name="next" value="{{ next_url }}">
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+          <button class="btn btn-primary">{{ _("Сохранить") }}</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>

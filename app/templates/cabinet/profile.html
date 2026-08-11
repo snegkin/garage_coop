@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Мой профиль") }}{% endblock %}
+{% block content %}
+<h3 class="mb-3">{{ _("Мой профиль") }}</h3>
+
+{% if person is none %}
+<p class="text-muted">{{ _("Ваша учётная запись пока не привязана к карточке члена кооператива. Обратитесь в правление.") }}</p>
+{% else %}
+<div class="row g-4">
+  <div class="col-md-7">
+    <h6 class="text-muted">{{ _("Актуальные данные (можно менять самостоятельно)") }}</h6>
+    <form method="post" class="bg-body p-4 rounded border">
+      <div class="row g-3">
+        <div class="col-12">
+          <label class="form-label">{{ _("Телефоны (через запятую)") }}</label>
+          <input class="form-control" name="phones" value="{{ person.phones|map(attribute='number')|join(', ') }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">{{ _("Email") }}</label>
+          <input class="form-control" name="email" value="{{ person.email or '' }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">{{ _("Telegram") }}</label>
+          <input class="form-control" name="telegram" value="{{ person.telegram or '' }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">{{ _("Адрес регистрации (прописки)") }}</label>
+          <input class="form-control" name="registration_address" value="{{ person.registration_address or '' }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">{{ _("Адрес проживания") }}</label>
+          <input class="form-control" name="residence_address" value="{{ person.residence_address or '' }}">
+        </div>
+      </div>
+      <button class="btn btn-primary mt-3">{{ _("Сохранить") }}</button>
+    </form>
+  </div>
+
+  <div class="col-md-5">
+    <h6 class="text-muted">{{ _("Официальные данные (изменяются только правлением)") }}</h6>
+    <table class="table table-bordered bg-body">
+      <tr><th style="width:180px">{{ _("ФИО") }}</th><td>{{ person.full_name }}</td></tr>
+      <tr><th>{{ _("Паспорт") }}</th><td>
+        {% if person.passport_series %}
+          {{ person.passport_series }} {{ person.passport_number or "" }}, {{ _("выдан") }} {{ fmt_date(person.passport_issue_date) }} {{ person.passport_issued_by or "" }}
+        {% else %}—{% endif %}
+      </td></tr>
+      <tr><th>{{ _("Членство") }}</th><td>
+        {% if person.membership_start_date %}
+          {{ fmt_date(person.membership_start_date) }} — {{ fmt_date(person.membership_end_date) if person.membership_end_date else "" }}
+          {% if not person.membership_end_date %}<span class="badge bg-success">{{ _("действующий член") }}</span>
+          {% else %}<span class="badge bg-secondary">{{ _("выбыл") }}</span>{% endif %}
+        {% else %}—{% endif %}
+      </td></tr>
+    </table>
+    <p class="text-muted small">{{ _("Если эти данные устарели или указаны неверно — сообщите председателю или члену правления.") }}</p>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Учётные записи") }}{% endblock %}
+{% block content %}
+<h3 class="mb-3">{{ _("Учётные записи") }}</h3>
+<p class="text-muted small">{{ _("Здесь можно привязать существующую учётную запись к другому человеку или отвязать её (например, служебную запись «chairman»).") }}</p>
+
+<table class="table bg-body sortable">
+  <thead><tr><th>{{ _("Логин") }}</th><th>{{ _("Роль") }}</th><th>{{ _("Человек") }}</th><th>{{ _("Статус") }}</th><th class="no-sort"></th></tr></thead>
+  <tbody>
+    {% for user in users %}
+    <tr>
+      <td>{{ user.username }}</td>
+      <td>{{ role_label(user.role.value) }}</td>
+      <td>
+        {% if user.person %}
+        <a href="{{ url_for('persons.detail', person_id=user.person.id) }}">{{ user.person.full_name }}</a>
+        {% else %}
+        <span class="text-muted">{{ _("не привязана") }}</span>
+        {% endif %}
+      </td>
+      <td>
+        {% if user.is_active %}<span class="badge bg-success">{{ _("доступ активен") }}</span>
+        {% else %}<span class="badge bg-secondary">{{ _("доступ отключён") }}</span>{% endif %}
+      </td>
+      <td>
+        {% if user.person %}
+        <form method="post" action="{{ url_for('persons.unlink_account', user_id=user.id) }}" onsubmit="return confirm('{{ _("Отвязать эту учётную запись от человека?") }}')">
+          <button class="btn btn-sm btn-outline-secondary">{{ _("Отвязать") }}</button>
+        </form>
+        {% else %}
+        <form method="post" action="{{ url_for('persons.link_account', user_id=user.id) }}" class="d-flex gap-2">
+          <select name="person_id" class="form-select form-select-sm" required>
+            <option value="">— {{ _("выберите человека") }} —</option>
+            {% for p in unlinked_persons %}<option value="{{ p.id }}">{{ p.full_name }}</option>{% endfor %}
+          </select>
+          <button class="btn btn-sm btn-primary text-nowrap">{{ _("Привязать") }}</button>
+        </form>
+        {% endif %}
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="5" class="text-muted">{{ _("Учётных записей пока нет.") }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

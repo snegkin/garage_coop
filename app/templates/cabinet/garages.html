@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Мой гараж") }}{% endblock %}
+{% block content %}
+<h3 class="mb-3">{{ _("Мой гараж") }}</h3>
+
+{% if person is none %}
+<p class="text-muted">{{ _("Ваша учётная запись пока не привязана к карточке члена кооператива. Обратитесь в правление.") }}</p>
+{% elif not ownerships %}
+<p class="text-muted">{{ _("За вами не числится ни одного гаража.") }}</p>
+{% else %}
+<div class="row g-3">
+  {% for o in ownerships %}
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-body">
+        <h5 class="card-title">{{ _("Гараж №{n}", n=o.garage.number) }}</h5>
+        <p class="card-text mb-1"><strong>{{ _("Площадь") }}:</strong> {{ fmt2(o.garage.area_sqm) }} м²</p>
+        <p class="card-text mb-1"><strong>{{ _("Доля") }}:</strong> {{ fmt2(o.share) }}</p>
+        <p class="card-text mb-3"><strong>{{ _("Кадастровый номер гаража") }}:</strong> {{ o.garage.cadastral_number or "—" }}</p>
+        <a class="btn btn-sm btn-primary" href="{{ url_for('garages.detail', garage_id=o.garage.id) }}">{{ _("Открыть и обновить данные") }}</a>
+        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('electricity.view', garage_id=o.garage.id) }}">{{ _("Электричество") }}</a>
+        {% if o.garage.account %}
+        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('finance.account_detail', account_id=o.garage.account.id) }}">{{ _("Электросчёт") }}</a>
+        {% endif %}
+
+        {% set my_accounts = member_accounts_by_garage.get(o.garage.id, []) %}
+        {% if my_accounts %}
+        <table class="table table-sm mt-3 mb-0">
+          <thead><tr><th>{{ _("Вид взноса") }}</th><th>{{ _("Счёт") }}</th><th>{{ _("Баланс") }}</th></tr></thead>
+          <tbody>
+            {% for acc in my_accounts %}
+            <tr onclick="window.location='{{ url_for('finance.member_account_detail', account_id=acc.id) }}'" style="cursor:pointer">
+              <td>{{ acc.fee_type.name }}</td>
+              <td>{{ acc.account_number }}</td>
+              <td class="{{ 'text-danger' if acc.charges|sum(attribute='amount') - acc.payments|sum(attribute='amount') > 0 else 'text-success' }}">
+                {{ fmt2(acc.payments|sum(attribute='amount') - acc.charges|sum(attribute='amount')) }} ₽
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+<p class="text-muted small mt-3">{{ _("На странице гаража вы можете обновить комментарий, фото и список лиц для связи. Площадь, номер и кадастровые данные меняет только правление.") }}</p>
+{% endif %}
+{% endblock %}

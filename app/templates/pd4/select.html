@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Печать платёжек ПД-4") }}{% endblock %}
+{% block content %}
+<h3 class="mb-3">{{ _("Печать платёжек ПД-4") }}</h3>
+
+{% if is_privileged %}
+<form method="get" class="d-flex gap-2 mb-3" style="max-width:400px">
+  <select class="form-select" name="person_id" onchange="this.form.submit()">
+    <option value="">{{ _("Все члены кооператива") }}</option>
+    {% for p in all_persons %}
+    <option value="{{ p.id }}" {{ "selected" if request.args.get('person_id', type=int) == p.id }}>{{ p.full_name }}</option>
+    {% endfor %}
+  </select>
+</form>
+<p class="text-muted small">{{ _("Если по счёту вида «пеня» тоже есть задолженность — его платёжка допечатается автоматически, даже если не отмечен ниже.") }}</p>
+{% else %}
+<p class="text-muted small">{{ _("Показаны только ваши лицевые счета с задолженностью. Если по ним есть пеня — её платёжка допечатается автоматически.") }}</p>
+{% endif %}
+
+{% if rows %}
+<form method="post" action="{{ url_for('pd4.print_slips') }}">
+  <table class="table table-hover bg-body sortable">
+    <thead>
+      <tr>
+        <th class="no-sort"><input type="checkbox" id="selectAll" checked></th>
+        {% if is_privileged %}<th>{{ _("ФИО") }}</th>{% endif %}
+        <th>{{ _("Гараж") }}</th>
+        <th>{{ _("Вид взноса") }}</th>
+        <th>{{ _("Счёт") }}</th>
+        <th>{{ _("Долг") }}</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for account, debt in rows %}
+      <tr>
+        <td><input type="checkbox" name="account_id" value="{{ account.id }}" checked></td>
+        {% if is_privileged %}<td>{{ account.person.full_name }}</td>{% endif %}
+        <td data-sort-value="{{ account.garage.number }}">№{{ account.garage.number }}</td>
+        <td>{{ account.fee_type.name }}</td>
+        <td>{{ account.account_number }}</td>
+        <td class="text-danger" data-sort-value="{{ debt }}">{{ fmt2(-debt) }} ₽</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <button class="btn btn-primary">{{ _("Печать выбранных") }}</button>
+</form>
+{% else %}
+<p class="text-muted">{{ _("Задолженностей нет — печатать нечего.") }}</p>
+{% endif %}
+
+<script>
+document.getElementById("selectAll")?.addEventListener("change", function () {
+  document.querySelectorAll("input[name='account_id']").forEach(function (cb) { cb.checked = this.checked; }, this);
+});
+</script>
+{% endblock %}

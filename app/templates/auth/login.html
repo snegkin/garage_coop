@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Вход{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-md-4 mt-5">
+    <div class="text-end mb-2">
+      {% for code, label in SUPPORTED_LANGUAGES.items() %}
+      <a class="btn btn-sm {{ 'btn-secondary' if code == current_locale else 'btn-outline-secondary' }}" href="{{ url_for('set_language', lang=code) }}">{{ label }}</a>
+      {% endfor %}
+      {% for code, label in SUPPORTED_THEMES.items() %}
+      <a class="btn btn-sm {{ 'btn-secondary' if code == current_theme else 'btn-outline-secondary' }}" href="{{ url_for('set_theme', theme=code) }}">{{ _(label) }}</a>
+      {% endfor %}
+    </div>
+    <h3 class="mb-3">{{ _("Вход в систему") }}</h3>
+    <form method="post">
+      <div class="mb-3">
+        <label class="form-label">{{ _("Логин") }}</label>
+        <input class="form-control" name="username" required autofocus>
+      </div>
+      <div class="mb-3">
+        <label class="form-label">{{ _("Пароль") }}</label>
+        <input class="form-control" type="password" name="password" required>
+      </div>
+      <button class="btn btn-primary w-100">{{ _("Войти") }}</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,267 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Электроэнергия") }}{% endblock %}
+{% block content %}
+<h3 class="mb-3">{{ _("Электроэнергия") }}</h3>
+
+<div class="row g-4 mb-4">
+  <div class="col-md-6">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <h5 class="mb-0">{{ _("Поставщик электроэнергии") }}</h5>
+      <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#supplierModal">
+        {{ _("Редактировать") if settings.supplier else _("Указать поставщика") }}
+      </button>
+    </div>
+    {% if settings.supplier %}
+    <table class="table table-bordered bg-body">
+      <tr><th style="width:160px">{{ _("Название") }}</th><td>{{ settings.supplier.name }}</td></tr>
+      <tr><th>{{ _("ИНН") }}</th><td>{{ settings.supplier.inn or "—" }}</td></tr>
+      <tr><th>{{ _("КПП") }}</th><td>{{ settings.supplier.kpp or "—" }}</td></tr>
+      <tr><th>{{ _("Телефон") }}</th><td>{{ settings.supplier.phone or "—" }}</td></tr>
+      <tr><th>{{ _("Email") }}</th><td>{{ settings.supplier.email or "—" }}</td></tr>
+      <tr><th>{{ _("Адрес") }}</th><td>{{ settings.supplier.address or "—" }}</td></tr>
+      <tr><th>{{ _("Комментарий") }}</th><td>{{ settings.supplier.comment or "—" }}</td></tr>
+    </table>
+    {% else %}
+    <p class="text-muted">{{ _("Поставщик пока не указан.") }}</p>
+    {% endif %}
+  </div>
+
+  <div class="col-md-6">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <h5 class="mb-0">{{ _("Тариф") }}</h5>
+      <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#tariffModal">+ {{ _("Добавить тариф") }}</button>
+    </div>
+    {% if tariff %}
+    <p class="fs-4 mb-1">{{ fmt2(tariff.rate) }} ₽/{{ _("кВт·ч") }}</p>
+    <p class="text-muted small">{{ _("действует с") }} {{ fmt_date(tariff.effective_date) }}</p>
+    {% else %}
+    <p class="text-muted">{{ _("Тариф пока не задан.") }}</p>
+    {% endif %}
+
+    {% if tariffs %}
+    <table class="table table-sm bg-body sortable mt-2">
+      <thead><tr><th>{{ _("Действует с") }}</th><th>{{ _("По") }}</th><th>{{ _("Тариф") }}</th><th>{{ _("Комментарий") }}</th></tr></thead>
+      <tbody>
+        {% for t, end_date in tariffs %}
+        <tr>
+          <td data-sort-value="{{ t.effective_date }}">{{ fmt_date(t.effective_date) }}</td>
+          <td>{{ fmt_date(end_date) if end_date else _("действует сейчас") }}</td>
+          <td data-sort-value="{{ t.rate }}">{{ fmt2(t.rate) }} ₽</td>
+          <td>{{ t.comment or "—" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+  </div>
+</div>
+
+<div class="d-flex justify-content-between align-items-center mb-2">
+  <h5 class="mb-0">{{ _("Показания общего счётчика") }}</h5>
+  <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#readingModal">+ {{ _("Внести показания") }}</button>
+</div>
+<table class="table table-sm bg-body sortable">
+  <thead><tr><th>{{ _("Год") }}</th><th>{{ _("Месяц") }}</th><th>{{ _("Показания, кВт·ч") }}</th><th>{{ _("Тариф") }}</th><th>{{ _("Сумма") }}</th><th>{{ _("Комментарий") }}</th><th class="no-sort">{{ _("Документ") }}</th></tr></thead>
+  <tbody>
+    {% for r, amount in readings %}
+    <tr>
+      <td>{{ r.year }}</td>
+      <td data-sort-value="{{ r.month }}">{{ r.month }}</td>
+      <td data-sort-value="{{ r.reading }}">{{ fmt2(r.reading) }}</td>
+      <td data-sort-value="{{ r.tariff.rate }}">{{ fmt2(r.tariff.rate) }} ₽</td>
+      <td data-sort-value="{{ amount if amount is not none else '' }}">{{ (fmt2(amount) ~ " ₽") if amount is not none else "—" }}</td>
+      <td>{{ r.comment or "—" }}</td>
+      <td>{% if r.document_id %}<a href="{{ url_for('documents.download', doc_id=r.document_id) }}">{{ _("скачать") }}</a>{% else %}—{% endif %}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="7" class="text-muted">{{ _("Показаний пока нет.") }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+<p class="text-muted small">{{ _("Сумма рассчитывается автоматически: (новые показания − предыдущие) × тариф, действующий на месяц оплаты.") }}</p>
+
+<!-- Модалка: поставщик -->
+<div class="modal fade" id="supplierModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" action="{{ url_for('power.save_supplier') }}">
+        <div class="modal-header">
+          <h5 class="modal-title">{{ _("Поставщик электроэнергии") }}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">{{ _("Название") }}</label>
+            <input class="form-control" name="name" value="{{ settings.supplier.name if settings.supplier else '' }}" required>
+          </div>
+          <div class="row g-2 mb-3">
+            <div class="col-6">
+              <label class="form-label">{{ _("ИНН") }}</label>
+              <input class="form-control" name="inn" value="{{ (settings.supplier.inn or '') if settings.supplier else '' }}">
+            </div>
+            <div class="col-6">
+              <label class="form-label">{{ _("КПП") }}</label>
+              <input class="form-control" name="kpp" value="{{ (settings.supplier.kpp or '') if settings.supplier else '' }}">
+            </div>
+          </div>
+          <div class="row g-2 mb-3">
+            <div class="col-6">
+              <label class="form-label">{{ _("Телефон") }}</label>
+              <input class="form-control" name="phone" value="{{ (settings.supplier.phone or '') if settings.supplier else '' }}">
+            </div>
+            <div class="col-6">
+              <label class="form-label">{{ _("Email") }}</label>
+              <input class="form-control" name="email" value="{{ (settings.supplier.email or '') if settings.supplier else '' }}">
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">{{ _("Адрес") }}</label>
+            <input class="form-control" name="address" value="{{ (settings.supplier.address or '') if settings.supplier else '' }}">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">{{ _("Комментарий") }}</label>
+            <textarea class="form-control" name="comment">{{ (settings.supplier.comment or '') if settings.supplier else '' }}</textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+          <button class="btn btn-primary">{{ _("Сохранить") }}</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Модалка: новый тариф -->
+<div class="modal fade" id="tariffModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" action="{{ url_for('power.add_tariff') }}">
+        <div class="modal-header">
+          <h5 class="modal-title">{{ _("Новый тариф") }}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">{{ _("Тариф, ₽/кВт·ч") }}</label>
+            <input class="form-control" name="rate" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">{{ _("Действует с") }}</label>
+            <input class="form-control" type="date" name="effective_date" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">{{ _("Комментарий") }}</label>
+            <textarea class="form-control" name="comment"></textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+          <button class="btn btn-primary">{{ _("Сохранить") }}</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Модалка: показания общего счётчика -->
+<div class="modal fade" id="readingModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" action="{{ url_for('power.add_master_reading') }}" enctype="multipart/form-data">
+        <div class="modal-header">
+          <h5 class="modal-title">{{ _("Показания общего счётчика") }}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="row g-2 mb-3">
+            <div class="col-6">
+              <label class="form-label">{{ _("Год") }}</label>
+              <input class="form-control" type="number" name="year" id="mmYear" value="2026" required>
+            </div>
+            <div class="col-6">
+              <label class="form-label">{{ _("Месяц") }}</label>
+              <select class="form-select" name="month" id="mmMonth" required>
+                {% for m in range(1, 13) %}<option value="{{ m }}">{{ m }}</option>{% endfor %}
+              </select>
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">{{ _("Показания, кВт·ч") }}</label>
+            <input class="form-control" name="reading" id="mmReading" required>
+          </div>
+          <div class="row g-2 mb-3">
+            <div class="col-6">
+              <label class="form-label">{{ _("Тариф (справочно)") }}</label>
+              <input class="form-control" id="mmTariffPreview" readonly>
+            </div>
+            <div class="col-6">
+              <label class="form-label">{{ _("Сумма (справочно)") }}</label>
+              <input class="form-control" id="mmAmountPreview" readonly>
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">{{ _("Комментарий") }}</label>
+            <textarea class="form-control" name="comment"></textarea>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">{{ _("Документ от энергосбыта") }}</label>
+            <input class="form-control" type="file" name="document_file">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+          <button class="btn btn-primary">{{ _("Сохранить") }}</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  // Тариф и сумма в форме внесения показаний — чисто информационные readonly-поля,
+  // сервер сам определяет тариф по месяцу оплаты и сам считает сумму при сохранении.
+  const allTariffs = [
+    {% for t, _end in tariffs %}
+    { rate: {{ t.rate }}, effective_date: "{{ t.effective_date.isoformat() }}" }{{ "," if not loop.last }}
+    {% endfor %}
+  ];
+  const lastReading = {{ readings[0][0].reading if readings else 'null' }};
+
+  function tariffForDate(dateStr) {
+    let best = null;
+    allTariffs.forEach(function (t) {
+      if (t.effective_date <= dateStr && (!best || t.effective_date > best.effective_date)) best = t;
+    });
+    return best;
+  }
+
+  function update() {
+    const year = document.getElementById("mmYear").value;
+    const month = String(document.getElementById("mmMonth").value).padStart(2, "0");
+    const reading = parseFloat(document.getElementById("mmReading").value);
+    const tariffPreview = document.getElementById("mmTariffPreview");
+    const amountPreview = document.getElementById("mmAmountPreview");
+    if (!year || !month) { tariffPreview.value = ""; amountPreview.value = ""; return; }
+
+    const targetDate = year + "-" + month + "-01";
+    const tariff = tariffForDate(targetDate);
+    tariffPreview.value = tariff ? tariff.rate.toFixed(2) + " ₽" : "{{ _('нет тарифа на этот месяц') }}";
+
+    if (tariff && lastReading !== null && !isNaN(reading)) {
+      const delta = reading - lastReading;
+      amountPreview.value = delta > 0 ? (delta * tariff.rate).toFixed(2) + " ₽" : "0.00 ₽";
+    } else {
+      amountPreview.value = lastReading === null ? "{{ _('первая запись') }}" : "";
+    }
+  }
+
+  ["mmYear", "mmMonth", "mmReading"].forEach(function (id) {
+    document.getElementById(id).addEventListener("input", update);
+    document.getElementById(id).addEventListener("change", update);
+  });
+  update();
+})();
+</script>
+{% endblock %}

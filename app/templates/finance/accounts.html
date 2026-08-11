@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Лицевые счета на электричество") }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h3>{{ _("Лицевые счета на электричество") }}</h3>
+  <div class="d-flex gap-2">
+    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('finance.member_accounts') }}">{{ _("Счета членов кооператива") }}</a>
+    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('finance.fee_types') }}">{{ _("Виды взносов") }}</a>
+  </div>
+</div>
+<table class="table table-hover bg-body sortable">
+  <thead><tr><th>{{ _("Гараж") }}</th><th>{{ _("Счёт") }}</th><th>{{ _("Собственники") }}</th><th>{{ _("Баланс") }}</th></tr></thead>
+  <tbody>
+    {% for account, balance in rows %}
+    <tr onclick="window.location='{{ url_for('finance.account_detail', account_id=account.id) }}'" style="cursor:pointer">
+      <td data-sort-value="{{ account.garage.number }}">№{{ account.garage.number }}</td>
+      <td>{{ account.account_number }}</td>
+      <td>{{ account.garage.ownerships|map(attribute="person.full_name")|join(", ") or "—" }}</td>
+      <td class="{{ 'text-danger' if balance < 0 else 'text-success' }}" data-sort-value="{{ balance }}">{{ fmt2(balance) }} ₽</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="4" class="text-muted">{{ _("Счетов пока нет.") }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

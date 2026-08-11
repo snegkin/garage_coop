@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Лицевой счёт") }} {{ account.account_number }}{% endblock %}
+{% block content %}
+<h3 class="mb-1">
+  <a href="{{ url_for('garages.detail', garage_id=account.garage.id) }}" class="link-body-emphasis text-decoration-none">&larr; {{ account.fee_type.name }} — {{ account.person.full_name }} — {{ _("гараж") }} №{{ account.garage.number }}</a>
+</h3>
+
+{% if current_user.role.value in ('board', 'chairman', 'accountant') %}
+<div class="d-flex align-items-center gap-2 mb-2">
+  <form method="post" action="{{ url_for('finance.update_member_account_number', account_id=account.id) }}" class="d-flex align-items-center gap-2">
+    <label class="form-label mb-0">{{ _("Номер счёта") }}:</label>
+    <input class="form-control form-control-sm" style="max-width:160px" name="account_number" value="{{ account.account_number }}">
+    <button class="btn btn-sm btn-outline-secondary">{{ _("Сохранить") }}</button>
+  </form>
+  <form method="post" action="{{ url_for('finance.delete_member_account', account_id=account.id) }}" onsubmit="return confirm('{{ _("Удалить счёт вместе со всей историей начислений и платежей по нему?") }}')" class="ms-auto">
+    <button class="btn btn-sm btn-outline-danger">{{ _("Удалить счёт") }}</button>
+  </form>
+</div>
+{% else %}
+<p class="mb-2"><strong>{{ _("Номер счёта") }}:</strong> {{ account.account_number }}</p>
+{% endif %}
+<p class="fs-5 {{ 'text-danger' if balance < 0 else 'text-success' }}">{{ _("Баланс") }}: {{ fmt2(balance) }} ₽</p>
+
+<div class="row g-4">
+  <div class="col-md-6">
+    <h5>{{ _("Начисления") }}</h5>
+    <table class="table table-sm bg-body sortable">
+      <thead><tr><th>{{ _("Год") }}</th><th>{{ _("Сумма") }}</th><th>{{ _("Комментарий") }}</th></tr></thead>
+      <tbody>
+        {% for c in account.charges|sort(attribute="year", reverse=True) %}
+        <tr>
+          <td>{{ c.year }}</td>
+          <td data-sort-value="{{ c.amount }}">{{ fmt2(c.amount) }} ₽</td>
+          <td>{{ c.comment or "—" }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="3" class="text-muted">{{ _("Начислений нет.") }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    {% if current_user.role.value in ('board', 'chairman', 'accountant') %}
+    <form method="post" action="{{ url_for('finance.add_member_charge', account_id=account.id) }}" class="border rounded p-3 bg-body">
+      <div class="row g-2">
+        <div class="col-4">
+          <input class="form-control form-control-sm" type="number" name="year" placeholder="{{ _('год') }}" value="2026" required>
+        </div>
+        <div class="col-4">
+          <input class="form-control form-control-sm" name="amount" placeholder="{{ _('сумма') }}" required>
+        </div>
+        <div class="col-4">
+          <input class="form-control form-control-sm" name="comment" placeholder="{{ _('Комментарий') }}">
+        </div>
+      </div>
+      <button class="btn btn-sm btn-primary mt-2">{{ _("Начислить") }}</button>
+    </form>
+    {% endif %}
+  </div>
+
+  <div class="col-md-6">
+    <h5>{{ _("Платежи") }}</h5>
+    <table class="table table-sm bg-body sortable">
+      <thead><tr><th>{{ _("Дата") }}</th><th>{{ _("Сумма") }}</th><th>{{ _("Комментарий") }}</th></tr></thead>
+      <tbody>
+        {% for p in account.payments|sort(attribute="date", reverse=True) %}
+        <tr>
+          <td data-sort-value="{{ p.date }}">{{ fmt_date(p.date) }}</td>
+          <td data-sort-value="{{ p.amount }}">{{ fmt2(p.amount) }} ₽</td>
+          <td>{{ p.comment or "—" }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="3" class="text-muted">{{ _("Платежей нет.") }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <form method="post" action="{{ url_for('finance.add_member_payment', account_id=account.id) }}" class="border rounded p-3 bg-body">
+      <div class="row g-2">
+        <div class="col-4">
+          <input class="form-control form-control-sm" type="date" name="date" required>
+        </div>
+        <div class="col-4">
+          <input class="form-control form-control-sm" name="amount" placeholder="{{ _('сумма') }}" required>
+        </div>
+        <div class="col-4">
+          <input class="form-control form-control-sm" name="comment" placeholder="{{ _('комментарий (необязательно)') }}">
+        </div>
+      </div>
+      <button class="btn btn-sm btn-primary mt-2">{{ _("Зарегистрировать платёж") }}</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

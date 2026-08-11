@@ -1,0 +1,217 @@
+"""
+Формирование номеров лицевых счетов по настраиваемой схеме кооператива
+(см. модель AccountNumberSettings — правление может менять ширину номера
+гаража, ширину порядкового номера собственника и префиксы прямо в UI).
+
+По умолчанию:
+- Электричество (счёт на гараж, один на гараж):
+    0{номер_гаража:03d}0            например, гараж 95 -> 00950
+
+- Взнос/налог (счёт на члена кооператива, по конкретному гаражу и виду
+  взноса — последняя цифра(ы) — порядковый номер собственника этого гаража,
+  начиная с 0, чтобы у совладельцев были разные счета):
+    {код_вида}{номер_гаража:03d}{№ собственника}   например, 10950, 20950
+
+- Пеня по такому взносу/налогу — тот же номер с префиксом (по умолчанию "П"):
+    П10950, П20950
+"""
+import datetime as dt
+from decimal import Decimal, ROUND_CEILING
+
+from sqlalchemy import func
+
+from . import database
+from .models import (
+    AccountNumberSettings, ElectricityTariff, ElectricitySettings, Cooperative, Garage, LandTaxYear,
+    Charge, Payment, MemberAccount, FeeType,
+)
+
+
+def get_settings() -> AccountNumberSettings:
+    """Возвращает единственную запись настроек, создавая её со значениями по умолчанию при первом обращении."""
+    settings = database.db_session.query(AccountNumberSettings).first()
+    if settings is None:
+        settings = AccountNumberSettings()
+        database.db_session.add(settings)
+        database.db_session.flush()
+    return settings
+
+
+def _garage_digits(garage_number: str, width: int) -> str:
+    """Гаражи обычно нумеруются простыми числами — дополняем нулями до нужной ширины.
+    Если номер не числовой (нестандартный гараж) или длиннее ширины, используем последние символы."""
+    try:
+        digits = str(int(garage_number))
+    except (TypeError, ValueError):
+        digits = str(garage_number)
+    if len(digits) > width:
+        return digits[-width:]
+    return digits.zfill(width)
+
+
+def electricity_account_number(garage_number: str, settings: AccountNumberSettings | None = None) -> str:
+    settings = settings or get_settings()
+    return f"{settings.electricity_prefix}{_garage_digits(garage_number, settings.garage_digits)}{'0' * settings.owner_digits}"
+
+
+def member_account_number(
+    fee_type_code: str, garage_number: str, owner_index: int, is_penalty: bool,
+    settings: AccountNumberSettings | None = None,
+) -> str:
+    settings = settings or get_settings()
+    owner_part = str(owner_index % (10 ** settings.owner_digits)).zfill(settings.owner_digits)
+    base = f"{fee_type_code}{_garage_digits(garage_number, settings.garage_digits)}{owner_part}"
+    return f"{settings.penalty_prefix}{base}" if is_penalty else base
+
+
+def balance(account) -> Decimal:
+    """Работает для любой сущности с .charges/.payments (Garage — начисления на гараж, и MemberAccount)."""
+    charged = sum((c.amount for c in account.charges), Decimal("0"))
+    paid = sum((p.amount for p in account.payments), Decimal("0"))
+    return paid - charged  # отрицательное = долг, положительное = переплата
+
+
+def cooperative_balance() -> Decimal:
+    """
+    Баланс кооператива по внутреннему учёту — сумма балансов всех лицевых
+    счетов (электричество по гаражам + взносы/налоги по членам), посчитанная
+    одним агрегирующим запросом (без обхода каждого счёта по отдельности).
+    Считается динамически при каждом обращении — нигде не хранится.
+    """
+    total_charged = database.db_session.query(func.coalesce(func.sum(Charge.amount), 0)).scalar()
+    total_paid = database.db_session.query(func.coalesce(func.sum(Payment.amount), 0)).scalar()
+    return Decimal(total_paid) - Decimal(total_charged)
+
+
+def get_electricity_settings() -> ElectricitySettings:
+    """Единственная запись настроек раздела «Электроэнергия» (прежде всего — поставщик)."""
+    settings = database.db_session.query(ElectricitySettings).first()
+    if settings is None:
+        settings = ElectricitySettings()
+        database.db_session.add(settings)
+        database.db_session.flush()
+    return settings
+
+
+def current_tariff(as_of: dt.date | None = None) -> ElectricityTariff | None:
+    """Действующий тариф на указанную дату (по умолчанию — сегодня): последняя
+    запись, у которой effective_date не позже этой даты."""
+    as_of = as_of or dt.date.today()
+    return (
+        database.db_session.query(ElectricityTariff)
+        .filter(ElectricityTariff.effective_date <= as_of)
+        .order_by(ElectricityTariff.effective_date.desc(), ElectricityTariff.id.desc())
+        .first()
+    )
+
+
+def compute_land_tax(year: int) -> dict[int, Decimal] | None:
+    """
+    Автоматический расчёт земельного налога на гараж.
+
+    Формула:
+    - чистая налогооблагаемая площадь = площадь кооператива − сумма приватизированных участков
+    - полный налог = кадастровая стоимость (за этот год) × ставка налога, %
+    - цена за м² = полный налог / чистая налогооблагаемая площадь (без промежуточного округления)
+    - площадь на гараж в среднем = площадь кооператива / количество гаражей (округляется вверх до целого)
+    - налог на общую территорию (на гараж) = цена за м² × (площадь общего пользования / количество гаражей)
+    - для НЕприватизированного гаража: налог = цена за м² × стандартная площадь под гараж + налог на общую территорию
+    - для приватизированного гаража: налог = max(0, цена за м² × (среднее на гараж − площадь приватизированного участка)) + налог на общую территорию
+    - итог увеличивается на % банка за обслуживание
+
+    Возвращает {garage_id: сумма} или None, если не хватает исходных данных
+    (не указаны площади кооператива или кадастровая стоимость за этот год).
+    """
+    coop = database.db_session.query(Cooperative).first()
+    land_tax_year = database.db_session.query(LandTaxYear).filter_by(year=year).first()
+    if coop is None or land_tax_year is None:
+        return None
+    if coop.total_area is None or coop.common_area is None:
+        return None
+
+    garages = database.db_session.query(Garage).all()
+    garage_count = len(garages)
+    if garage_count == 0:
+        return {}
+
+    privatized_total_area = sum(
+        (g.privatized_land_area or Decimal("0")) for g in garages if g.land_privatized
+    )
+    net_taxable_area = coop.total_area - privatized_total_area
+    if net_taxable_area <= 0:
+        return None
+
+    total_tax = land_tax_year.cadastral_value * (coop.land_tax_rate_percent / Decimal("100"))
+    price_per_sqm = total_tax / net_taxable_area  # полная точность, без промежуточного округления
+
+    avg_footprint = (coop.total_area / garage_count).to_integral_value(rounding=ROUND_CEILING)
+    common_area_tax = price_per_sqm * (coop.common_area / garage_count)
+    standard_area = coop.standard_garage_land_area or Decimal("30")
+    bank_multiplier = Decimal("1") + (coop.bank_fee_percent or Decimal("0")) / Decimal("100")
+
+    result = {}
+    for garage in garages:
+        if garage.land_privatized:
+            under_building = max(
+                Decimal("0"),
+                (avg_footprint - (garage.privatized_land_area or Decimal("0"))) * price_per_sqm,
+            )
+        else:
+            under_building = standard_area * price_per_sqm
+        garage_tax = (under_building + common_area_tax) * bank_multiplier
+        result[garage.id] = garage_tax.quantize(Decimal("0.01"))
+    return result
+
+
+def penalty_sibling_account(member_account: MemberAccount) -> MemberAccount | None:
+    """
+    Для обычного (не пенного) счёта находит соответствующий счёт пени —
+    тот же человек, тот же гараж, тот же код вида взноса (type_code), но
+    is_penalty=True. Используется, чтобы при печати ПД-4 на земельный налог
+    или взнос автоматически прицепить ПД-4 на пеню, если она есть.
+    """
+    if member_account.fee_type.is_penalty or not member_account.fee_type.type_code:
+        return None
+    return (
+        database.db_session.query(MemberAccount)
+        .join(FeeType, MemberAccount.fee_type_id == FeeType.id)
+        .filter(
+            MemberAccount.person_id == member_account.person_id,
+            MemberAccount.garage_id == member_account.garage_id,
+            FeeType.type_code == member_account.fee_type.type_code,
+            FeeType.is_penalty.is_(True),
+        )
+        .first()
+    )
+
+
+def get_primary_bank_account():
+    """Основной расчётный счёт кооператива (для реквизитов получателя на ПД-4)."""
+    from .models import BankAccount
+    return (
+        database.db_session.query(BankAccount)
+        .order_by(BankAccount.is_primary.desc(), BankAccount.id)
+        .first()
+    )
+
+
+def pd4_qr_payload(coop: Cooperative, bank_account, member_account: MemberAccount, amount: Decimal) -> str:
+    """
+    Строка для QR-кода платёжки по стандарту ГОСТ Р 56042-2014 (тот же формат,
+    что используют банковские приложения при сканировании квитанций).
+    """
+    payer = member_account.person
+    fields = {
+        "Name": coop.short_name or coop.full_name,
+        "PersonalAcc": bank_account.checking_account if bank_account else "",
+        "BankName": bank_account.bank_name if bank_account else "",
+        "BIC": bank_account.bik if bank_account else "",
+        "CorrespAcc": bank_account.correspondent_account if bank_account else "",
+        "PayeeINN": coop.inn,
+        "KPP": coop.kpp,
+        "Purpose": f"{member_account.fee_type.name}, гараж №{member_account.garage.number}, л/с {member_account.account_number}",
+        "Sum": str(int((amount * 100).to_integral_value())),
+        "LastName": payer.full_name,
+        "PersAcc": member_account.account_number,
+    }
+    return "ST00012|" + "|".join(f"{k}={v}" for k, v in fields.items() if v)

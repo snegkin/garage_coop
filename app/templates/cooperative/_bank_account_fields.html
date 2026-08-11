@@ -1,0 +1,27 @@
+{# Ожидает переменную account (BankAccount или None). Только поля, без <form> и кнопок. #}
+<div class="mb-3">
+  <label class="form-label">{{ _("Банк") }}</label>
+  <input class="form-control" name="bank_name" value="{{ (account.bank_name or '') if account else '' }}" required>
+</div>
+<div class="row g-2 mb-3">
+  <div class="col-4">
+    <label class="form-label">{{ _("БИК") }}</label>
+    <input class="form-control" name="bik" value="{{ (account.bik or '') if account else '' }}">
+  </div>
+  <div class="col-4">
+    <label class="form-label">{{ _("Расчётный счёт") }}</label>
+    <input class="form-control" name="checking_account" value="{{ (account.checking_account or '') if account else '' }}" required>
+  </div>
+  <div class="col-4">
+    <label class="form-label">{{ _("Корр. счёт") }}</label>
+    <input class="form-control" name="correspondent_account" value="{{ (account.correspondent_account or '') if account else '' }}">
+  </div>
+</div>
+<div class="form-check mb-3">
+  <input class="form-check-input" type="checkbox" name="is_primary" id="isPrimaryAccount{{ account.id if account else '' }}" {{ "checked" if account and account.is_primary }}>
+  <label class="form-check-label" for="isPrimaryAccount{{ account.id if account else '' }}">{{ _("Основной счёт (для платёжек ПД-4)") }}</label>
+</div>
+<div class="mb-3">
+  <label class="form-label">{{ _("Комментарий") }}</label>
+  <textarea class="form-control" name="comment">{{ (account.comment or '') if account else '' }}</textarea>
+</div>

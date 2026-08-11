@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+body { margin: 0; font-family: Arial, sans-serif; }
+.pd4-table { width: 700px; border-collapse: collapse; font-family: Arial, sans-serif; font-size: 11px; }
+.pd4-table td { border: 1px solid black; padding: 4px; vertical-align: top; }
+.pd4-table .vertical-text { border-right: 2px solid black !important; text-align: center; font-weight: bold; width: 140px; }
+.pd4-table .text-center { text-align: center; }
+.pd4-table .line { border-bottom: 1px solid black; display: inline-block; }
+.pd4-table .header-label { font-size: 9px; text-align: center; display: block; margin-top: 2px; }
+.pd4-slip { margin-bottom: 8mm; page-break-after: always; break-after: page; }
+@page { size: A4; margin: 10mm; }
+</style>
+</head>
+<body>
+{% for account, amount, qr_data_uri in slips %}
+<table class="pd4-table pd4-slip">
+    <!-- ИЗВЕЩЕНИЕ -->
+    <tr>
+        <td rowspan="6" class="vertical-text">{{ _("ИЗВЕЩЕНИЕ") }}<br><br><br><br><br><br>{{ _("Кассир") }}</td>
+        <td colspan="2"><strong>{{ bank_account.bank_name if bank_account else "" }}</strong><br><span class="header-label">{{ _("наименование банка получателя платежа") }}</span></td>
+        <td style="width: 150px;">{{ _("БИК") }}: <strong>{{ bank_account.bik if bank_account else "" }}</strong></td>
+    </tr>
+    <tr>
+        <td colspan="3">{{ _("Получатель") }}: <strong>{{ coop.short_name or coop.full_name }}</strong></td>
+    </tr>
+    <tr>
+        <td style="width: 200px;">{{ _("ИНН") }}: <strong>{{ coop.inn }}</strong></td>
+        <td style="width: 200px;">{{ _("КПП") }}: <strong>{{ coop.kpp }}</strong></td>
+        <td>{{ _("Р/сч") }}: <strong>{{ bank_account.checking_account if bank_account else "" }}</strong></td>
+    </tr>
+    <tr>
+        <td colspan="2">{{ _("К/сч") }}: <strong>{{ bank_account.correspondent_account if bank_account else "" }}</strong></td>
+        <td rowspan="2" class="text-center" style="vertical-align: middle;">
+            <img src="{{ qr_data_uri }}" width="120" height="120" alt="QR-код">
+        </td>
+    </tr>
+    <tr>
+        <td colspan="2">
+            {{ _("Лицевой счет (код) плательщика") }}: <strong>{{ account.account_number }}</strong><br><br>
+            {{ _("ФИО плательщика") }}: <strong>{{ account.person.full_name }}</strong><br><br>
+            {{ _("Адрес плательщика") }}: <span class="line" style="width: 250px;"></span>
+        </td>
+    </tr>
+    <tr>
+        <td colspan="2">{{ _("Назначение платежа") }}: <strong>{{ account.fee_type.name }}, {{ _("гараж") }} №{{ account.garage.number }}</strong></td>
+        <td>{{ _("Сумма") }}: <strong>{{ fmt2(amount) }} {{ _("руб") }}.</strong></td>
+    </tr>
+
+    <!-- Разделительная линия между Извещением и Квитанцией -->
+    <tr><td colspan="4" style="border: none; height: 15px; border-bottom: 1px dashed black;"></td></tr>
+    <tr><td colspan="4" style="border: none; height: 15px;"></td></tr>
+
+    <!-- КВИТАНЦИЯ -->
+    <tr>
+        <td rowspan="6" class="vertical-text">{{ _("КВИТАНЦИЯ") }}<br><br><br><br><br><br>{{ _("Кассир") }}</td>
+        <td colspan="2"><strong>{{ bank_account.bank_name if bank_account else "" }}</strong></td>
+        <td>{{ _("БИК") }}: <strong>{{ bank_account.bik if bank_account else "" }}</strong></td>
+    </tr>
+    <tr>
+        <td colspan="3">{{ _("Получатель") }}: <strong>{{ coop.short_name or coop.full_name }}</strong></td>
+    </tr>
+    <tr>
+        <td>{{ _("ИНН") }}: <strong>{{ coop.inn }}</strong></td>
+        <td>{{ _("КПП") }}: <strong>{{ coop.kpp }}</strong></td>
+        <td>{{ _("Р/сч") }}: <strong>{{ bank_account.checking_account if bank_account else "" }}</strong></td>
+    </tr>
+    <tr>
+        <td colspan="2">{{ _("К/сч") }}: <strong>{{ bank_account.correspondent_account if bank_account else "" }}</strong></td>
+        <td rowspan="2" class="text-center" style="vertical-align: middle;">
+            <img src="{{ qr_data_uri }}" width="120" height="120" alt="QR-код">
+        </td>
+    </tr>
+    <tr>
+        <td colspan="2">
+            {{ _("Лицевой счет (код) плательщика") }}: <strong>{{ account.account_number }}</strong><br><br>
+            {{ _("ФИО плательщика") }}: <strong>{{ account.person.full_name }}</strong><br><br>
+            {{ _("Адрес плательщика") }}: <span class="line" style="width: 250px;"></span>
+        </td>
+    </tr>
+    <tr>
+        <td colspan="2">{{ _("Назначение платежа") }}: <strong>{{ account.fee_type.name }}, {{ _("гараж") }} №{{ account.garage.number }}</strong></td>
+        <td>{{ _("Сумма") }}: <strong>{{ fmt2(amount) }} {{ _("руб") }}.</strong></td>
+    </tr>
+</table>
+{% endfor %}
+</body>
+</html>

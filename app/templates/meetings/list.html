@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Собрания") }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h3>{{ _("Общие собрания") }}</h3>
+  {% if current_user.role.value in ('board', 'chairman', 'accountant') %}
+  <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#createMeetingModal">+ {{ _("Добавить собрание") }}</button>
+  {% endif %}
+</div>
+<table class="table bg-body sortable">
+  <thead><tr><th>{{ _("Дата") }}</th><th>{{ _("Повестка") }}</th><th>{{ _("Годовой отчёт") }}</th><th>{{ _("Секретарь") }}</th><th>{{ _("Председатель") }}</th><th class="no-sort">{{ _("Протокол") }}</th></tr></thead>
+  <tbody>
+    {% for m in meetings %}
+    <tr>
+      <td data-sort-value="{{ m.date }}">{{ fmt_date(m.date) }}</td>
+      <td>{{ m.agenda or "—" }}</td>
+      <td>{{ _("да") if m.is_annual_report_meeting else "" }}</td>
+      <td>{{ m.secretary.full_name if m.secretary else "—" }}</td>
+      <td>{{ m.chairman.full_name if m.chairman else "—" }}</td>
+      <td>{% if m.protocol_document_id %}<a href="{{ url_for('documents.download', doc_id=m.protocol_document_id) }}">{{ _("файл") }}</a>{% else %}—{% endif %}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="6" class="text-muted">{{ _("Собраний пока нет.") }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+{% if current_user.role.value in ('board', 'chairman', 'accountant') %}
+{% with next_url = url_for('meetings.list_meetings') %}
+{% include "meetings/_create_modal.html" %}
+{% endwith %}
+{% endif %}
+{% endblock %}

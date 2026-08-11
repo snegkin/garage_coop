@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Гаражи") }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h3>{{ _("Гаражи") }}</h3>
+  {% if current_user.role.value in ('board', 'chairman', 'accountant') %}
+  <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#createGarageModal">{{ _("+ Добавить гараж") }}</button>
+  {% endif %}
+</div>
+
+<div class="mb-3">
+  <input class="form-control" id="garageFilterInput" placeholder="{{ _('Поиск по номеру гаража или собственнику...') }}">
+</div>
+
+<table class="table table-hover bg-body sortable" id="garagesTable">
+  <thead><tr><th>{{ _("№") }}</th><th>{{ _("Площадь, м²") }}</th><th>{{ _("Земля приватизирована") }}</th><th>{{ _("Собственники") }}</th><th>{{ _("Баланс") }}</th></tr></thead>
+  <tbody>
+    {% for g in garages %}
+    <tr onclick="window.location='{{ url_for('garages.detail', garage_id=g.id) }}'" style="cursor:pointer" data-filter-text="{{ (g.number ~ ' ' ~ (g.ownerships|map(attribute='person.full_name')|join(' ')))|lower }}">
+      <td>{{ g.number }}</td>
+      <td data-sort-value="{{ g.area_sqm }}">{{ fmt2(g.area_sqm) }}</td>
+      <td>{{ _("да") if g.land_privatized else _("нет") }}</td>
+      <td>{{ g.ownerships|map(attribute="person.full_name")|join(", ") or "—" }}</td>
+      <td class="{{ 'text-danger' if balances[g.id] is not none and balances[g.id] < 0 else 'text-success' }}" data-sort-value="{{ balances[g.id] if balances[g.id] is not none else '' }}">
+        {{ (fmt2(balances[g.id]) ~ " ₽") if balances[g.id] is not none else "—" }}
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="5" class="text-muted">{{ _("Пока нет ни одного гаража.") }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+<p id="garageNoResults" class="text-muted d-none">{{ _("Ничего не найдено.") }}</p>
+
+{% if current_user.role.value in ('board', 'chairman', 'accountant') %}
+{% include "garages/_create_modal.html" %}
+{% endif %}
+
+<script>
+(function () {
+  const input = document.getElementById("garageFilterInput");
+  const table = document.getElementById("garagesTable");
+  const noResults = document.getElementById("garageNoResults");
+  if (!input || !table) return;
+  const rows = Array.from(table.querySelectorAll("tbody tr[data-filter-text]"));
+
+  input.addEventListener("input", function () {
+    const q = input.value.trim().toLowerCase();
+    let visibleCount = 0;
+    rows.forEach(function (row) {
+      const match = !q || row.getAttribute("data-filter-text").includes(q);
+      row.classList.toggle("d-none", !match);
+      if (match) visibleCount++;
+    });
+    noResults.classList.toggle("d-none", !(q && visibleCount === 0));
+  });
+})();
+</script>
+{% endblock %}

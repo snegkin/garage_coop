@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Панель{% endblock %}
+{% block content %}
+<h3 class="mb-4">{{ _("Панель кооператива") }}</h3>
+<div class="row g-3">
+  {% if stats.coop_balance is defined %}
+  <div class="col-md-3">
+    <div class="card"><div class="card-body">
+      <div class="text-muted">{{ _("Баланс кооператива") }}</div>
+      <div class="fs-2 {{ 'text-danger' if stats.coop_balance < 0 else 'text-success' }}">{{ fmt2(stats.coop_balance) }} ₽</div>
+      <div class="text-muted small">{{ _("сумма по всем лицевым счетам") }}</div>
+    </div></div>
+  </div>
+  {% endif %}
+  <div class="col-md-3">
+    <div class="card"><div class="card-body">
+      <div class="text-muted">{{ _("Гаражей") }}</div>
+      <div class="fs-2">{{ stats.garages_count }}</div>
+    </div></div>
+  </div>
+  <div class="col-md-3">
+    <div class="card"><div class="card-body">
+      <div class="text-muted">{{ _("Людей в базе") }}</div>
+      <div class="fs-2">{{ stats.persons_count }}</div>
+    </div></div>
+  </div>
+  <div class="col-md-3">
+    <div class="card"><div class="card-body">
+      <div class="text-muted">{{ _("Последнее собрание") }}</div>
+      <div class="fs-5">{{ fmt_date(stats.last_meeting.date) if stats.last_meeting else "—" }}</div>
+    </div></div>
+  </div>
+  <div class="col-md-3">
+    <div class="card"><div class="card-body">
+      <div class="text-muted">{{ _("Последний годовой отчёт") }}</div>
+      <div class="fs-5">{{ stats.last_report.year if stats.last_report else "—" }}</div>
+    </div></div>
+  </div>
+</div>
+{% endblock %}

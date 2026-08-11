@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Документы") }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h3>{{ _("Документы") }}</h3>
+  {% if current_user.role.value in ('board', 'chairman', 'accountant') %}
+  <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#createDocumentModal">+ {{ _("Добавить документ") }}</button>
+  {% endif %}
+</div>
+
+<div class="mb-3">
+  <a class="btn btn-sm {{ 'btn-secondary' if not selected_type else 'btn-outline-secondary' }}" href="{{ url_for('documents.list_documents') }}">{{ _("Все") }}</a>
+  {% for dt in doc_types %}
+  <a class="btn btn-sm {{ 'btn-secondary' if selected_type == dt.value else 'btn-outline-secondary' }}" href="{{ url_for('documents.list_documents', type=dt.value) }}">{{ doc_type_label(dt.value) }}</a>
+  {% endfor %}
+</div>
+
+<table class="table bg-body sortable">
+  <thead><tr><th>{{ _("Дата") }}</th><th>{{ _("Тип") }}</th><th>{{ _("№") }}</th><th>{{ _("Название") }}</th><th class="no-sort">{{ _("Файл") }}</th></tr></thead>
+  <tbody>
+    {% for d in docs %}
+    <tr>
+      <td data-sort-value="{{ d.date }}">{{ fmt_date(d.date) }}</td>
+      <td>{{ doc_type_label(d.doc_type.value) }}</td>
+      <td>{{ d.number or "—" }}</td>
+      <td>{{ d.title }}</td>
+      <td>{% if d.file_path %}<a href="{{ url_for('documents.download', doc_id=d.id) }}">{{ _("скачать") }}</a>{% else %}—{% endif %}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="5" class="text-muted">{{ _("Документов пока нет.") }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+{% if current_user.role.value in ('board', 'chairman', 'accountant') %}
+{% with next_url = url_for('documents.list_documents') %}
+{% include "documents/_create_modal.html" %}
+{% endwith %}
+{% endif %}
+{% endblock %}

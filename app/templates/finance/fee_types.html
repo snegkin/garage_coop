@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Виды взносов") }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h3>{{ _("Виды взносов и начислений") }}</h3>
+  {% if current_user.role.value == 'chairman' %}
+  <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#createFeeTypeModal">+ {{ _("Добавить") }}</button>
+  {% endif %}
+</div>
+<table class="table bg-body sortable">
+  <thead><tr><th>{{ _("Код") }}</th><th>{{ _("Название") }}</th><th>{{ _("Код счёта") }}</th><th>{{ _("Пеня") }}</th><th>{{ _("Комментарий") }}</th></tr></thead>
+  <tbody>
+    {% for t in types %}
+    <tr>
+      <td><code>{{ t.code }}</code></td>
+      <td>{{ t.name }}</td>
+      <td>{{ t.type_code or "—" }}</td>
+      <td>{{ _("да") if t.is_penalty else "—" }}</td>
+      <td>{{ t.comment or "—" }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="5" class="text-muted">{{ _("Пока не заведено ни одного вида взноса.") }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+<p class="text-muted small">{{ _("Если задан «код счёта» — при добавлении собственника гаражу автоматически заводится его персональный лицевой счёт на этот вид взноса.") }}</p>
+
+{% if current_user.role.value == 'chairman' %}
+<div class="modal fade" id="createFeeTypeModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" action="{{ url_for('finance.create_fee_type') }}">
+        <div class="modal-header">
+          <h5 class="modal-title">{{ _("Новый вид взноса") }}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">{{ _("Код") }}</label>
+            <input class="form-control" name="code" placeholder="{{ _('код, напр. land_tax') }}" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">{{ _("Название") }}</label>
+            <input class="form-control" name="name" placeholder="{{ _('название, напр. Земельный налог') }}" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">{{ _("Код счёта (1 цифра)") }}</label>
+            <input class="form-control" name="type_code" maxlength="1" placeholder="{{ _('напр. 1') }}">
+            <div class="form-text">{{ _("Оставьте пустым, если этому виду взноса не нужен отдельный лицевой счёт на человека.") }}</div>
+          </div>
+          <div class="form-check mb-3">
+            <input class="form-check-input" type="checkbox" name="is_penalty" id="isPenalty">
+            <label class="form-check-label" for="isPenalty">{{ _("Это пеня по другому виду взноса") }}</label>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">{{ _("Комментарий") }}</label>
+            <textarea class="form-control" name="comment"></textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+          <button class="btn btn-primary">{{ _("Сохранить") }}</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

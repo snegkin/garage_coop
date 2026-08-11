@@ -1,0 +1,203 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Гараж №{n}", n=garage.number) }}{% endblock %}
+{% block content %}
+{% set is_board = current_user.role.value in ('board', 'chairman', 'accountant') %}
+{% set is_owner = current_user.person_id and current_user.person_id in garage.ownerships|map(attribute='person_id')|list %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h3>{{ _("Гараж №{n}", n=garage.number) }}</h3>
+  {% if is_board %}
+  <a class="btn btn-outline-primary" href="{{ url_for('garages.edit', garage_id=garage.id) }}">{{ _("Редактировать") }}</a>
+  {% endif %}
+</div>
+
+<div class="row g-4">
+  <div class="col-md-6">
+    <div class="card mb-3">
+      <div class="card-body">
+        <p><strong>{{ _("Площадь") }}:</strong> {{ fmt2(garage.area_sqm) }} м²</p>
+        <p><strong>{{ _("Кадастровый номер гаража") }}:</strong> {{ garage.cadastral_number or "—" }}</p>
+        {% if is_board %}
+        <p><strong>{{ _("Коэффициент начисления") }}:</strong> {{ fmt2(garage.coefficient) }}</p>
+        {% endif %}
+        <p><strong>{{ _("Земля приватизирована") }}:</strong> {{ _("да") if garage.land_privatized else _("нет") }}</p>
+        {% if garage.land_privatized %}
+        <p><strong>{{ _("Кадастровый номер участка") }}:</strong> {{ garage.land_cadastral_number or "—" }}</p>
+        <p><strong>{{ _("Площадь приватизированного участка") }}:</strong> {{ (fmt2(garage.privatized_land_area) ~ " м²") if garage.privatized_land_area is not none else "—" }}</p>
+        {% endif %}
+        {% if is_board %}
+        <form method="post" action="{{ url_for('garages.update_comment', garage_id=garage.id) }}" class="mb-2">
+          <label class="form-label mb-1"><strong>{{ _("Комментарий") }}</strong></label>
+          <div class="d-flex gap-2">
+            <input class="form-control form-control-sm" name="comment" value="{{ garage.comment or '' }}">
+            <button class="btn btn-sm btn-outline-secondary">{{ _("Сохранить") }}</button>
+          </div>
+        </form>
+        {% endif %}
+        {% if garage.account %}
+        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('finance.account_detail', account_id=garage.account.id) }}">{{ _("Электросчёт") }} {{ garage.account.account_number }}</a>
+        {% endif %}
+        {% if is_board or is_owner %}
+        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('electricity.view', garage_id=garage.id) }}">{{ _("Электричество") }}</a>
+        {% endif %}
+      </div>
+    </div>
+
+    <h5>{{ _("Собственники") }} {% if total_share != 1 %}<span class="badge bg-warning text-dark">{{ _("сумма долей") }}: {{ total_share }}</span>{% endif %}</h5>
+    <table class="table table-sm bg-body sortable">
+      <thead><tr><th>{{ _("ФИО") }}</th><th>{{ _("Доля") }}</th>{% if current_user.role.value in ('board', 'chairman', 'accountant') %}<th class="no-sort"></th>{% endif %}</tr></thead>
+      <tbody>
+        {% for o in garage.ownerships %}
+        <tr>
+          <td><a href="{{ url_for('persons.detail', person_id=o.person.id) }}">{{ o.person.full_name }}</a></td>
+          <td data-sort-value="{{ o.share }}">{{ fmt2(o.share) }}</td>
+          {% if current_user.role.value in ('board', 'chairman', 'accountant') %}
+          <td>
+            <form method="post" action="{{ url_for('garages.remove_owner', garage_id=garage.id, ownership_id=o.id) }}" onsubmit="return confirm('{{ _("Удалить собственника?") }}')">
+              <button class="btn btn-sm btn-outline-danger">✕</button>
+            </form>
+          </td>
+          {% endif %}
+        </tr>
+        {% else %}
+        <tr><td colspan="3" class="text-muted">{{ _("Собственники не указаны.") }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% if current_user.role.value in ('board', 'chairman', 'accountant') %}
+    <form method="post" action="{{ url_for('garages.add_owner', garage_id=garage.id) }}" class="d-flex gap-2 mb-4">
+      <select name="person_id" class="form-select form-select-sm" required>
+        {% for p in all_persons %}<option value="{{ p.id }}">{{ p.full_name }}</option>{% endfor %}
+      </select>
+      <input class="form-control form-control-sm" style="max-width:120px" name="share" placeholder="{{ _('доля, напр. 0.5') }}" required>
+      <button class="btn btn-sm btn-primary">{{ _("Добавить") }}</button>
+    </form>
+    {% endif %}
+  </div>
+
+  <div class="col-md-6">
+    <h5>{{ _("Лица для связи") }}</h5>
+    <table class="table table-sm bg-body sortable">
+      <thead><tr><th>{{ _("ФИО") }}</th><th>{{ _("Отношение") }}</th>{% if is_board or is_owner %}<th class="no-sort"></th>{% endif %}</tr></thead>
+      <tbody>
+        {% for c in garage.contacts %}
+        <tr>
+          <td><a href="{{ url_for('persons.detail', person_id=c.person.id) }}">{{ c.person.full_name }}</a></td>
+          <td>{{ c.relation or "—" }}</td>
+          {% if is_board or is_owner %}
+          <td>
+            <form method="post" action="{{ url_for('garages.remove_contact', garage_id=garage.id, contact_id=c.id) }}" onsubmit="return confirm('{{ _("Удалить контакт?") }}')">
+              <button class="btn btn-sm btn-outline-danger">✕</button>
+            </form>
+          </td>
+          {% endif %}
+        </tr>
+        {% else %}
+        <tr><td colspan="3" class="text-muted">{{ _("Контакты не указаны.") }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% if is_board or is_owner %}
+    <form method="post" action="{{ url_for('garages.add_contact', garage_id=garage.id) }}" class="d-flex gap-2">
+      <select name="person_id" class="form-select form-select-sm" id="contactPersonSelect" required>
+        {% for p in all_persons %}
+        <option value="{{ p.id }}" {{ "selected" if preselect_contact_person_id == p.id }}>{{ p.full_name }}</option>
+        {% endfor %}
+      </select>
+      <input class="form-control form-control-sm" name="relation" placeholder="{{ _('напр. супруга') }}">
+      <button class="btn btn-sm btn-primary">{{ _("Добавить") }}</button>
+      {% if is_board %}
+      <button type="button" class="btn btn-sm btn-outline-primary text-nowrap" data-bs-toggle="modal" data-bs-target="#createPersonModal">+ {{ _("Новый человек") }}</button>
+      {% endif %}
+    </form>
+    {% if is_board %}
+    {% with next_url = url_for('garages.detail', garage_id=garage.id) %}
+    {% include "persons/_create_modal.html" %}
+    {% endwith %}
+    {% endif %}
+    {% endif %}
+  </div>
+</div>
+
+<h5 class="mt-4">{{ _("Фото гаража") }}</h5>
+<div class="row g-3 mb-3">
+  {% for photo in garage.photos %}
+  <div class="col-md-3 col-sm-4 col-6">
+    <div class="card">
+      <img src="{{ url_for('garages.photo_file', photo_id=photo.id) }}" class="card-img-top gallery-thumb" style="height:150px;object-fit:cover;cursor:pointer" data-gallery-index="{{ loop.index0 }}">
+      <div class="card-body p-2">
+        {% if is_board %}
+        <form method="post" action="{{ url_for('garages.edit_photo', garage_id=garage.id, photo_id=photo.id) }}" enctype="multipart/form-data" class="mb-1">
+          <input class="form-control form-control-sm mb-1" name="caption" value="{{ photo.caption or '' }}" placeholder="{{ _('Подпись') }}">
+          <input class="form-control form-control-sm mb-1" type="file" name="file">
+          <div class="d-flex gap-1">
+            <button class="btn btn-sm btn-outline-secondary w-100">{{ _("Сохранить") }}</button>
+          </div>
+        </form>
+        <form method="post" action="{{ url_for('garages.remove_photo', garage_id=garage.id, photo_id=photo.id) }}" onsubmit="return confirm('{{ _("Удалить фото?") }}')">
+          <button class="btn btn-sm btn-outline-danger w-100">{{ _("Удалить") }}</button>
+        </form>
+        {% elif photo.caption %}
+        <div class="small text-muted">{{ photo.caption }}</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  {% else %}
+  <div class="col-12"><p class="text-muted">{{ _("Фото пока нет.") }}</p></div>
+  {% endfor %}
+</div>
+
+{% if garage.photos %}
+<div class="modal fade" id="photoGalleryModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-xl">
+    <div class="modal-content bg-dark">
+      <div class="modal-header border-0">
+        <div class="text-white small" id="galleryCaption"></div>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body d-flex align-items-center justify-content-center position-relative p-0">
+        <button type="button" class="btn btn-light position-absolute start-0 ms-2" id="galleryPrev" style="z-index:2">‹</button>
+        <img id="galleryImage" src="" style="max-height:80vh;max-width:100%;object-fit:contain">
+        <button type="button" class="btn btn-light position-absolute end-0 me-2" id="galleryNext" style="z-index:2">›</button>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  const photos = [
+    {% for photo in garage.photos %}
+    { url: "{{ url_for('garages.photo_file', photo_id=photo.id) }}", caption: {{ (photo.caption or "")|tojson }} }{{ "," if not loop.last }}
+    {% endfor %}
+  ];
+  let current = 0;
+  const modalEl = document.getElementById("photoGalleryModal");
+  const img = document.getElementById("galleryImage");
+  const caption = document.getElementById("galleryCaption");
+
+  function show(index) {
+    current = (index + photos.length) % photos.length;
+    img.src = photos[current].url;
+    caption.textContent = photos[current].caption;
+  }
+
+  document.querySelectorAll(".gallery-thumb").forEach(function (thumb) {
+    thumb.addEventListener("click", function () {
+      show(parseInt(thumb.dataset.galleryIndex, 10));
+      if (window.bootstrap) bootstrap.Modal.getOrCreateInstance(modalEl).show();
+    });
+  });
+  document.getElementById("galleryPrev").addEventListener("click", function () { show(current - 1); });
+  document.getElementById("galleryNext").addEventListener("click", function () { show(current + 1); });
+})();
+</script>
+{% endif %}
+
+{% if is_board %}
+<form method="post" action="{{ url_for('garages.add_photo', garage_id=garage.id) }}" enctype="multipart/form-data" class="d-flex gap-2 border rounded p-3 bg-body mb-4" style="max-width:600px">
+  <input class="form-control form-control-sm" type="file" name="file" required>
+  <input class="form-control form-control-sm" name="caption" placeholder="{{ _('Подпись (необязательно)') }}">
+  <button class="btn btn-sm btn-primary">{{ _("Загрузить фото") }}</button>
+</form>
+{% endif %}
+{% endblock %}

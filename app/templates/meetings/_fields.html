@@ -1,0 +1,31 @@
+{# Ожидает переменную persons. Только поля, без <form> и кнопок. #}
+<div class="mb-3">
+  <label class="form-label">{{ _("Дата") }}</label>
+  <input class="form-control" type="date" name="date" required>
+</div>
+<div class="mb-3">
+  <label class="form-label">{{ _("Повестка") }}</label>
+  <textarea class="form-control" name="agenda"></textarea>
+</div>
+<div class="form-check mb-3">
+  <input class="form-check-input" type="checkbox" name="is_annual_report_meeting" id="ar">
+  <label class="form-check-label" for="ar">{{ _("Это ежегодное отчётное собрание (отчёт председателя, смета)") }}</label>
+</div>
+<div class="mb-3">
+  <label class="form-label">{{ _("Секретарь") }}</label>
+  <select class="form-select" name="secretary_person_id">
+    <option value="">—</option>
+    {% for p in persons %}<option value="{{ p.id }}">{{ p.full_name }}</option>{% endfor %}
+  </select>
+</div>
+<div class="mb-3">
+  <label class="form-label">{{ _("Председатель на собрании") }}</label>
+  <select class="form-select" name="chairman_person_id">
+    <option value="">—</option>
+    {% for p in persons %}<option value="{{ p.id }}">{{ p.full_name }}</option>{% endfor %}
+  </select>
+</div>
+<div class="mb-3">
+  <label class="form-label">{{ _("Файл протокола") }}</label>
+  <input class="form-control" type="file" name="protocol_file">
+</div>

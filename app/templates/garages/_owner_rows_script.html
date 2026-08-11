@@ -1,0 +1,71 @@
+{# Параметр: preselect_person_id (может быть None/null). Работает и на отдельной странице, и в модалке. #}
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  const container = document.getElementById("ownerRowsContainer");
+  const template = document.getElementById("ownerRowTemplate");
+  if (!container || !template) return;
+
+  function addRow(preselectPersonId) {
+    const node = template.content.cloneNode(true);
+    if (preselectPersonId) {
+      const select = node.querySelector("select[name='owner_person_id']");
+      select.value = preselectPersonId;
+    }
+    node.querySelector(".remove-owner-row").addEventListener("click", function (e) {
+      e.target.closest(".owner-row").remove();
+    });
+    container.appendChild(node);
+  }
+
+  const addBtn = document.getElementById("addOwnerRowBtn");
+  if (addBtn) {
+    addBtn.addEventListener("click", function () { addRow(null); });
+  }
+
+  const preselectId = {{ preselect_person_id if preselect_person_id is not none else 'null' }};
+  addRow(preselectId);
+
+  // Координация с модалкой "Новый член кооператива": если есть модалка гаража —
+  // открываем модалку человека поверх неё, а не одновременно; на отдельной
+  // странице (без модалки гаража) кнопка просто открывает модалку человека.
+  const newMemberBtn = document.getElementById("openCreatePersonFromGarage");
+  const garageModalEl = document.getElementById("createGarageModal");
+  const personModalEl = document.getElementById("createPersonModal");
+
+  if (newMemberBtn && personModalEl && window.bootstrap) {
+    newMemberBtn.addEventListener("click", function () {
+      if (garageModalEl) {
+        garageModalEl.dataset.reopenAfterPerson = "1";
+        garageModalEl.addEventListener("hidden.bs.modal", function onHidden() {
+          garageModalEl.removeEventListener("hidden.bs.modal", onHidden);
+          bootstrap.Modal.getOrCreateInstance(personModalEl).show();
+        });
+        bootstrap.Modal.getOrCreateInstance(garageModalEl).hide();
+      } else {
+        bootstrap.Modal.getOrCreateInstance(personModalEl).show();
+      }
+    });
+
+    if (garageModalEl) {
+      personModalEl.addEventListener("hidden.bs.modal", function () {
+        if (garageModalEl.dataset.reopenAfterPerson === "1") {
+          garageModalEl.dataset.reopenAfterPerson = "0";
+          bootstrap.Modal.getOrCreateInstance(garageModalEl).show();
+        }
+      });
+    }
+  }
+
+  // Если вернулись на страницу после создания нового члена из модалки гаража —
+  // снова открываем модалку гаража (значение уже предвыбрано через preselectId выше).
+  if (garageModalEl && window.bootstrap) {
+    const params = new URLSearchParams(window.location.search);
+    if (params.has("new_person_id")) {
+      bootstrap.Modal.getOrCreateInstance(garageModalEl).show();
+      params.delete("new_person_id");
+      const qs = params.toString();
+      window.history.replaceState({}, "", window.location.pathname + (qs ? "?" + qs : ""));
+    }
+  }
+});
+</script>

@@ -1,0 +1,72 @@
+{# Ожидает garage (None при создании), all_persons, preselect_person_id. Только поля, без <form> и кнопок. #}
+<div class="mb-3">
+  <label class="form-label">{{ _("Номер гаража") }}</label>
+  <input class="form-control" name="number" value="{{ garage.number if garage else '' }}" required>
+</div>
+<div class="mb-3">
+  <label class="form-label">{{ _("Площадь, м²") }}</label>
+  <input class="form-control" type="number" step="0.01" name="area_sqm" value="{{ garage.area_sqm if garage else '' }}" required>
+</div>
+<div class="mb-3">
+  <label class="form-label">{{ _("Коэффициент начисления") }}</label>
+  <input class="form-control" type="number" step="0.01" min="0" name="coefficient" value="{{ garage.coefficient if garage else '1' }}">
+  <div class="form-text">{{ _("Множитель для начислений на этот гараж — напр. 2 для двойного, 0.5 для маленького. По умолчанию 1.") }}</div>
+</div>
+<div class="mb-3">
+  <label class="form-label">{{ _("Кадастровый номер гаража") }}</label>
+  <input class="form-control" name="cadastral_number" value="{{ (garage.cadastral_number or '') if garage else '' }}">
+</div>
+<div class="form-check mb-3">
+  <input class="form-check-input" type="checkbox" name="land_privatized" id="lp" {{ "checked" if garage and garage.land_privatized }}>
+  <label class="form-check-label" for="lp">{{ _("Земля под гаражом приватизирована") }}</label>
+</div>
+<div class="mb-3">
+  <label class="form-label">{{ _("Кадастровый номер участка") }}</label>
+  <input class="form-control" name="land_cadastral_number" value="{{ (garage.land_cadastral_number or '') if garage else '' }}">
+  <div class="form-text">{{ _("Заполняется, если земля под гаражом приватизирована.") }}</div>
+</div>
+<div class="mb-3">
+  <label class="form-label">{{ _("Площадь приватизированного участка, м²") }}</label>
+  <input class="form-control" type="number" step="0.01" min="0" name="privatized_land_area" value="{{ (garage.privatized_land_area or '') if garage else '' }}">
+  <div class="form-text">{{ _("Используется для расчёта земельного налога — заполняется, если земля приватизирована.") }}</div>
+</div>
+<div class="mb-3">
+  <label class="form-label">{{ _("Комментарий") }}</label>
+  <textarea class="form-control" name="comment">{{ (garage.comment or '') if garage else '' }}</textarea>
+</div>
+
+{% if not garage %}
+<div class="mb-3">
+  <label class="form-label">{{ _("Фото гаража") }}</label>
+  <input class="form-control" type="file" name="photo" accept="image/*">
+</div>
+
+<hr>
+<div class="d-flex justify-content-between align-items-center mb-2">
+  <label class="form-label mb-0">{{ _("Собственники") }}</label>
+  <div>
+    <button type="button" class="btn btn-sm btn-outline-secondary" id="addOwnerRowBtn">+ {{ _("Добавить собственника") }}</button>
+    <button type="button" class="btn btn-sm btn-outline-primary" id="openCreatePersonFromGarage">+ {{ _("Новый член кооператива") }}</button>
+  </div>
+</div>
+<div id="ownerRowsContainer"></div>
+
+<template id="ownerRowTemplate">
+  <div class="row g-2 align-items-center owner-row mb-2">
+    <div class="col-7">
+      <select name="owner_person_id" class="form-select form-select-sm">
+        <option value="">— {{ _("выберите члена кооператива") }} —</option>
+        {% for p in all_persons %}
+        <option value="{{ p.id }}">{{ p.full_name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-3">
+      <input class="form-control form-control-sm" name="owner_share" placeholder="{{ _('доля, напр. 0.5') }}">
+    </div>
+    <div class="col-2">
+      <button type="button" class="btn btn-sm btn-outline-danger remove-owner-row">✕</button>
+    </div>
+  </div>
+</template>
+{% endif %}

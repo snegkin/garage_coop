@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Массовое начисление") }}{% endblock %}
+{% block content %}
+<h3 class="mb-3">{{ _("Массовое начисление на лицевые счета") }}</h3>
+
+<form method="post" class="bg-body p-4 rounded border mb-4" style="max-width:600px">
+  <div class="row g-3">
+    <div class="col-md-6" id="feeTypeField">
+      <label class="form-label">{{ _("Вид взноса") }}</label>
+      <select class="form-select" name="fee_type_id" id="feeTypeSelect" required>
+        {% for ft in fee_types %}<option value="{{ ft.id }}">{{ ft.name }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="col-md-6">
+      <label class="form-label">{{ _("Год") }}</label>
+      <input class="form-control" type="number" name="year" value="2026" required>
+    </div>
+
+    <div class="col-12"><hr></div>
+
+    <div class="col-12">
+      <div class="form-check">
+        <input class="form-check-input" type="radio" name="strategy" value="coefficient" id="strategyCoefficient" checked>
+        <label class="form-check-label" for="strategyCoefficient"><strong>{{ _("По коэффициенту гаража") }}</strong></label>
+        <div class="form-text">{{ _("Указанная сумма начисляется на каждый гараж, умноженная на его коэффициент, и делится между собственниками по их доле. Например, взнос 1000 ₽: у гаража с коэффициентом 2 начислится 2000 ₽, с коэффициентом 0.5 — 500 ₽ (и далее по долям собственников).") }}</div>
+      </div>
+      <input class="form-control mt-2 strategy-field strategy-field-coefficient" name="base_amount" placeholder="{{ _('сумма на гараж (до коэффициента), напр. 1000') }}">
+    </div>
+
+    <div class="col-12"><hr></div>
+
+    <div class="col-12">
+      <div class="form-check">
+        <input class="form-check-input" type="radio" name="strategy" value="total_area" id="strategyArea">
+        <label class="form-check-label" for="strategyArea"><strong>{{ _("От общей суммы, по площади") }}</strong></label>
+        <div class="form-text">{{ _("Указанная общая сумма делится между гаражами пропорционально их площади, а внутри гаража — между собственниками по их доле.") }}</div>
+      </div>
+      <input class="form-control mt-2 strategy-field strategy-field-total_area" name="total_amount" placeholder="{{ _('общая сумма, напр. 100000') }}">
+    </div>
+
+    <div class="col-12"><hr></div>
+
+    <div class="col-12">
+      <div class="form-check">
+        <input class="form-check-input" type="radio" name="strategy" value="land_tax" id="strategyLandTax">
+        <label class="form-check-label" for="strategyLandTax"><strong>{{ _("Земельный налог (автоматический расчёт)") }}</strong></label>
+        <div class="form-text">{{ _("Считается по площадям кооператива и кадастровой стоимости за указанный год — под постройкой и общей территорией, с учётом приватизированных участков и % банка за обслуживание. Вид взноса определяется автоматически («Земельный налог»).") }}</div>
+      </div>
+      <input class="form-control mt-2 strategy-field strategy-field-land_tax" name="cadastral_value" placeholder="{{ _('кадастровая стоимость на указанный год, напр. 3892792.20') }}">
+      {% if coop and coop.total_area and coop.common_area %}
+      <div class="form-text">{{ _("Площадь кооператива") }}: {{ fmt2(coop.total_area) }} м², {{ _("общего пользования") }}: {{ fmt2(coop.common_area) }} м². {{ _("Изменить можно в реквизитах кооператива.") }}</div>
+      {% else %}
+      <div class="form-text text-danger">{{ _("В реквизитах кооператива не заполнены площади — расчёт невозможен.") }}</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <button class="btn btn-primary mt-4">{{ _("Начислить") }}</button>
+</form>
+
+<script>
+(function () {
+  const feeTypeField = document.getElementById("feeTypeField");
+  const radios = document.querySelectorAll("input[name='strategy']");
+  function sync() {
+    const strategy = document.querySelector("input[name='strategy']:checked").value;
+    feeTypeField.classList.toggle("d-none", strategy === "land_tax");
+    document.getElementById("feeTypeSelect").required = strategy !== "land_tax";
+    document.querySelectorAll(".strategy-field").forEach(function (el) { el.classList.add("d-none"); });
+    document.querySelectorAll(".strategy-field-" + strategy).forEach(function (el) { el.classList.remove("d-none"); });
+  }
+  radios.forEach(function (r) { r.addEventListener("change", sync); });
+  sync();
+})();
+</script>
+
+{% if results %}
+<h5>{{ _("Результат") }}: {{ results.fee_type_name }}, {{ results.year }}</h5>
+<p>{{ _("Итого начислено") }}: <strong>{{ fmt2(results.total) }} ₽</strong> ({{ results.charged_rows|length }})</p>
+
+{% if results.charged_rows %}
+<table class="table table-sm bg-body sortable">
+  <thead><tr><th>{{ _("ФИО") }}</th><th>{{ _("Гараж") }}</th><th>{{ _("Сумма") }}</th></tr></thead>
+  <tbody>
+    {% for name, garage_number, amount in results.charged_rows %}
+    <tr><td>{{ name }}</td><td data-sort-value="{{ garage_number }}">№{{ garage_number }}</td><td data-sort-value="{{ amount }}">{{ fmt2(amount) }} ₽</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+{% if results.skipped_rows %}
+<h6 class="text-danger mt-3">{{ _("Пропущено (нет лицевого счёта)") }}</h6>
+<table class="table table-sm bg-body sortable">
+  <thead><tr><th>{{ _("ФИО") }}</th><th>{{ _("Гараж") }}</th></tr></thead>
+  <tbody>
+    {% for name, garage_number in results.skipped_rows %}
+    <tr><td>{{ name }}</td><td data-sort-value="{{ garage_number }}">№{{ garage_number }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% endif %}
+{% endblock %}

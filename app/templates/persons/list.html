@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Люди") }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h3>{{ _("Люди") }}</h3>
+  {% if current_user.role.value in ('board', 'chairman', 'accountant') %}
+  <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#createPersonModal">+ {{ _("Добавить") }}</button>
+  {% endif %}
+</div>
+<form class="mb-3" method="get">
+  <input class="form-control" name="q" value="{{ q }}" placeholder="{{ _('Поиск по ФИО...') }}">
+</form>
+<table class="table table-hover bg-body sortable">
+  <thead><tr><th>{{ _("ФИО") }}</th><th>{{ _("Телефоны") }}</th><th>{{ _("Email") }}</th><th>{{ _("Баланс") }}</th></tr></thead>
+  <tbody>
+    {% for p in persons %}
+    <tr onclick="window.location='{{ url_for('persons.detail', person_id=p.id) }}'" style="cursor:pointer">
+      <td>{{ p.full_name }}</td>
+      <td>{{ p.phones|map(attribute="number")|join(", ") or "—" }}</td>
+      <td>{{ p.email or "—" }}</td>
+      <td class="{{ 'text-danger' if balances[p.id] is not none and balances[p.id] < 0 else 'text-success' }}" data-sort-value="{{ balances[p.id] if balances[p.id] is not none else '' }}">
+        {{ (fmt2(balances[p.id]) ~ " ₽") if balances[p.id] is not none else "—" }}
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="4" class="text-muted">{{ _("Никого не найдено.") }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+{% if current_user.role.value in ('board', 'chairman', 'accountant') %}
+{% with next_url = url_for('persons.list_persons') %}
+{% include "persons/_create_modal.html" %}
+{% endwith %}
+{% endif %}
+{% endblock %}

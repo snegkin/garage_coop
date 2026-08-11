@@ -1,0 +1,27 @@
+{# Параметры: all_persons, preselect_person_id #}
+<div class="modal fade" id="createGarageModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <form method="post" action="{{ url_for('garages.create') }}" enctype="multipart/form-data">
+        <div class="modal-header">
+          <h5 class="modal-title">{{ _("Новый гараж") }}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          {% set garage = None %}
+          {% include "garages/_fields.html" %}
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+          <button class="btn btn-primary">{{ _("Сохранить") }}</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+{% with next_url = url_for('garages.list_garages') %}
+{% include "persons/_create_modal.html" %}
+{% endwith %}
+
+{% include "garages/_owner_rows_script.html" %}

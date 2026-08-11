@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Контрагенты") }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h3>{{ _("Контрагенты") }}</h3>
+  <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#createCounterpartyModal">+ {{ _("Добавить контрагента") }}</button>
+</div>
+
+<table class="table table-hover bg-body sortable">
+  <thead><tr><th>{{ _("Название") }}</th><th>{{ _("ИНН") }}</th><th>{{ _("Баланс") }}</th><th>{{ _("Комментарий") }}</th><th class="no-sort"></th></tr></thead>
+  <tbody>
+    {% for c, balance in rows %}
+    <tr>
+      <td>{{ c.name }}</td>
+      <td>{{ c.inn or "—" }}</td>
+      <td data-sort-value="{{ balance }}">{{ fmt2(balance) }} ₽</td>
+      <td>{{ c.comment or "—" }}</td>
+      <td class="text-nowrap">
+        <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#editCounterpartyModal{{ c.id }}">{{ _("Изменить") }}</button>
+        <form method="post" action="{{ url_for('counterparties.delete', counterparty_id=c.id) }}" class="d-inline" onsubmit="return confirm('{{ _("Удалить контрагента?") }}')">
+          <button class="btn btn-sm btn-outline-danger">{{ _("Удалить") }}</button>
+        </form>
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="5" class="text-muted">{{ _("Контрагентов пока нет.") }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<!-- Модалка: новый контрагент -->
+<div class="modal fade" id="createCounterpartyModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" action="{{ url_for('counterparties.create') }}">
+        <div class="modal-header">
+          <h5 class="modal-title">{{ _("Новый контрагент") }}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          {% set c = None %}
+          {% include "counterparties/_fields.html" %}
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+          <button class="btn btn-primary">{{ _("Сохранить") }}</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Модалки: редактирование контрагента (по одной на строку) -->
+{% for c, balance in rows %}
+<div class="modal fade" id="editCounterpartyModal{{ c.id }}" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" action="{{ url_for('counterparties.edit', counterparty_id=c.id) }}">
+        <div class="modal-header">
+          <h5 class="modal-title">{{ c.name }}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          {% include "counterparties/_fields.html" %}
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+          <button class="btn btn-primary">{{ _("Сохранить") }}</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endfor %}
+{% endblock %}

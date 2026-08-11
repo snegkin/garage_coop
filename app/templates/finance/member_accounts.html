@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Счета членов кооператива") }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h3>{{ _("Счета членов кооператива") }}</h3>
+  <div class="d-flex gap-2">
+    <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#createMemberAccountModal">+ {{ _("Добавить счёт") }}</button>
+    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('finance.accounts') }}">{{ _("Электричество") }}</a>
+    {% if current_user.role.value == 'chairman' %}
+    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('finance.mass_charge') }}">{{ _("Массовое начисление") }}</a>
+    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('finance.account_format') }}">{{ _("Формат номеров") }}</a>
+    {% endif %}
+  </div>
+</div>
+<p class="text-muted small">{{ _("Земельный налог, членские взносы и пени по ним — отдельный счёт на каждого собственника по каждому гаражу.") }}</p>
+<table class="table table-hover bg-body sortable">
+  <thead><tr><th>{{ _("ФИО") }}</th><th>{{ _("Гараж") }}</th><th>{{ _("Вид взноса") }}</th><th>{{ _("Счёт") }}</th><th>{{ _("Баланс") }}</th></tr></thead>
+  <tbody>
+    {% for account, balance in rows %}
+    <tr onclick="window.location='{{ url_for('finance.member_account_detail', account_id=account.id) }}'" style="cursor:pointer">
+      <td>{{ account.person.full_name }}</td>
+      <td data-sort-value="{{ account.garage.number }}">№{{ account.garage.number }}</td>
+      <td>{{ account.fee_type.name }}</td>
+      <td>{{ account.account_number }}</td>
+      <td class="{{ 'text-danger' if balance < 0 else 'text-success' }}" data-sort-value="{{ balance }}">{{ fmt2(balance) }} ₽</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="5" class="text-muted">{{ _("Счетов пока нет.") }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<div class="modal fade" id="createMemberAccountModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" action="{{ url_for('finance.create_member_account') }}">
+        <div class="modal-header">
+          <h5 class="modal-title">{{ _("Новый лицевой счёт") }}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">{{ _("Член кооператива") }}</label>
+            <select class="form-select" name="person_id" required>
+              {% for p in all_persons %}<option value="{{ p.id }}">{{ p.full_name }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">{{ _("Гараж") }}</label>
+            <select class="form-select" name="garage_id" required>
+              {% for gr in all_garages %}<option value="{{ gr.id }}">№{{ gr.number }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">{{ _("Вид взноса") }}</label>
+            <select class="form-select" name="fee_type_id" required>
+              {% for ft in all_fee_types %}<option value="{{ ft.id }}">{{ ft.name }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">{{ _("Номер счёта") }}</label>
+            <input class="form-control" name="account_number" placeholder="{{ _('оставьте пустым — сформируется автоматически') }}">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+          <button class="btn btn-primary">{{ _("Создать") }}</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

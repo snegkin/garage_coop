@@ -1,0 +1,4 @@
+Flask>=3.0
+SQLAlchemy>=2.0
+segno>=1.6
+weasyprint>=69.0

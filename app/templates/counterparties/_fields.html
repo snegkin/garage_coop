@@ -1,0 +1,37 @@
+{# Ожидает переменную c (Counterparty или None). Только поля, без <form> и кнопок. #}
+<div class="mb-3">
+  <label class="form-label">{{ _("Название") }}</label>
+  <input class="form-control" name="name" value="{{ (c.name or '') if c else '' }}" required>
+</div>
+<div class="row g-2 mb-3">
+  <div class="col-6">
+    <label class="form-label">{{ _("ИНН") }}</label>
+    <input class="form-control" name="inn" value="{{ (c.inn or '') if c else '' }}">
+  </div>
+  <div class="col-6">
+    <label class="form-label">{{ _("КПП") }}</label>
+    <input class="form-control" name="kpp" value="{{ (c.kpp or '') if c else '' }}">
+  </div>
+</div>
+<div class="mb-3">
+  <label class="form-label">{{ _("Категория") }}</label>
+  <input class="form-control" name="category" value="{{ (c.category or '') if c else '' }}" placeholder="{{ _('напр. уборка снега, электрика') }}">
+</div>
+<div class="row g-2 mb-3">
+  <div class="col-6">
+    <label class="form-label">{{ _("Телефон") }}</label>
+    <input class="form-control" name="phone" value="{{ (c.phone or '') if c else '' }}">
+  </div>
+  <div class="col-6">
+    <label class="form-label">{{ _("Email") }}</label>
+    <input class="form-control" name="email" value="{{ (c.email or '') if c else '' }}">
+  </div>
+</div>
+<div class="mb-3">
+  <label class="form-label">{{ _("Адрес") }}</label>
+  <input class="form-control" name="address" value="{{ (c.address or '') if c else '' }}">
+</div>
+<div class="mb-3">
+  <label class="form-label">{{ _("Комментарий") }}</label>
+  <textarea class="form-control" name="comment">{{ (c.comment or '') if c else '' }}</textarea>
+</div>

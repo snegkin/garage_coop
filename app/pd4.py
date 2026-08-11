@@ -8,7 +8,7 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 from . import database
 from .i18n import translate as _
 from .auth import login_required
-from .models import MemberAccount, Person, PD4Document, Cooperative, RoleEnum, PersonDataRevisionStatus
+from .models import MemberAccount, Person, PD4Document, Cooperative, RoleEnum, Garage
 from .accounting import balance, penalty_sibling_account, get_primary_bank_account, pd4_qr_payload
 
 bp = Blueprint("pd4", __name__, url_prefix="/pd4")
@@ -23,33 +23,31 @@ def _qr_data_uri(payload: str) -> str:
     return f"data:image/png;base64,{b64}"
 
 
-def _is_privileged() -> bool:
-    """Печатать на любого члена или на всех разом может только председатель и бухгалтер —
-    остальные (включая рядового члена правления) видят и печатают только свои счета."""
-    return g.user.role in (RoleEnum.CHAIRMAN, RoleEnum.ACCOUNTANT)
-
+def _is_board() -> bool:
+    return g.user.role.value in ("chairman", "accountant", "board")
 
 @bp.route("/")
 @login_required
 def select():
-    privileged = _is_privileged()
-    all_persons = []
+    """Полный список счетов с поиском (только правление/председатель)."""
+    if not _is_board():
+        return redirect(url_for("pd4.print_slips"))
 
+    privileged = _is_privileged()
+    q = request.args.get("q", "").strip()
     query = database.db_session.query(MemberAccount)
-    if privileged:
+
+    all_persons = []
+    if q:
         all_persons = database.db_session.query(Person).order_by(Person.full_name).all()
-        filter_person_id = request.args.get("person_id", type=int)
-        if filter_person_id:
-            query = query.filter(MemberAccount.person_id == filter_person_id)
-    else:
-        if g.user.person_id is None:
-            flash(_("Ваша учётная запись не привязана к карточке члена кооператива — обратитесь в правление."), "warning")
-            return render_template("pd4/select.html", rows=[], all_persons=[], is_privileged=False)
-        query = query.filter(MemberAccount.person_id == g.user.person_id)
+        query = query.join(Person).join(Garage).filter(
+            Person.full_name.ilike(f"%{q}%") |
+            Garage.number.ilike(f"%{q}%") |
+            MemberAccount.account_number.ilike(f"%{q}%")
+        )
 
     rows = []
     for account in query.all():
-        # рядовым членам не показываем счета пени отдельной строкой — при печати они прицепятся сами
         if not privileged and account.fee_type.is_penalty:
             continue
         debt = balance(account)
@@ -57,26 +55,76 @@ def select():
             rows.append((account, debt))
     rows.sort(key=lambda r: (r[0].person.full_name, r[0].garage.number))
 
-    return render_template("pd4/select.html", rows=rows, all_persons=all_persons, is_privileged=privileged)
+    return render_template("pd4/select.html", rows=rows, all_persons=all_persons, is_board=_is_board(), q=q)
+
+
+def _collect_account_ids(person_id: int) -> list[int]:
+    """Собирает все ID счетов члена, у которых есть задолженность."""
+    query = database.db_session.query(MemberAccount).filter(
+        MemberAccount.person_id == person_id
+    )
+    ids = []
+    for acc in query.all():
+        if balance(acc) < 0:
+            ids.append(acc.id)
+            # авто-прицепка пени
+            sibling = penalty_sibling_account(acc)
+            if sibling is not None and sibling.id not in ids and balance(sibling) < 0:
+                ids.append(sibling.id)
+    return ids
+
+
+@bp.route("/print", methods=["GET", "POST"])
+@login_required
+def print_slips():
+    # GET — авто-печать всех счетов текущего пользователя
+    if request.method == "GET":
+        person_id = g.user.person_id
+        if person_id is None:
+            flash(_("Ваша учётная запись не привязана к карточке члена кооператива — обратитесь в правление."), "warning")
+            return redirect(url_for("main.dashboard"))
+
+        # все счета, у которых есть долг
+        account_ids = _collect_account_ids(person_id)
+        if not account_ids:
+            flash(_("Нет задолженностей — печатать нечего."), "info")
+            return redirect(url_for("main.dashboard"))
+
+        coop, bank_account, slips = _build_slips(account_ids)
+        if slips is None:
+            return redirect(url_for("main.dashboard"))
+
+        return render_template("pd4/print.html", slips=slips, coop=coop, bank_account=bank_account)
+
+    # POST — выборочная печать (для правления, с формы select)
+    account_ids = [int(x) for x in request.form.getlist("account_id")]
+    if not account_ids:
+        flash(_("Выберите хотя бы один лицевой счёт."), "warning")
+        return redirect(url_for("pd4.select"))
+
+    coop, bank_account, slips = _build_slips(account_ids)
+    if slips is None:
+        return redirect(url_for("pd4.select"))
+
+    return render_template("pd4/print.html", slips=slips, coop=coop, bank_account=bank_account)
 
 
 def _build_slips(account_ids: list[int]):
-    """Общая логика для печати в браузере и для скачивания PDF: проверяет права,
-    авто-прицепляет счета пени, формирует QR и сохраняет историю ПД-4.
-    Возвращает (coop, bank_account, slips) либо кидает redirect через flash+None."""
+    """Общая логика: права, авто-прицепка пени, QR, сохранение истории."""
     coop = database.db_session.query(Cooperative).first()
     if coop is None:
         flash(_("Сначала заполните реквизиты кооператива."), "danger")
         return None, None, None
 
-    accounts = database.db_session.query(MemberAccount).filter(MemberAccount.id.in_(account_ids)).all()
+    accounts = database.db_session.query(MemberAccount).filter(
+        MemberAccount.id.in_(account_ids)
+    ).all()
 
-    if not _is_privileged():
+    if not _is_board():
         for account in accounts:
             if account.person_id != g.user.person_id:
                 abort(403)
 
-    # авто-прицепка счёта пени, если он ненулевой — даже если его не выбирали явно
     final_accounts = {a.id: a for a in accounts}
     for account in accounts:
         sibling = penalty_sibling_account(account)
@@ -102,39 +150,34 @@ def _build_slips(account_ids: list[int]):
         slips.append((account, amount, qr_data_uri))
 
     if not slips:
-        flash(_("По выбранным счетам нет задолженности — печатать нечего."), "warning")
+        flash(_("Нет задолженностей — печатать нечего."), "warning")
         return None, None, None
 
     database.db_session.commit()
     return coop, bank_account, slips
 
 
-@bp.route("/print", methods=["POST"])
-@login_required
-def print_slips():
-    account_ids = [int(x) for x in request.form.getlist("account_id")]
-    if not account_ids:
-        flash(_("Выберите хотя бы один лицевой счёт."), "warning")
-        return redirect(url_for("pd4.select"))
-
-    coop, bank_account, slips = _build_slips(account_ids)
-    if slips is None:
-        return redirect(url_for("pd4.select"))
-
-    return render_template("pd4/print.html", slips=slips, coop=coop, bank_account=bank_account)
-
-
-@bp.route("/print/pdf", methods=["POST"])
+@bp.route("/print/pdf", methods=["GET", "POST"])
 @login_required
 def print_pdf():
-    account_ids = [int(x) for x in request.form.getlist("account_id")]
+    if request.method == "POST":
+        # Пост-запрос с формы select — для правления
+        account_ids = [int(x) for x in request.form.getlist("account_id")]
+    else:
+        # GET — авто-печать всех счетов (для рядовых)
+        person_id = g.user.person_id
+        if person_id is None:
+            flash(_("Ваша учётная запись не привязана к карточке члена кооператива — обратитесь в правление."), "warning")
+            return redirect(url_for("main.dashboard"))
+        account_ids = _collect_account_ids(person_id)
+
     if not account_ids:
-        flash(_("Выберите хотя бы один лицевой счёт."), "warning")
-        return redirect(url_for("pd4.select"))
+        flash(_("Нет задолженностей — печатать нечего."), "info")
+        return redirect(url_for("main.dashboard"))
 
     coop, bank_account, slips = _build_slips(account_ids)
     if slips is None:
-        return redirect(url_for("pd4.select"))
+        return redirect(url_for("main.dashboard"))
 
     html_str = render_template("pd4/print_pdf.html", slips=slips, coop=coop, bank_account=bank_account)
 

@@ -31,9 +31,10 @@ def create_app(config_class=Config):
     def _inject_user():
         from . import database
         from .models import Cooperative
+        from .accounting import balance as _balance
         coop = database.db_session.query(Cooperative).first()
         coop_name = (coop.short_name or coop.full_name) if coop and (coop.short_name or coop.full_name) else "ГСК"
-        return {"current_user": g.get("user"), "coop_name": coop_name}
+        return {"current_user": g.get("user"), "coop_name": coop_name, "balance": _balance}
 
     from .main import bp as main_bp
     from .garages import bp as garages_bp

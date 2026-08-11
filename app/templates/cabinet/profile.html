@@ -3,6 +3,21 @@
 {% block content %}
 <h3 class="mb-3">{{ _("Мой профиль") }}</h3>
 
+{% if pending_revision %}
+<div class="alert alert-info d-flex align-items-center mb-3" role="alert">
+  <span class="me-2">⚠</span>
+  <div>
+    <strong>{{ _("Ожидают одобрения") }}</strong>: {{ _("Изменения отправлены на {date}.", date=pending_revision.submitted_at.strftime('%d.%m.%Y %H:%M')) }}
+  </div>
+</div>
+{% endif %}
+
+{% if person %}
+<div class="alert alert-warning mb-3">
+  <small>{{ _("Если ваши паспортные данные изменились (смена паспорта, регистрация/прописка) — обновите информацию ниже. Изменения применяются только после одобрения председателя.") }}</small>
+</div>
+{% endif %}
+
 {% if person is none %}
 <p class="text-muted">{{ _("Ваша учётная запись пока не привязана к карточке члена кооператива. Обратитесь в правление.") }}</p>
 {% else %}
@@ -11,6 +26,7 @@
     <h6 class="text-muted">{{ _("Актуальные данные (можно менять самостоятельно)") }}</h6>
     <form method="post" class="bg-body p-4 rounded border">
       <div class="row g-3">
+        <h6 class="border-bottom pb-2">{{ _("Контактные данные") }}</h6>
         <div class="col-12">
           <label class="form-label">{{ _("Телефоны (через запятую)") }}</label>
           <input class="form-control" name="phones" value="{{ person.phones|map(attribute='number')|join(', ') }}">
@@ -31,8 +47,34 @@
           <label class="form-label">{{ _("Адрес проживания") }}</label>
           <input class="form-control" name="residence_address" value="{{ person.residence_address or '' }}">
         </div>
+
+        <div class="col-12 mt-4">
+          <h6 class="border-bottom pb-2">{{ _("Паспортные данные") }}</h6>
+          <div class="row g-3">
+            <div class="col-md-4">
+              <label class="form-label">{{ _("Серия") }}</label>
+              <input class="form-control" name="passport_series" value="{{ person.passport_series or '' }}" placeholder="1234">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">{{ _("Номер") }}</label>
+              <input class="form-control" name="passport_number" value="{{ person.passport_number or '' }}" placeholder="123456">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">{{ _("Код подразделения") }}</label>
+              <input class="form-control" name="passport_department_code" value="{{ person.passport_department_code or '' }}" placeholder="123-456">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">{{ _("Дата выдачи") }}</label>
+              <input type="date" class="form-control" name="passport_issue_date" value="{{ person.passport_issue_date.strftime('%Y-%m-%d') if person.passport_issue_date else '' }}">
+            </div>
+            <div class="col-md-12">
+              <label class="form-label">{{ _("Кем выдан") }}</label>
+              <textarea class="form-control" name="passport_issued_by" rows="2">{{ person.passport_issued_by or '' }}</textarea>
+            </div>
+          </div>
+        </div>
       </div>
-      <button class="btn btn-primary mt-3">{{ _("Сохранить") }}</button>
+      <button class="btn btn-primary mt-3">{{ _("Отправить на рассмотрение") }}</button>
     </form>
   </div>
 

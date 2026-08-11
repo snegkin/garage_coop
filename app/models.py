@@ -598,6 +598,12 @@ class MemberAccount(Base):
     )
 
 
+class PersonDataRevisionStatus(str, enum.Enum):
+    PENDING = "pending"   # предложение ожидает рассмотрения
+    APPROVED = "approved" # председатель одобрил
+    REJECTED = "rejected" # председатель отклонил
+
+
 class PersonDataRevision(Base):
     """
     Предложенные изменения персональных данных членом кооператива.
@@ -611,7 +617,7 @@ class PersonDataRevision(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     person_id: Mapped[int] = mapped_column(ForeignKey("person.id"), index=True)
     submitted_by_user_id: Mapped[int] = mapped_column(ForeignKey("user.id"), index=True)
-    status: Mapped["PersonDataRevisionStatus"] = mapped_column(Enum(PersonDataRevisionStatus), default=PersonDataRevisionStatus.PENDING)
+    status: Mapped[PersonDataRevisionStatus] = mapped_column(Enum(PersonDataRevisionStatus), default=PersonDataRevisionStatus.PENDING)
     fields_snapshot: Mapped[str] = mapped_column(Text)  # JSON: полные значения изменяемых полей на момент отправки
     submitted_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.utcnow)
     reviewed_at: Mapped[dt.datetime | None] = mapped_column(DateTime, nullable=True)
@@ -620,12 +626,6 @@ class PersonDataRevision(Base):
     person: Mapped["Person"] = relationship(back_populates="revisions")
     submitter: Mapped["User"] = relationship(foreign_keys=[submitted_by_user_id])
     reviewer: Mapped["User | None"] = relationship(foreign_keys=[reviewer_user_id])
-
-
-class PersonDataRevisionStatus(str, enum.Enum):
-    PENDING = "pending"   # предложение ожидаает рассмотрения
-    APPROVED = "approved" # председатель одобрил
-    REJECTED = "rejected" # председатель отклонил
 
 
 class PD4Document(Base):

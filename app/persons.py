@@ -1,3 +1,4 @@
+import json
 import datetime as dt
 from decimal import Decimal
 
@@ -7,7 +8,7 @@ from werkzeug.security import generate_password_hash
 from . import database
 from .i18n import translate as _
 from .auth import login_required, roles_required
-from .models import Person, Phone, User, RoleEnum, MemberAccount
+from .models import Person, Phone, User, RoleEnum, MemberAccount, PersonDataRevision, PersonDataRevisionStatus
 from .accounting import balance
 
 bp = Blueprint("persons", __name__, url_prefix="/persons")
@@ -17,10 +18,23 @@ bp = Blueprint("persons", __name__, url_prefix="/persons")
 @login_required
 def list_persons():
     q = request.args.get("q", "").strip()
+    show_pending_only = request.args.get("pending") == "1"
     query = database.db_session.query(Person)
     if q:
         query = query.filter(Person.full_name.ilike(f"%{q}%"))
     persons = query.order_by(Person.full_name).all()
+
+    # Находим всех, у кого есть pending-ревизии
+    all_revisions = (
+        database.db_session.query(PersonDataRevision)
+        .filter_by(status=PersonDataRevisionStatus.PENDING)
+        .order_by(PersonDataRevision.submitted_at.desc())
+        .all()
+    )
+    pending_by_person: dict[int, PersonDataRevision] = {}
+    for rev in all_revisions:
+        if rev.person_id not in pending_by_person:
+            pending_by_person[rev.person_id] = rev
 
     accounts_by_person = {}
     for account in database.db_session.query(MemberAccount).all():
@@ -32,7 +46,12 @@ def list_persons():
         )
         for person in persons
     }
-    return render_template("persons/list.html", persons=persons, q=q, balances=balances)
+
+    # Если фильтр — только pending
+    if show_pending_only:
+        persons = [p for p in persons if p.id in pending_by_person]
+
+    return render_template("persons/list.html", persons=persons, q=q, balances=balances, pending_by_person=pending_by_person, show_pending_only=show_pending_only)
 
 
 def _save_from_form(person, f):
@@ -318,3 +337,83 @@ def unlink_account(user_id):
     database.db_session.commit()
     flash(_("Учётная запись отвязана от человека."), "success")
     return redirect(url_for("persons.accounts_list"))
+
+
+# ---------------------------------------------------------------------------
+# Одобрение / отклонение изменений персональных данных (только председатель)
+# ---------------------------------------------------------------------------
+
+def _apply_revision(revision):
+    """Применяет одобренные данные из ревизии к карточке Person."""
+    person = database.db_session.get(Person, revision.person_id)
+    if person is None:
+        return
+    try:
+        snap = json.loads(revision.fields_snapshot)
+    except Exception:
+        return
+    person.email = snap.get("email")
+    person.telegram = snap.get("telegram")
+    person.registration_address = snap.get("registration_address")
+    person.residence_address = snap.get("residence_address")
+    # телефоны
+    for phone in list(person.phones):
+        database.db_session.delete(phone)
+    for number in snap.get("phones", []):
+        database.db_session.add(Phone(person_id=person.id, number=number))
+    # паспорт
+    person.passport_series = snap.get("passport_series")
+    person.passport_number = snap.get("passport_number")
+    person.passport_issued_by = snap.get("passport_issued_by")
+    person.passport_department_code = snap.get("passport_department_code")
+    issue_date_str = snap.get("passport_issue_date")
+    if issue_date_str:
+        try:
+            person.passport_issue_date = dt.date.fromisoformat(issue_date_str)
+        except (ValueError, TypeError):
+            pass
+    else:
+        person.passport_issue_date = None
+
+
+@bp.route("/persons/<int:person_id>/revisions/approve/<int:revision_id>", methods=["POST"])
+@roles_required(RoleEnum.CHAIRMAN)
+def approve_revision(person_id, revision_id):
+    person = database.db_session.get(Person, person_id)
+    if person is None:
+        abort(404)
+    revision = database.db_session.get(PersonDataRevision, revision_id)
+    if revision is None or revision.person_id != person_id:
+        abort(404)
+    if revision.status != PersonDataRevisionStatus.PENDING:
+        flash(_("Эта ревизия уже обработана."), "warning")
+        return redirect(url_for("persons.list_persons"))
+
+    _apply_revision(revision)
+    revision.status = PersonDataRevisionStatus.APPROVED
+    revision.reviewed_at = dt.datetime.utcnow()
+    revision.reviewer_user_id = g.user.id
+    database.db_session.commit()
+    flash(_("Изменения для «{name}» одобрены и применены.", name=person.full_name), "success")
+    return redirect(url_for("persons.list_persons"))
+
+
+@bp.route("/persons/<int:person_id>/revisions/reject/<int:revision_id>", methods=["POST"])
+@roles_required(RoleEnum.CHAIRMAN)
+def reject_revision(person_id, revision_id):
+    person = database.db_session.get(Person, person_id)
+    if person is None:
+        abort(404)
+    revision = database.db_session.get(PersonDataRevision, revision_id)
+    if revision is None or revision.person_id != person_id:
+        abort(404)
+    if revision.status != PersonDataRevisionStatus.PENDING:
+        flash(_("Эта ревизия уже обработана."), "warning")
+        return redirect(url_for("persons.list_persons"))
+
+    revision.status = PersonDataRevisionStatus.REJECTED
+    revision.reviewed_at = dt.datetime.utcnow()
+    revision.reviewer_user_id = g.user.id
+    database.db_session.commit()
+    flash(_("Изменения для «{name}» отклонены.", name=person.full_name), "info")
+    return redirect(url_for("persons.list_persons"))

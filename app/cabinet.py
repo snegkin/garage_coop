@@ -1,16 +1,16 @@
 """
 Личный кабинет: раздел, где любой залогиненный пользователь может посмотреть
-и обновить свои актуальные контактные данные и данные своего гаража —
-без обращения к правлению. Официальные/реестровые поля (паспорт, членство,
-кадастровые номера, площадь и т.д.) здесь не редактируются — только
-контактная информация, которая должна оставаться актуальной.
+свои данные и предложить изменения контактной информации. Изменения
+применяются только после одобрения председателем — см. PersonDataRevision.
 """
 from flask import Blueprint, render_template, request, redirect, url_for, flash, g
+import json
+import datetime as dt
 
 from . import database
 from .auth import login_required
 from .i18n import translate as _
-from .models import Person, Phone, GarageOwnership, MemberAccount
+from .models import Person, Phone, GarageOwnership, MemberAccount, PersonDataRevision, PersonDataRevisionStatus, User
 
 bp = Blueprint("cabinet", __name__, url_prefix="/cabinet")
 
@@ -37,22 +37,90 @@ def profile():
 
     if request.method == "POST":
         f = request.form
-        person.email = f.get("email") or None
-        person.telegram = f.get("telegram") or None
-        person.registration_address = f.get("registration_address") or None
-        person.residence_address = f.get("residence_address") or None
-
-        for phone in list(person.phones):
-            database.db_session.delete(phone)
-        phones = [p.strip() for p in f.get("phones", "").split(",") if p.strip()]
-        for number in phones:
-            database.db_session.add(Phone(person_id=person.id, number=number))
-
+        # Сохраняем текущие (одобренные) данные для сравнения
+        current = {
+            "email": person.email,
+            "telegram": person.telegram,
+            "registration_address": person.registration_address,
+            "residence_address": person.residence_address,
+            "phones": sorted([p.number for p in person.phones]),
+            "passport_series": person.passport_series,
+            "passport_number": person.passport_number,
+            "passport_issued_by": person.passport_issued_by,
+            "passport_issue_date": person.passport_issue_date.isoformat() if person.passport_issue_date else None,
+            "passport_department_code": person.passport_department_code,
+        }
+        new_data = {
+            "email": f.get("email") or None,
+            "telegram": f.get("telegram") or None,
+            "registration_address": f.get("registration_address") or None,
+            "residence_address": f.get("residence_address") or None,
+            "phones": sorted([p.strip() for p in f.get("phones", "").split(",") if p.strip()]),
+            "passport_series": f.get("passport_series") or None,
+            "passport_number": f.get("passport_number") or None,
+            "passport_issued_by": f.get("passport_issued_by") or None,
+            "passport_issue_date": f.get("passport_issue_date") or None,
+            "passport_department_code": f.get("passport_department_code") or None,
+        }
+        # Если ничего не изменилось — предупреждаем
+        if current == new_data:
+            flash(_("Нет изменений для отправки."), "info")
+            return redirect(url_for("cabinet.profile"))
+        # Создаём ревизию — данные не применяются сразу
+        revision = PersonDataRevision(
+            person_id=person.id,
+            submitted_by_user_id=g.user.id,
+            fields_snapshot=json.dumps(new_data, ensure_ascii=False),
+            status=PersonDataRevisionStatus.PENDING,
+        )
+        database.db_session.add(revision)
         database.db_session.commit()
-        flash(_("Данные обновлены."), "success")
+        flash(_("Изменения отправлены на рассмотрение председателю."), "success")
         return redirect(url_for("cabinet.profile"))
 
-    return render_template("cabinet/profile.html", person=person)
+    # Для GET: определяем, есть ли pending-ревизии у этого человека
+    pending_revision = (
+        database.db_session.query(PersonDataRevision)
+        .filter_by(person_id=person.id, status=PersonDataRevisionStatus.PENDING)
+        .order_by(PersonDataRevision.submitted_at.desc())
+        .first()
+    )
+    snap = None
+    if pending_revision:
+        try:
+            snap = json.loads(pending_revision.fields_snapshot)
+        except Exception:
+            snap = None
+
+    # Если есть pending — подставляем данные из ревизии в форму
+    display_person = person
+    if snap:
+        issue_date_str = snap.get("passport_issue_date")
+        issue_date = None
+        if issue_date_str:
+            try:
+                issue_date = dt.date.fromisoformat(issue_date_str)
+            except (ValueError, TypeError):
+                pass
+        display_person = type('Person', (), {
+            'id': person.id,
+            'full_name': person.full_name,
+            'email': snap.get('email'),
+            'telegram': snap.get('telegram'),
+            'registration_address': snap.get('registration_address'),
+            'residence_address': snap.get('residence_address'),
+            'phones': [Phone(id=-1, number=n) for n in snap.get('phones', [])],
+            'passport_series': snap.get('passport_series'),
+            'passport_number': snap.get('passport_number'),
+            'passport_issued_by': snap.get('passport_issued_by'),
+            'passport_issue_date': issue_date,
+            'passport_department_code': snap.get('passport_department_code'),
+            'membership_start_date': person.membership_start_date,
+            'membership_end_date': person.membership_end_date,
+            'comment': person.comment,
+        })()
+
+    return render_template("cabinet/profile.html", person=display_person, pending_revision=pending_revision, pending_data=snap)
 
 
 @bp.route("/garages")

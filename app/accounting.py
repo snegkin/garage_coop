@@ -215,3 +215,29 @@ def pd4_qr_payload(coop: Cooperative, bank_account, member_account: MemberAccoun
         "PersAcc": member_account.account_number,
     }
     return "ST00012|" + "|".join(f"{k}={v}" for k, v in fields.items() if v)
+
+
+def pd4_qr_payload_electricity(coop: Cooperative, bank_account, garage: Garage, personal_account, amount: Decimal) -> str:
+    """
+    То же самое, но для лицевого счёта на электричество (PersonalAccount) — он общий
+    на гараж, без привязки к конкретному собственнику, поэтому в поле «ФИО плательщика»
+    подставляются все текущие собственники гаража через запятую.
+    """
+    owners = ", ".join(o.person.full_name for o in garage.ownerships)
+    payer_name = owners or f"Гараж №{garage.number}"
+    electricity_fee_type = database.db_session.query(FeeType).filter_by(code="electricity").first()
+    purpose_label = electricity_fee_type.name if electricity_fee_type else "Электроэнергия"
+    fields = {
+        "Name": coop.short_name or coop.full_name,
+        "PersonalAcc": bank_account.checking_account if bank_account else "",
+        "BankName": bank_account.bank_name if bank_account else "",
+        "BIC": bank_account.bik if bank_account else "",
+        "CorrespAcc": bank_account.correspondent_account if bank_account else "",
+        "PayeeINN": coop.inn,
+        "KPP": coop.kpp,
+        "Purpose": f"{purpose_label}, гараж №{garage.number}, л/с {personal_account.account_number}",
+        "Sum": str(int((amount * 100).to_integral_value())),
+        "LastName": payer_name,
+        "PersAcc": personal_account.account_number,
+    }
+    return "ST00012|" + "|".join(f"{k}={v}" for k, v in fields.items() if v)

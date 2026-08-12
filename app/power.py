@@ -126,6 +126,7 @@ def add_master_reading():
     database.db_session.add(MasterMeterReading(
         year=year,
         month=month,
+        reading_date=dt.date(year, month, 1),
         reading=Decimal(f["reading"]),
         tariff_id=tariff.id,
         comment=f.get("comment") or None,

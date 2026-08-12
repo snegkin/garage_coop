@@ -74,7 +74,7 @@
     </form>
     <form method="post" action="{{ url_for('persons.toggle_active', person_id=person.id) }}">
       <button class="btn btn-sm {{ 'btn-outline-danger' if account.is_active else 'btn-outline-success' }}">
-        {{ _("Отключить дос��уп") if account.is_active else _("Включить доступ") }}
+        {{ _("Отключить доступ") if account.is_active else _("Включить доступ") }}
       </button>
     </form>
   {% else %}

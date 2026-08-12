@@ -11,6 +11,7 @@ from . import database
 from .auth import login_required
 from .i18n import translate as _
 from .models import Person, Phone, GarageOwnership, MemberAccount, PersonDataRevision, PersonDataRevisionStatus, User
+from .accounting import balance as account_balance
 
 bp = Blueprint("cabinet", __name__, url_prefix="/cabinet")
 
@@ -129,6 +130,7 @@ def garages():
     person = _current_person()
     ownerships = []
     member_accounts_by_garage = {}
+    electricity_by_garage = {}
     if person is not None:
         ownerships = (
             database.db_session.query(GarageOwnership)
@@ -138,7 +140,12 @@ def garages():
         accounts = database.db_session.query(MemberAccount).filter_by(person_id=person.id).all()
         for acc in accounts:
             member_accounts_by_garage.setdefault(acc.garage_id, []).append(acc)
+        for o in ownerships:
+            garage = o.garage
+            if garage.account is not None:
+                electricity_by_garage[garage.id] = (garage.account, account_balance(garage))
     return render_template(
         "cabinet/garages.html", person=person, ownerships=ownerships,
         member_accounts_by_garage=member_accounts_by_garage,
+        electricity_by_garage=electricity_by_garage,
     )

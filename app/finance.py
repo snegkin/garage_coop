@@ -7,23 +7,13 @@ from . import database
 from .i18n import translate as _
 from .auth import login_required, roles_required
 from .models import (
-    PersonalAccount, Garage, GarageOwnership, Charge, Payment,
+    GarageOwnership, Charge, Payment,
     FeeType, MemberAccount, Person, RoleEnum,
     Cooperative, LandTaxYear,
 )
 from .accounting import get_settings, electricity_account_number, member_account_number, balance as _balance, compute_land_tax
 
 bp = Blueprint("finance", __name__, url_prefix="/finance")
-
-
-def _can_view_account(account: PersonalAccount) -> bool:
-    """Правление/председатель видят всё; рядовой член — только счета своих гаражей."""
-    if g.user.role in (RoleEnum.CHAIRMAN, RoleEnum.BOARD, RoleEnum.ACCOUNTANT):
-        return True
-    if g.user.person_id is None:
-        return False
-    owner_ids = {o.person_id for o in account.garage.ownerships}
-    return g.user.person_id in owner_ids
 
 
 def _can_view_member_account(account: MemberAccount) -> bool:
@@ -63,93 +53,6 @@ def create_fee_type():
 # ---------------------------------------------------------------------------
 # Лицевые счета на электричество (по гаражу)
 # ---------------------------------------------------------------------------
-
-@bp.route("/accounts")
-@roles_required(RoleEnum.BOARD)
-def accounts():
-    accs = database.db_session.query(PersonalAccount).join(Garage).order_by(Garage.number).all()
-    rows = [(a, _balance(a.garage)) for a in accs]
-    return render_template("finance/accounts.html", rows=rows)
-
-
-@bp.route("/accounts/<int:account_id>")
-@login_required
-def account_detail(account_id):
-    account = database.db_session.get(PersonalAccount, account_id)
-    if account is None:
-        flash(_("Лицевой счёт не найден."), "danger")
-        return redirect(url_for("finance.accounts"))
-    if not _can_view_account(account):
-        abort(403)
-
-    fee_types_list = database.db_session.query(FeeType).order_by(FeeType.name).all()
-    return render_template(
-        "finance/account_detail.html",
-        account=account,
-        balance=_balance(account.garage),
-        fee_types=fee_types_list,
-    )
-
-
-@bp.route("/accounts/<int:account_id>/number", methods=["POST"])
-@roles_required(RoleEnum.BOARD)
-def update_account_number(account_id):
-    account = database.db_session.get(PersonalAccount, account_id)
-    if account is None:
-        abort(404)
-    account.account_number = request.form["account_number"].strip()
-    try:
-        database.db_session.commit()
-    except Exception:
-        database.db_session.rollback()
-        flash(_("Такой номер счёта уже используется."), "danger")
-        return redirect(url_for("finance.account_detail", account_id=account.id))
-    flash(_("Номер счёта обновлён."), "success")
-    return redirect(url_for("finance.account_detail", account_id=account.id))
-
-
-@bp.route("/accounts/<int:account_id>/charges/add", methods=["POST"])
-@roles_required(RoleEnum.BOARD)
-def add_charge(account_id):
-    account = database.db_session.get(PersonalAccount, account_id)
-    if account is None:
-        abort(404)
-
-    f = request.form
-    charge = Charge(
-        garage_id=account.garage_id,
-        fee_type_id=int(f["fee_type_id"]),
-        year=int(f["year"]),
-        amount=Decimal(f["amount"]),
-    )
-    database.db_session.add(charge)
-    database.db_session.commit()
-    flash(_("Начисление добавлено."), "success")
-    return redirect(url_for("finance.account_detail", account_id=account.id))
-
-
-@bp.route("/accounts/<int:account_id>/payments/add", methods=["POST"])
-@login_required
-def add_payment(account_id):
-    account = database.db_session.get(PersonalAccount, account_id)
-    if account is None:
-        abort(404)
-    if not _can_view_account(account):
-        abort(403)
-
-    f = request.form
-    payment = Payment(
-        garage_id=account.garage_id,
-        date=dt.date.fromisoformat(f["date"]),
-        amount=Decimal(f["amount"]),
-        payer_person_id=int(f["payer_person_id"]) if f.get("payer_person_id") else None,
-        comment=f.get("comment") or None,
-    )
-    database.db_session.add(payment)
-    database.db_session.commit()
-    flash(_("Платёж зарегистрирован."), "success")
-    return redirect(url_for("finance.account_detail", account_id=account.id))
-
 
 # ---------------------------------------------------------------------------
 # Лицевые счета членов кооператива (земельный налог, взносы, пени — по гаражу и виду взноса)

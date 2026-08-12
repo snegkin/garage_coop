@@ -392,9 +392,11 @@ class ElectricityReading(Base):
     reading: Mapped[Decimal] = mapped_column(Numeric(12, 2))
     reading_date: Mapped[dt.date] = mapped_column(Date, index=True)
     amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))  # автоматически: (показание - предыдущее) * тариф на дату
+    tariff: Mapped[Decimal | None] = mapped_column(Numeric(10, 4))  # тариф ₽/кВт·ч, применённый при расчёте amount
     comment: Mapped[str | None] = mapped_column(Text)
 
     meter: Mapped["ElectricityMeter"] = relationship(back_populates="readings")
+    charge: Mapped["Charge | None"] = relationship(back_populates="reading", uselist=False)
 
 
 class ElectricityTariff(Base):
@@ -424,7 +426,9 @@ class MasterMeterReading(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     year: Mapped[int] = mapped_column(Integer, index=True)
     month: Mapped[int] = mapped_column(Integer)  # 1-12
+    reading_date: Mapped[dt.date] = mapped_column(Date, index=True)  # вычисляется из year/month (первое число месяца)
     reading: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))  # автоматически: (показание - предыдущее) * тариф
     tariff_id: Mapped[int] = mapped_column(ForeignKey("electricity_tariff.id"), index=True)
     comment: Mapped[str | None] = mapped_column(Text)
     document_id: Mapped[int | None] = mapped_column(ForeignKey("document.id", ondelete="SET NULL"), index=True)
@@ -512,11 +516,15 @@ class Charge(Base):
     year: Mapped[int] = mapped_column(Integer, index=True)
     amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
     annual_report_id: Mapped[int | None] = mapped_column(ForeignKey("annual_report.id", ondelete="SET NULL"), index=True)
+    reading_id: Mapped[int | None] = mapped_column(
+        ForeignKey("electricity_reading.id", ondelete="SET NULL"), index=True
+    )  # связь с показанием счётчика, из которого начисление рассчитано автоматически
     comment: Mapped[str | None] = mapped_column(Text)
 
     garage: Mapped["Garage | None"] = relationship(back_populates="charges")
     account: Mapped["MemberAccount | None"] = relationship(back_populates="charges")
     fee_type: Mapped["FeeType | None"] = relationship()
+    reading: Mapped["ElectricityReading | None"] = relationship(back_populates="charge")
 
     __table_args__ = (
         CheckConstraint(
@@ -629,15 +637,29 @@ class PersonDataRevision(Base):
 
 
 class PD4Document(Base):
-    """История сформированных платёжек ПД-4 с QR-кодом (для отчётности/аудита)."""
+    """История сформированных платёжек ПД-4 с QR-кодом (для отчётности/аудита).
+    Ровно одно из account_id/personal_account_id должно быть заполнено —
+    платёжка либо по взносу/налогу члена (MemberAccount), либо по
+    электричеству гаража (PersonalAccount)."""
     __tablename__ = "pd4_document"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    account_id: Mapped[int] = mapped_column(ForeignKey("member_account.id", ondelete="CASCADE"), index=True)
+    account_id: Mapped[int | None] = mapped_column(ForeignKey("member_account.id", ondelete="CASCADE"), index=True)
+    personal_account_id: Mapped[int | None] = mapped_column(
+        ForeignKey("personal_account.id", ondelete="CASCADE"), index=True
+    )
     bank_account_id: Mapped[int | None] = mapped_column(ForeignKey("bank_account.id", ondelete="SET NULL"), index=True)
     amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
     qr_payload: Mapped[str | None] = mapped_column(Text)
     generated_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.utcnow)
 
-    account: Mapped["MemberAccount"] = relationship()
+    account: Mapped["MemberAccount | None"] = relationship()
+    personal_account: Mapped["PersonalAccount | None"] = relationship()
     bank_account: Mapped["BankAccount | None"] = relationship()
+
+    __table_args__ = (
+        CheckConstraint(
+            "(account_id IS NOT NULL) + (personal_account_id IS NOT NULL) = 1",
+            name="ck_pd4_document_target",
+        ),
+    )

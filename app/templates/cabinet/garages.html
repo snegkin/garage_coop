@@ -18,22 +18,40 @@
         <p class="card-text mb-1"><strong>{{ _("Доля") }}:</strong> {{ fmt2(o.share) }}</p>
         <p class="card-text mb-3"><strong>{{ _("Кадастровый номер гаража") }}:</strong> {{ o.garage.cadastral_number or "—" }}</p>
         <a class="btn btn-sm btn-primary" href="{{ url_for('garages.detail', garage_id=o.garage.id) }}">{{ _("Открыть и обновить данные") }}</a>
-        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('electricity.view', garage_id=o.garage.id) }}">{{ _("Электричество") }}</a>
-        {% if o.garage.account %}
-        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('finance.account_detail', account_id=o.garage.account.id) }}">{{ _("Электросчёт") }}</a>
-        {% endif %}
 
         {% set my_accounts = member_accounts_by_garage.get(o.garage.id, []) %}
-        {% if my_accounts %}
+        {% set elec = electricity_by_garage.get(o.garage.id) %}
+        {% if my_accounts or elec %}
         <table class="table table-sm mt-3 mb-0">
-          <thead><tr><th>{{ _("Вид взноса") }}</th><th>{{ _("Счёт") }}</th><th>{{ _("Баланс") }}</th></tr></thead>
+          <thead><tr><th>{{ _("Вид взноса") }}</th><th>{{ _("Счёт") }}</th><th>{{ _("Баланс") }}</th><th class="no-sort"></th></tr></thead>
           <tbody>
+            {% if elec %}
+            {% set elec_account, elec_balance = elec %}
+            <tr>
+              <td onclick="window.location='{{ url_for('garages.detail', garage_id=o.garage.id, tab='account') }}'" style="cursor:pointer">{{ _("Электроэнергия") }}</td>
+              <td onclick="window.location='{{ url_for('garages.detail', garage_id=o.garage.id, tab='account') }}'" style="cursor:pointer">{{ elec_account.account_number }}</td>
+              <td class="{{ 'text-danger' if elec_balance < 0 else 'text-success' }}" onclick="window.location='{{ url_for('garages.detail', garage_id=o.garage.id, tab='account') }}'" style="cursor:pointer">
+                {{ fmt2(elec_balance) }} ₽
+              </td>
+              <td class="text-end">
+                {% if elec_balance < 0 %}
+                <a class="btn btn-sm btn-outline-success" href="{{ url_for('pd4.print_slips', garage_id=o.garage.id) }}" title="{{ _('Оплатить') }}">💳</a>
+                {% endif %}
+              </td>
+            </tr>
+            {% endif %}
             {% for acc in my_accounts %}
-            <tr onclick="window.location='{{ url_for('finance.member_account_detail', account_id=acc.id) }}'" style="cursor:pointer">
-              <td>{{ acc.fee_type.name }}</td>
-              <td>{{ acc.account_number }}</td>
-              <td class="{{ 'text-danger' if acc.charges|sum(attribute='amount') - acc.payments|sum(attribute='amount') > 0 else 'text-success' }}">
-                {{ fmt2(acc.payments|sum(attribute='amount') - acc.charges|sum(attribute='amount')) }} ₽
+            {% set acc_balance = acc.payments|sum(attribute='amount') - acc.charges|sum(attribute='amount') %}
+            <tr>
+              <td onclick="window.location='{{ url_for('finance.member_account_detail', account_id=acc.id) }}'" style="cursor:pointer">{{ acc.fee_type.name }}</td>
+              <td onclick="window.location='{{ url_for('finance.member_account_detail', account_id=acc.id) }}'" style="cursor:pointer">{{ acc.account_number }}</td>
+              <td class="{{ 'text-danger' if acc_balance < 0 else 'text-success' }}" onclick="window.location='{{ url_for('finance.member_account_detail', account_id=acc.id) }}'" style="cursor:pointer">
+                {{ fmt2(acc_balance) }} ₽
+              </td>
+              <td class="text-end">
+                {% if acc_balance < 0 %}
+                <a class="btn btn-sm btn-outline-success" href="{{ url_for('pd4.print_slips', account_id=acc.id) }}" title="{{ _('Оплатить') }}">💳</a>
+                {% endif %}
               </td>
             </tr>
             {% endfor %}

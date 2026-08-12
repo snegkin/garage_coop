@@ -1,3 +1,4 @@
+import datetime as dt
 import os
 import uuid
 from decimal import Decimal, InvalidOperation
@@ -12,9 +13,10 @@ from .i18n import translate as _
 from .auth import login_required, roles_required
 from .models import (
     Garage, Person, GarageOwnership, GarageContact, GaragePhoto, PersonalAccount,
-    MemberAccount, FeeType, RoleEnum,
+    MemberAccount, FeeType, RoleEnum, ElectricityMeter, ElectricityReading,
+    Charge, Payment, User,
 )
-from .accounting import electricity_account_number, member_account_number, balance
+from .accounting import electricity_account_number, member_account_number, balance, current_tariff
 
 bp = Blueprint("garages", __name__, url_prefix="/garages")
 
@@ -27,6 +29,18 @@ def _is_owner_or_board(garage: Garage) -> bool:
         return False
     owner_ids = {o.person_id for o in garage.ownerships}
     return g.user.person_id in owner_ids
+
+
+def _current_meter(garage: Garage):
+    """Актуальный счётчик — последняя по дате установки запись."""
+    if not garage.meters:
+        return None
+    return sorted(garage.meters, key=lambda m: (m.installed_date or dt.date.min, m.id))[-1]
+
+
+def _meter_history(garage: Garage):
+    """Все счётчики, отсортированные от новых к старым."""
+    return sorted(garage.meters, key=lambda m: (m.installed_date or dt.date.min, m.id), reverse=True)
 
 
 def _ensure_member_accounts(garage: Garage, person_id: int, owner_index: int):
@@ -139,12 +153,77 @@ def detail(garage_id):
     all_persons = database.db_session.query(Person).order_by(Person.full_name).all()
     total_share = sum((o.share for o in garage.ownerships), Decimal("0"))
     preselect_contact_person_id = request.args.get("new_person_id", type=int)
+
+    # электричество
+    current_meter = _current_meter(garage)
+    meter_history = _meter_history(garage)
+    readings = sorted(current_meter.readings, key=lambda r: r.reading_date, reverse=True) if current_meter else []
+
+    # электросчёт
+    account = garage.account
+    acc_balance = balance(account.garage) if account else None
+    charges = sorted(account.garage.charges, key=lambda c: c.year, reverse=True) if account else []
+    payments = sorted(account.garage.payments, key=lambda p: p.date, reverse=True) if account else []
+    fee_types_list = database.db_session.query(FeeType).order_by(FeeType.name).all()
+
+    # объединённая таблица: показание берёт своё начисление напрямую через связь
+    # Charge.reading (FK reading_id, а не текстовым сопоставлением); начисления без
+    # привязки к показанию (ручные, любого вида взноса) и платежи идут отдельными
+    # строками той же таблицы, всё вместе упорядочено по дате от новых к старым.
+    ledger_rows = []
+    for r in readings:
+        ledger_rows.append({
+            "sort_date": r.reading_date,
+            "reading_date": r.reading_date,
+            "reading": r.reading,
+            "tariff": r.tariff,
+            "charge_amount": r.charge.amount if r.charge else None,
+            "payer": None,
+            "payment_date": None,
+            "payment_amount": None,
+        })
+    for c in charges:
+        if c.reading_id is not None:
+            continue  # уже отражено вместе со своим показанием выше
+        ledger_rows.append({
+            "sort_date": dt.date(c.year, 1, 1),
+            "reading_date": None,
+            "reading": None,
+            "tariff": None,
+            "charge_amount": c.amount,
+            "charge_label": c.fee_type.name if c.fee_type else None,
+            "payer": None,
+            "payment_date": None,
+            "payment_amount": None,
+        })
+    for p in payments:
+        ledger_rows.append({
+            "sort_date": p.date,
+            "reading_date": None,
+            "reading": None,
+            "tariff": None,
+            "charge_amount": None,
+            "payer": p.payer.full_name if p.payer else None,
+            "payment_date": p.date,
+            "payment_amount": p.amount,
+        })
+    ledger_rows.sort(key=lambda row: row["sort_date"], reverse=True)
+
     return render_template(
         "garages/detail.html",
         garage=garage,
         all_persons=all_persons,
         total_share=total_share,
         preselect_contact_person_id=preselect_contact_person_id,
+        current_meter=current_meter,
+        meter_history=meter_history,
+        readings=readings,
+        ledger_rows=ledger_rows,
+        account=account,
+        account_balance=acc_balance,
+        charges=charges,
+        payments=payments,
+        fee_types=fee_types_list,
     )
 
 
@@ -345,3 +424,210 @@ def photo_file(photo_id):
     if photo is None:
         abort(404)
     return send_from_directory(current_app.config["UPLOAD_FOLDER"], photo.file_path)
+
+
+# ---------------------------------------------------------------------------
+# Электричество: счётчики и показания
+# ---------------------------------------------------------------------------
+
+@bp.route("/<int:garage_id>/electricity/meter/add", methods=["POST"])
+@roles_required(RoleEnum.BOARD)
+def add_electricity_meter(garage_id):
+    garage = database.db_session.get(Garage, garage_id)
+    if garage is None:
+        abort(404)
+
+    f = request.form
+    installed = f.get("installed_date")
+    sealed = f.get("sealed_date")
+    initial_reading = f.get("initial_reading")
+
+    meter = ElectricityMeter(
+        garage_id=garage.id,
+        meter_number=f["meter_number"],
+        installed_date=dt.date.fromisoformat(installed) if installed else None,
+        sealed_date=dt.date.fromisoformat(sealed) if sealed else None,
+        initial_reading=Decimal(initial_reading) if initial_reading else None,
+        meter_seal_number=f.get("meter_seal_number") or None,
+        breaker_seal_number=f.get("breaker_seal_number") or None,
+        comment=f.get("comment") or None,
+    )
+    database.db_session.add(meter)
+    database.db_session.commit()
+    flash(_("Счётчик добавлен."), "success")
+    return redirect(url_for("garages.detail", garage_id=garage_id, tab="account"))
+
+
+@bp.route("/<int:garage_id>/electricity/reading/add", methods=["POST"])
+@login_required
+def add_electricity_reading(garage_id):
+    garage = database.db_session.get(Garage, garage_id)
+    if garage is None:
+        abort(404)
+    if not _is_owner_or_board(garage):
+        abort(403)
+
+    current = _current_meter(garage)
+    if current is None:
+        flash(_("Сначала добавьте счётчик."), "danger")
+        return redirect(url_for("garages.detail", garage_id=garage_id))
+
+    f = request.form
+    reading_value = Decimal(f["reading"])
+    reading_date = dt.date.today()
+
+    # предыдущее показание этого счётчика (по дате) — или начальные показания счётчика, если это первая запись
+    previous = (
+        database.db_session.query(ElectricityReading)
+        .filter_by(meter_id=current.id)
+        .order_by(ElectricityReading.reading_date.desc(), ElectricityReading.id.desc())
+        .first()
+    )
+    baseline = previous.reading if previous else current.initial_reading
+    amount = None
+    tariff = current_tariff(reading_date)
+    tariff_rate = tariff.rate if tariff is not None else None
+    if baseline is not None:
+        delta = reading_value - baseline
+        if tariff is not None and delta > 0:
+            amount = (delta * tariff.rate).quantize(Decimal("0.01"))
+
+    reading = ElectricityReading(
+        meter_id=current.id,
+        reading=reading_value,
+        reading_date=reading_date,
+        amount=amount,
+        tariff=tariff_rate,
+        comment=f.get("comment") or None,
+    )
+    database.db_session.add(reading)
+    database.db_session.flush()  # получить reading.id для связи с начислением
+
+    if amount is not None:
+        electricity_fee_type = database.db_session.query(FeeType).filter_by(code="electricity").first()
+        if electricity_fee_type is not None:
+            database.db_session.add(Charge(
+                garage_id=garage.id,
+                fee_type_id=electricity_fee_type.id,
+                year=reading_date.year,
+                amount=amount,
+                reading_id=reading.id,
+                comment=_("Начислено по показаниям от {date}", date=reading_date.isoformat()),
+            ))
+
+    database.db_session.commit()
+
+    if amount is None:
+        flash(_("Показания внесены. Сумма не рассчитана — задайте тариф на странице «Электроэнергия»."), "warning")
+    else:
+        flash(_("Показания внесены, начислено {amount} ₽.", amount=amount), "success")
+    return redirect(url_for("garages.detail", garage_id=garage_id, tab="account"))
+
+
+# ---------------------------------------------------------------------------
+# Номер счёта
+# ---------------------------------------------------------------------------
+
+@bp.route("/<int:garage_id>/account/number", methods=["POST"])
+@roles_required(RoleEnum.BOARD)
+def update_account_number(garage_id):
+    garage = database.db_session.get(Garage, garage_id)
+    if garage is None:
+        abort(404)
+    account = garage.account
+    if account is None:
+        abort(404)
+    account.account_number = request.form["account_number"].strip()
+    try:
+        database.db_session.commit()
+    except Exception:
+        database.db_session.rollback()
+        flash(_("Такой номер счёта уже используется."), "danger")
+        return redirect(url_for("garages.detail", garage_id=garage_id, tab="account"))
+    flash(_("Номер счёта обновлён."), "success")
+    return redirect(url_for("garages.detail", garage_id=garage_id, tab="account"))
+
+
+# ---------------------------------------------------------------------------
+# Гаражные начисления и платежи
+# ---------------------------------------------------------------------------
+
+@bp.route("/charges/add", methods=["GET", "POST"])
+@roles_required(RoleEnum.BOARD)
+def add_charge_page():
+    if request.method == "POST":
+        f = request.form
+        garage = database.db_session.get(Garage, int(f["garage_id"]))
+        if garage is None:
+            abort(404)
+        fee_type = database.db_session.get(FeeType, int(f["fee_type_id"]))
+        if fee_type is None:
+            abort(404)
+        charge = Charge(
+            garage_id=garage.id,
+            fee_type_id=fee_type.id,
+            year=int(f["year"]),
+            amount=Decimal(f["amount"]),
+            comment=f.get("comment") or None,
+        )
+        database.db_session.add(charge)
+        database.db_session.commit()
+        flash(_("Начисление добавлено."), "success")
+        return redirect(url_for("garages.detail", garage_id=garage.id, tab="account"))
+
+    garages_list = database.db_session.query(Garage).order_by(Garage.number).all()
+    fee_types_list = database.db_session.query(FeeType).order_by(FeeType.name).all()
+    person_names = {
+        garage.id: ", ".join(o.person.full_name for o in garage.ownerships)
+        for garage in garages_list
+    }
+    return render_template(
+        "garages/add_charge.html",
+        garages=garages_list,
+        fee_types=fee_types_list,
+        person_names=person_names,
+        current_year=dt.date.today().year,
+    )
+
+
+@bp.route("/<int:garage_id>/charges/add", methods=["POST"])
+@roles_required(RoleEnum.BOARD)
+def add_charge(garage_id):
+    garage = database.db_session.get(Garage, garage_id)
+    if garage is None:
+        abort(404)
+
+    f = request.form
+    charge = Charge(
+        garage_id=garage.id,
+        fee_type_id=int(f["fee_type_id"]),
+        year=int(f["year"]),
+        amount=Decimal(f["amount"]),
+    )
+    database.db_session.add(charge)
+    database.db_session.commit()
+    flash(_("Начисление добавлено."), "success")
+    return redirect(url_for("garages.detail", garage_id=garage_id, tab="account"))
+
+
+@bp.route("/<int:garage_id>/payments/add", methods=["POST"])
+@login_required
+def add_payment(garage_id):
+    garage = database.db_session.get(Garage, garage_id)
+    if garage is None:
+        abort(404)
+    if not _is_owner_or_board(garage):
+        abort(403)
+
+    f = request.form
+    payment = Payment(
+        garage_id=garage.id,
+        date=dt.date.fromisoformat(f["date"]),
+        amount=Decimal(f["amount"]),
+        payer_person_id=int(f["payer_person_id"]) if f.get("payer_person_id") else None,
+        comment=f.get("comment") or None,
+    )
+    database.db_session.add(payment)
+    database.db_session.commit()
+    flash(_("Платёж зарегистрирован."), "success")
+    return redirect(url_for("garages.detail", garage_id=garage_id, tab="account"))

@@ -47,9 +47,10 @@
         </button>
         <ul class="dropdown-menu dropdown-menu-end">
           <li><a class="dropdown-item" href="{{ url_for('garages.list_garages') }}">{{ _("Гаражи") }}</a></li>
+          <li><a class="dropdown-item" href="{{ url_for('garages.add_charge_page') }}">{{ _("Начисления на гаражи") }}</a></li>
           <li><a class="dropdown-item" href="{{ url_for('persons.list_persons') }}">{{ _("Люди") }}</a></li>
-          <li><a class="dropdown-item" href="{{ url_for('finance.accounts') }}">{{ _("Лицевые счета") }}</a></li>
           <li><a class="dropdown-item" href="{{ url_for('power.view') }}">{{ _("Электроэнергия") }}</a></li>
+          <li><a class="dropdown-item" href="{{ url_for('master_meter.view') }}">{{ _("Общий счётчик") }}</a></li>
           <li><a class="dropdown-item" href="{{ url_for('counterparties.list_counterparties') }}">{{ _("Контрагенты") }}</a></li>
           {% if current_user.role.value == 'chairman' %}
           <li><hr class="dropdown-divider"></li>

@@ -258,7 +258,7 @@ def add_owner(garage_id):
     garage = database.db_session.get(Garage, garage_id)
     person_id = int(request.form["person_id"])
     try:
-        share = Decimal(request.form["share"])
+        share = Decimal(request.form["share"] or "1")
     except InvalidOperation:
         flash(_("Доля должна быть числом (например 0.5)."), "danger")
         return redirect(url_for("garages.detail", garage_id=garage_id))

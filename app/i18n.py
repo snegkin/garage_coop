@@ -414,7 +414,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Начислений нет.": "No charges yet.",
         "Начислить (распределится по долям)": "Charge (will be split by ownership share)",
         "Платежи": "Payments",
-        "От кого": "From",
+        "Оплатил": "Paid by",
         "Платежей нет.": "No payments yet.",
         "плательщик": "payer",
         "комментарий (необязательно)": "comment (optional)",

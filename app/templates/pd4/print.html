@@ -36,7 +36,7 @@
 <table class="pd4-table pd4-slip">
     <!-- ИЗВЕЩЕНИЕ -->
     <tr>
-        <td rowspan="6" class="vertical-text">{{ _("ИЗВЕЩЕНИЕ") }}<br><br><br><br><br><br>{{ _("Кассир") }}</td>
+        <td rowspan="6" class="vertical-text">{{ _("ИЗВЕЩЕНИЕ") }}<br><br><br><br><img src="{{ qr_data_uri }}" width="120" height="120" alt="QR-код"><br><br><br><br>{{ _("Кассир") }}</td>
         <td colspan="2"><strong>{{ bank_account.bank_name if bank_account else "" }}</strong><br><span class="header-label">{{ _("наименование банка получателя платежа") }}</span></td>
         <td style="width: 150px;">{{ _("БИК") }}: <strong>{{ bank_account.bik if bank_account else "" }}</strong></td>
     </tr>
@@ -51,14 +51,16 @@
     <tr>
         <td colspan="2">{{ _("К/сч") }}: <strong>{{ bank_account.correspondent_account if bank_account else "" }}</strong></td>
         <td rowspan="2" class="text-center" style="vertical-align: middle;">
-            <img src="{{ qr_data_uri }}" width="120" height="120" alt="QR-код">
+            <!--<img src="{{ qr_data_uri }}" width="120" height="120" alt="QR-код">-->
         </td>
     </tr>
     <tr>
         <td colspan="2">
             {{ _("Лицевой счет (код) плательщика") }}: <strong>{{ account.account_number }}</strong><br><br>
             {{ _("ФИО плательщика") }}: <strong>{{ account.person.full_name }}</strong><br><br>
-            {{ _("Адрес плательщика") }}: <span class="line" style="width: 250px;"></span>
+            {{ _("Адрес плательщика") }}: <span class="line" style="width: 280px;"></span><br><br>
+            {{ _("Дата платежа") }}: <span class="line" style="width: 120px;"></span>&nbsp;
+            {{ _("Плательщик") }}: <span class="line" style="width: 120px;"></span>
         </td>
     </tr>
     <tr>
@@ -72,7 +74,7 @@
 
     <!-- КВИТАНЦИЯ -->
     <tr>
-        <td rowspan="6" class="vertical-text">{{ _("КВИТАНЦИЯ") }}<br><br><br><br><br><br>{{ _("Кассир") }}</td>
+        <td rowspan="6" class="vertical-text">{{ _("КВИТАНЦИЯ") }}<br><br><br><br><br><br><br><br><br><br><br>{{ _("Кассир") }}</td>
         <td colspan="2"><strong>{{ bank_account.bank_name if bank_account else "" }}</strong></td>
         <td>{{ _("БИК") }}: <strong>{{ bank_account.bik if bank_account else "" }}</strong></td>
     </tr>
@@ -87,14 +89,16 @@
     <tr>
         <td colspan="2">{{ _("К/сч") }}: <strong>{{ bank_account.correspondent_account if bank_account else "" }}</strong></td>
         <td rowspan="2" class="text-center" style="vertical-align: middle;">
-            <img src="{{ qr_data_uri }}" width="120" height="120" alt="QR-код">
+            <!--<img src="{{ qr_data_uri }}" width="120" height="120" alt="QR-код">-->
         </td>
     </tr>
     <tr>
         <td colspan="2">
             {{ _("Лицевой счет (код) плательщика") }}: <strong>{{ account.account_number }}</strong><br><br>
             {{ _("ФИО плательщика") }}: <strong>{{ account.person.full_name }}</strong><br><br>
-            {{ _("Адрес плательщика") }}: <span class="line" style="width: 250px;"></span>
+            {{ _("Адрес плательщика") }}: <span class="line" style="width: 280px;"></span><br><br>
+            {{ _("Дата платежа") }}: <span class="line" style="width: 120px;"></span>&nbsp;
+            {{ _("Плательщик") }}: <span class="line" style="width: 120px;"></span>
         </td>
     </tr>
     <tr>

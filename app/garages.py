@@ -105,7 +105,7 @@ def create():
 
         # собственники, указанные прямо в форме создания
         person_ids = request.form.getlist("owner_person_id")
-        shares = request.form.getlist("owner_share")
+        shares = request.form.getlist("owner_share") or "1"
         owner_index = 0
         for person_id, share_raw in zip(person_ids, shares):
             if not person_id or not share_raw:
@@ -295,7 +295,7 @@ def add_owner(garage_id):
     garage = database.db_session.get(Garage, garage_id)
     person_id = int(request.form["person_id"])
     try:
-        share = Decimal(request.form["share"])
+        share = Decimal(request.form["share"] or "1")
     except InvalidOperation:
         flash(_("Доля должна быть числом (например 0.5)."), "danger")
         return redirect(url_for("garages.detail", garage_id=garage_id))
@@ -521,6 +521,13 @@ def add_electricity_reading(garage_id):
         .first()
     )
     baseline = previous.reading if previous else current.initial_reading
+    if baseline is not None and reading_value <= baseline:
+        flash(_(
+            "Показания не могут быть меньше предыдущих ({baseline}). Если счётчик был заменён, сначала внесите новый прибор учёта.",
+            baseline=str(baseline.quantize(Decimal("0.01"))),
+        ), "danger")
+        return redirect(url_for("garages.detail", garage_id=garage_id, tab="account"))
+
     amount = None
     tariff = current_tariff(reading_date)
     tariff_rate = tariff.rate if tariff is not None else None
@@ -560,6 +567,92 @@ def add_electricity_reading(garage_id):
         flash(_("Показания внесены. Сумма не рассчитана — задайте тариф на странице «Электроэнергия»."), "warning")
     else:
         flash(_("Показания внесены, начислено {amount} ₽.", amount=amount), "success")
+    return redirect(url_for("garages.detail", garage_id=garage_id, tab="account"))
+
+
+@bp.route("/<int:garage_id>/electricity/readings/last/edit", methods=["POST"])
+@login_required
+def edit_last_reading(garage_id):
+    garage = database.db_session.get(Garage, garage_id)
+    if garage is None:
+        abort(404)
+    if g.user.role.value != "chairman":
+        abort(403)
+
+    current = _current_meter(garage)
+    if current is None:
+        abort(404)
+
+    last_reading = (
+        database.db_session.query(ElectricityReading)
+        .filter_by(meter_id=current.id)
+        .order_by(ElectricityReading.reading_date.desc(), ElectricityReading.id.desc())
+        .first()
+    )
+    if last_reading is None:
+        abort(404)
+
+    f = request.form
+    try:
+        new_value = Decimal(f["reading"])
+    except InvalidOperation:
+        flash(_("Некорректное значение показаний."), "danger")
+        return redirect(url_for("garages.detail", garage_id=garage_id, tab="account"))
+
+    previous = (
+        database.db_session.query(ElectricityReading)
+        .filter_by(meter_id=current.id)
+        .filter(ElectricityReading.id != last_reading.id)
+        .order_by(ElectricityReading.reading_date.desc(), ElectricityReading.id.desc())
+        .first()
+    )
+    baseline = previous.reading if previous else current.initial_reading
+
+    if baseline is not None and new_value < baseline:
+        flash(_(
+            "Показания не могут быть меньше предыдущих ({baseline}).",
+            baseline=str(baseline.quantize(Decimal("0.01"))),
+        ), "danger")
+        return redirect(url_for("garages.detail", garage_id=garage_id, tab="account"))
+
+    tariff_rate = last_reading.tariff
+    if tariff_rate is None:
+        tariff = current_tariff(last_reading.reading_date)
+        tariff_rate = tariff.rate if tariff is not None else None
+
+    amount = None
+    if baseline is not None and tariff_rate is not None:
+        delta = new_value - baseline
+        if delta > 0:
+            amount = (delta * tariff_rate).quantize(Decimal("0.01"))
+
+    last_reading.reading = new_value
+    last_reading.tariff = tariff_rate
+    if f.get("comment") is not None:
+        last_reading.comment = f.get("comment") or None
+
+    charge = last_reading.charge
+    if amount is not None:
+        if charge is not None:
+            charge.amount = amount
+        else:
+            electricity_fee_type = database.db_session.query(FeeType).filter_by(code="electricity").first()
+            if electricity_fee_type is not None:
+                database.db_session.add(Charge(
+                    garage_id=garage.id,
+                    fee_type_id=electricity_fee_type.id,
+                    year=last_reading.reading_date.year,
+                    amount=amount,
+                    reading_id=last_reading.id,
+                    comment=_("Начислено по показаниям от {date}", date=last_reading.reading_date.isoformat()),
+                ))
+    elif charge is not None:
+        garage.charges.remove(charge)
+
+    database.db_session.flush()
+    reallocate_garage_charges(garage)
+    database.db_session.commit()
+    flash(_("Последнее показание исправлено."), "success")
     return redirect(url_for("garages.detail", garage_id=garage_id, tab="account"))
 
 

@@ -364,6 +364,13 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Показания внесены, начислено {amount} ₽.": "Reading recorded, charged {amount} ₽.",
         "Показания внесены. Сумма не рассчитана — задайте тариф на странице «Электроэнергия».":
             "Reading recorded. Amount not calculated — set a tariff on the “Electricity supply” page.",
+        "Показания не могут быть меньше предыдущих ({baseline}). Если счётчик был заменён, сначала внесите новый прибор учёта.":
+            "The reading cannot be lower than the previous one ({baseline}). If the meter was replaced, add the new meter first.",
+        "Показания не могут быть меньше предыдущих ({baseline}).":
+            "The reading cannot be lower than the previous one ({baseline}).",
+        "Исправить последнее показание": "Correct the last reading",
+        "Последнее показание исправлено.": "Last reading corrected.",
+        "Некорректное значение показаний.": "Invalid reading value.",
         "Добавить счёт": "Add account",
         "Новый лицевой счёт": "New personal account",
         "Член кооператива": "Cooperative member",

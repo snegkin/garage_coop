@@ -27,7 +27,7 @@
 
 {% if current_user.role.value == 'chairman' %}
 <div class="modal fade" id="createFeeTypeModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog">
+  <div class="modal-dialog modal-lg">
     <div class="modal-content">
       <form method="post" action="{{ url_for('finance.create_fee_type') }}">
         <div class="modal-header">

@@ -64,7 +64,7 @@
 
 {% if current_user.role.value == 'chairman' %}
 <div class="modal fade" id="createBankAccountModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog">
+  <div class="modal-dialog modal-lg">
     <div class="modal-content">
       <form method="post" action="{{ url_for('cooperative.create_bank_account') }}">
         <div class="modal-header">
@@ -86,7 +86,7 @@
 
 {% for account in bank_accounts %}
 <div class="modal fade" id="editBankAccountModal{{ account.id }}" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog">
+  <div class="modal-dialog modal-lg">
     <div class="modal-content">
       <form method="post" action="{{ url_for('cooperative.edit_bank_account', account_id=account.id) }}">
         <div class="modal-header">

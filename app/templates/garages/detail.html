@@ -229,8 +229,8 @@
       <tr>
         <th></th>
         <td class="text-end">
-          <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#replaceMeterModal" title="{{ _('Заменить счётчик / опломбировку') }}">
-            ✎ {{ _("Заменить счётчик / опломбировку") }}
+          <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#replaceMeterModal" title="{{ _('Заменить прибор учета') }}">
+            ✎ {{ _("Заменить прибор учета") }}
           </button>
         </td>
       </tr>
@@ -240,7 +240,7 @@
     <p class="text-muted">{{ _("Счётчик не установлен.") }}</p>
     {% if is_board %}
     <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#replaceMeterModal">
-      ✎ {{ _("Заменить счётчик / опломбировку") }}
+      ✎ {{ _("Добавить прибор учета") }}
     </button>
     {% endif %}
     {% endif %}
@@ -259,10 +259,10 @@
 
     {% if is_board %}
     <div class="modal fade" id="replaceMeterModal" tabindex="-1" aria-hidden="true">
-      <div class="modal-dialog">
+      <div class="modal-dialog modal-lg">
         <div class="modal-content">
           <div class="modal-header">
-            <h5 class="modal-title">{{ _("Заменить счётчик / опломбировку") }}</h5>
+            <h5 class="modal-title">{{ _("Заменить прибор учета") if current_meter else _("Добавить прибор учета") }}</h5>
             <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
           </div>
           <div class="modal-body">
@@ -339,18 +339,18 @@
     <form method="post" action="{{ url_for('garages.add_payment', garage_id=garage.id) }}" class="border rounded p-3 bg-body">
       <div class="row g-2">
         <div class="col-4">
-          <input class="form-control form-control-sm" type="date" name="date" required>
+          <input class="form-control form-control-sm" type="date" name="date" value="{{ today.isoformat() }}" required>
         </div>
         <div class="col-4">
           <select class="form-select form-select-sm" name="payer_person_id">
             <option value="">— {{ _("плательщик") }} —</option>
-            {% for o in garage.ownerships %}
-            <option value="{{ o.person.id }}">{{ o.person.full_name }}</option>
+            {% for o in owners_sorted %}
+            <option value="{{ o.person.id }}" {{ "selected" if o.person.id == default_payer_id else "" }}>{{ o.person.full_name }}</option>
             {% endfor %}
           </select>
         </div>
         <div class="col-4">
-          <input class="form-control form-control-sm" name="amount" placeholder="{{ _('сумма') }}" required>
+          <input class="form-control form-control-sm" name="amount" placeholder="{{ _('сумма') }}" value="{{ default_payment_amount }}" required>
         </div>
         <div class="col-12">
           <input class="form-control form-control-sm" name="comment" placeholder="{{ _('комментарий (необязательно)') }}">
@@ -372,7 +372,7 @@
           <th>{{ _("Показания, кВт·ч") }}</th>
           <th>{{ _("Тариф, ₽/кВт·ч") }}</th>
           <th>{{ _("Сумма") }}</th>
-          <th>{{ _("Оплатил") }}</th>
+          <th>{{ _("От кого") }}</th>
           <th>{{ _("Дата оплаты") }}</th>
           <th>{{ _("Сумма") }}</th>
         </tr>
@@ -381,16 +381,35 @@
         {% for row in ledger_rows %}
         <tr>
           <td data-sort-value="{{ row.reading_date if row.reading_date else '' }}">
-            {% if row.reading_date %}{{ fmt_date(row.reading_date) }}{% elif row.charge_label %}{{ row.sort_date.year }}{% else %}—{% endif %}
+            {% if row.reading_date %}{{ fmt_date(row.reading_date) }}{% elif row.charge_amount is not none %}{{ row.sort_date.year }}{% else %}—{% endif %}
           </td>
           <td data-sort-value="{{ row.reading if row.reading is not none else '' }}">{{ fmt2(row.reading) if row.reading is not none else "—" }}</td>
           <td data-sort-value="{{ row.tariff if row.tariff is not none else '' }}">{{ fmt2(row.tariff) if row.tariff is not none else "—" }}</td>
           <td data-sort-value="{{ row.charge_amount if row.charge_amount is not none else '' }}">
-            {% if row.charge_amount is not none %}{{ fmt2(row.charge_amount) }} ₽{% if row.charge_label %} <span class="text-muted small">({{ row.charge_label }})</span>{% endif %}{% else %}—{% endif %}
+            {% if row.charge_amount is not none %}
+            {{ fmt2(row.charge_amount) }} ₽{% if row.charge_label %} <span class="text-muted small">({{ row.charge_label }})</span>{% endif %}
+            {% if row.charge_paid is not none %}
+              {% if row.charge_paid >= row.charge_amount %}
+              <span class="badge bg-success ms-1">{{ _("оплачено") }}</span>
+              {% elif row.charge_paid > 0 %}
+              <span class="badge bg-warning text-dark ms-1">{{ _("частично") }}: {{ fmt2(row.charge_paid) }} ₽</span>
+              {% else %}
+              <span class="badge bg-danger ms-1">{{ _("не оплачено") }}</span>
+              {% endif %}
+            {% endif %}
+            {% elif row.charge_label %}
+            <span class="text-muted small">{{ row.charge_label }}</span>
+            {% else %}—{% endif %}
           </td>
-          <td>{{ row.payer or "—" }}</td>
-          <td data-sort-value="{{ row.payment_date if row.payment_date else '' }}">{{ fmt_date(row.payment_date) if row.payment_date else "—" }}</td>
-          <td data-sort-value="{{ row.payment_amount if row.payment_amount is not none else '' }}">{{ (fmt2(row.payment_amount) ~ " ₽") if row.payment_amount is not none else "—" }}</td>
+          <td data-sort-value="{{ row.payments[0].payer if row.payments else '' }}">
+            {% if row.payments %}{% for pay in row.payments %}{{ pay.payer or "—" }}{% if not loop.last %}<br>{% endif %}{% endfor %}{% else %}—{% endif %}
+          </td>
+          <td data-sort-value="{{ row.payments[0].date if row.payments else '' }}">
+            {% if row.payments %}{% for pay in row.payments %}{{ fmt_date(pay.date) }}{% if not loop.last %}<br>{% endif %}{% endfor %}{% else %}—{% endif %}
+          </td>
+          <td data-sort-value="{{ row.payments|sum(attribute='amount') if row.payments else '' }}">
+            {% if row.payments %}{% for pay in row.payments %}{{ fmt2(pay.amount) }} ₽{% if not loop.last %}<br>{% endif %}{% endfor %}{% else %}—{% endif %}
+          </td>
         </tr>
         {% else %}
         <tr><td colspan="7" class="text-muted">{{ _("Записей пока нет.") }}</td></tr>

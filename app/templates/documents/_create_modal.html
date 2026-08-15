@@ -1,6 +1,6 @@
 {# Параметры: modal_id (по умолчанию createDocumentModal), next_url, doc_types #}
 <div class="modal fade" id="{{ modal_id|default('createDocumentModal') }}" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-dialog-scrollable">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
     <div class="modal-content">
       <form method="post" action="{{ url_for('documents.create') }}" enctype="multipart/form-data">
         <div class="modal-header">

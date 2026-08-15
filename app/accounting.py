@@ -23,7 +23,7 @@ from sqlalchemy import func
 from . import database
 from .models import (
     AccountNumberSettings, ElectricityTariff, ElectricitySettings, Cooperative, Garage, LandTaxYear,
-    Charge, Payment, MemberAccount, FeeType,
+    Charge, Payment, MemberAccount, FeeType, ChargeAllocation,
 )
 
 
@@ -69,6 +69,57 @@ def balance(account) -> Decimal:
     charged = sum((c.amount for c in account.charges), Decimal("0"))
     paid = sum((p.amount for p in account.payments), Decimal("0"))
     return paid - charged  # отрицательное = долг, положительное = переплата
+
+
+def charge_sort_date(charge: Charge) -> dt.date:
+    """Дата начисления для сортировки/закрытия долгов: дата снятия показаний,
+    если начисление связано со счётчиком, иначе 1 января года начисления (для
+    начислений, добавленных вручную без привязки к конкретному показанию)."""
+    if charge.reading is not None:
+        return charge.reading.reading_date
+    return dt.date(charge.year, 1, 1)
+
+
+def reallocate_garage_charges(garage: Garage) -> None:
+    """
+    Пересчитывает разнесение всех платежей гаража по всем его начислениям
+    заново, от нуля: старые начисления закрываются старыми платежами (FIFO
+    по обеим сторонам). Вызывается после добавления любого нового начисления
+    или платежа на гараж — идемпотентна, ничего не портит при повторном вызове,
+    и на первом же вызове сама «доразносит» всю уже существующую историю.
+    """
+    charges = sorted(garage.charges, key=charge_sort_date)
+    payments = sorted(garage.payments, key=lambda p: p.date)
+
+    for charge in charges:
+        charge.allocations.clear()
+    for payment in payments:
+        payment.allocations.clear()
+    database.db_session.flush()
+
+    payments_iter = iter(payments)
+    current_payment = next(payments_iter, None)
+    payment_left = current_payment.amount if current_payment else Decimal("0")
+
+    for charge in charges:
+        charge_left = charge.amount
+        while charge_left > 0 and current_payment is not None:
+            if payment_left <= 0:
+                current_payment = next(payments_iter, None)
+                payment_left = current_payment.amount if current_payment else Decimal("0")
+                continue
+            alloc_amount = min(charge_left, payment_left)
+            database.db_session.add(ChargeAllocation(
+                charge_id=charge.id,
+                payment_id=current_payment.id,
+                amount=alloc_amount,
+            ))
+            charge_left -= alloc_amount
+            payment_left -= alloc_amount
+
+
+def charge_paid_amount(charge: Charge) -> Decimal:
+    return sum((a.amount for a in charge.allocations), Decimal("0"))
 
 
 def cooperative_balance() -> Decimal:

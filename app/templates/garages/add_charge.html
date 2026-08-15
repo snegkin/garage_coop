@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Начисления на гаражи") }}{% endblock %}
+{% block content %}
+<h3>{{ _("Начисления на гаражи") }}</h3>
+<p class="text-muted small">{{ _("Ручное начисление любого вида взноса на гараж (например, разовая целевая доначисление).") }}</p>
+
+<form method="post" action="{{ url_for('garages.add_charge_page') }}" class="border rounded p-3 bg-body" style="max-width:800px">
+  <div class="row g-2">
+    <div class="col-md-4">
+      <label class="form-label">{{ _("Гараж") }}</label>
+      <select name="garage_id" class="form-select" required>
+        {% for g in garages %}
+        <option value="{{ g.id }}">№{{ g.number }} — {{ person_names.get(g.id) or "—" }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-3">
+      <label class="form-label">{{ _("Вид") }}</label>
+      <select name="fee_type_id" class="form-select" required>
+        {% for ft in fee_types %}<option value="{{ ft.id }}">{{ ft.name }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="col-md-2">
+      <label class="form-label">{{ _("Год") }}</label>
+      <input class="form-control" type="number" name="year" value="{{ current_year }}" required>
+    </div>
+    <div class="col-md-3">
+      <label class="form-label">{{ _("Сумма") }}</label>
+      <input class="form-control" name="amount" required>
+    </div>
+    <div class="col-12">
+      <label class="form-label">{{ _("Комментарий") }}</label>
+      <input class="form-control" name="comment">
+    </div>
+  </div>
+  <button class="btn btn-primary mt-3">{{ _("Начислить") }}</button>
+  <a href="{{ url_for('garages.list_garages') }}" class="btn btn-secondary mt-3">{{ _("Отмена") }}</a>
+</form>
+{% endblock %}

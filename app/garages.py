@@ -16,7 +16,7 @@ from .models import (
     MemberAccount, FeeType, RoleEnum, ElectricityMeter, ElectricityReading,
     Charge, Payment, User,
 )
-from .accounting import electricity_account_number, member_account_number, balance, current_tariff
+from .accounting import electricity_account_number, member_account_number, balance, current_tariff, reallocate_garage_charges, charge_paid_amount
 
 bp = Blueprint("garages", __name__, url_prefix="/garages")
 
@@ -168,19 +168,31 @@ def detail(garage_id):
 
     # объединённая таблица: показание берёт своё начисление напрямую через связь
     # Charge.reading (FK reading_id, а не текстовым сопоставлением); начисления без
-    # привязки к показанию (ручные, любого вида взноса) и платежи идут отдельными
-    # строками той же таблицы, всё вместе упорядочено по дате от новых к старым.
+    # привязки к показанию (ручные, любого вида взноса) идут отдельными строками той
+    # же таблицы. Платежи, закрывающие начисление (через ChargeAllocation), показаны
+    # в столбцах «От кого/Дата оплаты/Сумма» ЭТОЙ ЖЕ строки начисления, а не отдельной
+    # строкой — так по одному начислению не возникает лишней строки на каждый платёж.
+    # Отдельной строкой платёж идёт только на ту часть суммы, которая не пошла ни на
+    # одно начисление (аванс/переплата).
     ledger_rows = []
+
+    def _charge_payments(charge_obj):
+        return [{
+            "payer": a.payment.payer.full_name if a.payment.payer else None,
+            "date": a.payment.date,
+            "amount": a.amount,
+        } for a in sorted(charge_obj.allocations, key=lambda a: a.payment.date)]
+
     for r in readings:
+        charge_obj = r.charge
         ledger_rows.append({
             "sort_date": r.reading_date,
             "reading_date": r.reading_date,
             "reading": r.reading,
             "tariff": r.tariff,
-            "charge_amount": r.charge.amount if r.charge else None,
-            "payer": None,
-            "payment_date": None,
-            "payment_amount": None,
+            "charge_amount": charge_obj.amount if charge_obj else None,
+            "charge_paid": charge_paid_amount(charge_obj) if charge_obj else None,
+            "payments": _charge_payments(charge_obj) if charge_obj else [],
         })
     for c in charges:
         if c.reading_id is not None:
@@ -191,23 +203,44 @@ def detail(garage_id):
             "reading": None,
             "tariff": None,
             "charge_amount": c.amount,
+            "charge_paid": charge_paid_amount(c),
             "charge_label": c.fee_type.name if c.fee_type else None,
-            "payer": None,
-            "payment_date": None,
-            "payment_amount": None,
+            "payments": _charge_payments(c),
         })
     for p in payments:
-        ledger_rows.append({
-            "sort_date": p.date,
-            "reading_date": None,
-            "reading": None,
-            "tariff": None,
-            "charge_amount": None,
-            "payer": p.payer.full_name if p.payer else None,
-            "payment_date": p.date,
-            "payment_amount": p.amount,
-        })
+        allocated = sum((a.amount for a in p.allocations), Decimal("0"))
+        unallocated = p.amount - allocated
+        if unallocated > 0:
+            ledger_rows.append({
+                "sort_date": p.date,
+                "reading_date": None,
+                "reading": None,
+                "tariff": None,
+                "charge_amount": None,
+                "charge_label": _("аванс") if allocated > 0 else None,
+                "payments": [{"payer": p.payer.full_name if p.payer else None, "date": p.date, "amount": unallocated}],
+            })
     ledger_rows.sort(key=lambda row: row["sort_date"], reverse=True)
+
+    # значения по умолчанию для формы «Зарегистрировать платёж»: сегодняшняя дата,
+    # плательщик — тот из собственников, кто платил последним (сортировка списка
+    # по дате последнего платежа, от нового к старому), сумма — текущая задолженность
+    today = dt.date.today()
+    last_payment_by_person = {}
+    for p in payments:
+        if p.payer_person_id:
+            last_payment_by_person[p.payer_person_id] = max(
+                last_payment_by_person.get(p.payer_person_id, p.date), p.date
+            )
+    owners_sorted = sorted(
+        garage.ownerships,
+        key=lambda o: last_payment_by_person.get(o.person_id, dt.date.min),
+        reverse=True,
+    )
+    default_payer_id = owners_sorted[0].person_id if owners_sorted else None
+    default_payment_amount = (
+        str((-acc_balance).quantize(Decimal("0.01"))) if acc_balance is not None and acc_balance < 0 else ""
+    )
 
     return render_template(
         "garages/detail.html",
@@ -224,6 +257,10 @@ def detail(garage_id):
         charges=charges,
         payments=payments,
         fee_types=fee_types_list,
+        today=today,
+        owners_sorted=owners_sorted,
+        default_payer_id=default_payer_id,
+        default_payment_amount=default_payment_amount,
     )
 
 
@@ -258,7 +295,7 @@ def add_owner(garage_id):
     garage = database.db_session.get(Garage, garage_id)
     person_id = int(request.form["person_id"])
     try:
-        share = Decimal(request.form["share"] or "1")
+        share = Decimal(request.form["share"])
     except InvalidOperation:
         flash(_("Доля должна быть числом (например 0.5)."), "danger")
         return redirect(url_for("garages.detail", garage_id=garage_id))
@@ -514,6 +551,8 @@ def add_electricity_reading(garage_id):
                 reading_id=reading.id,
                 comment=_("Начислено по показаниям от {date}", date=reading_date.isoformat()),
             ))
+            database.db_session.flush()
+            reallocate_garage_charges(garage)
 
     database.db_session.commit()
 
@@ -571,6 +610,8 @@ def add_charge_page():
             comment=f.get("comment") or None,
         )
         database.db_session.add(charge)
+        database.db_session.flush()
+        reallocate_garage_charges(garage)
         database.db_session.commit()
         flash(_("Начисление добавлено."), "success")
         return redirect(url_for("garages.detail", garage_id=garage.id, tab="account"))
@@ -605,6 +646,8 @@ def add_charge(garage_id):
         amount=Decimal(f["amount"]),
     )
     database.db_session.add(charge)
+    database.db_session.flush()
+    reallocate_garage_charges(garage)
     database.db_session.commit()
     flash(_("Начисление добавлено."), "success")
     return redirect(url_for("garages.detail", garage_id=garage_id, tab="account"))
@@ -628,6 +671,8 @@ def add_payment(garage_id):
         comment=f.get("comment") or None,
     )
     database.db_session.add(payment)
+    database.db_session.flush()
+    reallocate_garage_charges(garage)
     database.db_session.commit()
     flash(_("Платёж зарегистрирован."), "success")
     return redirect(url_for("garages.detail", garage_id=garage_id, tab="account"))

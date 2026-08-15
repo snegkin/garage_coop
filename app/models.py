@@ -525,6 +525,9 @@ class Charge(Base):
     account: Mapped["MemberAccount | None"] = relationship(back_populates="charges")
     fee_type: Mapped["FeeType | None"] = relationship()
     reading: Mapped["ElectricityReading | None"] = relationship(back_populates="charge")
+    allocations: Mapped[list["ChargeAllocation"]] = relationship(
+        back_populates="charge", cascade="all, delete-orphan"
+    )
 
     __table_args__ = (
         CheckConstraint(
@@ -553,6 +556,9 @@ class Payment(Base):
     garage: Mapped["Garage | None"] = relationship(back_populates="payments")
     account: Mapped["MemberAccount | None"] = relationship(back_populates="payments")
     payer: Mapped["Person | None"] = relationship()
+    allocations: Mapped[list["ChargeAllocation"]] = relationship(
+        back_populates="payment", cascade="all, delete-orphan"
+    )
 
     __table_args__ = (
         CheckConstraint(
@@ -560,6 +566,24 @@ class Payment(Base):
             name="ck_payment_target",
         ),
     )
+
+
+class ChargeAllocation(Base):
+    """
+    Разнесение платежа по конкретному начислению — какая часть какого Payment
+    закрывает какой Charge. Пересчитывается целиком заново (FIFO: старые
+    начисления закрываются старыми платежами) функцией accounting.reallocate_garage_charges()
+    при каждом новом начислении/платеже по гаражу — не редактируется вручную.
+    """
+    __tablename__ = "charge_allocation"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    charge_id: Mapped[int] = mapped_column(ForeignKey("charge.id", ondelete="CASCADE"), index=True)
+    payment_id: Mapped[int] = mapped_column(ForeignKey("payment.id", ondelete="CASCADE"), index=True)
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+
+    charge: Mapped["Charge"] = relationship(back_populates="allocations")
+    payment: Mapped["Payment"] = relationship(back_populates="allocations")
 
 
 class AccountNumberSettings(Base):

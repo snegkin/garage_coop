@@ -30,7 +30,7 @@
 
 <!-- Модалка: новый контрагент -->
 <div class="modal fade" id="createCounterpartyModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog">
+  <div class="modal-dialog modal-lg">
     <div class="modal-content">
       <form method="post" action="{{ url_for('counterparties.create') }}">
         <div class="modal-header">
@@ -53,7 +53,7 @@
 <!-- Модалки: редактирование контрагента (по одной на строку) -->
 {% for c, balance in rows %}
 <div class="modal fade" id="editCounterpartyModal{{ c.id }}" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog">
+  <div class="modal-dialog modal-lg">
     <div class="modal-content">
       <form method="post" action="{{ url_for('counterparties.edit', counterparty_id=c.id) }}">
         <div class="modal-header">

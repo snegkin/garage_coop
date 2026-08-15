@@ -82,7 +82,7 @@
 
 <!-- Модалка: поставщик -->
 <div class="modal fade" id="supplierModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog">
+  <div class="modal-dialog modal-lg">
     <div class="modal-content">
       <form method="post" action="{{ url_for('power.save_supplier') }}">
         <div class="modal-header">
@@ -134,7 +134,7 @@
 
 <!-- Модалка: новый тариф -->
 <div class="modal fade" id="tariffModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog">
+  <div class="modal-dialog modal-lg">
     <div class="modal-content">
       <form method="post" action="{{ url_for('power.add_tariff') }}">
         <div class="modal-header">
@@ -166,7 +166,7 @@
 
 <!-- Модалка: показания общего счётчика -->
 <div class="modal fade" id="readingModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog">
+  <div class="modal-dialog modal-lg">
     <div class="modal-content">
       <form method="post" action="{{ url_for('power.add_master_reading') }}" enctype="multipart/form-data">
         <div class="modal-header">

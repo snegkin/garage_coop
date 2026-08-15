@@ -15,6 +15,10 @@ document.addEventListener("DOMContentLoaded", function () {
       e.target.closest(".owner-row").remove();
     });
     container.appendChild(node);
+    const addedSelect = container.querySelector(".owner-row:last-child select[name='owner_person_id']");
+    if (addedSelect && window.enhanceSearchableSelect) {
+      window.enhanceSearchableSelect(addedSelect);
+    }
   }
 
   const addBtn = document.getElementById("addOwnerRowBtn");

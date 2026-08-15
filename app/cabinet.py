@@ -7,6 +7,8 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 import json
 import datetime as dt
 
+from werkzeug.security import check_password_hash, generate_password_hash
+
 from . import database
 from .auth import login_required
 from .i18n import translate as _
@@ -122,6 +124,30 @@ def profile():
         })()
 
     return render_template("cabinet/profile.html", person=display_person, pending_revision=pending_revision, pending_data=snap)
+
+
+@bp.route("/change-password", methods=["POST"])
+@login_required
+def change_password():
+    f = request.form
+    current_password = f.get("current_password", "")
+    new_password = f.get("new_password", "")
+    confirm_password = f.get("confirm_password", "")
+
+    if not check_password_hash(g.user.password_hash, current_password):
+        flash(_("Текущий пароль указан неверно."), "danger")
+        return redirect(url_for("cabinet.profile"))
+    if len(new_password) < 4:
+        flash(_("Новый пароль слишком короткий (минимум 4 символа)."), "danger")
+        return redirect(url_for("cabinet.profile"))
+    if new_password != confirm_password:
+        flash(_("Новый пароль и подтверждение не совпадают."), "danger")
+        return redirect(url_for("cabinet.profile"))
+
+    g.user.password_hash = generate_password_hash(new_password)
+    database.db_session.commit()
+    flash(_("Пароль изменён."), "success")
+    return redirect(url_for("cabinet.profile"))
 
 
 @bp.route("/garages")

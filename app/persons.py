@@ -14,8 +14,12 @@ from .accounting import balance
 bp = Blueprint("persons", __name__, url_prefix="/persons")
 
 
+def _is_board_role() -> bool:
+    return g.user.role in (RoleEnum.CHAIRMAN, RoleEnum.BOARD, RoleEnum.ACCOUNTANT)
+
+
 @bp.route("/")
-@login_required
+@roles_required(RoleEnum.BOARD)
 def list_persons():
     q = request.args.get("q", "").strip()
     show_pending_only = request.args.get("pending") == "1"
@@ -151,7 +155,9 @@ def detail(person_id):
     person = database.db_session.get(Person, person_id)
     if person is None:
         flash(_("Человек не найден."), "danger")
-        return redirect(url_for("persons.list_persons"))
+        return redirect(url_for("persons.list_persons") if _is_board_role() else url_for("cabinet.profile"))
+    if not _is_board_role() and g.user.person_id != person_id:
+        abort(403)
     account = database.db_session.query(User).filter_by(person_id=person.id).first()
     member_accounts = database.db_session.query(MemberAccount).filter_by(person_id=person.id).all()
     return render_template("persons/detail.html", person=person, account=account, member_accounts=member_accounts)

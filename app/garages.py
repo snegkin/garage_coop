@@ -21,9 +21,13 @@ from .accounting import electricity_account_number, member_account_number, balan
 bp = Blueprint("garages", __name__, url_prefix="/garages")
 
 
+def _is_board_role() -> bool:
+    return g.user.role in (RoleEnum.CHAIRMAN, RoleEnum.BOARD, RoleEnum.ACCOUNTANT)
+
+
 def _is_owner_or_board(garage: Garage) -> bool:
     """Правление/председатель — любой гараж; рядовой член — только свой (по владению)."""
-    if g.user.role in (RoleEnum.CHAIRMAN, RoleEnum.BOARD, RoleEnum.ACCOUNTANT):
+    if _is_board_role():
         return True
     if g.user.person_id is None:
         return False
@@ -69,7 +73,7 @@ def _ensure_member_accounts(garage: Garage, person_id: int, owner_index: int):
 
 
 @bp.route("/")
-@login_required
+@roles_required(RoleEnum.BOARD)
 def list_garages():
     garages = database.db_session.query(Garage).order_by(Garage.number).all()
     all_persons = database.db_session.query(Person).order_by(Person.full_name).all()
@@ -105,7 +109,7 @@ def create():
 
         # собственники, указанные прямо в форме создания
         person_ids = request.form.getlist("owner_person_id")
-        shares = request.form.getlist("owner_share") or "1"
+        shares = request.form.getlist("owner_share")
         owner_index = 0
         for person_id, share_raw in zip(person_ids, shares):
             if not person_id or not share_raw:
@@ -149,7 +153,9 @@ def detail(garage_id):
     garage = database.db_session.get(Garage, garage_id)
     if garage is None:
         flash(_("Гараж не найден."), "danger")
-        return redirect(url_for("garages.list_garages"))
+        return redirect(url_for("garages.list_garages") if _is_board_role() else url_for("cabinet.garages"))
+    if not _is_owner_or_board(garage):
+        abort(403)
     all_persons = database.db_session.query(Person).order_by(Person.full_name).all()
     total_share = sum((o.share for o in garage.ownerships), Decimal("0"))
     preselect_contact_person_id = request.args.get("new_person_id", type=int)
@@ -295,7 +301,7 @@ def add_owner(garage_id):
     garage = database.db_session.get(Garage, garage_id)
     person_id = int(request.form["person_id"])
     try:
-        share = Decimal(request.form["share"] or "1")
+        share = Decimal(request.form["share"])
     except InvalidOperation:
         flash(_("Доля должна быть числом (например 0.5)."), "danger")
         return redirect(url_for("garages.detail", garage_id=garage_id))
@@ -460,6 +466,8 @@ def photo_file(photo_id):
     photo = database.db_session.get(GaragePhoto, photo_id)
     if photo is None:
         abort(404)
+    if not _is_owner_or_board(photo.garage):
+        abort(403)
     return send_from_directory(current_app.config["UPLOAD_FOLDER"], photo.file_path)
 
 
@@ -521,7 +529,7 @@ def add_electricity_reading(garage_id):
         .first()
     )
     baseline = previous.reading if previous else current.initial_reading
-    if baseline is not None and reading_value <= baseline:
+    if baseline is not None and reading_value < baseline:
         flash(_(
             "Показания не могут быть меньше предыдущих ({baseline}). Если счётчик был заменён, сначала внесите новый прибор учёта.",
             baseline=str(baseline.quantize(Decimal("0.01"))),
@@ -689,25 +697,39 @@ def update_account_number(garage_id):
 def add_charge_page():
     if request.method == "POST":
         f = request.form
-        garage = database.db_session.get(Garage, int(f["garage_id"]))
-        if garage is None:
-            abort(404)
+        garage_ids = [int(x) for x in request.form.getlist("garage_id")]
+        if not garage_ids:
+            flash(_("Выберите хотя бы один гараж."), "warning")
+            return redirect(url_for("garages.add_charge_page"))
         fee_type = database.db_session.get(FeeType, int(f["fee_type_id"]))
         if fee_type is None:
             abort(404)
-        charge = Charge(
-            garage_id=garage.id,
-            fee_type_id=fee_type.id,
-            year=int(f["year"]),
-            amount=Decimal(f["amount"]),
-            comment=f.get("comment") or None,
-        )
-        database.db_session.add(charge)
-        database.db_session.flush()
-        reallocate_garage_charges(garage)
+        year = int(f["year"])
+        amount = Decimal(f["amount"])
+        comment = f.get("comment") or None
+
+        charged_count = 0
+        for garage_id in garage_ids:
+            garage = database.db_session.get(Garage, garage_id)
+            if garage is None:
+                continue
+            database.db_session.add(Charge(
+                garage_id=garage.id,
+                fee_type_id=fee_type.id,
+                year=year,
+                amount=amount,
+                comment=comment,
+            ))
+            database.db_session.flush()
+            reallocate_garage_charges(garage)
+            charged_count += 1
         database.db_session.commit()
-        flash(_("Начисление добавлено."), "success")
-        return redirect(url_for("garages.detail", garage_id=garage.id, tab="account"))
+
+        if charged_count == 1:
+            flash(_("Начисление добавлено."), "success")
+        else:
+            flash(_("Начисление добавлено на {count} гаражей.", count=charged_count), "success")
+        return redirect(url_for("garages.add_charge_page"))
 
     garages_list = database.db_session.query(Garage).order_by(Garage.number).all()
     fee_types_list = database.db_session.query(FeeType).order_by(FeeType.name).all()
@@ -752,7 +774,7 @@ def add_payment(garage_id):
     garage = database.db_session.get(Garage, garage_id)
     if garage is None:
         abort(404)
-    if not _is_owner_or_board(garage):
+    if g.user.role.value not in ("chairman", "accountant"):
         abort(403)
 
     f = request.form

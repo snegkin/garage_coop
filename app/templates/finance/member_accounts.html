@@ -40,13 +40,13 @@
         <div class="modal-body">
           <div class="mb-3">
             <label class="form-label">{{ _("Член кооператива") }}</label>
-            <select class="form-select" name="person_id" required>
+            <select class="form-select" name="person_id" data-searchable required>
               {% for p in all_persons %}<option value="{{ p.id }}">{{ p.full_name }}</option>{% endfor %}
             </select>
           </div>
           <div class="mb-3">
             <label class="form-label">{{ _("Гараж") }}</label>
-            <select class="form-select" name="garage_id" required>
+            <select class="form-select" name="garage_id" data-searchable required>
               {% for gr in all_garages %}<option value="{{ gr.id }}">№{{ gr.number }}</option>{% endfor %}
             </select>
           </div>

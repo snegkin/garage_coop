@@ -20,6 +20,26 @@
 
 {% if person is none %}
 <p class="text-muted">{{ _("Ваша учётная запись пока не привязана к карточке члена кооператива. Обратитесь в правление.") }}</p>
+<div class="row g-4">
+  <div class="col-md-5">
+    <h6 class="text-muted">{{ _("Изменить пароль") }}</h6>
+    <form method="post" action="{{ url_for('cabinet.change_password') }}" class="bg-body p-3 rounded border">
+      <div class="mb-2">
+        <label class="form-label">{{ _("Текущий пароль") }}</label>
+        <input class="form-control form-control-sm" type="password" name="current_password" required>
+      </div>
+      <div class="mb-2">
+        <label class="form-label">{{ _("Новый пароль") }}</label>
+        <input class="form-control form-control-sm" type="password" name="new_password" required minlength="4">
+      </div>
+      <div class="mb-2">
+        <label class="form-label">{{ _("Повторите новый пароль") }}</label>
+        <input class="form-control form-control-sm" type="password" name="confirm_password" required minlength="4">
+      </div>
+      <button class="btn btn-sm btn-outline-secondary">{{ _("Сменить пароль") }}</button>
+    </form>
+  </div>
+</div>
 {% else %}
 <div class="row g-4">
   <div class="col-md-7">
@@ -96,6 +116,23 @@
       </td></tr>
     </table>
     <p class="text-muted small">{{ _("Если эти данные устарели или указаны неверно — сообщите председателю или члену правления.") }}</p>
+
+    <h6 class="text-muted mt-4">{{ _("Изменить пароль") }}</h6>
+    <form method="post" action="{{ url_for('cabinet.change_password') }}" class="bg-body p-3 rounded border">
+      <div class="mb-2">
+        <label class="form-label">{{ _("Текущий пароль") }}</label>
+        <input class="form-control form-control-sm" type="password" name="current_password" required>
+      </div>
+      <div class="mb-2">
+        <label class="form-label">{{ _("Новый пароль") }}</label>
+        <input class="form-control form-control-sm" type="password" name="new_password" required minlength="4">
+      </div>
+      <div class="mb-2">
+        <label class="form-label">{{ _("Повторите новый пароль") }}</label>
+        <input class="form-control form-control-sm" type="password" name="confirm_password" required minlength="4">
+      </div>
+      <button class="btn btn-sm btn-outline-secondary">{{ _("Сменить пароль") }}</button>
+    </form>
   </div>
 </div>
 {% endif %}

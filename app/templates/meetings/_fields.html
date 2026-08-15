@@ -13,14 +13,14 @@
 </div>
 <div class="mb-3">
   <label class="form-label">{{ _("Секретарь") }}</label>
-  <select class="form-select" name="secretary_person_id">
+  <select class="form-select" name="secretary_person_id" data-searchable>
     <option value="">—</option>
     {% for p in persons %}<option value="{{ p.id }}">{{ p.full_name }}</option>{% endfor %}
   </select>
 </div>
 <div class="mb-3">
   <label class="form-label">{{ _("Председатель на собрании") }}</label>
-  <select class="form-select" name="chairman_person_id">
+  <select class="form-select" name="chairman_person_id" data-searchable>
     <option value="">—</option>
     {% for p in persons %}<option value="{{ p.id }}">{{ p.full_name }}</option>{% endfor %}
   </select>

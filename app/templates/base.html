@@ -94,6 +94,91 @@
   {% block content %}{% endblock %}
 </div>
 
+<script>
+// Прогрессивное улучшение: любой <select data-searchable> превращается в
+// текстовое поле с выпадающим списком, отфильтрованным по вводу — для
+// длинных списков (люди, гаражи), где обычный select неудобно листать.
+// Сам select остаётся в форме (просто скрыт) — value синхронизируется, так
+// что серверная часть ничего не знает об этом слое и работает как обычно.
+function enhanceSearchableSelect(select) {
+  if (!select || select.dataset.enhanced === "1") return;
+  select.dataset.enhanced = "1";
+
+  const wrapper = document.createElement("div");
+  wrapper.className = "position-relative";
+  select.parentNode.insertBefore(wrapper, select);
+  wrapper.appendChild(select);
+  select.style.display = "none";
+
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = select.className.replace("form-select", "form-control") || "form-control";
+  input.autocomplete = "off";
+  input.placeholder = select.dataset.placeholder || "";
+  wrapper.appendChild(input);
+
+  const list = document.createElement("div");
+  list.className = "list-group position-absolute w-100 shadow-sm";
+  list.style.cssText = "z-index:1055; max-height:260px; overflow-y:auto; display:none;";
+  wrapper.appendChild(list);
+
+  function options() {
+    return Array.from(select.options).filter(function (o) { return o.value !== ""; });
+  }
+
+  function setInputFromSelect() {
+    const opt = select.options[select.selectedIndex];
+    input.value = (opt && opt.value !== "") ? opt.textContent : "";
+  }
+
+  function renderList(filter) {
+    const q = (filter || "").trim().toLowerCase();
+    list.innerHTML = "";
+    let shown = 0;
+    options().forEach(function (opt) {
+      if (q && opt.textContent.toLowerCase().indexOf(q) === -1) return;
+      shown++;
+      const item = document.createElement("button");
+      item.type = "button";
+      item.className = "list-group-item list-group-item-action" + (opt.value === select.value ? " active" : "");
+      item.textContent = opt.textContent;
+      item.addEventListener("mousedown", function (e) {
+        e.preventDefault(); // не даём input потерять фокус раньше клика
+        select.value = opt.value;
+        setInputFromSelect();
+        list.style.display = "none";
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+      list.appendChild(item);
+    });
+    if (!shown) {
+      const empty = document.createElement("div");
+      empty.className = "list-group-item text-muted small";
+      empty.textContent = select.dataset.emptyText || "Ничего не найдено";
+      list.appendChild(empty);
+    }
+    list.style.display = "block";
+  }
+
+  input.addEventListener("focus", function () { renderList(""); });
+  input.addEventListener("input", function () { renderList(input.value); });
+  input.addEventListener("blur", function () {
+    setTimeout(function () {
+      list.style.display = "none";
+      setInputFromSelect();
+    }, 150);
+  });
+  input.addEventListener("keydown", function (e) {
+    if (e.key === "Escape") { list.style.display = "none"; input.blur(); }
+  });
+
+  setInputFromSelect();
+}
+
+document.addEventListener("DOMContentLoaded", function () {
+  document.querySelectorAll("select[data-searchable]").forEach(enhanceSearchableSelect);
+});
+</script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <style>
 table.sortable thead th:not(.no-sort) { cursor: pointer; user-select: none; white-space: nowrap; }

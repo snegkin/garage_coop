@@ -118,6 +118,8 @@ def print_slips():
         return render_template("pd4/print.html", slips=slips, coop=coop, bank_account=bank_account, electricity=False)
 
     # POST — выборочная печать (для правления, с формы select)
+    if not _is_board():
+        abort(403)
     account_ids = [int(x) for x in request.form.getlist("account_id")]
     if not account_ids:
         flash(_("Выберите хотя бы один лицевой счёт."), "warning")
@@ -243,6 +245,8 @@ def _build_slips(account_ids: list[int]):
 def print_pdf():
     if request.method == "POST":
         # Пост-запрос с формы select — для правления
+        if not _is_board():
+            abort(403)
         account_ids = [int(x) for x in request.form.getlist("account_id")]
     else:
         # GET — авто-печать всех счетов (для рядовых)

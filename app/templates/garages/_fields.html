@@ -54,7 +54,7 @@
 <template id="ownerRowTemplate">
   <div class="row g-2 align-items-center owner-row mb-2">
     <div class="col-7">
-      <select name="owner_person_id" class="form-select form-select-sm">
+      <select name="owner_person_id" class="form-select form-select-sm" data-searchable data-placeholder="{{ _('выберите члена кооператива') }}">
         <option value="">— {{ _("выберите члена кооператива") }} —</option>
         {% for p in all_persons %}
         <option value="{{ p.id }}">{{ p.full_name }}</option>

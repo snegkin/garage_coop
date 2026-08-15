@@ -127,7 +127,7 @@ def add_member_payment(account_id):
     account = database.db_session.get(MemberAccount, account_id)
     if account is None:
         abort(404)
-    if not _can_view_member_account(account):
+    if g.user.role.value not in ("board", "chairman", "accountant"):
         abort(403)
     f = request.form
     database.db_session.add(Payment(

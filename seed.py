@@ -9,7 +9,7 @@ from app.models import User, RoleEnum, Cooperative, FeeType
 
 
 def main():
-    app = create_app()  # уже создаёт таблицы через Base.metadata.create_all
+    app = create_app()  # уже накатывает схему БД через Alembic (см. app/database.py:run_migrations)
 
     with app.app_context():
         if database.db_session.query(User).filter_by(username="chairman").first():

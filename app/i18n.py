@@ -330,6 +330,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Начисления на гаражи": "Garage charges",
         "Ручное начисление любого вида взноса на один, несколько или сразу все гаражи (например, разовая целевая доначисление).":
             "Manually charge any fee type to one, several, or all garages at once (e.g. a one-off special assessment).",
+        "«Электричество» начисляется на гараж целиком (общий лицевой счёт на электричество). Все остальные виды взносов — на лицевые счета собственников гаража, сумма делится между ними пропорционально их долям владения; если у собственника ещё нет лицевого счёта на этот вид взноса, он будет пропущен.":
+            "\u201cElectricity\u201d is charged to the garage as a whole (shared electricity account). All other fee types are charged to the garage owners' personal accounts, split proportionally to their ownership share; an owner without an account for that fee type is skipped.",
         "Поиск по номеру или собственнику…": "Search by number or owner…",
         "Выбрать все": "Select all",
         "Снять все": "Deselect all",
@@ -343,6 +345,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Начислить": "Charge",
         "Начисление добавлено.": "Charge added.",
         "Начисление добавлено на {count} гаражей.": "Charge added to {count} garages.",
+        "Начислений добавлено: {count}.": "Charges added: {count}.",
+        "Пропущено (нет лицевого счёта на этот вид взноса у собственника): {n}. Счета заводятся автоматически при добавлении собственника гаража.":
+            "Skipped (owner has no account for this fee type): {n}. Accounts are created automatically when a garage owner is added.",
         "Выберите хотя бы один гараж.": "Select at least one garage.",
         "Номер счёта": "Account number",
         "Номер счёта обновлён.": "Account number updated.",

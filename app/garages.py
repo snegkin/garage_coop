@@ -695,6 +695,22 @@ def update_account_number(garage_id):
 @bp.route("/charges/add", methods=["GET", "POST"])
 @roles_required(RoleEnum.BOARD)
 def add_charge_page():
+    """
+    Ручное начисление на выбранные гаражи.
+
+    Электричество — единственный вид взноса с лицевым счётом на сам гараж
+    (один счёт, не делится между собственниками): начисление пишется прямо
+    в Charge.garage_id, как и было.
+
+    Все остальные виды (членский/целевой взнос, земельный налог, пени) —
+    привязаны не к гаражу, а к MemberAccount каждого его собственника
+    (см. models.MemberAccount), и сумма делится между ними пропорционально
+    доле владения — точно так же, как это уже делает finance.mass_charge()
+    для массового начисления по всем гаражам сразу. Раньше эта страница
+    ошибочно писала такие начисления в Charge.garage_id независимо от вида
+    взноса, из-за чего взносы/налоги/пени оказывались на электросчёте
+    гаража, а не на лицевых счетах членов кооператива.
+    """
     if request.method == "POST":
         f = request.form
         garage_ids = [int(x) for x in request.form.getlist("garage_id")]
@@ -709,26 +725,54 @@ def add_charge_page():
         comment = f.get("comment") or None
 
         charged_count = 0
+        skipped_rows = []  # (person_name, garage_number) — нет лицевого счёта на этот вид взноса
+
         for garage_id in garage_ids:
             garage = database.db_session.get(Garage, garage_id)
             if garage is None:
                 continue
-            database.db_session.add(Charge(
-                garage_id=garage.id,
-                fee_type_id=fee_type.id,
-                year=year,
-                amount=amount,
-                comment=comment,
-            ))
-            database.db_session.flush()
-            reallocate_garage_charges(garage)
-            charged_count += 1
+
+            if fee_type.code == "electricity":
+                database.db_session.add(Charge(
+                    garage_id=garage.id,
+                    fee_type_id=fee_type.id,
+                    year=year,
+                    amount=amount,
+                    comment=comment,
+                ))
+                database.db_session.flush()
+                reallocate_garage_charges(garage)
+                charged_count += 1
+                continue
+
+            if not garage.ownerships:
+                skipped_rows.append((None, garage.number))
+                continue
+            for ownership in garage.ownerships:
+                account = database.db_session.query(MemberAccount).filter_by(
+                    person_id=ownership.person_id, garage_id=garage.id, fee_type_id=fee_type.id,
+                ).first()
+                if account is None:
+                    skipped_rows.append((ownership.person.full_name, garage.number))
+                    continue
+                owner_amount = (amount * ownership.share).quantize(Decimal("0.01"))
+                database.db_session.add(Charge(
+                    account_id=account.id, year=year, amount=owner_amount, comment=comment,
+                ))
+                charged_count += 1
+
         database.db_session.commit()
 
         if charged_count == 1:
             flash(_("Начисление добавлено."), "success")
-        else:
-            flash(_("Начисление добавлено на {count} гаражей.", count=charged_count), "success")
+        elif charged_count > 1:
+            flash(_("Начислений добавлено: {count}.", count=charged_count), "success")
+        if skipped_rows:
+            flash(_(
+                "Пропущено (нет лицевого счёта на этот вид взноса у собственника): {n}. "
+                "Счета заводятся автоматически при добавлении собственника гаража.",
+                n=len(skipped_rows),
+            ), "warning")
         return redirect(url_for("garages.add_charge_page"))
 
     garages_list = database.db_session.query(Garage).order_by(Garage.number).all()

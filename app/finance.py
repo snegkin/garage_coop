@@ -7,7 +7,7 @@ from . import database
 from .i18n import translate as _
 from .auth import login_required, roles_required
 from .models import (
-    GarageOwnership, Charge, Payment,
+    GarageOwnership, Charge, Payment, Garage, PersonalAccount,
     FeeType, MemberAccount, Person, RoleEnum,
     Cooperative, LandTaxYear,
 )

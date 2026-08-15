@@ -3,8 +3,7 @@ import os
 from flask import Flask, g, redirect, url_for
 
 from config import Config
-from .database import init_engine, init_app as init_db_lifecycle
-from .models import Base
+from .database import init_engine, run_migrations, init_app as init_db_lifecycle
 
 
 def create_app(config_class=Config):
@@ -14,8 +13,8 @@ def create_app(config_class=Config):
     os.makedirs(os.path.dirname(app.config["SQLALCHEMY_DATABASE_URI"].replace("sqlite:///", "")), exist_ok=True)
     os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
 
+    run_migrations(app.config["SQLALCHEMY_DATABASE_URI"])  # накатывает схему через Alembic, не трогая данные
     engine, _db_session = init_engine(app.config["SQLALCHEMY_DATABASE_URI"])
-    Base.metadata.create_all(engine)  # для SQLite достаточно; для миграций позже можно подключить Alembic
     init_db_lifecycle(app)
 
     from . import auth, i18n, theme

@@ -109,7 +109,7 @@ def create():
 
         # собственники, указанные прямо в форме создания
         person_ids = request.form.getlist("owner_person_id")
-        shares = request.form.getlist("owner_share")
+        shares = request.form.getlist("owner_share") or "1"
         owner_index = 0
         for person_id, share_raw in zip(person_ids, shares):
             if not person_id or not share_raw:
@@ -301,7 +301,7 @@ def add_owner(garage_id):
     garage = database.db_session.get(Garage, garage_id)
     person_id = int(request.form["person_id"])
     try:
-        share = Decimal(request.form["share"])
+        share = Decimal(request.form["share"] or "1")
     except InvalidOperation:
         flash(_("Доля должна быть числом (например 0.5)."), "danger")
         return redirect(url_for("garages.detail", garage_id=garage_id))
@@ -529,7 +529,7 @@ def add_electricity_reading(garage_id):
         .first()
     )
     baseline = previous.reading if previous else current.initial_reading
-    if baseline is not None and reading_value < baseline:
+    if baseline is not None and reading_value <= baseline:
         flash(_(
             "Показания не могут быть меньше предыдущих ({baseline}). Если счётчик был заменён, сначала внесите новый прибор учёта.",
             baseline=str(baseline.quantize(Decimal("0.01"))),

@@ -28,6 +28,14 @@ def _qr_data_uri(payload: str) -> str:
 def _is_board() -> bool:
     return g.user.role.value in ("chairman", "accountant", "board")
 
+def _is_owner_or_board(garage: Garage) -> bool:
+    """Правление/председатель — любой гараж; рядовой член — только свой (по владению)."""
+    if _is_board():
+        return True
+    if g.user.person_id is None:
+        return False
+    owner_ids = {o.person_id for o in garage.ownerships}
+    return g.user.person_id in owner_ids
 
 def _is_privileged() -> bool:
     """Председатель/бухгалтер — видят все счета и строки «пеня»; рядовой член правления (board) — нет."""
@@ -245,9 +253,7 @@ def _build_slips(account_ids: list[int]):
 def print_pdf():
     if request.method == "POST":
         # Пост-запрос с формы select — для правления
-        if not _is_board():
-            abort(403)
-        account_ids = [int(x) for x in request.form.getlist("account_id")]
+        account_ids = [int(x) for x in request.form.getlist("account_id")] if _is_board() else _collect_account_ids(g.user.person_id)
     else:
         # GET — авто-печать всех счетов (для рядовых)
         person_id = g.user.person_id

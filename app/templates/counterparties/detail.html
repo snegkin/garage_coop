@@ -1,0 +1,248 @@
+{% extends "base.html" %}
+{% block title %}{{ counterparty.name }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div>
+    <h3 class="mb-0">{{ counterparty.name }}</h3>
+    <div class="text-muted small">{{ counterparty.category or "" }}</div>
+  </div>
+  <a class="btn btn-outline-secondary" href="{{ url_for('counterparties.list_counterparties') }}">{{ _("← Все контрагенты") }}</a>
+</div>
+
+<div class="row g-4 mb-4">
+  <div class="col-md-5">
+    <table class="table table-bordered bg-body">
+      <tr><th style="width:160px">{{ _("ИНН") }}</th><td>{{ counterparty.inn or "—" }}</td></tr>
+      <tr><th>{{ _("КПП") }}</th><td>{{ counterparty.kpp or "—" }}</td></tr>
+      <tr><th>{{ _("Телефон") }}</th><td>{{ counterparty.phone or "—" }}</td></tr>
+      <tr><th>{{ _("Email") }}</th><td>{{ counterparty.email or "—" }}</td></tr>
+      <tr><th>{{ _("Адрес") }}</th><td>{{ counterparty.address or "—" }}</td></tr>
+      <tr><th>{{ _("Комментарий") }}</th><td>{{ counterparty.comment or "—" }}</td></tr>
+    </table>
+  </div>
+  <div class="col-md-7">
+    <div class="card bg-body h-100">
+      <div class="card-body d-flex flex-column justify-content-center align-items-center text-center">
+        <div class="text-muted">{{ _("Баланс расчётов") }}</div>
+        <div class="fs-1 {{ 'text-danger' if balance < 0 else 'text-success' }}">{{ fmt2(balance) }} ₽</div>
+        <div class="text-muted small">
+          {% if balance < 0 %}{{ _("кооператив должен контрагенту") }}{% elif balance > 0 %}{{ _("переплата в пользу кооператива") }}{% else %}{{ _("расчёты закрыты") }}{% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="d-flex justify-content-between align-items-center mb-2">
+  <h5 class="mb-0">{{ _("Расходы (начислено)") }}</h5>
+  <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#addExpenseModal">+ {{ _("Добавить расход") }}</button>
+</div>
+<table class="table table-sm bg-body sortable mb-4">
+  <thead><tr><th>{{ _("Дата") }}</th><th>{{ _("Категория") }}</th><th>{{ _("Описание") }}</th><th>{{ _("Сумма") }}</th><th>{{ _("Оплачено") }}</th><th class="no-sort">{{ _("Счёт/акт") }}</th></tr></thead>
+  <tbody>
+    {% for e in expenses %}
+    <tr>
+      <td data-sort-value="{{ e.date.isoformat() }}">{{ fmt_date(e.date) }}</td>
+      <td>{{ e.category or "—" }}</td>
+      <td>{{ e.description or "—" }}</td>
+      <td data-sort-value="{{ e.amount }}">{{ fmt2(e.amount) }} ₽</td>
+      <td data-sort-value="{{ expense_paid.get(e.id, 0) }}">
+        {% set paid = expense_paid.get(e.id, 0) %}
+        {% if paid >= e.amount %}<span class="badge bg-success">{{ _("оплачено") }}</span>
+        {% elif paid > 0 %}<span class="badge bg-warning text-dark">{{ fmt2(paid) }} {{ _("из") }} {{ fmt2(e.amount) }} ₽</span>
+        {% else %}<span class="badge bg-danger">{{ _("не оплачено") }}</span>{% endif %}
+      </td>
+      <td>{% if e.document_id %}<a href="{{ url_for('documents.download', doc_id=e.document_id) }}">{{ _("скачать") }}</a>{% else %}—{% endif %}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="6" class="text-muted">{{ _("Расходов пока нет.") }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<div class="d-flex justify-content-between align-items-center mb-2">
+  <h5 class="mb-0">{{ _("Платежи (оплачено)") }}</h5>
+  <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#addPaymentModal">+ {{ _("Добавить платёж") }}</button>
+</div>
+<table class="table table-sm bg-body sortable mb-4">
+  <thead><tr><th>{{ _("Дата") }}</th><th>{{ _("Сумма") }}</th><th>{{ _("Счёт списания") }}</th><th>{{ _("Комментарий") }}</th><th class="no-sort">{{ _("Платёжный документ") }}</th></tr></thead>
+  <tbody>
+    {% for p in payments %}
+    <tr>
+      <td data-sort-value="{{ p.date.isoformat() }}">{{ fmt_date(p.date) }}</td>
+      <td data-sort-value="{{ p.amount }}">{{ fmt2(p.amount) }} ₽</td>
+      <td>{{ p.bank_account.bank_name ~ " (" ~ p.bank_account.checking_account ~ ")" if p.bank_account else "—" }}</td>
+      <td>{{ p.comment or "—" }}</td>
+      <td>{% if p.document_id %}<a href="{{ url_for('documents.download', doc_id=p.document_id) }}">{{ _("скачать") }}</a>{% else %}—{% endif %}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="5" class="text-muted">{{ _("Платежей пока нет.") }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<div class="d-flex justify-content-between align-items-center mb-2">
+  <h5 class="mb-0">{{ _("Акты сверки") }}</h5>
+  <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#addActModal">+ {{ _("Добавить акт сверки") }}</button>
+</div>
+<table class="table table-sm bg-body sortable mb-4">
+  <thead><tr><th>{{ _("Период") }}</th><th>{{ _("Наш баланс") }}</th><th>{{ _("Баланс по данным контрагента") }}</th><th>{{ _("Комментарий") }}</th><th class="no-sort">{{ _("Акт") }}</th></tr></thead>
+  <tbody>
+    {% for a in acts %}
+    <tr>
+      <td data-sort-value="{{ a.period_end.isoformat() }}">{{ fmt_date(a.period_start) }} — {{ fmt_date(a.period_end) }}</td>
+      <td>{{ (fmt2(a.our_balance) ~ " ₽") if a.our_balance is not none else "—" }}</td>
+      <td>
+        {{ (fmt2(a.counterparty_balance) ~ " ₽") if a.counterparty_balance is not none else "—" }}
+        {% if a.our_balance is not none and a.counterparty_balance is not none and a.our_balance != a.counterparty_balance %}
+          <span class="badge bg-warning text-dark ms-1">{{ _("расхождение") }}</span>
+        {% endif %}
+      </td>
+      <td>{{ a.comment or "—" }}</td>
+      <td>{% if a.document_id %}<a href="{{ url_for('documents.download', doc_id=a.document_id) }}">{{ _("скачать") }}</a>{% else %}—{% endif %}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="5" class="text-muted">{{ _("Актов сверки пока нет.") }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<!-- Модалка: новый расход -->
+<div class="modal fade" id="addExpenseModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <form method="post" action="{{ url_for('counterparties.add_expense', counterparty_id=counterparty.id) }}" enctype="multipart/form-data">
+        <div class="modal-header">
+          <h5 class="modal-title">{{ _("Новый расход") }}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="row g-2 mb-3">
+            <div class="col-6">
+              <label class="form-label">{{ _("Дата") }}</label>
+              <input class="form-control" type="date" name="date" value="{{ today }}" required>
+            </div>
+            <div class="col-6">
+              <label class="form-label">{{ _("Сумма, ₽") }}</label>
+              <input class="form-control" type="number" step="0.01" name="amount" required>
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">{{ _("Категория") }}</label>
+            <input class="form-control" name="category" placeholder="{{ _('напр. видеонаблюдение, электрика, уборка территории') }}">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">{{ _("Описание") }}</label>
+            <textarea class="form-control" name="description"></textarea>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">{{ _("Счёт / акт от контрагента") }}</label>
+            <input class="form-control" type="file" name="document_file">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+          <button class="btn btn-primary">{{ _("Сохранить") }}</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Модалка: новый платёж -->
+<div class="modal fade" id="addPaymentModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <form method="post" action="{{ url_for('counterparties.add_payment', counterparty_id=counterparty.id) }}" enctype="multipart/form-data">
+        <div class="modal-header">
+          <h5 class="modal-title">{{ _("Новый платёж") }}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="row g-2 mb-3">
+            <div class="col-6">
+              <label class="form-label">{{ _("Дата") }}</label>
+              <input class="form-control" type="date" name="date" value="{{ today }}" required>
+            </div>
+            <div class="col-6">
+              <label class="form-label">{{ _("Сумма, ₽") }}</label>
+              <input class="form-control" type="number" step="0.01" name="amount" required>
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">{{ _("Счёт списания") }}</label>
+            <select class="form-select" name="bank_account_id">
+              <option value="">{{ _("— наличными / не указан —") }}</option>
+              {% for acc in bank_accounts %}
+              <option value="{{ acc.id }}">{{ acc.bank_name }} ({{ acc.checking_account }}){% if acc.balance is not none %} — {{ fmt2(acc.balance) }} ₽{% endif %}</option>
+              {% endfor %}
+            </select>
+            <div class="form-text">{{ _("Если выбран счёт, при сохранении сумма спишется с его баланса.") }}</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">{{ _("Комментарий") }}</label>
+            <textarea class="form-control" name="comment"></textarea>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">{{ _("Платёжный документ") }}</label>
+            <input class="form-control" type="file" name="document_file">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+          <button class="btn btn-primary">{{ _("Сохранить") }}</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Модалка: новый акт сверки -->
+<div class="modal fade" id="addActModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <form method="post" action="{{ url_for('counterparties.add_reconciliation_act', counterparty_id=counterparty.id) }}" enctype="multipart/form-data">
+        <div class="modal-header">
+          <h5 class="modal-title">{{ _("Новый акт сверки") }}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="row g-2 mb-3">
+            <div class="col-6">
+              <label class="form-label">{{ _("Период с") }}</label>
+              <input class="form-control" type="date" name="period_start" required>
+            </div>
+            <div class="col-6">
+              <label class="form-label">{{ _("по") }}</label>
+              <input class="form-control" type="date" name="period_end" value="{{ today }}" required>
+            </div>
+          </div>
+          <div class="row g-2 mb-3">
+            <div class="col-6">
+              <label class="form-label">{{ _("Наш баланс, ₽") }}</label>
+              <input class="form-control" type="number" step="0.01" name="our_balance" value="{{ balance }}">
+              <div class="form-text">{{ _("По умолчанию — текущий расчётный баланс.") }}</div>
+            </div>
+            <div class="col-6">
+              <label class="form-label">{{ _("Баланс по данным контрагента, ₽") }}</label>
+              <input class="form-control" type="number" step="0.01" name="counterparty_balance">
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">{{ _("Комментарий") }}</label>
+            <textarea class="form-control" name="comment"></textarea>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">{{ _("Подписанный акт") }}</label>
+            <input class="form-control" type="file" name="document_file">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+          <button class="btn btn-primary">{{ _("Сохранить") }}</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

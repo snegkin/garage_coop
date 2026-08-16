@@ -13,22 +13,48 @@
       <button type="submit" class="btn btn-outline-primary">{{ _("Скачать PDF") }}</button>
     </form>
     {% endif %}
-    {% if not electricity %}
+    {% if not electricity and is_board %}
     <a class="btn btn-outline-secondary" href="{{ url_for('pd4.select') }}">{{ _("Назад к выбору") }}</a>
     {% endif %}
   </div>
 </div>
 
 <style>
-.pd4-table { width: 700px; border-collapse: collapse; font-family: Arial, sans-serif; font-size: 11px; margin: 0 auto 8mm auto; }
+@page {
+  size: auto;
+  margin: 0;
+}
+
+.pd4-table { width: 700px; border-collapse: collapse; font-family: Arial, sans-serif; font-size: 11px; margin: 10mm auto 8mm auto; }
 .pd4-table td { border: 1px solid black; padding: 4px; vertical-align: top; }
 .pd4-table .vertical-text { border-right: 2px solid black !important; text-align: center; font-weight: bold; width: 140px; }
 .pd4-table .text-center { text-align: center; }
 .pd4-table .line { border-bottom: 1px solid black; display: inline-block; }
 .pd4-table .header-label { font-size: 9px; text-align: center; display: block; margin-top: 2px; }
+
 @media print {
   .no-print, nav, footer { display: none !important; }
-  .pd4-slip { page-break-after: always; }
+  html, body { margin: 0 !important; padding: 0 !important; }
+
+  /* Сбрасываем все обёртки из base.html, чтобы ничего не сдвигало
+     таблицу при печати: ширина, отступы и offset-классы обнуляются */
+  body div, body main, body section {
+    width: auto !important;
+    max-width: none !important;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+  }
+
+  /* Сама таблица центрируется своими полями */
+  .pd4-table {
+    width: 700px !important;
+    margin: 10mm auto 8mm auto !important;
+  }
+
+  .pd4-slip { page-break-after: always; break-after: page; }
+  .pd4-slip:last-of-type { page-break-after: auto; break-after: auto; }
 }
 </style>
 

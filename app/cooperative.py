@@ -53,6 +53,9 @@ def edit():
         coop.standard_garage_land_area = _parse_decimal(f.get("standard_garage_land_area")) or Decimal("30")
         coop.land_tax_rate_percent = _parse_decimal(f.get("land_tax_rate_percent")) or Decimal("1.5")
         coop.bank_fee_percent = _parse_decimal(f.get("bank_fee_percent"))
+        coop.balance = _parse_decimal(f.get("balance"))
+        balance_updated_at = f.get("balance_updated_at")
+        coop.balance_updated_at = dt.date.fromisoformat(balance_updated_at) if balance_updated_at else None
         coop.comment = f.get("comment") or None
         database.db_session.commit()
         flash(_("Реквизиты сохранены."), "success")
@@ -80,6 +83,8 @@ def create_bank_account():
         correspondent_account=f.get("correspondent_account") or None,
         is_primary=is_primary,
         comment=f.get("comment") or None,
+        balance=_parse_decimal(f.get("balance")),
+        balance_updated_at=dt.date.fromisoformat(f["balance_updated_at"]) if f.get("balance_updated_at") else None,
     ))
     database.db_session.commit()
     flash(_("Расчётный счёт добавлен."), "success")
@@ -104,6 +109,8 @@ def edit_bank_account(account_id):
     account.correspondent_account = f.get("correspondent_account") or None
     account.is_primary = is_primary
     account.comment = f.get("comment") or None
+    account.balance = _parse_decimal(f.get("balance"))
+    account.balance_updated_at = dt.date.fromisoformat(f["balance_updated_at"]) if f.get("balance_updated_at") else None
     database.db_session.commit()
     flash(_("Расчётный счёт обновлён."), "success")
     return redirect(url_for("cooperative.view"))

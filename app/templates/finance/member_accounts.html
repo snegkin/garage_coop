@@ -6,8 +6,8 @@
   <div class="d-flex gap-2">
     <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#createMemberAccountModal">+ {{ _("Добавить счёт") }}</button>
     {% if current_user.role.value == 'chairman' %}
-    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('finance.mass_charge') }}">{{ _("Массовое начисление") }}</a>
-    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('finance.account_format') }}">{{ _("Формат номеров") }}</a>
+    <a class="btn btn-primary btn-sm" href="{{ url_for('finance.mass_charge') }}">{{ _("Массовое начисление") }}</a>
+    <a class="btn btn-primary btn-sm" href="{{ url_for('finance.account_format') }}">{{ _("Формат номеров") }}</a>
     {% endif %}
   </div>
 </div>

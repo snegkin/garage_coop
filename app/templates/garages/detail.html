@@ -7,7 +7,7 @@
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h3>{{ _("Гараж №{n}", n=garage.number) }}</h3>
   {% if is_board %}
-  <a class="btn btn-outline-primary" href="{{ url_for('garages.edit', garage_id=garage.id) }}">{{ _("Редактировать") }}</a>
+  <a class="btn btn-primary" href="{{ url_for('garages.edit', garage_id=garage.id) }}">{{ _("Редактировать") }}</a>
   {% endif %}
 </div>
 
@@ -116,7 +116,7 @@
       <input class="form-control form-control-sm" name="relation" placeholder="{{ _('напр. супруга') }}">
       <button class="btn btn-sm btn-primary">{{ _("Добавить") }}</button>
       {% if is_board %}
-      <button type="button" class="btn btn-sm btn-outline-primary text-nowrap" data-bs-toggle="modal" data-bs-target="#createPersonModal">+ {{ _("Новый человек") }}</button>
+      <button type="button" class="btn btn-sm btn-primary text-nowrap" data-bs-toggle="modal" data-bs-target="#createPersonModal">+ {{ _("Новый человек") }}</button>
       {% endif %}
     </form>
     {% if is_board %}
@@ -300,7 +300,7 @@
             </form>
           </div>
           <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
             <button type="submit" form="replaceMeterForm" class="btn btn-primary">{{ _("Сохранить") }}</button>
           </div>
         </div>
@@ -452,7 +452,7 @@
           </div>
         </div>
         <div class="modal-footer">
-          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
           <button type="submit" class="btn btn-primary">{{ _("Сохранить") }}</button>
         </div>
       </form>

@@ -24,6 +24,15 @@
   <tr><th>{{ _("Стандартная площадь под гараж, м²") }}</th><td>{{ fmt2(coop.standard_garage_land_area) }} м²</td></tr>
   <tr><th>{{ _("Ставка налога, % от кадастровой стоимости") }}</th><td>{{ fmt2(coop.land_tax_rate_percent) }}%</td></tr>
   <tr><th>{{ _("% банка за обслуживание") }}</th><td>{{ (fmt2(coop.bank_fee_percent) ~ "%") if coop.bank_fee_percent is not none else "—" }}</td></tr>
+  <tr>
+    <th>{{ _("Баланс") }}</th>
+    <td>
+      {% if coop.balance is not none %}
+        <span class="{{ 'text-danger' if coop.balance < 0 else 'text-success' }}">{{ fmt2(coop.balance) }} ₽</span>
+        {% if coop.balance_updated_at %}<span class="text-muted small">({{ _("на") }} {{ fmt_date(coop.balance_updated_at) }})</span>{% endif %}
+      {% else %}—{% endif %}
+    </td>
+  </tr>
   <tr><th>{{ _("Комментарий") }}</th><td>{{ coop.comment or "—" }}</td></tr>
 </table>
 {% else %}
@@ -37,7 +46,7 @@
   {% endif %}
 </div>
 <table class="table table-bordered bg-body sortable">
-  <thead><tr><th>{{ _("Банк") }}</th><th>{{ _("БИК") }}</th><th>{{ _("Расчётный счёт") }}</th><th>{{ _("Корр. счёт") }}</th><th>{{ _("Основной") }}</th><th>{{ _("Комментарий") }}</th>{% if current_user.role.value == 'chairman' %}<th class="no-sort"></th>{% endif %}</tr></thead>
+  <thead><tr><th>{{ _("Банк") }}</th><th>{{ _("БИК") }}</th><th>{{ _("Расчётный счёт") }}</th><th>{{ _("Корр. счёт") }}</th><th>{{ _("Баланс") }}</th><th>{{ _("Основной") }}</th><th>{{ _("Комментарий") }}</th>{% if current_user.role.value == 'chairman' %}<th class="no-sort"></th>{% endif %}</tr></thead>
   <tbody>
     {% for account in bank_accounts %}
     <tr>
@@ -45,11 +54,17 @@
       <td>{{ account.bik or "—" }}</td>
       <td>{{ account.checking_account }}</td>
       <td>{{ account.correspondent_account or "—" }}</td>
+      <td>
+        {% if account.balance is not none %}
+          <span class="{{ 'text-danger' if account.balance < 0 else 'text-success' }}">{{ fmt2(account.balance) }} ₽</span>
+          {% if account.balance_updated_at %}<span class="text-muted small">({{ fmt_date(account.balance_updated_at) }})</span>{% endif %}
+        {% else %}—{% endif %}
+      </td>
       <td>{% if account.is_primary %}<span class="badge bg-primary">{{ _("основной") }}</span>{% endif %}</td>
       <td>{{ account.comment or "—" }}</td>
       {% if current_user.role.value == 'chairman' %}
       <td class="text-nowrap">
-        <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#editBankAccountModal{{ account.id }}">{{ _("Изменить") }}</button>
+        <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#editBankAccountModal{{ account.id }}">{{ _("Изменить") }}</button>
         <form method="post" action="{{ url_for('cooperative.delete_bank_account', account_id=account.id) }}" class="d-inline" onsubmit="return confirm('{{ _("Удалить расчётный счёт?") }}')">
           <button class="btn btn-sm btn-outline-danger">{{ _("Удалить") }}</button>
         </form>
@@ -57,7 +72,7 @@
       {% endif %}
     </tr>
     {% else %}
-    <tr><td colspan="7" class="text-muted">{{ _("Расчётных счетов пока нет.") }}</td></tr>
+    <tr><td colspan="8" class="text-muted">{{ _("Расчётных счетов пока нет.") }}</td></tr>
     {% endfor %}
   </tbody>
 </table>

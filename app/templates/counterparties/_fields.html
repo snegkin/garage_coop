@@ -31,6 +31,17 @@
   <label class="form-label">{{ _("Адрес") }}</label>
   <input class="form-control" name="address" value="{{ (c.address or '') if c else '' }}">
 </div>
+<div class="row g-2 mb-3">
+  <div class="col-6">
+    <label class="form-label">{{ _("Начальный баланс, ₽") }}</label>
+    <input class="form-control" type="number" step="0.01" name="opening_balance" value="{{ (c.opening_balance if c.opening_balance is not none else '') if c else '' }}">
+    <div class="form-text">{{ _("Если расчёты велись ещё до учёта в системе — остаток на момент начала (тот же знак: отрицательное — кооператив уже был должен).") }}</div>
+  </div>
+  <div class="col-6">
+    <label class="form-label">{{ _("Начальный баланс на дату") }}</label>
+    <input class="form-control" type="date" name="opening_balance_date" value="{{ (c.opening_balance_date or '') if c else '' }}">
+  </div>
+</div>
 <div class="mb-3">
   <label class="form-label">{{ _("Комментарий") }}</label>
   <textarea class="form-control" name="comment">{{ (c.comment or '') if c else '' }}</textarea>

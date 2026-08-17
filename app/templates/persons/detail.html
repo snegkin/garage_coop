@@ -9,7 +9,7 @@
     {% if person.is_board_member and not person.is_chairman %}<span class="badge bg-info text-dark">{{ _("Член правления") }}</span>{% endif %}
   </h3>
   {% if current_user.role.value in ('board', 'chairman', 'accountant') %}
-  <a class="btn btn-outline-primary" href="{{ url_for('persons.edit', person_id=person.id) }}">{{ _("Редактировать") }}</a>
+  <a class="btn btn-primary" href="{{ url_for('persons.edit', person_id=person.id) }}">{{ _("Редактировать") }}</a>
   {% endif %}
 </div>
 <div class="row g-4">
@@ -50,11 +50,11 @@
         </p>
         <form method="post" action="{{ url_for('persons.change_username', person_id=person.id) }}" class="d-flex gap-2 mb-2">
           <input class="form-control form-control-sm" name="username" value="{{ account.username }}" placeholder="{{ _('новый логин') }}" required>
-          <button class="btn btn-sm btn-outline-secondary text-nowrap">{{ _("Сменить логин") }}</button>
+          <button class="btn btn-sm btn-primary text-nowrap">{{ _("Сменить логин") }}</button>
         </form>
         <form method="post" action="{{ url_for('persons.reset_password', person_id=person.id) }}" class="d-flex gap-2 mb-2">
           <input class="form-control form-control-sm" type="password" name="password" placeholder="{{ _('новый пароль') }}" required minlength="4">
-          <button class="btn btn-sm btn-outline-secondary text-nowrap">{{ _("Сбросить пароль") }}</button>
+          <button class="btn btn-sm btn-primary text-nowrap">{{ _("Сбросить пароль") }}</button>
         </form>
         <form method="post" action="{{ url_for('persons.toggle_active', person_id=person.id) }}">
           <button class="btn btn-sm {{ 'btn-outline-danger' if account.is_active else 'btn-outline-success' }}">

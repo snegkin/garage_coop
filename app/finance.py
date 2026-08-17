@@ -298,8 +298,23 @@ def account_format():
 @bp.route("/mass-charge", methods=["GET", "POST"])
 @roles_required(RoleEnum.CHAIRMAN)
 def mass_charge():
+    """
+    Массовое начисление на лицевые счета членов кооператива, с расчётом
+    суммы по одной из трёх стратегий (по коэффициенту гаража / по площади
+    от общей суммы / земельный налог). Раньше выбор конкретных гаражей жил
+    отдельной страницей (garages.add_charge_page, «Начисления на гаражи»,
+    с ручной фиксированной суммой без стратегий расчёта) — по факту
+    дублировала эту страницу, но без вариантов расчёта. Объединили: выбор
+    гаражей теперь прямо здесь (необязательный — если ничего не отмечено,
+    начисление идёт на все гаражи, как и раньше).
+    """
     fee_types_list = database.db_session.query(FeeType).filter(FeeType.type_code.isnot(None)).order_by(FeeType.name).all()
     coop = database.db_session.query(Cooperative).first()
+    all_garages = database.db_session.query(Garage).order_by(Garage.number).all()
+    person_names = {
+        garage.id: ", ".join(o.person.full_name for o in garage.ownerships)
+        for garage in all_garages
+    }
     results = None
 
     if request.method == "POST":
@@ -307,7 +322,8 @@ def mass_charge():
         year = int(f["year"])
         strategy = f["strategy"]
 
-        garages = database.db_session.query(Garage).all()
+        selected_ids = [int(x) for x in f.getlist("garage_id")]
+        garages = [g for g in all_garages if g.id in set(selected_ids)] if selected_ids else all_garages
         total_area = sum((garage.area_sqm for garage in garages), Decimal("0"))
 
         charged_rows = []   # (person_name, garage_number, amount)
@@ -317,7 +333,7 @@ def mass_charge():
             fee_type = database.db_session.query(FeeType).filter_by(code="land_tax").first()
             if fee_type is None:
                 flash(_("Не найден вид взноса «land_tax» — проверьте справочник видов взносов."), "danger")
-                return render_template("finance/mass_charge.html", fee_types=fee_types_list, results=None, coop=coop)
+                return render_template("finance/mass_charge.html", fee_types=fee_types_list, results=None, coop=coop, garages=all_garages, person_names=person_names)
 
             cadastral_value_raw = f.get("cadastral_value")
             if cadastral_value_raw:
@@ -334,7 +350,7 @@ def mass_charge():
                 flash(_(
                     "Недостаточно данных для расчёта: заполните площади кооператива в его карточке и кадастровую стоимость на {year} год.", year=year,
                 ), "danger")
-                return render_template("finance/mass_charge.html", fee_types=fee_types_list, results=None, coop=coop)
+                return render_template("finance/mass_charge.html", fee_types=fee_types_list, results=None, coop=coop, garages=all_garages, person_names=person_names)
         elif strategy == "coefficient":
             fee_type_id = int(f["fee_type_id"])
             fee_type = database.db_session.get(FeeType, fee_type_id)
@@ -378,4 +394,4 @@ def mass_charge():
                 n=len(skipped_rows),
             ), "warning")
 
-    return render_template("finance/mass_charge.html", fee_types=fee_types_list, results=results, coop=coop)
+    return render_template("finance/mass_charge.html", fee_types=fee_types_list, results=results, coop=coop, garages=all_garages, person_names=person_names)

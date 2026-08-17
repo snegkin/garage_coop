@@ -42,7 +42,6 @@ def create_app(config_class=Config):
     from .documents import bp as documents_bp
     from .meetings import bp as meetings_bp
     from .cooperative import bp as cooperative_bp
-    from .master_meter import bp as master_meter_bp
     from .cabinet import bp as cabinet_bp
     from .power import bp as power_bp
     from .counterparties import bp as counterparties_bp
@@ -55,7 +54,6 @@ def create_app(config_class=Config):
     app.register_blueprint(documents_bp)
     app.register_blueprint(meetings_bp)
     app.register_blueprint(cooperative_bp)
-    app.register_blueprint(master_meter_bp)
     app.register_blueprint(cabinet_bp)
     app.register_blueprint(power_bp)
     app.register_blueprint(counterparties_bp)

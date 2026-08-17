@@ -7,20 +7,23 @@
   <div class="col-md-6">
     <div class="d-flex justify-content-between align-items-center mb-2">
       <h5 class="mb-0">{{ _("Поставщик электроэнергии") }}</h5>
-      <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#supplierModal">
-        {{ _("Редактировать") if settings.supplier else _("Указать поставщика") }}
+      <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#supplierModal">
+        {{ _("Изменить") if settings.supplier else _("Указать поставщика") }}
       </button>
     </div>
     {% if settings.supplier %}
     <table class="table table-bordered bg-body">
-      <tr><th style="width:160px">{{ _("Название") }}</th><td>{{ settings.supplier.name }}</td></tr>
+      <tr><th style="width:160px">{{ _("Название") }}</th><td><a href="{{ url_for('counterparties.detail', counterparty_id=settings.supplier.id) }}">{{ settings.supplier.name }}</a></td></tr>
       <tr><th>{{ _("ИНН") }}</th><td>{{ settings.supplier.inn or "—" }}</td></tr>
-      <tr><th>{{ _("КПП") }}</th><td>{{ settings.supplier.kpp or "—" }}</td></tr>
-      <tr><th>{{ _("Телефон") }}</th><td>{{ settings.supplier.phone or "—" }}</td></tr>
-      <tr><th>{{ _("Email") }}</th><td>{{ settings.supplier.email or "—" }}</td></tr>
-      <tr><th>{{ _("Адрес") }}</th><td>{{ settings.supplier.address or "—" }}</td></tr>
-      <tr><th>{{ _("Комментарий") }}</th><td>{{ settings.supplier.comment or "—" }}</td></tr>
+      <tr>
+        <th>{{ _("Баланс расчётов") }}</th>
+        <td>
+          <span class="{{ 'text-danger' if supplier_balance < 0 else 'text-success' }}">{{ fmt2(supplier_balance) }} ₽</span>
+          <a class="small ms-1" href="{{ url_for('counterparties.detail', counterparty_id=settings.supplier.id) }}">{{ _("вся история") }}</a>
+        </td>
+      </tr>
     </table>
+    <p class="text-muted small">{{ _("Реквизиты, расходы и платежи по поставщику — в карточке контрагента (ссылка выше). Баланс здесь — это баланс расчётов с ним же (раздел «Контрагенты»), отдельного баланса у поставщика нет.") }}</p>
     {% else %}
     <p class="text-muted">{{ _("Поставщик пока не указан.") }}</p>
     {% endif %}
@@ -29,7 +32,7 @@
   <div class="col-md-6">
     <div class="d-flex justify-content-between align-items-center mb-2">
       <h5 class="mb-0">{{ _("Тариф") }}</h5>
-      <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#tariffModal">+ {{ _("Добавить тариф") }}</button>
+      <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#tariffModal">+ {{ _("Добавить тариф") }}</button>
     </div>
     {% if tariff %}
     <p class="fs-4 mb-1">{{ fmt2(tariff.rate) }} ₽/{{ _("кВт·ч") }}</p>
@@ -61,7 +64,7 @@
   <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#readingModal">+ {{ _("Внести показания") }}</button>
 </div>
 <table class="table table-sm bg-body sortable">
-  <thead><tr><th>{{ _("Год") }}</th><th>{{ _("Месяц") }}</th><th>{{ _("Показания, кВт·ч") }}</th><th>{{ _("Тариф") }}</th><th>{{ _("Сумма") }}</th><th>{{ _("Комментарий") }}</th><th class="no-sort">{{ _("Документ") }}</th></tr></thead>
+  <thead><tr><th>{{ _("Год") }}</th><th>{{ _("Месяц") }}</th><th>{{ _("Показания, кВт·ч") }}</th><th>{{ _("Тариф") }}</th><th>{{ _("Сумма") }}</th><th>{{ _("Оплата") }}</th><th>{{ _("Комментарий") }}</th><th class="no-sort">{{ _("Документ") }}</th><th class="no-sort">{{ _("Действия") }}</th></tr></thead>
   <tbody>
     {% for r, amount in readings %}
     <tr>
@@ -70,19 +73,37 @@
       <td data-sort-value="{{ r.reading }}">{{ fmt2(r.reading) }}</td>
       <td data-sort-value="{{ r.tariff.rate }}">{{ fmt2(r.tariff.rate) }} ₽</td>
       <td data-sort-value="{{ amount if amount is not none else '' }}">{{ (fmt2(amount) ~ " ₽") if amount is not none else "—" }}</td>
+      <td>
+        {% if not r.expense_id %}
+          <span class="text-muted">—</span>
+        {% elif expense_paid.get(r.id, 0) >= r.expense.amount %}
+          <span class="badge bg-success">{{ _("оплачено") }}</span>
+        {% elif expense_paid.get(r.id, 0) > 0 %}
+          <span class="badge bg-warning text-dark">{{ _("частично") }}</span>
+        {% else %}
+          <a class="badge bg-danger text-decoration-none" href="{{ url_for('counterparties.detail', counterparty_id=r.expense.counterparty_id) }}">{{ _("не оплачено") }}</a>
+        {% endif %}
+      </td>
       <td>{{ r.comment or "—" }}</td>
       <td>{% if r.document_id %}<a href="{{ url_for('documents.download', doc_id=r.document_id) }}">{{ _("скачать") }}</a>{% else %}—{% endif %}</td>
+      <td class="no-sort">
+        {% if loop.first %}
+        <form method="post" action="{{ url_for('power.delete_reading', reading_id=r.id) }}" onsubmit="return confirm('{{ _('Удалить показание?') }}')">
+          <button class="btn btn-sm btn-outline-danger">✕</button>
+        </form>
+        {% endif %}
+      </td>
     </tr>
     {% else %}
-    <tr><td colspan="7" class="text-muted">{{ _("Показаний пока нет.") }}</td></tr>
+    <tr><td colspan="9" class="text-muted">{{ _("Показаний пока нет.") }}</td></tr>
     {% endfor %}
   </tbody>
 </table>
-<p class="text-muted small">{{ _("Сумма рассчитывается автоматически: (новые показания − предыдущие) × тариф, действующий на месяц оплаты.") }}</p>
+<p class="text-muted small">{{ _("Сумма рассчитывается автоматически: (новые показания − предыдущие) × тариф, действующий на месяц оплаты. При сохранении автоматически заводится расход перед поставщиком (раздел «Контрагенты»).") }}</p>
 
 <!-- Модалка: поставщик -->
 <div class="modal fade" id="supplierModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-lg">
+  <div class="modal-dialog">
     <div class="modal-content">
       <form method="post" action="{{ url_for('power.save_supplier') }}">
         <div class="modal-header">
@@ -91,42 +112,27 @@
         </div>
         <div class="modal-body">
           <div class="mb-3">
-            <label class="form-label">{{ _("Название") }}</label>
-            <input class="form-control" name="name" value="{{ settings.supplier.name if settings.supplier else '' }}" required>
-          </div>
-          <div class="row g-2 mb-3">
-            <div class="col-6">
-              <label class="form-label">{{ _("ИНН") }}</label>
-              <input class="form-control" name="inn" value="{{ (settings.supplier.inn or '') if settings.supplier else '' }}">
+            <label class="form-label">{{ _("Контрагент") }}</label>
+            <select class="form-select" name="counterparty_id" data-searchable>
+              <option value="">{{ _("— не выбран —") }}</option>
+              {% for c in counterparties %}
+              <option value="{{ c.id }}" {{ "selected" if settings.supplier and c.id == settings.supplier.id }}>{{ c.name }}{% if c.inn %} ({{ c.inn }}){% endif %}</option>
+              {% endfor %}
+            </select>
+            <div class="form-text">
+              {{ _("Нет нужного контрагента в списке?") }}
+              <a href="{{ url_for('counterparties.list_counterparties') }}" target="_blank">{{ _("Добавьте его в разделе «Контрагенты»") }}</a>.
             </div>
-            <div class="col-6">
-              <label class="form-label">{{ _("КПП") }}</label>
-              <input class="form-control" name="kpp" value="{{ (settings.supplier.kpp or '') if settings.supplier else '' }}">
-            </div>
-          </div>
-          <div class="row g-2 mb-3">
-            <div class="col-6">
-              <label class="form-label">{{ _("Телефон") }}</label>
-              <input class="form-control" name="phone" value="{{ (settings.supplier.phone or '') if settings.supplier else '' }}">
-            </div>
-            <div class="col-6">
-              <label class="form-label">{{ _("Email") }}</label>
-              <input class="form-control" name="email" value="{{ (settings.supplier.email or '') if settings.supplier else '' }}">
-            </div>
-          </div>
-          <div class="mb-3">
-            <label class="form-label">{{ _("Адрес") }}</label>
-            <input class="form-control" name="address" value="{{ (settings.supplier.address or '') if settings.supplier else '' }}">
-          </div>
-          <div class="mb-3">
-            <label class="form-label">{{ _("Комментарий") }}</label>
-            <textarea class="form-control" name="comment">{{ (settings.supplier.comment or '') if settings.supplier else '' }}</textarea>
           </div>
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
           <button class="btn btn-primary">{{ _("Сохранить") }}</button>
         </div>
+      </form>
+    </div>
+  </div>
+</div>
       </form>
     </div>
   </div>
@@ -207,6 +213,17 @@
           <div class="mb-3">
             <label class="form-label">{{ _("Документ от энергосбыта") }}</label>
             <input class="form-control" type="file" name="document_file">
+          </div>
+          <hr>
+          <div class="mb-3">
+            <label class="form-label">{{ _("Оплатить со счёта") }}</label>
+            <select class="form-select" name="bank_account_id">
+              <option value="">{{ _("— не оплачивать сейчас, оплатить позже —") }}</option>
+              {% for acc in bank_accounts %}
+              <option value="{{ acc.id }}">{{ acc.bank_name }} ({{ acc.checking_account }}){% if acc.balance is not none %} — {{ fmt2(acc.balance) }} ₽{% endif %}</option>
+              {% endfor %}
+            </select>
+            <div class="form-text">{{ _("Если выбрать счёт, при сохранении сразу спишется сумма и расход перед поставщиком будет отмечен оплаченным. Если не выбирать — расход останется неоплаченным, оплатить можно будет позже в карточке контрагента.") }}</div>
           </div>
         </div>
         <div class="modal-footer">

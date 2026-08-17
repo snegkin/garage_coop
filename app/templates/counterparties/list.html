@@ -11,12 +11,13 @@
   <tbody>
     {% for c, balance in rows %}
     <tr>
-      <td>{{ c.name }}</td>
+      <td><a href="{{ url_for('counterparties.detail', counterparty_id=c.id) }}">{{ c.name }}</a></td>
       <td>{{ c.inn or "—" }}</td>
-      <td data-sort-value="{{ balance }}">{{ fmt2(balance) }} ₽</td>
+      <td data-sort-value="{{ balance }}"><span class="{{ 'text-danger' if balance < 0 else 'text-success' }}">{{ fmt2(balance) }} ₽</span></td>
       <td>{{ c.comment or "—" }}</td>
       <td class="text-nowrap">
-        <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#editCounterpartyModal{{ c.id }}">{{ _("Изменить") }}</button>
+        <a class="btn btn-sm btn-primary" href="{{ url_for('counterparties.detail', counterparty_id=c.id) }}">{{ _("Открыть") }}</a>
+        <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#editCounterpartyModal{{ c.id }}">{{ _("Изменить") }}</button>
         <form method="post" action="{{ url_for('counterparties.delete', counterparty_id=c.id) }}" class="d-inline" onsubmit="return confirm('{{ _("Удалить контрагента?") }}')">
           <button class="btn btn-sm btn-outline-danger">{{ _("Удалить") }}</button>
         </form>

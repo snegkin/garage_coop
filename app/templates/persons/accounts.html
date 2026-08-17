@@ -25,7 +25,7 @@
       <td>
         {% if user.person %}
         <form method="post" action="{{ url_for('persons.unlink_account', user_id=user.id) }}" onsubmit="return confirm('{{ _("Отвязать эту учётную запись от человека?") }}')">
-          <button class="btn btn-sm btn-outline-secondary">{{ _("Отвязать") }}</button>
+          <button class="btn btn-sm btn-primary">{{ _("Отвязать") }}</button>
         </form>
         {% else %}
         <form method="post" action="{{ url_for('persons.link_account', user_id=user.id) }}" class="d-flex gap-2">

@@ -21,6 +21,17 @@
   <input class="form-check-input" type="checkbox" name="is_primary" id="isPrimaryAccount{{ account.id if account else '' }}" {{ "checked" if account and account.is_primary }}>
   <label class="form-check-label" for="isPrimaryAccount{{ account.id if account else '' }}">{{ _("Основной счёт (для платёжек ПД-4)") }}</label>
 </div>
+<div class="row g-2 mb-3">
+  <div class="col-6">
+    <label class="form-label">{{ _("Баланс, ₽") }}</label>
+    <input class="form-control" type="number" step="0.01" name="balance" value="{{ (account.balance if account.balance is not none else '') if account else '' }}">
+    <div class="form-text">{{ _("Вносится вручную, нет интеграции с банком.") }}</div>
+  </div>
+  <div class="col-6">
+    <label class="form-label">{{ _("Баланс на дату") }}</label>
+    <input class="form-control" type="date" name="balance_updated_at" value="{{ (account.balance_updated_at or '') if account else '' }}">
+  </div>
+</div>
 <div class="mb-3">
   <label class="form-label">{{ _("Комментарий") }}</label>
   <textarea class="form-control" name="comment">{{ (account.comment or '') if account else '' }}</textarea>

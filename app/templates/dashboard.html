@@ -8,7 +8,7 @@
     <div class="card"><div class="card-body">
       <div class="text-muted">{{ _("Баланс кооператива") }}</div>
       <div class="fs-2 {{ 'text-danger' if stats.coop_balance < 0 else 'text-success' }}">{{ fmt2(stats.coop_balance) }} ₽</div>
-      <div class="text-muted small">{{ _("сумма по всем лицевым счетам") }}</div>
+      <div class="text-muted small">{{ _("сумма по расчётным счетам в банках") }}</div>
     </div></div>
   </div>
   {% endif %}

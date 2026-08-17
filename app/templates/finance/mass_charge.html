@@ -3,8 +3,26 @@
 {% block content %}
 <h3 class="mb-3">{{ _("Массовое начисление на лицевые счета") }}</h3>
 
-<form method="post" class="bg-body p-4 rounded border mb-4" style="max-width:600px">
+<form method="post" class="bg-body p-4 rounded border mb-4" style="max-width:700px">
   <div class="row g-3">
+    <div class="col-12">
+      <label class="form-label">{{ _("Гаражи") }}</label>
+      <div class="d-flex gap-2 mb-2">
+        <input type="text" class="form-control form-control-sm" id="garagePickerFilter" placeholder="{{ _('Поиск по номеру или собственнику…') }}">
+        <button type="button" class="btn btn-sm btn-primary text-nowrap" id="garagePickerSelectAll">{{ _("Выбрать все") }}</button>
+        <button type="button" class="btn btn-sm btn-primary text-nowrap" id="garagePickerClear">{{ _("Снять все") }}</button>
+      </div>
+      <div class="border rounded p-2 bg-body-tertiary" style="max-height:220px; overflow-y:auto" id="garagePickerList">
+        {% for g in garages %}
+        <div class="form-check garage-picker-row" data-search="№{{ g.number }} {{ person_names.get(g.id) or '' }}">
+          <input class="form-check-input" type="checkbox" name="garage_id" value="{{ g.id }}" id="garageCheck{{ g.id }}">
+          <label class="form-check-label" for="garageCheck{{ g.id }}">№{{ g.number }} — {{ person_names.get(g.id) or "—" }}</label>
+        </div>
+        {% endfor %}
+      </div>
+      <p class="text-muted small mb-0 mt-1"><span id="garagePickerCount">0</span> {{ _("гаражей выбрано — если ни один не выбран, начисление пойдёт на все гаражи") }}</p>
+    </div>
+
     <div class="col-md-6" id="feeTypeField">
       <label class="form-label">{{ _("Вид взноса") }}</label>
       <select class="form-select" name="fee_type_id" id="feeTypeSelect" required>
@@ -72,6 +90,46 @@
   radios.forEach(function (r) { r.addEventListener("change", sync); });
   sync();
 })();
+
+document.addEventListener("DOMContentLoaded", function () {
+  const list = document.getElementById("garagePickerList");
+  const filter = document.getElementById("garagePickerFilter");
+  const selectAllBtn = document.getElementById("garagePickerSelectAll");
+  const clearBtn = document.getElementById("garagePickerClear");
+  const countEl = document.getElementById("garagePickerCount");
+  if (!list) return;
+
+  const rows = Array.from(list.querySelectorAll(".garage-picker-row"));
+  const checkboxes = rows.map(function (row) { return row.querySelector("input[type=checkbox]"); });
+
+  function updateCount() {
+    countEl.textContent = checkboxes.filter(function (cb) { return cb.checked; }).length;
+  }
+
+  filter.addEventListener("input", function () {
+    const q = filter.value.trim().toLowerCase();
+    rows.forEach(function (row) {
+      const hay = (row.dataset.search || "").toLowerCase();
+      row.style.display = (!q || hay.indexOf(q) !== -1) ? "" : "none";
+    });
+  });
+
+  selectAllBtn.addEventListener("click", function () {
+    rows.forEach(function (row) {
+      if (row.style.display === "none") return;
+      row.querySelector("input[type=checkbox]").checked = true;
+    });
+    updateCount();
+  });
+
+  clearBtn.addEventListener("click", function () {
+    checkboxes.forEach(function (cb) { cb.checked = false; });
+    updateCount();
+  });
+
+  checkboxes.forEach(function (cb) { cb.addEventListener("change", updateCount); });
+  updateCount();
+});
 </script>
 
 {% if results %}

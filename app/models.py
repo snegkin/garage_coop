@@ -12,7 +12,7 @@ from decimal import Decimal
 
 from sqlalchemy import (
     String, Integer, Numeric, Date, DateTime, Boolean, Text,
-    ForeignKey, Enum, UniqueConstraint, CheckConstraint, Index, text
+    ForeignKey, Enum, UniqueConstraint, CheckConstraint, Index, MetaData, text
 )
 from sqlalchemy.orm import (
     DeclarativeBase, Mapped, mapped_column, relationship
@@ -20,7 +20,19 @@ from sqlalchemy.orm import (
 
 
 class Base(DeclarativeBase):
-    pass
+    # Именованные constraint'ы нужны для SQLite batch-режима Alembic
+    # (пересоздание таблицы при ALTER TABLE) — без этого добавление нового
+    # внешнего ключа к уже существующей таблице через autogenerate падает с
+    # ValueError: Constraint must have a name (столкнулись на добавлении
+    # master_meter_reading.expense_id). На уже существующие констрейнты не
+    # влияет и лишних диффов в autogenerate не создаёт — проверено.
+    metadata = MetaData(naming_convention={
+        "ix": "ix_%(column_0_label)s",
+        "uq": "uq_%(table_name)s_%(column_0_name)s",
+        "ck": "ck_%(table_name)s_%(constraint_name)s",
+        "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
+        "pk": "pk_%(table_name)s",
+    })
 
 
 # ---------------------------------------------------------------------------
@@ -53,15 +65,22 @@ class Cooperative(Base):
 
     bank_fee_percent: Mapped[Decimal | None] = mapped_column(Numeric(5, 3))  # % банка за обслуживание счёта, напр. 1.6
 
+    # Фактический баланс кооператива (наличные + все расчётные счета) на дату
+    # последней сверки — вносится вручную председателем/бухгалтером. Отдельно
+    # от внутреннего учётного баланса (см. accounting.cooperative_balance(),
+    # используется на дашборде правления) — тот считается автоматически как
+    # сумма всех лицевых счетов и показывает, сколько кооперативу должны/он
+    # должен члены, а не то, сколько денег фактически на счетах.
+    balance: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    balance_updated_at: Mapped[dt.date | None] = mapped_column(Date)
+
     comment: Mapped[str | None] = mapped_column(Text)
 
 
 class BankAccount(Base):
     """
     Расчётный счёт кооператива. Может быть несколько — как в одном банке,
-    так и в разных. Собственного баланса не хранит: баланс по внутреннему
-    учёту считается динамически суммой по лицевым счетам, см.
-    accounting.cooperative_balance() — используется на дашборде.
+    так и в разных.
     """
     __tablename__ = "bank_account"
 
@@ -72,6 +91,13 @@ class BankAccount(Base):
     correspondent_account: Mapped[str | None] = mapped_column(String(20))  # к/с
     is_primary: Mapped[bool] = mapped_column(Boolean, default=False)       # основной счёт, для ПД-4 и т.п.
     comment: Mapped[str | None] = mapped_column(Text)
+
+    # Фактический баланс именно на этом счёте — вносится вручную (нет
+    # интеграции с банком). Сводный «Баланс» на карточке кооператива —
+    # отдельное вручную вносимое значение, не обязано быть суммой этого
+    # поля по всем счетам (кооператив может держать часть средств в кассе).
+    balance: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    balance_updated_at: Mapped[dt.date | None] = mapped_column(Date)
 
 
 class Counterparty(Base):
@@ -88,11 +114,21 @@ class Counterparty(Base):
     address: Mapped[str | None] = mapped_column(Text)
     comment: Mapped[str | None] = mapped_column(Text)
 
+    # Баланс на момент начала учёта в системе (если отношения с
+    # контрагентом уже велись раньше и на старте были не с нуля) —
+    # тот же знак, что и accounting.counterparty_balance(): отрицательное
+    # значит кооператив уже был должен контрагенту на эту сумму.
+    opening_balance: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    opening_balance_date: Mapped[dt.date | None] = mapped_column(Date)
+
     expenses: Mapped[list["Expense"]] = relationship(back_populates="counterparty")
+    payments: Mapped[list["CounterpartyPayment"]] = relationship(back_populates="counterparty")
+    reconciliation_acts: Mapped[list["ReconciliationAct"]] = relationship(back_populates="counterparty")
 
 
 class Expense(Base):
-    """Расход кооператива в адрес контрагента (снег, дорога, обслуживание и т.д.)."""
+    """Расход кооператива в адрес контрагента (снег, дорога, обслуживание и т.д.).
+    document_id — подтверждающий документ (счёт/акт от контрагента)."""
     __tablename__ = "expense"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -104,6 +140,89 @@ class Expense(Base):
     document_id: Mapped[int | None] = mapped_column(ForeignKey("document.id", ondelete="SET NULL"), index=True)
 
     counterparty: Mapped["Counterparty"] = relationship(back_populates="expenses")
+    allocations: Mapped[list["ExpenseAllocation"]] = relationship(
+        back_populates="expense", cascade="all, delete-orphan"
+    )
+
+
+class CounterpartyPayment(Base):
+    """
+    Платёж кооператива контрагенту — зеркало Payment (там платят кооперативу,
+    здесь платит кооператив). Реальное списание денег: см.
+    accounting.pay_counterparty(), который на создании такого платежа уменьшает
+    CounterpartyPayment.bank_account.balance на сумму платежа.
+    document_id — платёжный документ (платёжка/квитанция), в отличие от
+    Expense.document_id (тот — счёт/акт, подтверждающий сам факт задолженности).
+    """
+    __tablename__ = "counterparty_payment"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    counterparty_id: Mapped[int] = mapped_column(ForeignKey("counterparty.id"), index=True)
+    bank_account_id: Mapped[int | None] = mapped_column(ForeignKey("bank_account.id", ondelete="SET NULL"), index=True)
+    date: Mapped[dt.date] = mapped_column(Date, index=True)
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    document_id: Mapped[int | None] = mapped_column(ForeignKey("document.id", ondelete="SET NULL"), index=True)
+    comment: Mapped[str | None] = mapped_column(Text)
+
+    # Отменяющая проводка (сторно): если платёж реально ушёл в банк, но
+    # обнаружилась ошибка в реквизитах/организации и деньги вернулись —
+    # исходный платёж НЕ трогается (виден в истории как есть), а рядом
+    # создаётся новая запись с отрицательной суммой, ссылающаяся сюда через
+    # reverses_payment_id. См. accounting.reverse_counterparty_payment().
+    reverses_payment_id: Mapped[int | None] = mapped_column(
+        ForeignKey("counterparty_payment.id", ondelete="SET NULL"), index=True
+    )
+    reverses: Mapped["CounterpartyPayment | None"] = relationship(
+        remote_side="CounterpartyPayment.id", foreign_keys=[reverses_payment_id], back_populates="reversed_by"
+    )
+    reversed_by: Mapped[list["CounterpartyPayment"]] = relationship(
+        foreign_keys=[reverses_payment_id], back_populates="reverses"
+    )
+
+    counterparty: Mapped["Counterparty"] = relationship(back_populates="payments")
+    bank_account: Mapped["BankAccount | None"] = relationship()
+    allocations: Mapped[list["ExpenseAllocation"]] = relationship(
+        back_populates="payment", cascade="all, delete-orphan"
+    )
+
+
+class ExpenseAllocation(Base):
+    """
+    Разнесение платежа контрагенту по конкретному расходу — зеркало
+    ChargeAllocation. Пересчитывается целиком заново (FIFO) функцией
+    accounting.reallocate_counterparty_expenses() при каждом новом расходе
+    или платеже по контрагенту — не редактируется вручную.
+    """
+    __tablename__ = "expense_allocation"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    expense_id: Mapped[int] = mapped_column(ForeignKey("expense.id", ondelete="CASCADE"), index=True)
+    payment_id: Mapped[int] = mapped_column(ForeignKey("counterparty_payment.id", ondelete="CASCADE"), index=True)
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+
+    expense: Mapped["Expense"] = relationship(back_populates="allocations")
+    payment: Mapped["CounterpartyPayment"] = relationship(back_populates="allocations")
+
+
+class ReconciliationAct(Base):
+    """
+    Акт сверки с контрагентом — периодическая сверка «сколько должны по
+    нашим данным» vs «сколько по данным контрагента». Чисто информационная
+    запись: на сумму расходов/платежей не влияет, только фиксирует факт
+    сверки и позволяет увидеть расхождение, если оно есть.
+    """
+    __tablename__ = "reconciliation_act"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    counterparty_id: Mapped[int] = mapped_column(ForeignKey("counterparty.id"), index=True)
+    period_start: Mapped[dt.date] = mapped_column(Date)
+    period_end: Mapped[dt.date] = mapped_column(Date)
+    our_balance: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))            # наш расчёт на дату акта
+    counterparty_balance: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))   # по данным контрагента
+    document_id: Mapped[int | None] = mapped_column(ForeignKey("document.id", ondelete="SET NULL"), index=True)
+    comment: Mapped[str | None] = mapped_column(Text)
+
+    counterparty: Mapped["Counterparty"] = relationship(back_populates="reconciliation_acts")
 
 
 # ---------------------------------------------------------------------------
@@ -431,6 +550,11 @@ class MasterMeterReading(Base):
     amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))  # автоматически: (показание - предыдущее) * тариф
     tariff_id: Mapped[int] = mapped_column(ForeignKey("electricity_tariff.id"), index=True)
     comment: Mapped[str | None] = mapped_column(Text)
+    expense_id: Mapped[int | None] = mapped_column(
+        ForeignKey("expense.id", ondelete="SET NULL"), unique=True, index=True
+    )  # автоматически созданный расход перед поставщиком на сумму этого показания
+
+    expense: Mapped["Expense | None"] = relationship()
     document_id: Mapped[int | None] = mapped_column(ForeignKey("document.id", ondelete="SET NULL"), index=True)
 
     tariff: Mapped["ElectricityTariff"] = relationship()

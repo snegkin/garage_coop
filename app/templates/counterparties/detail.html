@@ -6,7 +6,10 @@
     <h3 class="mb-0">{{ counterparty.name }}</h3>
     <div class="text-muted small">{{ counterparty.category or "" }}</div>
   </div>
-  <a class="btn btn-outline-secondary" href="{{ url_for('counterparties.list_counterparties') }}">{{ _("← Все контрагенты") }}</a>
+  <div>
+    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#editCounterpartyModal">{{ _("Изменить") }}</button>
+    <a class="btn btn-primary" href="{{ url_for('counterparties.list_counterparties') }}">{{ _("← Все контрагенты") }}</a>
+  </div>
 </div>
 
 <div class="row g-4 mb-4">
@@ -17,6 +20,15 @@
       <tr><th>{{ _("Телефон") }}</th><td>{{ counterparty.phone or "—" }}</td></tr>
       <tr><th>{{ _("Email") }}</th><td>{{ counterparty.email or "—" }}</td></tr>
       <tr><th>{{ _("Адрес") }}</th><td>{{ counterparty.address or "—" }}</td></tr>
+      <tr>
+        <th>{{ _("Начальный баланс") }}</th>
+        <td>
+          {% if counterparty.opening_balance is not none %}
+            {{ fmt2(counterparty.opening_balance) }} ₽
+            {% if counterparty.opening_balance_date %}<span class="text-muted small">({{ _("на") }} {{ fmt_date(counterparty.opening_balance_date) }})</span>{% endif %}
+          {% else %}—{% endif %}
+        </td>
+      </tr>
       <tr><th>{{ _("Комментарий") }}</th><td>{{ counterparty.comment or "—" }}</td></tr>
     </table>
   </div>
@@ -65,25 +77,42 @@
   <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#addPaymentModal">+ {{ _("Добавить платёж") }}</button>
 </div>
 <table class="table table-sm bg-body sortable mb-4">
-  <thead><tr><th>{{ _("Дата") }}</th><th>{{ _("Сумма") }}</th><th>{{ _("Счёт списания") }}</th><th>{{ _("Комментарий") }}</th><th class="no-sort">{{ _("Платёжный документ") }}</th></tr></thead>
+  <thead><tr><th>{{ _("Дата") }}</th><th>{{ _("Сумма") }}</th><th>{{ _("Счёт списания") }}</th><th>{{ _("Комментарий") }}</th><th class="no-sort">{{ _("Платёжный документ") }}</th><th class="no-sort">{{ _("Действия") }}</th></tr></thead>
   <tbody>
     {% for p in payments %}
-    <tr>
-      <td data-sort-value="{{ p.date.isoformat() }}">{{ fmt_date(p.date) }}</td>
+    <tr class="{{ 'text-decoration-line-through text-muted' if p.reverses_payment_id is none and p.reversed_by else '' }}">
+      <td data-sort-value="{{ p.date.isoformat() }}">
+        {{ fmt_date(p.date) }}
+        {% if p.reverses_payment_id %}<span class="badge bg-secondary ms-1">{{ _("сторно") }}</span>{% endif %}
+      </td>
       <td data-sort-value="{{ p.amount }}">{{ fmt2(p.amount) }} ₽</td>
       <td>{{ p.bank_account.bank_name ~ " (" ~ p.bank_account.checking_account ~ ")" if p.bank_account else "—" }}</td>
-      <td>{{ p.comment or "—" }}</td>
+      <td>
+        {{ p.comment or "—" }}
+        {% if p.reverses_payment_id and p.reverses %}<div class="text-muted small">{{ _("сторно платежа от {date}", date=fmt_date(p.reverses.date)) }}</div>{% endif %}
+        {% if p.reverses_payment_id is none and p.reversed_by %}<div class="text-muted small">{{ _("отменён проводкой от {date}", date=fmt_date(p.reversed_by[0].date)) }}</div>{% endif %}
+      </td>
       <td>{% if p.document_id %}<a href="{{ url_for('documents.download', doc_id=p.document_id) }}">{{ _("скачать") }}</a>{% else %}—{% endif %}</td>
+      <td class="text-nowrap">
+        {% if p.reverses_payment_id is none %}
+          {% if p.id == last_payment_id %}
+          <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#editPaymentModal{{ p.id }}">{{ _("Изменить") }}</button>
+          {% endif %}
+          {% if not p.reversed_by %}
+          <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#reversePaymentModal{{ p.id }}">{{ _("Сторно") }}</button>
+          {% endif %}
+        {% endif %}
+      </td>
     </tr>
     {% else %}
-    <tr><td colspan="5" class="text-muted">{{ _("Платежей пока нет.") }}</td></tr>
+    <tr><td colspan="6" class="text-muted">{{ _("Платежей пока нет.") }}</td></tr>
     {% endfor %}
   </tbody>
 </table>
 
 <div class="d-flex justify-content-between align-items-center mb-2">
   <h5 class="mb-0">{{ _("Акты сверки") }}</h5>
-  <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#addActModal">+ {{ _("Добавить акт сверки") }}</button>
+  <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#addActModal">+ {{ _("Добавить акт сверки") }}</button>
 </div>
 <table class="table table-sm bg-body sortable mb-4">
   <thead><tr><th>{{ _("Период") }}</th><th>{{ _("Наш баланс") }}</th><th>{{ _("Баланс по данным контрагента") }}</th><th>{{ _("Комментарий") }}</th><th class="no-sort">{{ _("Акт") }}</th></tr></thead>
@@ -106,6 +135,28 @@
     {% endfor %}
   </tbody>
 </table>
+
+<!-- Модалка: редактирование реквизитов контрагента -->
+<div class="modal fade" id="editCounterpartyModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <form method="post" action="{{ url_for('counterparties.edit', counterparty_id=counterparty.id) }}">
+        <div class="modal-header">
+          <h5 class="modal-title">{{ counterparty.name }}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          {% set c = counterparty %}
+          {% include "counterparties/_fields.html" %}
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+          <button class="btn btn-primary">{{ _("Сохранить") }}</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
 
 <!-- Модалка: новый расход -->
 <div class="modal fade" id="addExpenseModal" tabindex="-1" aria-hidden="true">
@@ -196,6 +247,87 @@
     </div>
   </div>
 </div>
+
+<!-- Модалки: редактирование последнего платежа и сторно (по одной на платёж) -->
+{% for p in payments if p.reverses_payment_id is none %}
+{% if p.id == last_payment_id %}
+<div class="modal fade" id="editPaymentModal{{ p.id }}" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <form method="post" action="{{ url_for('counterparties.edit_payment', counterparty_id=counterparty.id, payment_id=p.id) }}" enctype="multipart/form-data">
+        <div class="modal-header">
+          <h5 class="modal-title">{{ _("Изменить платёж") }}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <p class="text-muted small">{{ _("Только для последнего платежа — если ошиблись в сумме или дате при вводе. Если платёж реально ушёл в банк и потом вернулся — используйте «Сторно».") }}</p>
+          <div class="row g-2 mb-3">
+            <div class="col-6">
+              <label class="form-label">{{ _("Дата") }}</label>
+              <input class="form-control" type="date" name="date" value="{{ p.date }}" required>
+            </div>
+            <div class="col-6">
+              <label class="form-label">{{ _("Сумма, ₽") }}</label>
+              <input class="form-control" type="number" step="0.01" name="amount" value="{{ p.amount }}" required>
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">{{ _("Счёт списания") }}</label>
+            <select class="form-select" name="bank_account_id">
+              <option value="">{{ _("— наличными / не указан —") }}</option>
+              {% for acc in bank_accounts %}
+              <option value="{{ acc.id }}" {{ "selected" if p.bank_account_id == acc.id }}>{{ acc.bank_name }} ({{ acc.checking_account }})</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">{{ _("Комментарий") }}</label>
+            <textarea class="form-control" name="comment">{{ p.comment or "" }}</textarea>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">{{ _("Платёжный документ") }}</label>
+            <input class="form-control" type="file" name="document_file">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+          <button class="btn btn-primary">{{ _("Сохранить") }}</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% if not p.reversed_by %}
+<div class="modal fade" id="reversePaymentModal{{ p.id }}" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <form method="post" action="{{ url_for('counterparties.reverse_payment', counterparty_id=counterparty.id, payment_id=p.id) }}">
+        <div class="modal-header">
+          <h5 class="modal-title">{{ _("Сторно платежа от {date}", date=fmt_date(p.date)) }}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <p class="text-muted small">{{ _("Для платежа, который реально ушёл в банк с ошибкой в реквизитах/организации, а потом вернулся (банком или контрагентом). Сам платёж останется в истории как есть, рядом появится отменяющая проводка на {amount} ₽.", amount=fmt2(p.amount)) }}</p>
+          <div class="mb-3">
+            <label class="form-label">{{ _("Дата возврата") }}</label>
+            <input class="form-control" type="date" name="date" value="{{ today }}" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">{{ _("Комментарий") }}</label>
+            <textarea class="form-control" name="comment" placeholder="{{ _('напр. ошибка в реквизитах, банк вернул платёж') }}"></textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+          <button class="btn btn-primary">{{ _("Сторнировать") }}</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endfor %}
 
 <!-- Модалка: новый акт сверки -->
 <div class="modal fade" id="addActModal" tabindex="-1" aria-hidden="true">

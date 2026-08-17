@@ -24,6 +24,7 @@ from . import database
 from .models import (
     AccountNumberSettings, ElectricityTariff, ElectricitySettings, Cooperative, Garage, LandTaxYear,
     Charge, Payment, MemberAccount, FeeType, ChargeAllocation,
+    Counterparty, Expense, CounterpartyPayment, ExpenseAllocation, BankAccount,
 )
 
 
@@ -122,16 +123,201 @@ def charge_paid_amount(charge: Charge) -> Decimal:
     return sum((a.amount for a in charge.allocations), Decimal("0"))
 
 
-def cooperative_balance() -> Decimal:
+def receivables_balance() -> Decimal:
     """
-    Баланс кооператива по внутреннему учёту — сумма балансов всех лицевых
-    счетов (электричество по гаражам + взносы/налоги по членам), посчитанная
-    одним агрегирующим запросом (без обхода каждого счёта по отдельности).
-    Считается динамически при каждом обращении — нигде не хранится.
+    Сумма балансов всех лицевых счетов (электричество по гаражам + взносы/
+    налоги по членам) — сколько кооперативу должны/переплатили члены.
+    Это НЕ баланс на дашборде правления (см. cooperative_balance ниже) —
+    это внутренний учётный остаток по расчётам с членами, отдельная вещь.
     """
     total_charged = database.db_session.query(func.coalesce(func.sum(Charge.amount), 0)).scalar()
     total_paid = database.db_session.query(func.coalesce(func.sum(Payment.amount), 0)).scalar()
     return Decimal(total_paid) - Decimal(total_charged)
+
+
+def cooperative_balance() -> Decimal:
+    """
+    Баланс кооператива для дашборда правления — фактическая сумма на
+    расчётных счетах (BankAccount.balance, вносится вручную, банк
+    напрямую не подключён). Это НЕ то же самое, что receivables_balance()
+    (ожидаемые поступления от членов по лицевым счетам) — тот отражает,
+    сколько кооперативу должны, а этот — сколько денег реально есть.
+    """
+    total = database.db_session.query(func.coalesce(func.sum(BankAccount.balance), 0)).scalar()
+    return Decimal(total)
+
+
+# ---------------------------------------------------------------------------
+# Расчёты с контрагентами (Expense/CounterpartyPayment/ExpenseAllocation) —
+# зеркало Charge/Payment/ChargeAllocation выше: там кооперативу платят,
+# здесь платит кооператив.
+# ---------------------------------------------------------------------------
+
+def reallocate_counterparty_expenses(counterparty: Counterparty) -> None:
+    """
+    Пересчитывает разнесение всех платежей контрагенту по всем расходам
+    перед ним заново, от нуля (FIFO по обеим сторонам, сортировка по дате).
+    Вызывается после добавления/изменения любого расхода или платежа —
+    идемпотентна, ничего не портит при повторном вызове. Точная копия
+    reallocate_garage_charges(), только в обратную сторону.
+
+    Отменяющие проводки (сторно, см. reverse_counterparty_payment) сами по
+    себе в разнесении не участвуют — их сумма (отрицательная) присоединяется
+    к исходному платежу, который они отменяют, и относительно этой
+    эффективной суммы и идёт FIFO. Так исходный платёж и сторно к нему
+    остаются двумя отдельными видимыми строками в истории, но на баланс и
+    на статус «оплачено/не оплачено» у расходов влияют как единое целое.
+    """
+    expenses = sorted(counterparty.expenses, key=lambda e: e.date)
+
+    reversal_totals: dict[int, Decimal] = {}
+    for p in counterparty.payments:
+        if p.reverses_payment_id is not None:
+            reversal_totals[p.reverses_payment_id] = (
+                reversal_totals.get(p.reverses_payment_id, Decimal("0")) + p.amount
+            )
+    originals = sorted(
+        (p for p in counterparty.payments if p.reverses_payment_id is None),
+        key=lambda p: p.date,
+    )
+
+    for expense in expenses:
+        expense.allocations.clear()
+    for payment in counterparty.payments:
+        payment.allocations.clear()
+    database.db_session.flush()
+
+    def _effective(payment):
+        return payment.amount + reversal_totals.get(payment.id, Decimal("0"))
+
+    payments_iter = iter(originals)
+    current_payment = next(payments_iter, None)
+    payment_left = _effective(current_payment) if current_payment else Decimal("0")
+
+    for expense in expenses:
+        expense_left = expense.amount
+        while expense_left > 0 and current_payment is not None:
+            if payment_left <= 0:
+                current_payment = next(payments_iter, None)
+                payment_left = _effective(current_payment) if current_payment else Decimal("0")
+                continue
+            alloc_amount = min(expense_left, payment_left)
+            database.db_session.add(ExpenseAllocation(
+                expense_id=expense.id,
+                payment_id=current_payment.id,
+                amount=alloc_amount,
+            ))
+            expense_left -= alloc_amount
+            payment_left -= alloc_amount
+
+
+def expense_paid_amount(expense: Expense) -> Decimal:
+    return sum((a.amount for a in expense.allocations), Decimal("0"))
+
+
+def counterparty_balance(counterparty: Counterparty) -> Decimal:
+    """Баланс расчётов с контрагентом = начальный баланс + payments - expenses
+    (сторно уже входят в payments отрицательной суммой). Тот же знак, что и
+    balance() для гаражей/членов: отрицательное — кооператив ещё должен
+    контрагенту, положительное — переплата (аванс, редкий случай)."""
+    charged = sum((e.amount for e in counterparty.expenses), Decimal("0"))
+    paid = sum((p.amount for p in counterparty.payments), Decimal("0"))
+    opening = counterparty.opening_balance or Decimal("0")
+    return opening + paid - charged
+
+
+def pay_counterparty(
+    counterparty: Counterparty,
+    date,
+    amount: Decimal,
+    bank_account: BankAccount | None = None,
+    document_id: int | None = None,
+    comment: str | None = None,
+) -> CounterpartyPayment:
+    """
+    Оплата контрагенту: создаёт CounterpartyPayment, при указанном
+    bank_account сразу списывает эту сумму с его фактического баланса
+    (BankAccount.balance — вносится вручную, банк не подключён напрямую),
+    и пересчитывает разнесение платежей по расходам этого контрагента.
+    Коммит — на вызывающей стороне (как и у reallocate_garage_charges).
+    """
+    payment = CounterpartyPayment(
+        counterparty_id=counterparty.id,
+        bank_account_id=bank_account.id if bank_account else None,
+        date=date,
+        amount=amount,
+        document_id=document_id,
+        comment=comment,
+    )
+    database.db_session.add(payment)
+    if bank_account is not None:
+        bank_account.balance = (bank_account.balance or Decimal("0")) - amount
+        bank_account.balance_updated_at = date
+    database.db_session.flush()
+    reallocate_counterparty_expenses(counterparty)
+    return payment
+
+
+def edit_counterparty_payment(
+    payment: CounterpartyPayment,
+    date,
+    amount: Decimal,
+    bank_account: BankAccount | None,
+    document_id: int | None = None,
+    comment: str | None = None,
+) -> None:
+    """
+    Правка уже внесённого платежа (например, ошиблись в сумме при вводе).
+    Если платёж был привязан к счёту, сначала возвращает старую сумму
+    на старый счёт, затем списывает новую сумму с нового (может быть тем
+    же самым) счёта — чтобы баланс счёта не «поплыл» при повторных правках.
+    Используется только для последнего платежа контрагента — ограничение
+    накладывается на уровне роута (app/counterparties.py), не здесь.
+    """
+    if payment.bank_account is not None:
+        payment.bank_account.balance = (payment.bank_account.balance or Decimal("0")) + payment.amount
+
+    payment.date = date
+    payment.amount = amount
+    payment.bank_account_id = bank_account.id if bank_account else None
+    if document_id is not None:
+        payment.document_id = document_id
+    payment.comment = comment
+
+    if bank_account is not None:
+        bank_account.balance = (bank_account.balance or Decimal("0")) - amount
+        bank_account.balance_updated_at = date
+
+    database.db_session.flush()
+    reallocate_counterparty_expenses(payment.counterparty)
+
+
+def reverse_counterparty_payment(payment: CounterpartyPayment, date, comment: str | None = None) -> CounterpartyPayment:
+    """
+    Отменяющая проводка (сторно): для платежа, который реально ушёл в банк,
+    но потом обнаружилась ошибка в реквизитах/организации, и деньги
+    вернулись — банком или самим контрагентом. Исходный платёж НЕ
+    трогается (виден в истории как есть — он реально был), рядом
+    создаётся новая запись с отрицательной суммой, которая компенсирует
+    его эффект на баланс контрагента и возвращает деньги на счёт списания
+    (если он был указан). Один платёж можно сторнировать только один раз —
+    проверка на уровне роута (app/counterparties.py).
+    """
+    reversal = CounterpartyPayment(
+        counterparty_id=payment.counterparty_id,
+        bank_account_id=payment.bank_account_id,
+        date=date,
+        amount=-payment.amount,
+        reverses_payment_id=payment.id,
+        comment=comment,
+    )
+    database.db_session.add(reversal)
+    if payment.bank_account is not None:
+        payment.bank_account.balance = (payment.bank_account.balance or Decimal("0")) + payment.amount
+        payment.bank_account.balance_updated_at = date
+    database.db_session.flush()
+    reallocate_counterparty_expenses(payment.counterparty)
+    return reversal
 
 
 def get_electricity_settings() -> ElectricitySettings:

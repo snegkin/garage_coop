@@ -10,7 +10,7 @@
   <form method="post" action="{{ url_for('finance.update_member_account_number', account_id=account.id) }}" class="d-flex align-items-center gap-2">
     <label class="form-label mb-0">{{ _("Номер счёта") }}:</label>
     <input class="form-control form-control-sm" style="max-width:160px" name="account_number" value="{{ account.account_number }}">
-    <button class="btn btn-sm btn-outline-secondary">{{ _("Сохранить") }}</button>
+    <button class="btn btn-sm btn-primary">{{ _("Сохранить") }}</button>
   </form>
   <form method="post" action="{{ url_for('finance.delete_member_account', account_id=account.id) }}" onsubmit="return confirm('{{ _("Удалить счёт вместе со всей историей начислений и платежей по нему?") }}')" class="ms-auto">
     <button class="btn btn-sm btn-outline-danger">{{ _("Удалить счёт") }}</button>

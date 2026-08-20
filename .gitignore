@@ -1,2 +1,4 @@
 /.gigacode/
 /.kilo/
+/instance/
+/__pycache__/

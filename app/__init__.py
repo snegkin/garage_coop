@@ -31,9 +31,10 @@ def create_app(config_class=Config):
         from . import database
         from .models import Cooperative
         from .accounting import balance as _balance
+        from .permissions import is_board
         coop = database.db_session.query(Cooperative).first()
         coop_name = (coop.short_name or coop.full_name) if coop and (coop.short_name or coop.full_name) else "ГСК"
-        return {"current_user": g.get("user"), "coop_name": coop_name, "balance": _balance}
+        return {"current_user": g.get("user"), "coop_name": coop_name, "balance": _balance, "is_board": is_board}
 
     from .main import bp as main_bp
     from .garages import bp as garages_bp
@@ -46,6 +47,7 @@ def create_app(config_class=Config):
     from .power import bp as power_bp
     from .counterparties import bp as counterparties_bp
     from .pd4 import bp as pd4_bp
+    from .governance import bp as governance_bp
 
     app.register_blueprint(main_bp)
     app.register_blueprint(garages_bp)
@@ -58,6 +60,7 @@ def create_app(config_class=Config):
     app.register_blueprint(power_bp)
     app.register_blueprint(counterparties_bp)
     app.register_blueprint(pd4_bp)
+    app.register_blueprint(governance_bp)
 
     @app.route("/")
     def index():

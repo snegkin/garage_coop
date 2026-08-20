@@ -66,25 +66,17 @@
   </div>
 
   {% if current_user.role.value == 'chairman' %}
-  <div class="col-12"><hr><h6>{{ _("Управление кооперативом") }}</h6></div>
-  <div class="col-md-4">
-    <div class="form-check">
-      <input class="form-check-input" type="checkbox" name="is_board_member" id="isBoardMember" {{ "checked" if person and person.is_board_member }}>
-      <label class="form-check-label" for="isBoardMember">{{ _("Член правления") }}</label>
-    </div>
-  </div>
-  <div class="col-md-4">
-    <div class="form-check">
-      <input class="form-check-input" type="checkbox" name="is_accountant" id="isAccountant" {{ "checked" if person and person.is_accountant }}>
-      <label class="form-check-label" for="isAccountant">{{ _("Бухгалтер") }}</label>
-    </div>
-  </div>
-  <div class="col-md-4">
-    <div class="form-check">
-      <input class="form-check-input" type="checkbox" name="is_chairman" id="isChairman" {{ "checked" if person and person.is_chairman }}>
-      <label class="form-check-label" for="isChairman">{{ _("Председатель") }}</label>
-    </div>
-    <div class="form-text">{{ _("Может быть только у одного человека — при назначении снимается с предыдущего.") }}</div>
+  <div class="col-12">
+    <hr><h6>{{ _("Управление кооперативом") }}</h6>
+    <p class="text-muted small mb-0">
+      {% if person %}
+        {% if person.is_chairman %}{{ _("Председатель") }}{% elif person.is_accountant %}{{ _("Бухгалтер") }}{% elif person.is_board_member %}{{ _("Член правления") }}{% else %}{{ _("Рядовой член кооператива") }}{% endif %}
+        —
+      {% endif %}
+      {{ _("состав правления, председатель и бухгалтер назначаются на странице") }}
+      <a href="{{ url_for('governance.view') }}" target="_blank">{{ _("«Правление»") }}</a>
+      {{ _("(на основании протокола общего собрания).") }}
+    </p>
   </div>
   {% endif %}
 </div>

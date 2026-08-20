@@ -8,7 +8,8 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 from . import database
 from .i18n import translate as _
 from .auth import login_required
-from .models import MemberAccount, Person, PD4Document, Cooperative, RoleEnum, Garage, PersonalAccount, FeeType
+from .permissions import is_board, is_privileged
+from .models import MemberAccount, Person, PD4Document, Cooperative, Garage, PersonalAccount, FeeType
 from .accounting import (
     balance, penalty_sibling_account, get_primary_bank_account, pd4_qr_payload, pd4_qr_payload_electricity,
 )
@@ -24,31 +25,14 @@ def _qr_data_uri(payload: str) -> str:
     b64 = base64.b64encode(buf.getvalue()).decode("ascii")
     return f"data:image/png;base64,{b64}"
 
-
-def _is_board() -> bool:
-    return g.user.role.value in ("chairman", "accountant", "board")
-
-def _is_owner_or_board(garage: Garage) -> bool:
-    """Правление/председатель — любой гараж; рядовой член — только свой (по владению)."""
-    if _is_board():
-        return True
-    if g.user.person_id is None:
-        return False
-    owner_ids = {o.person_id for o in garage.ownerships}
-    return g.user.person_id in owner_ids
-
-def _is_privileged() -> bool:
-    """Председатель/бухгалтер — видят все счета и строки «пеня»; рядовой член правления (board) — нет."""
-    return g.user.role.value in ("chairman", "accountant")
-
 @bp.route("/")
 @login_required
 def select():
     """Полный список счетов с поиском (только правление/председатель)."""
-    if not _is_board():
+    if not is_board():
         return redirect(url_for("pd4.print_slips"))
 
-    privileged = _is_privileged()
+    privileged = is_privileged()
     q = request.args.get("q", "").strip()
     query = database.db_session.query(MemberAccount)
 
@@ -70,7 +54,7 @@ def select():
             rows.append((account, debt))
     rows.sort(key=lambda r: (r[0].person.full_name, r[0].garage.number))
 
-    return render_template("pd4/select.html", rows=rows, all_persons=all_persons, is_board=_is_board(), q=q)
+    return render_template("pd4/select.html", rows=rows, all_persons=all_persons, is_board=is_board(), q=q)
 
 
 def _collect_account_ids(person_id: int) -> list[int]:
@@ -104,7 +88,7 @@ def print_slips():
             account = database.db_session.get(MemberAccount, account_id)
             if account is None:
                 abort(404)
-            if not _is_board() and account.person_id != g.user.person_id:
+            if not is_board() and account.person_id != g.user.person_id:
                 abort(403)
             account_ids = [account_id]
         else:
@@ -126,7 +110,7 @@ def print_slips():
         return render_template("pd4/print.html", slips=slips, coop=coop, bank_account=bank_account, electricity=False)
 
     # POST — выборочная печать (для правления, с формы select)
-    if not _is_board():
+    if not is_board():
         abort(403)
     account_ids = [int(x) for x in request.form.getlist("account_id")]
     if not account_ids:
@@ -146,7 +130,7 @@ def _print_electricity_slip(garage_id: int):
     garage = database.db_session.get(Garage, garage_id)
     if garage is None:
         abort(404)
-    if not _is_board():
+    if not is_board():
         owner_ids = {o.person_id for o in garage.ownerships}
         if g.user.person_id is None or g.user.person_id not in owner_ids:
             abort(403)
@@ -211,7 +195,7 @@ def _build_slips(account_ids: list[int]):
         MemberAccount.id.in_(account_ids)
     ).all()
 
-    if not _is_board():
+    if not is_board():
         for account in accounts:
             if account.person_id != g.user.person_id:
                 abort(403)
@@ -253,7 +237,7 @@ def _build_slips(account_ids: list[int]):
 def print_pdf():
     if request.method == "POST":
         # Пост-запрос с формы select — для правления
-        account_ids = [int(x) for x in request.form.getlist("account_id")] if _is_board() else _collect_account_ids(g.user.person_id)
+        account_ids = [int(x) for x in request.form.getlist("account_id")] if is_board() else _collect_account_ids(g.user.person_id)
     else:
         # GET — авто-печать всех счетов (для рядовых)
         person_id = g.user.person_id

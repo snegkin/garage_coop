@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% block title %}Созыв правления{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div>
+    <h3 class="mb-0">
+      {{ _("Созыв правления") }}: {{ fmt_date(term.start_date) }} — {{ fmt_date(term.end_date) if term.end_date else _("по настоящее время") }}
+      {% if is_current %}<span class="badge bg-success ms-1">{{ _("текущий") }}</span>{% endif %}
+    </h3>
+    <div class="text-muted small">
+      {% if term.elected_by_meeting %}
+        {{ _("Избран протоколом от") }} {{ fmt_date(term.elected_by_meeting.date) }}
+        {% if term.elected_by_meeting.protocol_document_id %}(<a href="{{ url_for('documents.download', doc_id=term.elected_by_meeting.protocol_document_id) }}">{{ _("скачать протокол") }}</a>){% endif %}
+      {% endif %}
+    </div>
+  </div>
+  <a class="btn btn-outline-secondary" href="{{ url_for('governance.view') }}">{{ _("← Все созывы") }}</a>
+</div>
+
+{% if current_user.role.value == 'chairman' %}
+<div class="d-flex gap-2 mb-3">
+  <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#addMemberModal">+ {{ _("Добавить в состав") }}</button>
+  {% if is_current %}
+  <form method="post" action="{{ url_for('governance.apply_term', term_id=term.id) }}" onsubmit="return confirm('{{ _('Применить этот состав к правам доступа? У людей, не входящих в список, права правления/председателя будут сняты; у входящих — выставлены по списку. Назначение бухгалтера этим действием не затрагивается.') }}')">
+    <button class="btn btn-sm btn-secondary">{{ _("Применить состав к правам доступа") }}</button>
+  </form>
+  <form method="post" action="{{ url_for('governance.close_term', term_id=term.id) }}" onsubmit="return confirm('{{ _('Закрыть этот созыв досрочно?') }}')">
+    <input type="hidden" name="end_date" value="">
+    <button class="btn btn-sm btn-outline-danger">{{ _("Закрыть созыв") }}</button>
+  </form>
+  {% endif %}
+</div>
+<p class="text-muted small">{{ _("Добавление/удаление людей само по себе прав входа не меняет — это только список. Права входа (роль в системе) обновляются нажатием «Применить состав к правам доступа».") }}</p>
+{% endif %}
+
+<table class="table table-bordered bg-body sortable">
+  <thead><tr><th>{{ _("ФИО") }}</th><th>{{ _("Роль в правлении") }}</th><th>{{ _("Роль (доп.)") }}</th>{% if current_user.role.value == 'chairman' %}<th class="no-sort"></th>{% endif %}</tr></thead>
+  <tbody>
+    {% for m in term.members %}
+    <tr>
+      <td>{{ m.person.full_name }}</td>
+      <td>{% if m.is_chairman %}<span class="badge bg-primary">{{ _("председатель") }}</span>{% else %}<span class="badge bg-info text-dark">{{ _("член правления") }}</span>{% endif %}</td>
+      <td>{{ m.role or "—" }}</td>
+      {% if current_user.role.value == 'chairman' %}
+      <td class="text-nowrap">
+        <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#editMemberModal{{ m.id }}">{{ _("Изменить") }}</button>
+        <form method="post" action="{{ url_for('governance.delete_board_member', term_id=term.id, member_id=m.id) }}" class="d-inline" onsubmit="return confirm('{{ _('Убрать из состава?') }}')">
+          <button class="btn btn-sm btn-outline-danger">{{ _("Убрать") }}</button>
+        </form>
+      </td>
+      {% endif %}
+    </tr>
+    {% else %}
+    <tr><td colspan="4" class="text-muted">{{ _("Состав пока не внесён.") }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+{% if current_user.role.value == 'chairman' %}
+<div class="modal fade" id="addMemberModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <form method="post" action="{{ url_for('governance.add_board_member', term_id=term.id) }}">
+        <div class="modal-header">
+          <h5 class="modal-title">{{ _("Добавить в состав созыва") }}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">{{ _("Человек") }}</label>
+            <select class="form-select" name="person_id" data-searchable required>
+              <option value=""></option>
+              {% for p in persons %}
+              <option value="{{ p.id }}">{{ p.full_name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="form-check mb-3">
+            <input class="form-check-input" type="checkbox" name="is_chairman" id="newMemberChairman">
+            <label class="form-check-label" for="newMemberChairman">{{ _("Председатель (снимет флаг с текущего, если был)") }}</label>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">{{ _("Роль (доп., необязательно)") }}</label>
+            <input class="form-control" name="role" placeholder="{{ _('напр. секретарь, казначей') }}">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+          <button class="btn btn-primary">{{ _("Добавить") }}</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+{% for m in term.members %}
+<div class="modal fade" id="editMemberModal{{ m.id }}" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <form method="post" action="{{ url_for('governance.edit_board_member', term_id=term.id, member_id=m.id) }}">
+        <div class="modal-header">
+          <h5 class="modal-title">{{ m.person.full_name }}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="form-check mb-3">
+            <input class="form-check-input" type="checkbox" name="is_chairman" id="editChairman{{ m.id }}" {{ "checked" if m.is_chairman }}>
+            <label class="form-check-label" for="editChairman{{ m.id }}">{{ _("Председатель (снимет флаг с текущего, если был)") }}</label>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">{{ _("Роль (доп., необязательно)") }}</label>
+            <input class="form-control" name="role" value="{{ m.role or '' }}" placeholder="{{ _('напр. секретарь, казначей') }}">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+          <button class="btn btn-primary">{{ _("Сохранить") }}</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endfor %}
+{% endif %}
+{% endblock %}

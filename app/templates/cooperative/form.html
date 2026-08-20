@@ -66,17 +66,6 @@
       <div class="form-text">{{ _("Добавляется ко всем автоматическим начислениям (напр. 1.6 для Сбербанка).") }}</div>
     </div>
 
-    <div class="col-12"><hr><h6>{{ _("Баланс") }}</h6></div>
-    <div class="col-md-4">
-      <label class="form-label">{{ _("Баланс, ₽") }}</label>
-      <input class="form-control" type="number" step="0.01" name="balance" value="{{ coop.balance if coop.balance is not none else '' }}">
-      <div class="form-text">{{ _("Фактический баланс (счета + касса), вносится вручную. Не путать с внутренним учётным балансом на дашборде — тот считается автоматически как сумма лицевых счетов.") }}</div>
-    </div>
-    <div class="col-md-4">
-      <label class="form-label">{{ _("Баланс на дату") }}</label>
-      <input class="form-control" type="date" name="balance_updated_at" value="{{ coop.balance_updated_at or '' }}">
-    </div>
-
     <div class="col-12">
       <label class="form-label">{{ _("Комментарий") }}</label>
       <textarea class="form-control" name="comment">{{ coop.comment or '' }}</textarea>

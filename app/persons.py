@@ -8,14 +8,11 @@ from werkzeug.security import generate_password_hash
 from . import database
 from .i18n import translate as _
 from .auth import login_required, roles_required
+from .permissions import is_board, sync_user_role
 from .models import Person, Phone, User, RoleEnum, MemberAccount, PersonDataRevision, PersonDataRevisionStatus
 from .accounting import balance
 
 bp = Blueprint("persons", __name__, url_prefix="/persons")
-
-
-def _is_board_role() -> bool:
-    return g.user.role in (RoleEnum.CHAIRMAN, RoleEnum.BOARD, RoleEnum.ACCOUNTANT)
 
 
 @bp.route("/")
@@ -77,52 +74,6 @@ def _save_from_form(person, f):
     person.comment = f.get("comment") or None
 
 
-def _sync_user_role(person):
-    """
-    Синхронизирует роль привязанной учётной записи (User.role) с флагами
-    is_chairman/is_accountant/is_board_member. Без этого чекбоксы на карточке
-    человека были бы чисто информационными и не влияли бы на реальные права
-    входа. Приоритет при нескольких флагах: председатель > бухгалтер > правление.
-    """
-    user = database.db_session.query(User).filter_by(person_id=person.id).first()
-    if user is None:
-        return
-    if person.is_chairman:
-        user.role = RoleEnum.CHAIRMAN
-    elif person.is_accountant:
-        user.role = RoleEnum.ACCOUNTANT
-    elif person.is_board_member:
-        user.role = RoleEnum.BOARD
-    else:
-        user.role = RoleEnum.MEMBER
-
-
-def _apply_governance_flags(person, f):
-    """
-    Флаги "член правления", "председатель" и "бухгалтер" может менять только
-    председатель (проверяем на сервере, а не только прячем чекбоксы в UI —
-    иначе член правления мог бы назначить себя председателем прямым
-    POST-запросом). Флаг председателя может стоять максимум у одного
-    человека: если назначаем нового — снимаем флаг со всех остальных (и
-    понижаем их учётные записи, если они привязаны). Председатель
-    автоматически считается членом правления.
-    """
-    if g.user.role != RoleEnum.CHAIRMAN:
-        return
-    new_chairman = bool(f.get("is_chairman"))
-    if new_chairman and not person.is_chairman:
-        previous_chairmen = database.db_session.query(Person).filter(
-            Person.id != person.id, Person.is_chairman.is_(True)
-        ).all()
-        for prev in previous_chairmen:
-            prev.is_chairman = False
-            _sync_user_role(prev)
-    person.is_chairman = new_chairman
-    person.is_board_member = bool(f.get("is_board_member")) or new_chairman
-    person.is_accountant = bool(f.get("is_accountant"))
-    _sync_user_role(person)
-
-
 @bp.route("/new", methods=["GET", "POST"])
 @roles_required(RoleEnum.BOARD)
 def create():
@@ -131,7 +82,6 @@ def create():
         _save_from_form(person, request.form)
         database.db_session.add(person)
         database.db_session.flush()
-        _apply_governance_flags(person, request.form)
 
         phones = [p.strip() for p in request.form.get("phones", "").split(",") if p.strip()]
         for number in phones:
@@ -155,8 +105,8 @@ def detail(person_id):
     person = database.db_session.get(Person, person_id)
     if person is None:
         flash(_("Человек не найден."), "danger")
-        return redirect(url_for("persons.list_persons") if _is_board_role() else url_for("cabinet.profile"))
-    if not _is_board_role() and g.user.person_id != person_id:
+        return redirect(url_for("persons.list_persons") if is_board() else url_for("cabinet.profile"))
+    if not is_board() and g.user.person_id != person_id:
         abort(403)
     account = database.db_session.query(User).filter_by(person_id=person.id).first()
     member_accounts = database.db_session.query(MemberAccount).filter_by(person_id=person.id).all()
@@ -173,7 +123,6 @@ def edit(person_id):
 
     if request.method == "POST":
         _save_from_form(person, request.form)
-        _apply_governance_flags(person, request.form)
 
         # телефоны просто пересобираем заново из строки через запятую
         for phone in list(person.phones):
@@ -327,7 +276,7 @@ def link_account(user_id):
 
     user.person_id = person.id
     database.db_session.flush()
-    _sync_user_role(person)  # роль подтягивается под флаги этого человека
+    sync_user_role(person)  # роль подтягивается под флаги этого человека
     database.db_session.commit()
     flash(_("Учётная запись привязана."), "success")
     return redirect(url_for("persons.accounts_list"))

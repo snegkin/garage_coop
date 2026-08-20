@@ -1,8 +1,9 @@
-from flask import Blueprint, render_template, redirect, url_for, g
+from flask import Blueprint, render_template, redirect, url_for
 
 from . import database
 from .auth import login_required
-from .models import Garage, Person, GeneralMeeting, AnnualReport, RoleEnum
+from .permissions import is_board
+from .models import Garage, Person, GeneralMeeting, AnnualReport
 from .accounting import cooperative_balance
 
 bp = Blueprint("main", __name__)
@@ -13,7 +14,7 @@ bp = Blueprint("main", __name__)
 def dashboard():
     # рядовой член кооператива не видит общую сводку по кооперативу —
     # для него "панель" это сразу список его гаражей (личный кабинет)
-    if g.user.role not in (RoleEnum.CHAIRMAN, RoleEnum.BOARD, RoleEnum.ACCOUNTANT):
+    if not is_board():
         return redirect(url_for("cabinet.garages"))
 
     stats = {

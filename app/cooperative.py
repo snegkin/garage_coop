@@ -7,6 +7,7 @@ from . import database
 from .i18n import translate as _
 from .auth import login_required, roles_required
 from .models import Cooperative, BankAccount, RoleEnum
+from .accounting import receivables_balance
 
 bp = Blueprint("cooperative", __name__, url_prefix="/cooperative")
 
@@ -25,7 +26,7 @@ def _parse_decimal(raw):
 def view():
     coop = database.db_session.query(Cooperative).first()
     bank_accounts = database.db_session.query(BankAccount).order_by(BankAccount.is_primary.desc(), BankAccount.bank_name).all()
-    return render_template("cooperative/view.html", coop=coop, bank_accounts=bank_accounts)
+    return render_template("cooperative/view.html", coop=coop, bank_accounts=bank_accounts, receivables=receivables_balance())
 
 
 @bp.route("/edit", methods=["GET", "POST"])
@@ -53,9 +54,6 @@ def edit():
         coop.standard_garage_land_area = _parse_decimal(f.get("standard_garage_land_area")) or Decimal("30")
         coop.land_tax_rate_percent = _parse_decimal(f.get("land_tax_rate_percent")) or Decimal("1.5")
         coop.bank_fee_percent = _parse_decimal(f.get("bank_fee_percent"))
-        coop.balance = _parse_decimal(f.get("balance"))
-        balance_updated_at = f.get("balance_updated_at")
-        coop.balance_updated_at = dt.date.fromisoformat(balance_updated_at) if balance_updated_at else None
         coop.comment = f.get("comment") or None
         database.db_session.commit()
         flash(_("Реквизиты сохранены."), "success")

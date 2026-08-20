@@ -24,6 +24,7 @@
   <tr><th>{{ _("Стандартная площадь под гараж, м²") }}</th><td>{{ fmt2(coop.standard_garage_land_area) }} м²</td></tr>
   <tr><th>{{ _("Ставка налога, % от кадастровой стоимости") }}</th><td>{{ fmt2(coop.land_tax_rate_percent) }}%</td></tr>
   <tr><th>{{ _("% банка за обслуживание") }}</th><td>{{ (fmt2(coop.bank_fee_percent) ~ "%") if coop.bank_fee_percent is not none else "—" }}</td></tr>
+  {% if is_board %}
   <tr>
     <th>{{ _("Баланс") }}</th>
     <td>
@@ -34,11 +35,13 @@
     </td>
   </tr>
   <tr><th>{{ _("Комментарий") }}</th><td>{{ coop.comment or "—" }}</td></tr>
+  {% endif %}
 </table>
 {% else %}
 <p class="text-muted">{{ _("Реквизиты ещё не заполнены.") }}</p>
 {% endif %}
 
+{% if is_board %}
 <div class="d-flex justify-content-between align-items-center mb-3 mt-4">
   <h4>{{ _("Расчётные счета") }}</h4>
   {% if current_user.role.value == 'chairman' %}
@@ -76,6 +79,7 @@
     {% endfor %}
   </tbody>
 </table>
+{% endif %}
 
 {% if current_user.role.value == 'chairman' %}
 <div class="modal fade" id="createBankAccountModal" tabindex="-1" aria-hidden="true">

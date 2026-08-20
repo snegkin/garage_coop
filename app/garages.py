@@ -11,6 +11,7 @@ from flask import (
 from . import database
 from .i18n import translate as _
 from .auth import login_required, roles_required
+from .permissions import is_board, is_owner_or_board, is_chairman, is_privileged
 from .models import (
     Garage, Person, GarageOwnership, GarageContact, GaragePhoto, PersonalAccount,
     MemberAccount, FeeType, RoleEnum, ElectricityMeter, ElectricityReading,
@@ -19,20 +20,6 @@ from .models import (
 from .accounting import electricity_account_number, member_account_number, balance, current_tariff, reallocate_garage_charges, charge_paid_amount
 
 bp = Blueprint("garages", __name__, url_prefix="/garages")
-
-
-def _is_board_role() -> bool:
-    return g.user.role in (RoleEnum.CHAIRMAN, RoleEnum.BOARD, RoleEnum.ACCOUNTANT)
-
-
-def _is_owner_or_board(garage: Garage) -> bool:
-    """Правление/председатель — любой гараж; рядовой член — только свой (по владению)."""
-    if _is_board_role():
-        return True
-    if g.user.person_id is None:
-        return False
-    owner_ids = {o.person_id for o in garage.ownerships}
-    return g.user.person_id in owner_ids
 
 
 def _current_meter(garage: Garage):
@@ -153,8 +140,8 @@ def detail(garage_id):
     garage = database.db_session.get(Garage, garage_id)
     if garage is None:
         flash(_("Гараж не найден."), "danger")
-        return redirect(url_for("garages.list_garages") if _is_board_role() else url_for("cabinet.garages"))
-    if not _is_owner_or_board(garage):
+        return redirect(url_for("garages.list_garages") if is_board() else url_for("cabinet.garages"))
+    if not is_owner_or_board(garage):
         abort(403)
     all_persons = database.db_session.query(Person).order_by(Person.full_name).all()
     total_share = sum((o.share for o in garage.ownerships), Decimal("0"))
@@ -344,7 +331,7 @@ def add_contact(garage_id):
     garage = database.db_session.get(Garage, garage_id)
     if garage is None:
         abort(404)
-    if not _is_owner_or_board(garage):
+    if not is_owner_or_board(garage):
         abort(403)
     person_id = int(request.form["person_id"])
     relation = request.form.get("relation") or None
@@ -360,7 +347,7 @@ def remove_contact(garage_id, contact_id):
     garage = database.db_session.get(Garage, garage_id)
     if garage is None:
         abort(404)
-    if not _is_owner_or_board(garage):
+    if not is_owner_or_board(garage):
         abort(403)
     contact = database.db_session.get(GarageContact, contact_id)
     if contact and contact.garage_id == garage_id:
@@ -466,7 +453,7 @@ def photo_file(photo_id):
     photo = database.db_session.get(GaragePhoto, photo_id)
     if photo is None:
         abort(404)
-    if not _is_owner_or_board(photo.garage):
+    if not is_owner_or_board(photo.garage):
         abort(403)
     return send_from_directory(current_app.config["UPLOAD_FOLDER"], photo.file_path)
 
@@ -509,7 +496,7 @@ def add_electricity_reading(garage_id):
     garage = database.db_session.get(Garage, garage_id)
     if garage is None:
         abort(404)
-    if not _is_owner_or_board(garage):
+    if not is_owner_or_board(garage):
         abort(403)
 
     current = _current_meter(garage)
@@ -584,7 +571,7 @@ def edit_last_reading(garage_id):
     garage = database.db_session.get(Garage, garage_id)
     if garage is None:
         abort(404)
-    if g.user.role.value != "chairman":
+    if not is_chairman():
         abort(403)
 
     current = _current_meter(garage)
@@ -720,7 +707,7 @@ def add_payment(garage_id):
     garage = database.db_session.get(Garage, garage_id)
     if garage is None:
         abort(404)
-    if g.user.role.value not in ("chairman", "accountant"):
+    if not is_privileged():
         abort(403)
 
     f = request.form

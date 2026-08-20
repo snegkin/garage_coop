@@ -65,15 +65,6 @@ class Cooperative(Base):
 
     bank_fee_percent: Mapped[Decimal | None] = mapped_column(Numeric(5, 3))  # % банка за обслуживание счёта, напр. 1.6
 
-    # Фактический баланс кооператива (наличные + все расчётные счета) на дату
-    # последней сверки — вносится вручную председателем/бухгалтером. Отдельно
-    # от внутреннего учётного баланса (см. accounting.cooperative_balance(),
-    # используется на дашборде правления) — тот считается автоматически как
-    # сумма всех лицевых счетов и показывает, сколько кооперативу должны/он
-    # должен члены, а не то, сколько денег фактически на счетах.
-    balance: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
-    balance_updated_at: Mapped[dt.date | None] = mapped_column(Date)
-
     comment: Mapped[str | None] = mapped_column(Text)
 
 
@@ -260,6 +251,7 @@ class BoardTerm(Base):
     end_date: Mapped[dt.date | None] = mapped_column(Date)
     elected_by_meeting_id: Mapped[int | None] = mapped_column(ForeignKey("general_meeting.id", ondelete="SET NULL"), index=True)
 
+    elected_by_meeting: Mapped["GeneralMeeting | None"] = relationship()
     members: Mapped[list["BoardMember"]] = relationship(back_populates="term")
 
 
@@ -278,6 +270,44 @@ class BoardMember(Base):
 
     __table_args__ = (
         UniqueConstraint("term_id", "person_id", name="uq_board_member_term_person"),
+    )
+
+
+class RevisionCommission(Base):
+    """
+    Ревизионная комиссия — избирается общим собранием отдельно от правления
+    (обычно тем же протоколом, что и созыв правления, но формально это
+    самостоятельный избранный орган со своим сроком полномочий — не входит
+    в BoardTerm). По уставу её члены, как правило, не должны одновременно
+    быть в правлении — это не проверяется в БД как жёсткое ограничение
+    (составы уставов у кооперативов отличаются), только мягким
+    предупреждением в UI при добавлении.
+    """
+    __tablename__ = "revision_commission"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    start_date: Mapped[dt.date] = mapped_column(Date)
+    end_date: Mapped[dt.date | None] = mapped_column(Date)
+    elected_by_meeting_id: Mapped[int | None] = mapped_column(ForeignKey("general_meeting.id", ondelete="SET NULL"), index=True)
+
+    elected_by_meeting: Mapped["GeneralMeeting | None"] = relationship()
+    members: Mapped[list["RevisionCommissionMember"]] = relationship(back_populates="commission")
+
+
+class RevisionCommissionMember(Base):
+    """Член ревизионной комиссии в рамках созыва комиссии; is_chair — председатель комиссии."""
+    __tablename__ = "revision_commission_member"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    commission_id: Mapped[int] = mapped_column(ForeignKey("revision_commission.id", ondelete="CASCADE"), index=True)
+    person_id: Mapped[int] = mapped_column(ForeignKey("person.id"), index=True)
+    is_chair: Mapped[bool] = mapped_column(Boolean, default=False)  # председатель ревизионной комиссии
+
+    commission: Mapped["RevisionCommission"] = relationship(back_populates="members")
+    person: Mapped["Person"] = relationship()
+
+    __table_args__ = (
+        UniqueConstraint("commission_id", "person_id", name="uq_revision_commission_member_commission_person"),
     )
 
 
@@ -359,7 +389,10 @@ class Person(Base):
     membership_start_date: Mapped[dt.date | None] = mapped_column(Date)
     membership_end_date: Mapped[dt.date | None] = mapped_column(Date)
 
-    # управление: любой член кооператива может входить в правление и/или быть председателем
+    # управление: любой член кооператива может входить в правление и/или быть председателем.
+    # is_accountant отдельно от созывов правления: бухгалтера общее собрание не избирает —
+    # его назначает председатель (см. governance.py: set_accountant/unset_accountant), причём
+    # бухгалтер не обязан быть членом правления вообще (может быть на аутсорсе).
     is_board_member: Mapped[bool] = mapped_column(Boolean, default=False)
     is_chairman: Mapped[bool] = mapped_column(Boolean, default=False)  # должен быть true максимум у одного Person
     is_accountant: Mapped[bool] = mapped_column(Boolean, default=False)

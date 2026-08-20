@@ -1,0 +1,194 @@
+{% extends "base.html" %}
+{% block title %}Правление{% endblock %}
+{% block content %}
+<h3 class="mb-3">{{ _("Правление кооператива") }}</h3>
+
+<div class="d-flex justify-content-between align-items-center mb-2">
+  <h5 class="mb-0">{{ _("Бухгалтер") }}</h5>
+</div>
+<p class="text-muted small">{{ _("Бухгалтера назначает председатель — это не выборная общим собранием должность, поэтому вне созывов и без протокола. Бухгалтер не обязан быть членом правления — может быть на аутсорсе, для входа в систему достаточно завести ему учётную запись в разделе «Учётные записи».") }}</p>
+<div class="card bg-body mb-4" style="max-width:500px">
+  <div class="card-body d-flex justify-content-between align-items-center">
+    {% if current_accountant %}
+    <div><span class="badge bg-primary me-2">{{ _("Бухгалтер") }}</span>{{ current_accountant.full_name }}</div>
+    {% if current_user.role.value == 'chairman' %}
+    <form method="post" action="{{ url_for('governance.unset_accountant') }}" onsubmit="return confirm('{{ _('Снять с должности бухгалтера?') }}')">
+      <input type="hidden" name="person_id" value="{{ current_accountant.id }}">
+      <button class="btn btn-sm btn-primary">{{ _("Снять") }}</button>
+    </form>
+    {% endif %}
+    {% else %}
+    <div class="text-muted">{{ _("Бухгалтер не назначен.") }}</div>
+    {% if current_user.role.value == 'chairman' %}
+    <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#setAccountantModal">{{ _("Назначить") }}</button>
+    {% endif %}
+    {% endif %}
+  </div>
+</div>
+
+<div class="d-flex justify-content-between align-items-center mb-2">
+  <h5 class="mb-0">{{ _("Созывы правления") }}</h5>
+  {% if current_user.role.value == 'chairman' %}
+  <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#newTermModal">+ {{ _("Новый созыв") }}</button>
+  {% endif %}
+</div>
+<p class="text-muted small">{{ _("Каждый новый созыв избирается общим собранием (протоколом) и автоматически закрывает предыдущий. Состав вносится на странице созыва; чтобы состав реально повлиял на права входа в систему, на странице созыва нужно нажать «Применить состав».") }}</p>
+<table class="table table-bordered bg-body sortable mb-4">
+  <thead><tr><th>{{ _("Период") }}</th><th>{{ _("Председатель") }}</th><th>{{ _("Состав") }}</th><th>{{ _("Протокол") }}</th></tr></thead>
+  <tbody>
+    {% for term in terms %}
+    <tr>
+      <td>
+        <a href="{{ url_for('governance.term_detail', term_id=term.id) }}">
+          {{ fmt_date(term.start_date) }} — {{ fmt_date(term.end_date) if term.end_date else _("по настоящее время") }}
+        </a>
+        {% if not term.end_date %}<span class="badge bg-success ms-1">{{ _("текущий") }}</span>{% endif %}
+      </td>
+      <td>{% for m in term.members if m.is_chairman %}{{ m.person.full_name }}{% endfor %}</td>
+      <td>{{ term.members|length }} {{ _("чел.") }}</td>
+      <td>
+        {% if term.elected_by_meeting %}
+          {{ fmt_date(term.elected_by_meeting.date) }}
+          {% if term.elected_by_meeting.protocol_document_id %}(<a href="{{ url_for('documents.download', doc_id=term.elected_by_meeting.protocol_document_id) }}">{{ _("скачать") }}</a>){% endif %}
+        {% else %}—{% endif %}
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="4" class="text-muted">{{ _("Созывов пока нет.") }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<div class="d-flex justify-content-between align-items-center mb-2">
+  <h5 class="mb-0">{{ _("Ревизионная комиссия") }}</h5>
+  {% if current_user.role.value == 'chairman' %}
+  <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#newCommissionModal">+ {{ _("Новый состав") }}</button>
+  {% endif %}
+</div>
+<table class="table table-bordered bg-body sortable mb-4">
+  <thead><tr><th>{{ _("Период") }}</th><th>{{ _("Председатель комиссии") }}</th><th>{{ _("Состав") }}</th><th>{{ _("Протокол") }}</th></tr></thead>
+  <tbody>
+    {% for c in commissions %}
+    <tr>
+      <td>
+        <a href="{{ url_for('governance.commission_detail', commission_id=c.id) }}">
+          {{ fmt_date(c.start_date) }} — {{ fmt_date(c.end_date) if c.end_date else _("по настоящее время") }}
+        </a>
+        {% if not c.end_date %}<span class="badge bg-success ms-1">{{ _("текущий") }}</span>{% endif %}
+      </td>
+      <td>{% for m in c.members if m.is_chair %}{{ m.person.full_name }}{% endfor %}</td>
+      <td>{{ c.members|length }} {{ _("чел.") }}</td>
+      <td>
+        {% if c.elected_by_meeting %}
+          {{ fmt_date(c.elected_by_meeting.date) }}
+          {% if c.elected_by_meeting.protocol_document_id %}(<a href="{{ url_for('documents.download', doc_id=c.elected_by_meeting.protocol_document_id) }}">{{ _("скачать") }}</a>){% endif %}
+        {% else %}—{% endif %}
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="4" class="text-muted">{{ _("Составов ревизионной комиссии пока нет.") }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+{% if current_user.role.value == 'chairman' %}
+<div class="modal fade" id="setAccountantModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <form method="post" action="{{ url_for('governance.set_accountant') }}">
+        <div class="modal-header">
+          <h5 class="modal-title">{{ _("Назначить бухгалтера") }}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">{{ _("Человек") }}</label>
+            <select class="form-select" name="person_id" data-searchable required>
+              <option value=""></option>
+              {% for p in persons %}
+              <option value="{{ p.id }}">{{ p.full_name }}</option>
+              {% endfor %}
+            </select>
+            <div class="form-text">{{ _("Не обязательно член правления — можно назначить любого человека из справочника, в т.ч. стороннего (аутсорс).") }}</div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+          <button class="btn btn-primary">{{ _("Назначить") }}</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="newTermModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <form method="post" action="{{ url_for('governance.create_term') }}">
+        <div class="modal-header">
+          <h5 class="modal-title">{{ _("Новый созыв правления") }}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">{{ _("Дата начала полномочий") }}</label>
+            <input class="form-control" type="date" name="start_date" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">{{ _("Протокол общего собрания") }}</label>
+            <select class="form-select" name="elected_by_meeting_id" data-searchable required>
+              <option value=""></option>
+              {% for m in meetings %}
+              <option value="{{ m.id }}">{{ fmt_date(m.date) }}{% if m.agenda %} — {{ m.agenda[:60] }}{% endif %}</option>
+              {% endfor %}
+            </select>
+            <div class="form-text">
+              {{ _("Нет нужного протокола?") }}
+              <a href="{{ url_for('meetings.create') }}" target="_blank">{{ _("Добавьте собрание") }}</a>.
+            </div>
+          </div>
+          <p class="text-muted small">{{ _("Действующий созыв (если есть) будет автоматически закрыт этой датой.") }}</p>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+          <button class="btn btn-primary">{{ _("Создать") }}</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="newCommissionModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <form method="post" action="{{ url_for('governance.create_commission') }}">
+        <div class="modal-header">
+          <h5 class="modal-title">{{ _("Новый состав ревизионной комиссии") }}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">{{ _("Дата начала полномочий") }}</label>
+            <input class="form-control" type="date" name="start_date" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">{{ _("Протокол общего собрания") }}</label>
+            <select class="form-select" name="elected_by_meeting_id" data-searchable required>
+              <option value=""></option>
+              {% for m in meetings %}
+              <option value="{{ m.id }}">{{ fmt_date(m.date) }}{% if m.agenda %} — {{ m.agenda[:60] }}{% endif %}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <p class="text-muted small">{{ _("Действующий состав (если есть) будет автоматически закрыт этой датой.") }}</p>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+          <button class="btn btn-primary">{{ _("Создать") }}</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

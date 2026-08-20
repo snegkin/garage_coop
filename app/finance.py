@@ -6,6 +6,7 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 from . import database
 from .i18n import translate as _
 from .auth import login_required, roles_required
+from .permissions import can_view_member_account, is_board
 from .models import (
     GarageOwnership, Charge, Payment, Garage, PersonalAccount,
     FeeType, MemberAccount, Person, RoleEnum,
@@ -14,13 +15,6 @@ from .models import (
 from .accounting import get_settings, electricity_account_number, member_account_number, balance as _balance, compute_land_tax
 
 bp = Blueprint("finance", __name__, url_prefix="/finance")
-
-
-def _can_view_member_account(account: MemberAccount) -> bool:
-    """Правление/председатель видят всё; рядовой член — только свои собственные счета."""
-    if g.user.role in (RoleEnum.CHAIRMAN, RoleEnum.BOARD, RoleEnum.ACCOUNTANT):
-        return True
-    return g.user.person_id is not None and g.user.person_id == account.person_id
 
 
 # ---------------------------------------------------------------------------
@@ -84,7 +78,7 @@ def member_account_detail(account_id):
     if account is None:
         flash(_("Лицевой счёт не найден."), "danger")
         return redirect(url_for("finance.member_accounts"))
-    if not _can_view_member_account(account):
+    if not can_view_member_account(account):
         abort(403)
     return render_template("finance/member_account_detail.html", account=account, balance=_balance(account))
 
@@ -127,7 +121,7 @@ def add_member_payment(account_id):
     account = database.db_session.get(MemberAccount, account_id)
     if account is None:
         abort(404)
-    if g.user.role.value not in ("board", "chairman", "accountant"):
+    if not is_board():
         abort(403)
     f = request.form
     database.db_session.add(Payment(

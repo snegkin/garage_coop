@@ -65,6 +65,12 @@ class Cooperative(Base):
 
     bank_fee_percent: Mapped[Decimal | None] = mapped_column(Numeric(5, 3))  # % банка за обслуживание счёта, напр. 1.6
 
+    # Единый по уставу срок оплаты взносов — день и месяц в году (напр. 1 июня).
+    # После этой даты по неоплаченным начислениям начинает считаться пеня
+    # (см. accounting.penalty). Пока не заполнено — расчёт пени недоступен.
+    dues_due_day: Mapped[int | None] = mapped_column(Integer)    # 1-31
+    dues_due_month: Mapped[int | None] = mapped_column(Integer)  # 1-12
+
     comment: Mapped[str | None] = mapped_column(Text)
 
 
@@ -84,9 +90,10 @@ class BankAccount(Base):
     comment: Mapped[str | None] = mapped_column(Text)
 
     # Фактический баланс именно на этом счёте — вносится вручную (нет
-    # интеграции с банком). Сводный «Баланс» на карточке кооператива —
-    # отдельное вручную вносимое значение, не обязано быть суммой этого
-    # поля по всем счетам (кооператив может держать часть средств в кассе).
+    # интеграции с банком). Сводный «Баланс кооператива» (на дашборде и на
+    # карточке кооператива) — это именно сумма balance по всем счетам,
+    # см. accounting.cooperative_balance(); отдельного поля для него в
+    # Cooperative больше нет (было раньше, удалено).
     balance: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
     balance_updated_at: Mapped[dt.date | None] = mapped_column(Date)
 
@@ -604,6 +611,24 @@ class ElectricitySettings(Base):
     supplier: Mapped["Counterparty | None"] = relationship()
 
 
+class KeyRate(Base):
+    """
+    История ключевой ставки ЦБ РФ (% годовых) — используется для автоматического
+    расчёта пени по просроченным взносам членов (см. accounting.penalty):
+    сумма долга × ставка × (1/300 первые 30 дней просрочки, 1/150 — с 31-го) ×
+    дни просрочки. Действующей на дату считается запись с последней
+    effective_date, не позже этой даты — по аналогии с ElectricityTariff.
+    Заполняется автоматически по расписанию с cbr.ru (см. penalty.fetch_key_rates),
+    либо вручную (is_manual=True), если сайт ЦБ недоступен.
+    """
+    __tablename__ = "key_rate"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    rate_percent: Mapped[Decimal] = mapped_column(Numeric(5, 2))
+    effective_date: Mapped[dt.date] = mapped_column(Date, unique=True, index=True)
+    is_manual: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
 class LandTaxYear(Base):
     """
     Кадастровая стоимость земли кооператива (за вычетом приватизированных
@@ -677,6 +702,17 @@ class Charge(Base):
         ForeignKey("electricity_reading.id", ondelete="SET NULL"), index=True
     )  # связь с показанием счётчика, из которого начисление рассчитано автоматически
     comment: Mapped[str | None] = mapped_column(Text)
+
+    # Только для обычных (не пенных) начислений члена кооператива, по которым
+    # уже считалась пеня — дата, по которую (включительно) пеня уже начислена
+    # и проведена отдельными Charge на счёт пени. Следующий пересчёт продолжит
+    # с этой даты, а не с нуля. См. accounting.penalty.accrue_penalties().
+    penalty_calculated_through: Mapped[dt.date | None] = mapped_column(Date)
+    # Обратная связь: если этот Charge — сама пеня, здесь id начисления, за
+    # просрочку которого она посчитана (для отображения происхождения).
+    penalty_for_charge_id: Mapped[int | None] = mapped_column(
+        ForeignKey("charge.id", ondelete="SET NULL"), index=True
+    )
 
     garage: Mapped["Garage | None"] = relationship(back_populates="charges")
     account: Mapped["MemberAccount | None"] = relationship(back_populates="charges")

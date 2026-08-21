@@ -12,7 +12,10 @@ from .models import (
     FeeType, MemberAccount, Person, RoleEnum,
     Cooperative, LandTaxYear,
 )
-from .accounting import get_settings, electricity_account_number, member_account_number, balance as _balance, compute_land_tax
+from .accounting import (
+    get_settings, electricity_account_number, member_account_number, balance as _balance,
+    compute_land_tax, reallocate_member_charges,
+)
 
 bp = Blueprint("finance", __name__, url_prefix="/finance")
 
@@ -110,6 +113,8 @@ def add_member_charge(account_id):
     database.db_session.add(Charge(
         account_id=account.id, year=int(f["year"]), amount=Decimal(f["amount"]), comment=f.get("comment") or None,
     ))
+    database.db_session.flush()
+    reallocate_member_charges(account)
     database.db_session.commit()
     flash(_("Начисление добавлено."), "success")
     return redirect(url_for("finance.member_account_detail", account_id=account.id))
@@ -130,6 +135,8 @@ def add_member_payment(account_id):
         amount=Decimal(f["amount"]),
         comment=f.get("comment") or None,
     ))
+    database.db_session.flush()
+    reallocate_member_charges(account)
     database.db_session.commit()
     flash(_("Платёж зарегистрирован."), "success")
     return redirect(url_for("finance.member_account_detail", account_id=account.id))
@@ -372,6 +379,20 @@ def mass_charge():
                 database.db_session.add(Charge(account_id=account.id, year=year, amount=owner_amount))
                 charged_rows.append((ownership.person.full_name, garage.number, owner_amount))
 
+        database.db_session.flush()
+        touched_accounts = {
+            (ownership.person_id, garage.id, fee_type.id)
+            for garage in garages for ownership in garage.ownerships
+        }
+        if touched_accounts:
+            accounts = (
+                database.db_session.query(MemberAccount)
+                .filter(MemberAccount.fee_type_id == fee_type.id)
+                .all()
+            )
+            for acc in accounts:
+                if (acc.person_id, acc.garage_id, acc.fee_type_id) in touched_accounts:
+                    reallocate_member_charges(acc)
         database.db_session.commit()
         results = {
             "fee_type_name": fee_type.name,

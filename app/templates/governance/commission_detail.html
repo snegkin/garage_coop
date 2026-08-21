@@ -17,7 +17,7 @@
   <a class="btn btn-primary" href="{{ url_for('governance.view') }}">{{ _("← Все составы") }}</a>
 </div>
 
-{% if current_user.role.value == 'chairman' %}
+{% if is_chairman() %}
 <div class="d-flex gap-2 mb-3">
   <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#addMemberModal">+ {{ _("Добавить в состав") }}</button>
   {% if is_current %}
@@ -31,7 +31,7 @@
 {% endif %}
 
 <table class="table table-bordered bg-body sortable">
-  <thead><tr><th>{{ _("ФИО") }}</th><th>{{ _("Председатель комиссии") }}</th>{% if current_user.role.value == 'chairman' %}<th class="no-sort"></th>{% endif %}</tr></thead>
+  <thead><tr><th>{{ _("ФИО") }}</th><th>{{ _("Председатель комиссии") }}</th>{% if is_chairman() %}<th class="no-sort"></th>{% endif %}</tr></thead>
   <tbody>
     {% for m in commission.members %}
     <tr>
@@ -40,7 +40,7 @@
         {% if m.person_id in current_board_ids %}<span class="badge bg-warning text-dark ms-1">{{ _("сейчас в правлении") }}</span>{% endif %}
       </td>
       <td>{% if m.is_chair %}<span class="badge bg-primary">{{ _("председатель комиссии") }}</span>{% endif %}</td>
-      {% if current_user.role.value == 'chairman' %}
+      {% if is_chairman() %}
       <td class="text-nowrap">
         <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#editMemberModal{{ m.id }}">{{ _("Изменить") }}</button>
         <form method="post" action="{{ url_for('governance.delete_commission_member', commission_id=commission.id, member_id=m.id) }}" class="d-inline" onsubmit="return confirm('{{ _('Убрать из состава?') }}')">
@@ -55,7 +55,7 @@
   </tbody>
 </table>
 
-{% if current_user.role.value == 'chairman' %}
+{% if is_chairman() %}
 <div class="modal fade" id="addMemberModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg">
     <div class="modal-content">

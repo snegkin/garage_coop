@@ -562,7 +562,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         # misc placeholders
         "год": "year",
         "сумма": "amount",
-        "доля, напр. 0.5": "share, e.g. 0.5",
+        "доля, по умолчанию 1 (100%)": "share, defaults to 1 (100%)",
         "код, напр. land_tax": "code, e.g. land_tax",
         "название, напр. Земельный налог": "name, e.g. Land tax",
         "напр. супруга": "e.g. spouse",
@@ -793,6 +793,74 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Роль в правлении": "Board role",
         "Применить этот состав к правам доступа? У людей, не входящих в список, права правления/председателя будут сняты; у входящих — выставлены по списку. Назначение бухгалтера этим действием не затрагивается.":
             "Apply this composition to system access? People not on the list will have their board/chairman access revoked; people on the list will get it set accordingly. The accountant appointment is not affected by this action.",
+
+        # penalty (automatic late-fee accrual)
+        "Автоматическое начисление пени": "Automatic late-fee accrual",
+        "Срок оплаты взносов": "Dues payment deadline",
+        "Срок оплаты взносов — день": "Dues payment deadline — day",
+        "Срок оплаты взносов — месяц": "Dues payment deadline — month",
+        "Единая по уставу дата в году, после которой на неоплаченные взносы начинает начисляться пеня.":
+            "The single yearly date set by the bylaws, after which a late fee starts accruing on unpaid dues.",
+        "В этом году": "This year",
+        "Пеня начисляется на начисления, не оплаченные к этой дате. Изменить срок можно в реквизитах кооператива.":
+            "The late fee accrues on charges not paid by this date. Change the deadline in the cooperative's legal details.",
+        "Срок оплаты не настроен.": "Payment deadline is not set.",
+        "Задать в реквизитах": "Set it in the legal details",
+        "Рассчитать пеню": "Calculate the late fee",
+        "Дата расчёта": "Calculation date",
+        "Пеня считается по эту дату включительно. По умолчанию — сегодня.": "The late fee is calculated through this date, inclusive. Defaults to today.",
+        "Начислить пеню": "Accrue the late fee",
+        "Ключевая ставка ЦБ РФ": "Bank of Russia key rate",
+        "Ставка, %": "Rate, %",
+        "Источник": "Source",
+        "вручную": "manual",
+        "Удалить эту запись ставки?": "Delete this rate entry?",
+        "Ставка ещё не загружена.": "No rate has been loaded yet.",
+        "Загрузить с cbr.ru": "Load from cbr.ru",
+        "С даты": "From date",
+        "По дату": "To date",
+        "Загрузить": "Load",
+        "Внести вручную": "Enter manually",
+        "Если сайт ЦБ недоступен — можно завести ставку самостоятельно, по данным cbr.ru.":
+            "If the Bank of Russia site is unavailable, you can enter the rate yourself, based on cbr.ru data.",
+        "Пеня начислена": "Late fee accrued",
+        "Результат начисления пени на": "Late-fee accrual result for",
+        "Счёт пени": "Late-fee account",
+        "Год начисления": "Charge year",
+        "Сумма пени": "Late-fee amount",
+        "Новой просрочки не найдено.": "No new overdue days found.",
+        "Итого": "Total",
+        "Пропущено — нет счёта пени": "Skipped — no late-fee account",
+        "Назад": "Back",
+        "Некорректные даты.": "Invalid dates.",
+        "Не удалось загрузить ставку с cbr.ru: {error}. Можно внести значение вручную ниже.":
+            "Could not load the rate from cbr.ru: {error}. You can enter it manually below.",
+        "ЦБ РФ не вернул ни одной записи за указанный период.": "The Bank of Russia returned no records for the given period.",
+        "Загружено записей ключевой ставки: {n}.": "Key rate records loaded: {n}.",
+        "Ставка на {date} сохранена вручную.": "Rate for {date} saved manually.",
+        "Запись ставки удалена.": "Rate entry deleted.",
+        "Не задан срок оплаты взносов — укажите день и месяц в реквизитах кооператива.":
+            "The dues payment deadline is not set — specify the day and month in the cooperative's legal details.",
+        "Нет ни одной записи ключевой ставки ЦБ РФ — загрузите с cbr.ru или внесите вручную.":
+            "There isn't a single Bank of Russia key rate record — load it from cbr.ru or enter it manually.",
+        "Начислено пени: {n} на сумму {total} ₽.": "Late fees accrued: {n} for a total of {total} ₽.",
+        "Новой просрочки не найдено — начислять нечего.": "No new overdue days found — nothing to accrue.",
+        "Пропущено (нет счёта пени — заведите вид взноса с is_penalty и тем же кодом счёта): {n}.":
+            "Skipped (no late-fee account — set up a fee type with is_penalty and the same account code): {n}.",
+        "Страницы": "Pages",
+        "Сжать историю": "Compact history",
+        "Убрать записи, не меняющие значение по сравнению с предыдущей — оставить только даты фактических изменений ставки.":
+            "Remove entries that don't change the value compared to the previous one — keep only the dates of actual rate changes.",
+        "Убрано избыточных (без изменения значения): {n}.": "Removed redundant entries (no value change): {n}.",
+        "Убрано избыточных записей: {n}.": "Removed redundant entries: {n}.",
+        "Избыточных записей не найдено.": "No redundant entries found.",
+        "Пеня по сегодняшний день пересчитывается автоматически при каждом открытии этой страницы или панели кооператива — отдельно ничего нажимать не нужно.":
+            "The late fee through today is recalculated automatically every time this page or the cooperative dashboard is opened — no need to click anything separately.",
+        "Пересчитать на дату": "Recalculate as of a date",
+        "По сегодняшний день пеня уже пересчитана автоматически. Эта форма — для пересчёта на другую (например, прошлую) дату, если нужно для отчёта или печати документов.":
+            "The late fee through today is already recalculated automatically. Use this form to recalculate as of a different (e.g. past) date, for a report or printed documents.",
+        "Пеня считается по эту дату включительно.": "The late fee is calculated through this date, inclusive.",
+        "Пересчитать": "Recalculate",
     }
 }
 

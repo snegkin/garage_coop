@@ -12,9 +12,9 @@
       {% endfor %}
       <button type="submit" class="btn btn-outline-primary">{{ _("Скачать PDF") }}</button>
     </form>
-    {% endif %}
-    {% if not electricity and is_board %}
+    {% if is_board() %}
     <a class="btn btn-outline-secondary" href="{{ url_for('pd4.select') }}">{{ _("Назад к выбору") }}</a>
+    {% endif %}
     {% endif %}
   </div>
 </div>

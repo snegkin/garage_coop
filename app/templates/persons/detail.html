@@ -8,7 +8,7 @@
     {% if person.is_accountant %}<span class="badge bg-warning text-dark">{{ _("Бухгалтер") }}</span>{% endif %}
     {% if person.is_board_member and not person.is_chairman %}<span class="badge bg-info text-dark">{{ _("Член правления") }}</span>{% endif %}
   </h3>
-  {% if current_user.role.value in ('board', 'chairman', 'accountant') %}
+  {% if is_board() %}
   <a class="btn btn-primary" href="{{ url_for('persons.edit', person_id=person.id) }}">{{ _("Редактировать") }}</a>
   {% endif %}
 </div>
@@ -25,7 +25,7 @@
           {{ person.passport_series }} {{ person.passport_number or "" }}, {{ _("выдан") }} {{ fmt_date(person.passport_issue_date) }} {{ person.passport_issued_by or "" }}
         {% else %}—{% endif %}
       </td></tr>
-      {% if current_user.role.value in ('board', 'chairman', 'accountant') %}
+      {% if is_board() %}
       <tr><th>{{ _("Комментарий") }}</th><td>{{ person.comment or "—" }}</td></tr>
       {% endif %}
       <tr><th>{{ _("Членство") }}</th><td>
@@ -39,7 +39,7 @@
   </div>
 
   <div class="col-md-5">
-    {% if current_user.role.value in ('board', 'chairman', 'accountant') %}
+    {% if is_board() %}
     <h5>{{ _("Доступ в систему") }}</h5>
     <div class="bg-body p-3 rounded border">
       {% if account %}
@@ -74,7 +74,7 @@
   </div>
 </div>
 
-{% if current_user.role.value in ('board', 'chairman', 'accountant') and member_accounts %}
+{% if is_board() and member_accounts %}
 <h5 class="mt-4">{{ _("Лицевые счета") }}</h5>
 <table class="table table-sm bg-body sortable" style="max-width:700px">
   <thead><tr><th>{{ _("Гараж") }}</th><th>{{ _("Вид взноса") }}</th><th>{{ _("Счёт") }}</th><th>{{ _("Баланс") }}</th></tr></thead>
@@ -94,7 +94,7 @@
 </table>
 {% endif %}
 
-{% if current_user.role.value == 'chairman' %}
+{% if is_chairman() %}
 <h5 class="mt-4">{{ _("История изменений персональных данных") }}</h5>
 {% set revisions = person.revisions %}
 {% if revisions %}

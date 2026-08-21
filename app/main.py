@@ -1,10 +1,13 @@
 from flask import Blueprint, render_template, redirect, url_for
 
+import datetime as dt
+
 from . import database
 from .auth import login_required
 from .permissions import is_board
 from .models import Garage, Person, GeneralMeeting, AnnualReport
 from .accounting import cooperative_balance
+from .penalty import accrue_penalties
 
 bp = Blueprint("main", __name__)
 
@@ -16,6 +19,11 @@ def dashboard():
     # для него "панель" это сразу список его гаражей (личный кабинет)
     if not is_board():
         return redirect(url_for("cabinet.garages"))
+
+    # Тихий автопересчёт пени на сегодня при каждом заходе правления на
+    # дашборд — см. penalty.view() и accounting.penalty для подробностей
+    # про то, почему это дёшево при повторных вызовах.
+    accrue_penalties(dt.date.today())
 
     stats = {
         "garages_count": database.db_session.query(Garage).count(),

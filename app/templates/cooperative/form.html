@@ -66,6 +66,19 @@
       <div class="form-text">{{ _("Добавляется ко всем автоматическим начислениям (напр. 1.6 для Сбербанка).") }}</div>
     </div>
 
+    <div class="col-12"><hr><h6>{{ _("Пеня") }}</h6></div>
+    <div class="col-md-4">
+      <label class="form-label">{{ _("Срок оплаты взносов — день") }}</label>
+      <input class="form-control" type="number" min="1" max="31" name="dues_due_day" value="{{ coop.dues_due_day if coop.dues_due_day is not none else '' }}">
+    </div>
+    <div class="col-md-4">
+      <label class="form-label">{{ _("Срок оплаты взносов — месяц") }}</label>
+      <input class="form-control" type="number" min="1" max="12" name="dues_due_month" value="{{ coop.dues_due_month if coop.dues_due_month is not none else '' }}">
+    </div>
+    <div class="col-md-4 d-flex align-items-end">
+      <div class="form-text mb-2">{{ _("Единая по уставу дата в году, после которой на неоплаченные взносы начинает начисляться пеня.") }}</div>
+    </div>
+
     <div class="col-12">
       <label class="form-label">{{ _("Комментарий") }}</label>
       <textarea class="form-control" name="comment">{{ coop.comment or '' }}</textarea>

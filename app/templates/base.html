@@ -41,7 +41,7 @@
           {% endfor %}
         </ul>
       </div>
-      {% if current_user.role.value in ('board', 'chairman', 'accountant') %}
+      {% if is_board() %}
       <div class="dropdown me-3">
         <button class="btn btn-outline-light btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown">
           {{ _("Правление") }}
@@ -51,7 +51,8 @@
           <li><a class="dropdown-item" href="{{ url_for('persons.list_persons') }}">{{ _("Люди") }}</a></li>
           <li><a class="dropdown-item" href="{{ url_for('power.view') }}">{{ _("Электроэнергия") }}</a></li>
           <li><a class="dropdown-item" href="{{ url_for('counterparties.list_counterparties') }}">{{ _("Контрагенты") }}</a></li>
-          {% if current_user.role.value == 'chairman' %}
+          <li><a class="dropdown-item" href="{{ url_for('penalty.view') }}">{{ _("Пеня") }}</a></li>
+          {% if is_chairman() %}
           <li><hr class="dropdown-divider"></li>
           <li><a class="dropdown-item" href="{{ url_for('finance.mass_charge') }}">{{ _("Массовое начисление") }}</a></li>
           <li><a class="dropdown-item" href="{{ url_for('persons.accounts_list') }}">{{ _("Учётные записи") }}</a></li>
@@ -67,7 +68,7 @@
           <li><a class="dropdown-item" href="{{ url_for('cabinet.profile') }}">{{ _("Мой профиль") }}</a></li>
           <li><a class="dropdown-item" href="{{ url_for('cabinet.garages') }}">{{ _("Мой гараж") }}</a></li>
           <li><a class="dropdown-item" href="{{ url_for('pd4.select') }}">{{ _("Печать ПД-4") }}</a></li>
-          {% if current_user.role.value in ('chairman', 'accountant') %}
+          {% if is_privileged() %}
           <li><a class="dropdown-item" href="{{ url_for('finance.member_accounts') }}">{{ _("Счета членов кооператива") }}</a></li>
           {% endif %}
           <li><hr class="dropdown-divider"></li>
@@ -117,10 +118,23 @@ function enhanceSearchableSelect(select) {
   input.placeholder = select.dataset.placeholder || "";
   wrapper.appendChild(input);
 
+  // Список рендерится в <body>, а не внутри wrapper: если поле стоит внутри
+  // прокручиваемой модалки (.modal-dialog-scrollable — на .modal-body
+  // Bootstrap ставит overflow-y:auto), абсолютно позиционированный список
+  // обрезался бы этим overflow независимо от z-index. Позиционируем через
+  // position:fixed и координаты input.getBoundingClientRect() — тогда
+  // список не зависит от overflow ни одного из предков.
   const list = document.createElement("div");
-  list.className = "list-group position-absolute w-100 shadow-sm";
-  list.style.cssText = "z-index:1055; max-height:260px; overflow-y:auto; display:none;";
-  wrapper.appendChild(list);
+  list.className = "list-group shadow-sm";
+  list.style.cssText = "position:fixed; z-index:1090; max-height:260px; overflow-y:auto; display:none;";
+  document.body.appendChild(list);
+
+  function positionList() {
+    const rect = input.getBoundingClientRect();
+    list.style.left = rect.left + "px";
+    list.style.top = (rect.bottom + 2) + "px";
+    list.style.width = rect.width + "px";
+  }
 
   function options() {
     return Array.from(select.options).filter(function (o) { return o.value !== ""; });
@@ -157,6 +171,7 @@ function enhanceSearchableSelect(select) {
       empty.textContent = select.dataset.emptyText || "Ничего не найдено";
       list.appendChild(empty);
     }
+    positionList();
     list.style.display = "block";
   }
 
@@ -171,6 +186,22 @@ function enhanceSearchableSelect(select) {
   input.addEventListener("keydown", function (e) {
     if (e.key === "Escape") { list.style.display = "none"; input.blur(); }
   });
+  // useCapture:true — ловим прокрутку любого предка (напр. .modal-body),
+  // не только окна целиком, т.к. scroll не всплывает по умолчанию.
+  window.addEventListener("scroll", function () {
+    if (list.style.display !== "none") positionList();
+  }, true);
+  window.addEventListener("resize", function () {
+    if (list.style.display !== "none") positionList();
+  });
+  // Модалку могут закрыть по Esc/бэкдропу, минуя blur инпута — прячем
+  // список сразу, чтобы он не остался висеть поверх закрытой модалки.
+  const closestModal = select.closest(".modal");
+  if (closestModal) {
+    closestModal.addEventListener("hidden.bs.modal", function () {
+      list.style.display = "none";
+    });
+  }
 
   setInputFromSelect();
 }

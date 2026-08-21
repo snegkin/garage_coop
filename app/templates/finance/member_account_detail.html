@@ -5,7 +5,7 @@
   <a href="{{ url_for('garages.detail', garage_id=account.garage.id) }}" class="link-body-emphasis text-decoration-none">&larr; {{ account.fee_type.name }} — {{ account.person.full_name }} — {{ _("гараж") }} №{{ account.garage.number }}</a>
 </h3>
 
-{% if current_user.role.value in ('board', 'chairman', 'accountant') %}
+{% if is_board() %}
 <div class="d-flex align-items-center gap-2 mb-2">
   <form method="post" action="{{ url_for('finance.update_member_account_number', account_id=account.id) }}" class="d-flex align-items-center gap-2">
     <label class="form-label mb-0">{{ _("Номер счёта") }}:</label>
@@ -39,7 +39,7 @@
       </tbody>
     </table>
 
-    {% if current_user.role.value in ('board', 'chairman', 'accountant') %}
+    {% if is_board() %}
     <form method="post" action="{{ url_for('finance.add_member_charge', account_id=account.id) }}" class="border rounded p-3 bg-body">
       <div class="row g-2">
         <div class="col-4">

@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Пеня") }}{% endblock %}
+{% block content %}
+<h3 class="mb-3">{{ _("Автоматическое начисление пени") }}</h3>
+
+<div class="row g-4">
+  <div class="col-md-6">
+    <div class="card bg-body mb-3">
+      <div class="card-body">
+        <h5 class="card-title">{{ _("Срок оплаты взносов") }}</h5>
+        {% if due_date_this_year %}
+          <p class="mb-1">{{ _("В этом году") }}: <strong>{{ fmt_date(due_date_this_year) }}</strong></p>
+          <p class="text-muted small mb-0">{{ _("Пеня начисляется на начисления, не оплаченные к этой дате. Изменить срок можно в реквизитах кооператива.") }}</p>
+          <p class="text-muted small mb-0">{{ _("Пеня по сегодняшний день пересчитывается автоматически при каждом открытии этой страницы или панели кооператива — отдельно ничего нажимать не нужно.") }}</p>
+        {% else %}
+          <p class="text-danger mb-1">{{ _("Срок оплаты не настроен.") }}</p>
+          <a class="btn btn-sm btn-primary" href="{{ url_for('cooperative.edit') }}">{{ _("Задать в реквизитах") }}</a>
+        {% endif %}
+      </div>
+    </div>
+
+    {% if is_chairman() %}
+    <div class="card bg-body">
+      <div class="card-body">
+        <h5 class="card-title">{{ _("Пересчитать на дату") }}</h5>
+        <p class="text-muted small">{{ _("По сегодняшний день пеня уже пересчитана автоматически. Эта форма — для пересчёта на другую (например, прошлую) дату, если нужно для отчёта или печати документов.") }}</p>
+        <form method="post" action="{{ url_for('penalty.run') }}">
+          <div class="mb-2">
+            <label class="form-label">{{ _("Дата расчёта") }}</label>
+            <input class="form-control" type="date" name="target_date" value="{{ today }}">
+            <div class="form-text">{{ _("Пеня считается по эту дату включительно.") }}</div>
+          </div>
+          <button class="btn btn-primary">{{ _("Пересчитать") }}</button>
+        </form>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="col-md-6">
+    <div class="d-flex justify-content-between align-items-center">
+      <h5>{{ _("Ключевая ставка ЦБ РФ") }}</h5>
+      <form method="post" action="{{ url_for('penalty.compact_key_rate') }}">
+        <button class="btn btn-sm btn-outline-secondary" title="{{ _('Убрать записи, не меняющие значение по сравнению с предыдущей — оставить только даты фактических изменений ставки.') }}">{{ _("Сжать историю") }}</button>
+      </form>
+    </div>
+    <table class="table table-sm bg-body sortable">
+      <thead><tr><th>{{ _("Действует с") }}</th><th>{{ _("Ставка, %") }}</th><th>{{ _("Источник") }}</th><th class="no-sort"></th></tr></thead>
+      <tbody>
+        {% for r in rates %}
+        <tr>
+          <td data-sort-value="{{ r.effective_date }}">{{ fmt_date(r.effective_date) }}</td>
+          <td data-sort-value="{{ r.rate_percent }}">{{ fmt2(r.rate_percent) }}</td>
+          <td>{{ _("вручную") if r.is_manual else "cbr.ru" }}</td>
+          <td>
+            <form method="post" action="{{ url_for('penalty.delete_key_rate', rate_id=r.id) }}" onsubmit="return confirm('{{ _("Удалить эту запись ставки?") }}')">
+              <input type="hidden" name="page" value="{{ page }}">
+              <button class="btn btn-sm btn-outline-danger">×</button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" class="text-muted">{{ _("Ставка ещё не загружена.") }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    {% if total_pages > 1 %}
+    <nav aria-label="{{ _('Страницы') }}">
+      <ul class="pagination pagination-sm flex-wrap">
+        <li class="page-item {{ 'disabled' if page <= 1 }}">
+          <a class="page-link" href="{{ url_for('penalty.view', page=page - 1) }}">&laquo;</a>
+        </li>
+        {% for p in page_window %}
+          {% if p is none %}
+          <li class="page-item disabled"><span class="page-link">…</span></li>
+          {% else %}
+          <li class="page-item {{ 'active' if p == page }}">
+            <a class="page-link" href="{{ url_for('penalty.view', page=p) }}">{{ p }}</a>
+          </li>
+          {% endif %}
+        {% endfor %}
+        <li class="page-item {{ 'disabled' if page >= total_pages }}">
+          <a class="page-link" href="{{ url_for('penalty.view', page=page + 1) }}">&raquo;</a>
+        </li>
+      </ul>
+    </nav>
+    {% endif %}
+
+    <div class="card bg-body mb-3">
+      <div class="card-body">
+        <h6 class="card-title">{{ _("Загрузить с cbr.ru") }}</h6>
+        <form method="post" action="{{ url_for('penalty.fetch_key_rate') }}" class="row g-2 align-items-end">
+          <div class="col-5">
+            <label class="form-label">{{ _("С даты") }}</label>
+            <input class="form-control form-control-sm" type="date" name="from_date" value="{{ suggested_from_date }}" required>
+          </div>
+          <div class="col-5">
+            <label class="form-label">{{ _("По дату") }}</label>
+            <input class="form-control form-control-sm" type="date" name="to_date" value="{{ today }}">
+          </div>
+          <div class="col-2">
+            <button class="btn btn-sm btn-primary w-100">{{ _("Загрузить") }}</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div class="card bg-body">
+      <div class="card-body">
+        <h6 class="card-title">{{ _("Внести вручную") }}</h6>
+        <p class="text-muted small">{{ _("Если сайт ЦБ недоступен — можно завести ставку самостоятельно, по данным cbr.ru.") }}</p>
+        <form method="post" action="{{ url_for('penalty.add_manual_key_rate') }}" class="row g-2 align-items-end">
+          <div class="col-5">
+            <label class="form-label">{{ _("Действует с") }}</label>
+            <input class="form-control form-control-sm" type="date" name="effective_date" required>
+          </div>
+          <div class="col-5">
+            <label class="form-label">{{ _("Ставка, %") }}</label>
+            <input class="form-control form-control-sm" name="rate_percent" placeholder="21.00" required>
+          </div>
+          <div class="col-2">
+            <button class="btn btn-sm btn-primary w-100">{{ _("Сохранить") }}</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

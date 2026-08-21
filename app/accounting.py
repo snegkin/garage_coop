@@ -15,6 +15,7 @@
 - Пеня по такому взносу/налогу — тот же номер с префиксом (по умолчанию "П"):
     П10950, П20950
 """
+import calendar
 import datetime as dt
 from decimal import Decimal, ROUND_CEILING
 
@@ -23,7 +24,7 @@ from sqlalchemy import func
 from . import database
 from .models import (
     AccountNumberSettings, ElectricityTariff, ElectricitySettings, Cooperative, Garage, LandTaxYear,
-    Charge, Payment, MemberAccount, FeeType, ChargeAllocation,
+    Charge, Payment, MemberAccount, FeeType, ChargeAllocation, KeyRate,
     Counterparty, Expense, CounterpartyPayment, ExpenseAllocation, BankAccount,
 )
 
@@ -81,17 +82,13 @@ def charge_sort_date(charge: Charge) -> dt.date:
     return dt.date(charge.year, 1, 1)
 
 
-def reallocate_garage_charges(garage: Garage) -> None:
+def _reallocate_fifo(charges: list[Charge], payments: list[Payment]) -> None:
     """
-    Пересчитывает разнесение всех платежей гаража по всем его начислениям
-    заново, от нуля: старые начисления закрываются старыми платежами (FIFO
-    по обеим сторонам). Вызывается после добавления любого нового начисления
-    или платежа на гараж — идемпотентна, ничего не портит при повторном вызове,
-    и на первом же вызове сама «доразносит» всю уже существующую историю.
+    Общая механика FIFO-разнесения: старые начисления закрываются старыми
+    платежами. `charges`/`payments` должны быть уже отсортированы по дате.
+    Используется и для гаражей (электричество), и для лицевых счетов членов
+    (взносы/налоги/пеня) — см. reallocate_garage_charges/reallocate_member_charges.
     """
-    charges = sorted(garage.charges, key=charge_sort_date)
-    payments = sorted(garage.payments, key=lambda p: p.date)
-
     for charge in charges:
         charge.allocations.clear()
     for payment in payments:
@@ -117,6 +114,34 @@ def reallocate_garage_charges(garage: Garage) -> None:
             ))
             charge_left -= alloc_amount
             payment_left -= alloc_amount
+
+
+def reallocate_garage_charges(garage: Garage) -> None:
+    """
+    Пересчитывает разнесение всех платежей гаража по всем его начислениям
+    заново, от нуля: старые начисления закрываются старыми платежами (FIFO
+    по обеим сторонам). Вызывается после добавления любого нового начисления
+    или платежа на гараж — идемпотентна, ничего не портит при повторном вызове,
+    и на первом же вызове сама «доразносит» всю уже существующую историю.
+    """
+    charges = sorted(garage.charges, key=charge_sort_date)
+    payments = sorted(garage.payments, key=lambda p: p.date)
+    _reallocate_fifo(charges, payments)
+
+
+def reallocate_member_charges(account: MemberAccount) -> None:
+    """
+    То же самое, что reallocate_garage_charges(), но для лицевого счёта члена
+    кооператива (взносы/налоги/пеня). До появления автоматического начисления
+    пени платежи членов не разносились по конкретным начислениям — баланс
+    считался просто суммой (см. balance()); теперь разнесение нужно, чтобы
+    accounting.penalty мог точно посчитать непогашенный остаток каждого
+    конкретного начисления на каждый день просрочки. Вызывается после
+    добавления любого нового начисления или платежа на счёт члена.
+    """
+    charges = sorted(account.charges, key=charge_sort_date)
+    payments = sorted(account.payments, key=lambda p: p.date)
+    _reallocate_fifo(charges, payments)
 
 
 def charge_paid_amount(charge: Charge) -> Decimal:
@@ -398,6 +423,29 @@ def compute_land_tax(year: int) -> dict[int, Decimal] | None:
         garage_tax = (under_building + common_area_tax) * bank_multiplier
         result[garage.id] = garage_tax.quantize(Decimal("0.01"))
     return result
+
+
+def dues_due_date(coop: Cooperative, year: int) -> dt.date | None:
+    """
+    Дата, до которой должен быть оплачен взнос за данный год (единая по
+    уставу дата в году — см. Cooperative.dues_due_day/dues_due_month).
+    None, если срок не настроен в реквизитах кооператива. День подрезается
+    до последнего дня месяца, если в этом году короче (напр. 30/31 февраля).
+    """
+    if not coop or not coop.dues_due_day or not coop.dues_due_month:
+        return None
+    last_day = calendar.monthrange(year, coop.dues_due_month)[1]
+    return dt.date(year, coop.dues_due_month, min(coop.dues_due_day, last_day))
+
+
+def key_rate_on(as_of: dt.date) -> KeyRate | None:
+    """Действующая на указанную дату запись ключевой ставки ЦБ РФ (последняя не позже as_of)."""
+    return (
+        database.db_session.query(KeyRate)
+        .filter(KeyRate.effective_date <= as_of)
+        .order_by(KeyRate.effective_date.desc(), KeyRate.id.desc())
+        .first()
+    )
 
 
 def penalty_sibling_account(member_account: MemberAccount) -> MemberAccount | None:

@@ -48,7 +48,7 @@
     <input class="form-control" name="passport_issued_by" value="{{ (person.passport_issued_by or '') if person else '' }}">
   </div>
 
-  {% if current_user.role.value in ('board', 'chairman', 'accountant') %}
+  {% if is_board() %}
   <div class="col-12">
     <label class="form-label">{{ _("Комментарий") }}</label>
     <textarea class="form-control" name="comment">{{ (person.comment or '') if person else '' }}</textarea>
@@ -65,7 +65,7 @@
     <input class="form-control" type="date" name="membership_end_date" value="{{ (person.membership_end_date or '') if person else '' }}">
   </div>
 
-  {% if current_user.role.value == 'chairman' %}
+  {% if is_chairman() %}
   <div class="col-12">
     <hr><h6>{{ _("Управление кооперативом") }}</h6>
     <p class="text-muted small mb-0">

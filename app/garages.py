@@ -96,13 +96,13 @@ def create():
 
         # собственники, указанные прямо в форме создания
         person_ids = request.form.getlist("owner_person_id")
-        shares = request.form.getlist("owner_share") or "1"
+        shares = request.form.getlist("owner_share")
         owner_index = 0
         for person_id, share_raw in zip(person_ids, shares):
-            if not person_id or not share_raw:
+            if not person_id:
                 continue
             try:
-                share = Decimal(share_raw)
+                share = Decimal(share_raw) if share_raw else Decimal("1")  # пусто -> вся доля (100%)
             except InvalidOperation:
                 continue
             if not (0 < share <= 1):

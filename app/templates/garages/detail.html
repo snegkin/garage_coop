@@ -1,12 +1,11 @@
 {% extends "base.html" %}
 {% block title %}{{ _("Гараж №{n}", n=garage.number) }}{% endblock %}
 {% block content %}
-{% set is_board = current_user.role.value in ('board', 'chairman', 'accountant') %}
 {% set is_owner = current_user.person_id and current_user.person_id in garage.ownerships|map(attribute='person_id')|list %}
 {% set _active_tab = request.args.get('tab', 'info') %}
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h3>{{ _("Гараж №{n}", n=garage.number) }}</h3>
-  {% if is_board %}
+  {% if is_board() %}
   <a class="btn btn-primary" href="{{ url_for('garages.edit', garage_id=garage.id) }}">{{ _("Редактировать") }}</a>
   {% endif %}
 </div>
@@ -16,7 +15,7 @@
   <li class="nav-item">
     <a class="nav-link {{ _tab_class }}" href="{{ url_for('garages.detail', garage_id=garage.id) }}">{{ _("Информация") }}</a>
   </li>
-  {% if is_board or is_owner %}
+  {% if is_board() or is_owner %}
   <li class="nav-item">
     {% set _tc = 'active' if _active_tab == 'account' %}
     <a class="nav-link {{ _tc }}" href="{{ url_for('garages.detail', garage_id=garage.id, tab='account') }}">{{ _("Электричество и счёт") }}</a>
@@ -32,7 +31,7 @@
       <div class="card-body">
         <p><strong>{{ _("Площадь") }}:</strong> {{ fmt2(garage.area_sqm) }} м²</p>
         <p><strong>{{ _("Кадастровый номер гаража") }}:</strong> {{ garage.cadastral_number or "—" }}</p>
-        {% if is_board %}
+        {% if is_board() %}
         <p><strong>{{ _("Коэффициент начисления") }}:</strong> {{ fmt2(garage.coefficient) }}</p>
         {% endif %}
         <p><strong>{{ _("Земля приватизирована") }}:</strong> {{ _("да") if garage.land_privatized else _("нет") }}</p>
@@ -40,7 +39,7 @@
         <p><strong>{{ _("Кадастровый номер участка") }}:</strong> {{ garage.land_cadastral_number or "—" }}</p>
         <p><strong>{{ _("Площадь приватизированного участка") }}:</strong> {{ (fmt2(garage.privatized_land_area) ~ " м²") if garage.privatized_land_area is not none else "—" }}</p>
         {% endif %}
-        {% if is_board %}
+        {% if is_board() %}
         <form method="post" action="{{ url_for('garages.update_comment', garage_id=garage.id) }}" class="mb-2">
           <label class="form-label mb-1"><strong>{{ _("Комментарий") }}</strong></label>
           <div class="d-flex gap-2">
@@ -54,13 +53,13 @@
 
     <h5>{{ _("Собственники") }} {% if total_share != 1 %}<span class="badge bg-warning text-dark">{{ _("сумма долей") }}: {{ total_share }}</span>{% endif %}</h5>
     <table class="table table-sm bg-body sortable">
-      <thead><tr><th>{{ _("ФИО") }}</th><th>{{ _("Доля") }}</th>{% if current_user.role.value in ('board', 'chairman', 'accountant') %}<th class="no-sort"></th>{% endif %}</tr></thead>
+      <thead><tr><th>{{ _("ФИО") }}</th><th>{{ _("Доля") }}</th>{% if is_board() %}<th class="no-sort"></th>{% endif %}</tr></thead>
       <tbody>
         {% for o in garage.ownerships %}
         <tr>
-          <td>{% if is_board %}<a href="{{ url_for('persons.detail', person_id=o.person.id) }}">{{ o.person.full_name }}</a>{% else %}{{ o.person.full_name }}{% endif %}</td>
+          <td>{% if is_board() %}<a href="{{ url_for('persons.detail', person_id=o.person.id) }}">{{ o.person.full_name }}</a>{% else %}{{ o.person.full_name }}{% endif %}</td>
           <td data-sort-value="{{ o.share }}">{{ fmt2(o.share) }}</td>
-          {% if current_user.role.value in ('board', 'chairman', 'accountant') %}
+          {% if is_board() %}
           <td>
             <form method="post" action="{{ url_for('garages.remove_owner', garage_id=garage.id, ownership_id=o.id) }}" onsubmit="return confirm('{{ _("Удалить собственника?") }}')">
               <button class="btn btn-sm btn-outline-danger">✕</button>
@@ -73,12 +72,12 @@
         {% endfor %}
       </tbody>
     </table>
-    {% if current_user.role.value in ('board', 'chairman', 'accountant') %}
+    {% if is_board() %}
     <form method="post" action="{{ url_for('garages.add_owner', garage_id=garage.id) }}" class="d-flex gap-2 mb-4">
       <select name="person_id" class="form-select form-select-sm" data-searchable required>
         {% for p in all_persons %}<option value="{{ p.id }}">{{ p.full_name }}</option>{% endfor %}
       </select>
-      <input class="form-control form-control-sm" style="max-width:120px" name="share" placeholder="{{ _('доля, напр. 0.5') }}">
+      <input class="form-control form-control-sm" style="max-width:120px" name="share" placeholder="{{ _('доля, по умолчанию 1 (100%)') }}">
       <button class="btn btn-sm btn-primary">{{ _("Добавить") }}</button>
     </form>
     {% endif %}
@@ -87,13 +86,13 @@
   <div class="col-md-6">
     <h5>{{ _("Лица для связи") }}</h5>
     <table class="table table-sm bg-body sortable">
-      <thead><tr><th>{{ _("ФИО") }}</th><th>{{ _("Отношение") }}</th>{% if is_board or is_owner %}<th class="no-sort"></th>{% endif %}</tr></thead>
+      <thead><tr><th>{{ _("ФИО") }}</th><th>{{ _("Отношение") }}</th>{% if is_board() or is_owner %}<th class="no-sort"></th>{% endif %}</tr></thead>
       <tbody>
         {% for c in garage.contacts %}
         <tr>
-          <td>{% if is_board %}<a href="{{ url_for('persons.detail', person_id=c.person.id) }}">{{ c.person.full_name }}</a>{% else %}{{ c.person.full_name }}{% endif %}</td>
+          <td>{% if is_board() %}<a href="{{ url_for('persons.detail', person_id=c.person.id) }}">{{ c.person.full_name }}</a>{% else %}{{ c.person.full_name }}{% endif %}</td>
           <td>{{ c.relation or "—" }}</td>
-          {% if is_board or is_owner %}
+          {% if is_board() or is_owner %}
           <td>
             <form method="post" action="{{ url_for('garages.remove_contact', garage_id=garage.id, contact_id=c.id) }}" onsubmit="return confirm('{{ _("Удалить контакт?") }}')">
               <button class="btn btn-sm btn-outline-danger">✕</button>
@@ -106,7 +105,7 @@
         {% endfor %}
       </tbody>
     </table>
-    {% if is_board or is_owner %}
+    {% if is_board() or is_owner %}
     <form method="post" action="{{ url_for('garages.add_contact', garage_id=garage.id) }}" class="d-flex gap-2">
       <select name="person_id" class="form-select form-select-sm" id="contactPersonSelect" data-searchable required>
         {% for p in all_persons %}
@@ -115,11 +114,11 @@
       </select>
       <input class="form-control form-control-sm" name="relation" placeholder="{{ _('напр. супруга') }}">
       <button class="btn btn-sm btn-primary">{{ _("Добавить") }}</button>
-      {% if is_board %}
+      {% if is_board() %}
       <button type="button" class="btn btn-sm btn-primary text-nowrap" data-bs-toggle="modal" data-bs-target="#createPersonModal">+ {{ _("Новый человек") }}</button>
       {% endif %}
     </form>
-    {% if is_board %}
+    {% if is_board() %}
     {% with next_url = url_for('garages.detail', garage_id=garage.id) %}
     {% include "persons/_create_modal.html" %}
     {% endwith %}
@@ -135,7 +134,7 @@
     <div class="card">
       <img src="{{ url_for('garages.photo_file', photo_id=photo.id) }}" class="card-img-top gallery-thumb" style="height:150px;object-fit:cover;cursor:pointer" data-gallery-index="{{ loop.index0 }}">
       <div class="card-body p-2">
-        {% if is_board %}
+        {% if is_board() %}
         <form method="post" action="{{ url_for('garages.edit_photo', garage_id=garage.id, photo_id=photo.id) }}" enctype="multipart/form-data" class="mb-1">
           <input class="form-control form-control-sm mb-1" name="caption" value="{{ photo.caption or '' }}" placeholder="{{ _('Подпись') }}">
           <input class="form-control form-control-sm mb-1" type="file" name="file">
@@ -203,7 +202,7 @@
 </script>
 {% endif %}
 
-{% if is_board %}
+{% if is_board() %}
 <form method="post" action="{{ url_for('garages.add_photo', garage_id=garage.id) }}" enctype="multipart/form-data" class="d-flex gap-2 border rounded p-3 bg-body mb-4" style="max-width:600px">
   <input class="form-control form-control-sm" type="file" name="file" required>
   <input class="form-control form-control-sm" name="caption" placeholder="{{ _('Подпись (необязательно)') }}">
@@ -225,7 +224,7 @@
       <tr><th>{{ _("Показания при установке") }}</th><td>{{ fmt2(current_meter.initial_reading) if current_meter.initial_reading is not none else "—" }}</td></tr>
       <tr><th>{{ _("Номер пломбы на счётчике") }}</th><td>{{ current_meter.meter_seal_number or "—" }}</td></tr>
       <tr><th>{{ _("Номер пломбы на вводном автомате") }}</th><td>{{ current_meter.breaker_seal_number or "—" }}</td></tr>
-      {% if is_board %}
+      {% if is_board() %}
       <tr>
         <th></th>
         <td class="text-end">
@@ -238,7 +237,7 @@
     </table>
     {% else %}
     <p class="text-muted">{{ _("Счётчик не установлен.") }}</p>
-    {% if is_board %}
+    {% if is_board() %}
     <button type="button" class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#replaceMeterModal">
       ✎ {{ _("Добавить прибор учета") }}
     </button>
@@ -257,7 +256,7 @@
     </table>
     {% endif %}
 
-    {% if is_board %}
+    {% if is_board() %}
     <div class="modal fade" id="replaceMeterModal" tabindex="-1" aria-hidden="true">
       <div class="modal-dialog modal-lg">
         <div class="modal-content">
@@ -312,7 +311,7 @@
   <div class="col-md-6">
     {% if account %}
     <p class="text-muted small">{{ _("Лицевой счёт на электричество — общий на гараж, без разбивки между собственниками.") }}</p>
-    {% if is_board %}
+    {% if is_board() %}
     <form method="post" action="{{ url_for('garages.update_account_number', garage_id=garage.id) }}" class="d-flex align-items-center gap-2 mb-2">
       <label class="form-label mb-0">{{ _("Номер счёта") }}:</label>
       <input class="form-control form-control-sm" style="max-width:160px" name="account_number" value="{{ account.account_number }}">
@@ -326,7 +325,7 @@
     <p class="text-muted">{{ _("Лицевой счёт не создан.") }}</p>
     {% endif %}
 
-    {% if current_meter and (is_board or is_owner) %}
+    {% if current_meter and (is_board() or is_owner) %}
     <h6 class="mt-3">{{ _("Внести показания") }}</h6>
     <form method="post" action="{{ url_for('garages.add_electricity_reading', garage_id=garage.id) }}" class="d-flex gap-2 border rounded p-3 bg-body">
       <input class="form-control form-control-sm" name="reading" placeholder="{{ _('Показания') }}" required>
@@ -334,7 +333,7 @@
     </form>
     {% endif %}
 
-    {% if account and current_user.role.value in ('chairman', 'accountant') %}
+    {% if account and is_privileged() %}
     <h6 class="mt-3">{{ _("Зарегистрировать платёж") }}</h6>
     <form method="post" action="{{ url_for('garages.add_payment', garage_id=garage.id) }}" class="border rounded p-3 bg-body">
       <div class="row g-2">
@@ -418,7 +417,7 @@
     </table>
     <p class="text-muted small">{{ _("Сумма рассчитывается автоматически: (новые показания − предыдущие) × тариф, действующий на дату снятия показаний, и начисляется на счёт за электричество этого гаража.") }}</p>
   </div>
-  {% if readings and current_user.role.value == 'chairman' %}
+  {% if readings and is_chairman() %}
   <div class="row g-2">
     <div class="col">
       <button type="button" class="btn btn-sm btn-primary ms-auto d-block" data-bs-toggle="modal" data-bs-target="#editLastReadingModal">
@@ -429,7 +428,7 @@
   {% endif %}
 </div>
 
-{% if readings and current_user.role.value == 'chairman' %}
+{% if readings and is_chairman() %}
 <div class="modal fade" id="editLastReadingModal" tabindex="-1">
   <div class="modal-dialog modal-lg">
     <div class="modal-content">

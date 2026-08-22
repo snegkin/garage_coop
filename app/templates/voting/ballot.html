@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Голосование") }}{% endblock %}
+{% block content %}
+<h3 class="mb-1">{{ vote.title }}</h3>
+<p class="text-muted small mb-3">{{ _("Ваш вес голоса (сумма долей владения по вашим гаражам)") }}: <strong>{{ fmt2(weight) }}</strong></p>
+{% if vote.description %}<p>{{ vote.description }}</p>{% endif %}
+
+<form method="post">
+  {% for q in vote.questions %}
+  <div class="card bg-body mb-3">
+    <div class="card-body">
+      <p class="mb-2">{{ loop.index }}. {{ q.text }}</p>
+      {% set current = my_ballots[q.id].choice.value if q.id in my_ballots else None %}
+      <div class="btn-group" role="group">
+        <input type="radio" class="btn-check" name="choice_{{ q.id }}" id="q{{ q.id }}_for" value="for" {{ 'checked' if current == 'for' }} required>
+        <label class="btn btn-outline-success" for="q{{ q.id }}_for">{{ _("За") }}</label>
+
+        <input type="radio" class="btn-check" name="choice_{{ q.id }}" id="q{{ q.id }}_against" value="against" {{ 'checked' if current == 'against' }}>
+        <label class="btn btn-outline-danger" for="q{{ q.id }}_against">{{ _("Против") }}</label>
+
+        <input type="radio" class="btn-check" name="choice_{{ q.id }}" id="q{{ q.id }}_abstain" value="abstain" {{ 'checked' if current == 'abstain' }}>
+        <label class="btn btn-outline-secondary" for="q{{ q.id }}_abstain">{{ _("Воздержался") }}</label>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+
+  <button class="btn btn-primary">{{ _("Отправить бюллетень") }}</button>
+  <a class="btn btn-outline-secondary" href="{{ url_for('voting.detail', vote_id=vote.id) }}">{{ _("Отмена") }}</a>
+  <p class="text-muted small mt-2">{{ _("Пока приём бюллетеней открыт, вы можете вернуться и изменить свой голос — учитывается последняя подача.") }}</p>
+</form>
+{% endblock %}

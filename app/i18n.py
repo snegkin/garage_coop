@@ -12,6 +12,8 @@ from flask import session, request, g
 
 SUPPORTED_LANGUAGES = {"ru": "Русский", "en": "English"}
 DEFAULT_LANGUAGE = "ru"
+# Флаг для пиктограммы в переключателе языка (эмодзи — без внешних иконок/шрифтов)
+LANGUAGE_FLAGS = {"ru": "🇷🇺", "en": "🇬🇧"}
 
 # ru -> en
 TRANSLATIONS: dict[str, dict[str, str]] = {
@@ -40,6 +42,26 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Логин": "Username",
         "Пароль": "Password",
         "Войти": "Sign in",
+        "Переключить тему": "Toggle theme",
+
+        # news
+        "Новости кооператива": "Cooperative news",
+        "Новостей пока нет.": "No news yet.",
+        "обновлено": "updated",
+        "Новости": "News",
+        "Добавить новость": "Add news item",
+        "Новости показываются на главной странице (до входа в систему) — последние {n} записей.":
+            "News is shown on the front page (before sign-in) — the latest {n} entries.",
+        "Заголовок": "Title",
+        "Автор": "Author",
+        "изм.": "upd.",
+        "Удалить новость?": "Delete this news item?",
+        "Новость добавлена.": "News item added.",
+        "Новость обновлена.": "News item updated.",
+        "Новость удалена.": "News item deleted.",
+        "Новая новость": "New news item",
+        "Редактирование новости": "Edit news item",
+        "Текст": "Text",
         "Пожалуйста, войдите в систему.": "Please sign in.",
         "Недостаточно прав для этого действия.": "You don't have permission to do this.",
         "Неверный логин или пароль.": "Invalid username or password.",
@@ -861,6 +883,104 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "The late fee through today is already recalculated automatically. Use this form to recalculate as of a different (e.g. past) date, for a report or printed documents.",
         "Пеня считается по эту дату включительно.": "The late fee is calculated through this date, inclusive.",
         "Пересчитать": "Recalculate",
+
+        # electronic voting
+        "Голосования": "Voting",
+        "Электронные голосования": "Electronic voting",
+        "Новое голосование": "New vote",
+        "Описание/контекст": "Description / context",
+        "Тип голосования": "Voting type",
+        "заочное": "absentee",
+        "очно-заочное": "in-person and absentee",
+        "Связанное очное собрание": "Related in-person meeting",
+        "без привязки": "not linked",
+        "Для очно-заочного — собрание, очную часть которого это голосование дополняет.":
+            "For in-person-and-absentee voting — the meeting whose in-person part this vote supplements.",
+        "Начало приёма бюллетеней": "Ballot submission opens",
+        "Окончание приёма бюллетеней": "Ballot submission closes",
+        "Кворум — правило кооператива, не настраивается за голосование: правомочно, только если приняло участие больше половины голосов кооператива.":
+            "Quorum is a fixed cooperative rule, not configurable per vote: the vote is valid only if more than half of the cooperative's votes participated.",
+        "Создать (черновик)": "Create (draft)",
+        "После создания добавьте вопросы повестки — голосование останется черновиком, пока вы явно его не откроете.":
+            "After creating, add agenda questions — the vote stays a draft until you explicitly open it.",
+        "напр. Голосование по смете на 2027 год": "e.g. Vote on the 2027 budget",
+        "Дата окончания должна быть позже даты начала.": "The end date must be later than the start date.",
+        "Голосование создано (черновик) — теперь добавьте вопросы повестки.":
+            "Vote created (draft) — now add agenda questions.",
+        "Голосование не найдено.": "Vote not found.",
+        "Это голосование ещё не открыто.": "This vote is not open yet.",
+        "Голосовать могут собственники гаражей — у вас нет доли ни в одном гараже, доступен только просмотр.":
+            "Only garage owners can vote — you don't own a share in any garage, view-only access.",
+        "Приём бюллетеней до": "Ballots accepted until",
+        "Ваш голос": "Your vote",
+        "Голосований пока нет.": "No votes yet.",
+        "черновик": "draft",
+        "идёт приём голосов": "accepting ballots",
+        "закрыто": "closed",
+        "голос подан": "voted",
+        "не голосовали": "haven't voted",
+        "← ко всем голосованиям": "← back to all votes",
+        "приём бюллетеней": "ballots accepted",
+        "собрание от": "meeting on",
+        "Явка / кворум": "Turnout / quorum",
+        "Проголосовало (по весу)": "Voted (by weight)",
+        "Кворум": "Quorum",
+        "Кворум (>50% голосов кооператива)": "Quorum (>50% of the cooperative's votes)",
+        "достигнут": "reached",
+        "не достигнут — решения не могут быть приняты": "not reached — decisions cannot be approved",
+        "Удалить вопрос?": "Delete this question?",
+        "порог принятия": "approval threshold",
+        "от всех голосов кооператива, при наличии кворума": "of all cooperative votes, given quorum is met",
+        "ваш голос": "your vote",
+        "за": "for",
+        "против": "against",
+        "воздержался": "abstained",
+        "возд.": "abst.",
+        "решение принято": "decision passed",
+        "решение не принято": "decision did not pass",
+        "Повестка пока пуста.": "The agenda is empty so far.",
+        "Добавить вопрос повестки": "Add an agenda question",
+        "Доля «за» от всех голосов кооператива — 0.5 = простое большинство, 0.6667 ≈ 2/3.":
+            "Share of \u00abfor\u00bb out of all cooperative votes — 0.5 = simple majority, 0.6667 \u2248 2/3.",
+        "Текст вопроса": "Question text",
+        "Порог принятия": "Approval threshold",
+        "Добавить вопрос": "Add question",
+        "Открыть голосование": "Open the vote",
+        "Закрыть голосование": "Close the vote",
+        "Закрыть голосование и зафиксировать результаты?": "Close the vote and finalize the results?",
+        "Изменить голос": "Change your vote",
+        "Проголосовать": "Vote",
+        "Подписанный протокол ещё не прикреплён.": "The signed protocol hasn't been attached yet.",
+        "Прикрепить": "Attach",
+        "Добавлять вопросы можно только пока голосование не открыто.":
+            "Questions can only be added while the vote hasn't been opened yet.",
+        "Вопрос добавлен.": "Question added.",
+        "Удалять вопросы можно только пока голосование не открыто.":
+            "Questions can only be deleted while the vote hasn't been opened yet.",
+        "Вопрос удалён.": "Question deleted.",
+        "Голосование уже открыто или закрыто.": "The vote is already open or closed.",
+        "Нельзя открыть голосование без вопросов повестки.": "Can't open a vote with no agenda questions.",
+        "Голосование открыто — члены кооператива теперь могут голосовать.":
+            "The vote is open — cooperative members can now vote.",
+        "Закрыть можно только открытое голосование.": "Only an open vote can be closed.",
+        "Голосование закрыто, результаты зафиксированы.": "The vote is closed, results are finalized.",
+        "Не удалось сохранить файл протокола.": "Couldn't save the protocol file.",
+        "Протокол голосования «{title}»": "Voting protocol \u00ab{title}\u00bb",
+        "Протокол прикреплён.": "Protocol attached.",
+        "Голосование": "Voting",
+        "Голосовать могут только собственники гаражей — у вас нет доли ни в одном гараже.":
+            "Only garage owners can vote — you don't own a share in any garage.",
+        "Приём бюллетеней по этому голосованию сейчас закрыт.": "Ballot submission for this vote is currently closed.",
+        "Ответьте на все вопросы повестки перед отправкой бюллетеня.": "Answer every agenda question before submitting your ballot.",
+        "Бюллетень принят. Вы можете изменить голос, пока приём бюллетеней открыт.":
+            "Ballot accepted. You can change your vote while ballot submission is still open.",
+        "Ваш вес голоса (сумма долей владения по вашим гаражам)": "Your voting weight (sum of your ownership shares across your garages)",
+        "За": "For",
+        "Против": "Against",
+        "Воздержался": "Abstain",
+        "Отправить бюллетень": "Submit ballot",
+        "Пока приём бюллетеней открыт, вы можете вернуться и изменить свой голос — учитывается последняя подача.":
+            "While ballot submission is open, you can come back and change your vote — the latest submission counts.",
     }
 }
 
@@ -947,6 +1067,7 @@ def init_app(app):
     app.jinja_env.globals["fmt_date"] = format_date
     app.jinja_env.globals["fmt2"] = fmt2
     app.jinja_env.globals["SUPPORTED_LANGUAGES"] = SUPPORTED_LANGUAGES
+    app.jinja_env.globals["LANGUAGE_FLAGS"] = LANGUAGE_FLAGS
 
     @app.context_processor
     def _inject_locale():

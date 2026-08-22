@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Голосования") }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h3>{{ _("Электронные голосования") }}</h3>
+  {% if is_chairman() %}
+  <a class="btn btn-primary" href="{{ url_for('voting.create') }}">+ {{ _("Новое голосование") }}</a>
+  {% endif %}
+</div>
+
+{% if my_weight <= 0 %}
+<p class="text-muted small">{{ _("Голосовать могут собственники гаражей — у вас нет доли ни в одном гараже, доступен только просмотр.") }}</p>
+{% endif %}
+
+<table class="table bg-body sortable">
+  <thead>
+    <tr>
+      <th>{{ _("Название") }}</th>
+      <th>{{ _("Тип") }}</th>
+      <th>{{ _("Статус") }}</th>
+      <th>{{ _("Приём бюллетеней до") }}</th>
+      <th class="no-sort">{{ _("Ваш голос") }}</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for v in votes %}
+    <tr>
+      <td><a href="{{ url_for('voting.detail', vote_id=v.id) }}">{{ v.title }}</a></td>
+      <td>{{ _("очно-заочное") if v.voting_type.value == 'in_person_and_absentee' else _("заочное") }}</td>
+      <td>
+        {% if v.status.value == 'draft' %}<span class="badge text-bg-secondary">{{ _("черновик") }}</span>
+        {% elif v.status.value == 'open' %}<span class="badge text-bg-success">{{ _("идёт приём голосов") }}</span>
+        {% else %}<span class="badge text-bg-secondary">{{ _("закрыто") }}</span>{% endif %}
+      </td>
+      <td data-sort-value="{{ v.closes_at }}">{{ fmt_date(v.closes_at.date()) }}</td>
+      <td>
+        {% set answered = v.questions|selectattr('id', 'in', voted_question_ids)|list %}
+        {% if v.questions and answered|length == v.questions|length %}
+          <span class="text-success">{{ _("голос подан") }}</span>
+        {% elif answered %}
+          <span class="text-warning">{{ _("частично") }}</span>
+        {% elif my_weight > 0 and is_accepting_ballots(v) %}
+          <span class="text-muted">{{ _("не голосовали") }}</span>
+        {% else %}—{% endif %}
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="5" class="text-muted">{{ _("Голосований пока нет.") }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

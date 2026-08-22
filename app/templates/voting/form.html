@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Новое голосование") }}{% endblock %}
+{% block content %}
+<h3 class="mb-3">{{ _("Новое голосование") }}</h3>
+
+<form method="post" class="row g-3" style="max-width:700px">
+  <div class="col-12">
+    <label class="form-label">{{ _("Название") }}</label>
+    <input class="form-control" name="title" required placeholder="{{ _('напр. Голосование по смете на 2027 год') }}">
+  </div>
+  <div class="col-12">
+    <label class="form-label">{{ _("Описание/контекст") }}</label>
+    <textarea class="form-control" name="description" rows="3"></textarea>
+  </div>
+  <div class="col-md-6">
+    <label class="form-label">{{ _("Тип голосования") }}</label>
+    <select class="form-select" name="voting_type">
+      <option value="absentee">{{ _("заочное") }}</option>
+      <option value="in_person_and_absentee">{{ _("очно-заочное") }}</option>
+    </select>
+  </div>
+  <div class="col-md-6">
+    <label class="form-label">{{ _("Связанное очное собрание") }}</label>
+    <select class="form-select" name="meeting_id" data-searchable data-placeholder="{{ _('без привязки') }}">
+      <option value="">— {{ _("без привязки") }} —</option>
+      {% for m in meetings %}
+      <option value="{{ m.id }}">{{ fmt_date(m.date) }}{% if m.agenda %} — {{ m.agenda[:60] }}{% endif %}</option>
+      {% endfor %}
+    </select>
+    <div class="form-text">{{ _("Для очно-заочного — собрание, очную часть которого это голосование дополняет.") }}</div>
+  </div>
+  <div class="col-md-6">
+    <label class="form-label">{{ _("Начало приёма бюллетеней") }}</label>
+    <input class="form-control" type="datetime-local" name="opens_at" required value="{{ now_local }}">
+  </div>
+  <div class="col-md-6">
+    <label class="form-label">{{ _("Окончание приёма бюллетеней") }}</label>
+    <input class="form-control" type="datetime-local" name="closes_at" required>
+  </div>
+  <div class="col-12 text-muted small">{{ _("Кворум — правило кооператива, не настраивается за голосование: правомочно, только если приняло участие больше половины голосов кооператива.") }}</div>
+  <div class="col-12">
+    <button class="btn btn-primary">{{ _("Создать (черновик)") }}</button>
+    <a class="btn btn-outline-secondary" href="{{ url_for('voting.list_votes') }}">{{ _("Отмена") }}</a>
+  </div>
+  <div class="col-12 text-muted small">{{ _("После создания добавьте вопросы повестки — голосование останется черновиком, пока вы явно его не откроете.") }}</div>
+</form>
+{% endblock %}

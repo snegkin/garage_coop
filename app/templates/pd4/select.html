@@ -6,7 +6,7 @@
 <form class="mb-3">
   <input class="form-control" id="filterInput" value="{{ q }}" placeholder="{{ _('Поиск по ФИО, гаражу или счёту...') }}">
 </form>
-{% if is_board %}
+{% if is_board() %}
 <p class="text-muted small">{{ _("Если по счёту вида «пеня» тоже есть задолженность — его платёжка допечатается автоматически, даже если не отмечен ниже.") }}</p>
 {% endif %}
 
@@ -16,7 +16,7 @@
     <thead>
       <tr>
         <th class="no-sort"><input type="checkbox" id="selectAll" checked></th>
-        {% if is_board %}<th>{{ _("ФИО") }}</th>{% endif %}
+        {% if is_board() %}<th>{{ _("ФИО") }}</th>{% endif %}
         <th>{{ _("Гараж") }}</th>
         <th>{{ _("Вид взноса") }}</th>
         <th>{{ _("Счёт") }}</th>
@@ -27,7 +27,7 @@
       {% for account, debt in rows %}
       <tr data-search="{{ (account.person.full_name ~ ' ' ~ account.garage.number ~ ' ' ~ account.account_number ~ ' ' ~ account.fee_type.name)|lower }}">
         <td><input type="checkbox" name="account_id" value="{{ account.id }}" checked></td>
-        {% if is_board %}<td>{{ account.person.full_name }}</td>{% endif %}
+        {% if is_board() %}<td>{{ account.person.full_name }}</td>{% endif %}
         <td data-sort-value="{{ account.garage.number }}">№{{ account.garage.number }}</td>
         <td>{{ account.fee_type.name }}</td>
         <td>{{ account.account_number }}</td>

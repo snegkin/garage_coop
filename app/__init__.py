@@ -52,6 +52,8 @@ def create_app(config_class=Config):
     from .pd4 import bp as pd4_bp
     from .governance import bp as governance_bp
     from .penalty import bp as penalty_bp
+    from .voting import bp as voting_bp
+    from .news import bp as news_bp
 
     app.register_blueprint(main_bp)
     app.register_blueprint(garages_bp)
@@ -66,6 +68,8 @@ def create_app(config_class=Config):
     app.register_blueprint(pd4_bp)
     app.register_blueprint(governance_bp)
     app.register_blueprint(penalty_bp)
+    app.register_blueprint(voting_bp)
+    app.register_blueprint(news_bp)
 
     @app.route("/")
     def index():

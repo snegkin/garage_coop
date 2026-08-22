@@ -15,7 +15,7 @@ body { margin: 0; font-family: Arial, sans-serif; }
 </style>
 </head>
 <body>
-{% for account, amount, qr_data_uri in slips %}
+{% for account, amount, qr_data_uri, kind, ref_id in slips %}
 <table class="pd4-table pd4-slip">
     <!-- ИЗВЕЩЕНИЕ -->
     <tr>

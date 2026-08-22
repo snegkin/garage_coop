@@ -1,28 +1,60 @@
 {% extends "base.html" %}
-{% block title %}Вход{% endblock %}
+{% block title %}{{ _("Вход в систему") }}{% endblock %}
 {% block content %}
-<div class="row justify-content-center">
-  <div class="col-md-4 mt-5">
-    <div class="text-end mb-2">
+<div class="d-flex justify-content-end align-items-start gap-2 mb-2">
+  <div class="dropdown">
+    <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">
+      {{ LANGUAGE_FLAGS[current_locale] }}
+    </button>
+    <ul class="dropdown-menu dropdown-menu-end">
       {% for code, label in SUPPORTED_LANGUAGES.items() %}
-      <a class="btn btn-sm {{ 'btn-secondary' if code == current_locale else 'btn-outline-secondary' }}" href="{{ url_for('set_language', lang=code) }}">{{ label }}</a>
+      <li><a class="dropdown-item {{ 'active' if code == current_locale }}" href="{{ url_for('set_language', lang=code) }}">{{ LANGUAGE_FLAGS[code] }} {{ label }}</a></li>
       {% endfor %}
-      {% for code, label in SUPPORTED_THEMES.items() %}
-      <a class="btn btn-sm {{ 'btn-secondary' if code == current_theme else 'btn-outline-secondary' }}" href="{{ url_for('set_theme', theme=code) }}">{{ _(label) }}</a>
-      {% endfor %}
+    </ul>
+  </div>
+  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('set_theme', theme=next_theme(current_theme)) }}" title="{{ _('Переключить тему') }}" aria-label="{{ _('Переключить тему') }}">
+    {{ THEME_TOGGLE_ICONS[current_theme] }}
+  </a>
+</div>
+
+<div class="row">
+  <div class="col-lg-8 order-2 order-lg-1 mt-4 mt-lg-0">
+    <h3 class="mb-3">{{ _("Новости кооператива") }}</h3>
+    {% if news_items %}
+    {% for item in news_items %}
+    <div class="card bg-body mb-3">
+      <div class="card-body">
+        <h5 class="card-title mb-1">{{ item.title }}</h5>
+        <p class="card-subtitle text-muted small mb-2">
+          {{ fmt_date(item.created_at.date()) }}
+          {% if item.updated_at %}&middot; {{ _("обновлено") }} {{ fmt_date(item.updated_at.date()) }}{% endif %}
+        </p>
+        <p class="card-text" style="white-space:pre-line">{{ item.body }}</p>
+      </div>
     </div>
-    <h3 class="mb-3">{{ _("Вход в систему") }}</h3>
-    <form method="post">
-      <div class="mb-3">
-        <label class="form-label">{{ _("Логин") }}</label>
-        <input class="form-control" name="username" required autofocus>
+    {% endfor %}
+    {% else %}
+    <p class="text-muted">{{ _("Новостей пока нет.") }}</p>
+    {% endif %}
+  </div>
+
+  <div class="col-lg-4 order-1 order-lg-2">
+    <div class="card bg-body ms-lg-auto" style="max-width:340px">
+      <div class="card-body">
+        <h5 class="card-title mb-3">{{ _("Вход в систему") }}</h5>
+        <form method="post">
+          <div class="mb-3">
+            <label class="form-label">{{ _("Логин") }}</label>
+            <input class="form-control" name="username" required autofocus>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">{{ _("Пароль") }}</label>
+            <input class="form-control" type="password" name="password" required>
+          </div>
+          <button class="btn btn-primary w-100">{{ _("Войти") }}</button>
+        </form>
       </div>
-      <div class="mb-3">
-        <label class="form-label">{{ _("Пароль") }}</label>
-        <input class="form-control" type="password" name="password" required>
-      </div>
-      <button class="btn btn-primary w-100">{{ _("Войти") }}</button>
-    </form>
+    </div>
   </div>
 </div>
 {% endblock %}

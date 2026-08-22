@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Новая новость") if not item else _("Редактирование новости") }}{% endblock %}
+{% block content %}
+<h3 class="mb-3">{{ _("Новая новость") if not item else _("Редактирование новости") }}</h3>
+<form method="post" class="bg-body p-4 rounded border" style="max-width:700px">
+  <div class="mb-3">
+    <label class="form-label">{{ _("Заголовок") }}</label>
+    <input class="form-control" name="title" value="{{ item.title if item else '' }}" required autofocus>
+  </div>
+  <div class="mb-3">
+    <label class="form-label">{{ _("Текст") }}</label>
+    <textarea class="form-control" name="body" rows="8" required>{{ item.body if item else '' }}</textarea>
+  </div>
+  <button class="btn btn-primary">{{ _("Сохранить") }}</button>
+  <a class="btn btn-secondary" href="{{ url_for('news.list_news') }}">{{ _("Отмена") }}</a>
+</form>
+{% endblock %}

@@ -65,7 +65,11 @@ def login():
             session["user_id"] = user.id
             return redirect(request.args.get("next") or url_for("main.dashboard"))
 
-    return render_template("auth/login.html")
+    # Страница входа — де-факто главная страница сайта (анонимный посетитель
+    # всегда попадает сюда, см. index()/dashboard() в main.py), поэтому
+    # новостная лента правления показывается прямо здесь.
+    from .news import latest_news
+    return render_template("auth/login.html", news_items=latest_news())
 
 
 @bp.route("/logout")

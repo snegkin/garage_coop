@@ -18,29 +18,23 @@
       <ul class="navbar-nav me-auto">
         <li class="nav-item"><a class="nav-link" href="{{ url_for('documents.list_documents') }}">{{ _("Документы") }}</a></li>
         <li class="nav-item"><a class="nav-link" href="{{ url_for('meetings.list_meetings') }}">{{ _("Собрания") }}</a></li>
+        <li class="nav-item"><a class="nav-link" href="{{ url_for('voting.list_votes') }}">{{ _("Голосования") }}</a></li>
         <li class="nav-item"><a class="nav-link" href="{{ url_for('governance.view') }}">{{ _("Правление") }}</a></li>
         <li class="nav-item"><a class="nav-link" href="{{ url_for('cooperative.view') }}">{{ _("Реквизиты") }}</a></li>
       </ul>
-      <div class="dropdown me-3">
+      <div class="dropdown me-2">
         <button class="btn btn-outline-light btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown">
-          {{ SUPPORTED_LANGUAGES[current_locale] }}
+          {{ LANGUAGE_FLAGS[current_locale] }}
         </button>
         <ul class="dropdown-menu dropdown-menu-end">
           {% for code, label in SUPPORTED_LANGUAGES.items() %}
-          <li><a class="dropdown-item {{ 'active' if code == current_locale }}" href="{{ url_for('set_language', lang=code) }}">{{ label }}</a></li>
+          <li><a class="dropdown-item {{ 'active' if code == current_locale }}" href="{{ url_for('set_language', lang=code) }}">{{ LANGUAGE_FLAGS[code] }} {{ label }}</a></li>
           {% endfor %}
         </ul>
       </div>
-      <div class="dropdown me-3">
-        <button class="btn btn-outline-light btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown">
-          {{ _(SUPPORTED_THEMES[current_theme]) }}
-        </button>
-        <ul class="dropdown-menu dropdown-menu-end">
-          {% for code, label in SUPPORTED_THEMES.items() %}
-          <li><a class="dropdown-item {{ 'active' if code == current_theme }}" href="{{ url_for('set_theme', theme=code) }}">{{ _(label) }}</a></li>
-          {% endfor %}
-        </ul>
-      </div>
+      <a class="btn btn-outline-light btn-sm me-3" href="{{ url_for('set_theme', theme=next_theme(current_theme)) }}" title="{{ _('Переключить тему') }}" aria-label="{{ _('Переключить тему') }}">
+        {{ THEME_TOGGLE_ICONS[current_theme] }}
+      </a>
       {% if is_board() %}
       <div class="dropdown me-3">
         <button class="btn btn-outline-light btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown">
@@ -52,6 +46,7 @@
           <li><a class="dropdown-item" href="{{ url_for('power.view') }}">{{ _("Электроэнергия") }}</a></li>
           <li><a class="dropdown-item" href="{{ url_for('counterparties.list_counterparties') }}">{{ _("Контрагенты") }}</a></li>
           <li><a class="dropdown-item" href="{{ url_for('penalty.view') }}">{{ _("Пеня") }}</a></li>
+          <li><a class="dropdown-item" href="{{ url_for('news.list_news') }}">{{ _("Новости") }}</a></li>
           {% if is_chairman() %}
           <li><hr class="dropdown-divider"></li>
           <li><a class="dropdown-item" href="{{ url_for('finance.mass_charge') }}">{{ _("Массовое начисление") }}</a></li>

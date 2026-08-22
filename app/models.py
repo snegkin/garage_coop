@@ -366,6 +366,113 @@ class FeeRate(Base):
 
 
 # ---------------------------------------------------------------------------
+# Электронное голосование (очно-заочное / заочное)
+# ---------------------------------------------------------------------------
+
+class VoteType(str, enum.Enum):
+    IN_PERSON_AND_ABSENTEE = "in_person_and_absentee"  # очно-заочное — дополняет очную часть собрания
+    ABSENTEE = "absentee"                               # заочное — без очной части вообще
+
+
+class VoteStatus(str, enum.Enum):
+    DRAFT = "draft"    # формируется повестка, приём бюллетеней ещё не идёт
+    OPEN = "open"       # приём бюллетеней идёт
+    CLOSED = "closed"   # завершено, результаты зафиксированы, бюллетени больше не принимаются
+
+
+class VoteChoice(str, enum.Enum):
+    FOR = "for"
+    AGAINST = "against"
+    ABSTAIN = "abstain"
+
+
+# Кворум — жёсткое правило, не настраивается за голосование: голосование
+# правомочно, только если приняло участие строго больше половины от общего
+# веса голосов кооператива (см. voting.quorum_met). Если кворума нет, ни
+# один вопрос повестки не считается принятым, независимо от результатов.
+QUORUM_THRESHOLD = Decimal("0.5")
+
+
+class Vote(Base):
+    """
+    Электронное голосование (очно-заочное или заочное) по одному или
+    нескольким вопросам повестки — альтернатива очному собранию, когда не
+    удаётся очно собрать всех собственников. Голосуют члены кооператива
+    (владельцы гаражей); вес голоса человека = сумма его долей владения по
+    всем гаражам (см. voting.person_voting_weight) — так что «1 гараж —
+    1 голос», а при нескольких собственниках гаража их голос делится ровно
+    по их долям, без специального кода под этот случай.
+    """
+    __tablename__ = "vote"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    title: Mapped[str] = mapped_column(String(255))
+    description: Mapped[str | None] = mapped_column(Text)
+    voting_type: Mapped[VoteType] = mapped_column(Enum(VoteType), default=VoteType.ABSENTEE)
+    status: Mapped[VoteStatus] = mapped_column(Enum(VoteStatus), default=VoteStatus.DRAFT, index=True)
+
+    meeting_id: Mapped[int | None] = mapped_column(ForeignKey("general_meeting.id", ondelete="SET NULL"), index=True)
+
+    opens_at: Mapped[dt.datetime] = mapped_column(DateTime)
+    closes_at: Mapped[dt.datetime] = mapped_column(DateTime)
+    closed_at: Mapped[dt.datetime | None] = mapped_column(DateTime)  # фактическое закрытие (может быть раньше closes_at)
+
+    created_by_person_id: Mapped[int | None] = mapped_column(ForeignKey("person.id", ondelete="SET NULL"), index=True)
+    protocol_document_id: Mapped[int | None] = mapped_column(ForeignKey("document.id", ondelete="SET NULL"), index=True)
+
+    meeting: Mapped["GeneralMeeting | None"] = relationship()
+    created_by: Mapped["Person | None"] = relationship()
+    protocol_document: Mapped["Document | None"] = relationship()
+    questions: Mapped[list["VoteQuestion"]] = relationship(back_populates="vote", cascade="all, delete-orphan", order_by="VoteQuestion.order")
+
+
+class VoteQuestion(Base):
+    """Один вопрос повестки в рамках голосования — со своим порогом принятия."""
+    __tablename__ = "vote_question"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    vote_id: Mapped[int] = mapped_column(ForeignKey("vote.id", ondelete="CASCADE"), index=True)
+    order: Mapped[int] = mapped_column(Integer, default=0)
+    text: Mapped[str] = mapped_column(Text)
+    # Доля голосов "за" от ОБЩЕГО веса голосов кооператива (не от числа
+    # проголосовавших), необходимая для принятия решения по этому вопросу —
+    # 0.5 = простое большинство, 0.6667 ≈ квалифицированное большинство 2/3
+    # и т.п. Устав может требовать разный порог для разных вопросов
+    # повестки — задаётся здесь, а не жёстко в коде. Даже при формально
+    # достаточной доле "за" вопрос не считается принятым, если по
+    # голосованию в целом нет кворума (см. voting.question_results).
+    majority_threshold: Mapped[Decimal] = mapped_column(Numeric(5, 4), default=Decimal("0.5"))
+
+    vote: Mapped["Vote"] = relationship(back_populates="questions")
+    ballots: Mapped[list["VoteBallot"]] = relationship(back_populates="question", cascade="all, delete-orphan")
+
+
+class VoteBallot(Base):
+    """
+    Голос одного человека по одному вопросу. weight — вес на момент подачи
+    (сумма долей владения этого человека по всем его гаражам) — фиксируется
+    заново при каждой подаче/переголосовании, пока голосование открыто.
+    Переголосование, пока Vote.status == OPEN, разрешено — обновляет ту же
+    запись (upsert по (question_id, person_id)), не создаёт дубль.
+    """
+    __tablename__ = "vote_ballot"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    question_id: Mapped[int] = mapped_column(ForeignKey("vote_question.id", ondelete="CASCADE"), index=True)
+    person_id: Mapped[int] = mapped_column(ForeignKey("person.id"), index=True)
+    choice: Mapped[VoteChoice] = mapped_column(Enum(VoteChoice))
+    weight: Mapped[Decimal] = mapped_column(Numeric(8, 5))
+    cast_at: Mapped[dt.datetime] = mapped_column(DateTime)
+
+    question: Mapped["VoteQuestion"] = relationship(back_populates="ballots")
+    person: Mapped["Person"] = relationship()
+
+    __table_args__ = (
+        UniqueConstraint("question_id", "person_id", name="uq_vote_ballot_question_person"),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Люди
 # ---------------------------------------------------------------------------
 
@@ -446,6 +553,23 @@ class User(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
     person: Mapped["Person | None"] = relationship()
+
+
+class News(Base):
+    """Новостная лента на главной странице (перед входом в систему).
+    Ведётся правлением через /news — председатель и члены правления могут
+    добавлять, редактировать и удалять записи; рядовым членам и анонимным
+    посетителям доступно только чтение (см. news.py)."""
+    __tablename__ = "news"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    title: Mapped[str] = mapped_column(String(255))
+    body: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.utcnow)
+    updated_at: Mapped[dt.datetime | None] = mapped_column(DateTime, nullable=True, onupdate=dt.datetime.utcnow)
+    author_id: Mapped[int | None] = mapped_column(ForeignKey("user.id", ondelete="SET NULL"), index=True)
+
+    author: Mapped["User | None"] = relationship()
 
 
 # ---------------------------------------------------------------------------

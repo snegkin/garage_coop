@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% block title %}{{ vote.title }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-start mb-3">
+  <div>
+    <h3 class="mb-1">{{ vote.title }}</h3>
+    <div class="text-muted small">
+      {{ _("очно-заочное") if vote.voting_type.value == 'in_person_and_absentee' else _("заочное") }}
+      ·
+      {% if vote.status.value == 'draft' %}<span class="badge text-bg-secondary">{{ _("черновик") }}</span>
+      {% elif vote.status.value == 'open' %}<span class="badge text-bg-success">{{ _("идёт приём голосов") }}</span>
+      {% else %}<span class="badge text-bg-secondary">{{ _("закрыто") }}</span>{% endif %}
+      · {{ _("приём бюллетеней") }}: {{ fmt_date(vote.opens_at.date()) }} — {{ fmt_date(vote.closes_at.date()) }}
+      {% if vote.meeting %} · {{ _("собрание от") }} {{ fmt_date(vote.meeting.date) }}{% endif %}
+    </div>
+    {% if vote.description %}<p class="mt-2">{{ vote.description }}</p>{% endif %}
+  </div>
+  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('voting.list_votes') }}">{{ _("← ко всем голосованиям") }}</a>
+</div>
+
+{% if is_board() %}
+<div class="card bg-body mb-3">
+  <div class="card-body">
+    <h6 class="card-title">{{ _("Явка / кворум") }}</h6>
+    <p class="mb-1">{{ _("Проголосовало (по весу)") }}: <strong>{{ fmt2(participation) }}</strong> {{ _("из") }} {{ fmt2(total_weight) }}
+      {% if total_weight > 0 %}({{ fmt2(participation / total_weight * 100) }}%){% endif %}</p>
+    <p class="mb-0">{{ _("Кворум (>50% голосов кооператива)") }}:
+      {% if quorum %}<span class="text-success">{{ _("достигнут") }}</span>{% else %}<span class="text-danger">{{ _("не достигнут — решения не могут быть приняты") }}</span>{% endif %}
+    </p>
+  </div>
+</div>
+{% endif %}
+
+<h5>{{ _("Повестка") }}</h5>
+{% for q in vote.questions %}
+<div class="card bg-body mb-2">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-start">
+      <p class="mb-2">{{ loop.index }}. {{ q.text }}</p>
+      {% if vote.status.value == 'draft' and is_chairman() %}
+      <form method="post" action="{{ url_for('voting.delete_question', vote_id=vote.id, question_id=q.id) }}" onsubmit="return confirm('{{ _('Удалить вопрос?') }}')">
+        <button class="btn btn-sm btn-outline-danger">✕</button>
+      </form>
+      {% endif %}
+    </div>
+    <p class="text-muted small mb-2">
+      {{ _("порог принятия") }}: {{ fmt2(q.majority_threshold * 100) }}% {{ _("от всех голосов кооператива, при наличии кворума") }}
+    </p>
+
+    {% if q.id in my_ballots %}
+      <p class="mb-2"><span class="badge text-bg-light border">{{ _("ваш голос") }}:
+        {% set c = my_ballots[q.id].choice.value %}
+        {{ _("за") if c == 'for' else (_("против") if c == 'against' else _("воздержался")) }}</span></p>
+    {% endif %}
+
+    {% if q.id in results %}
+    <div class="row g-2 small">
+      <div class="col-4">{{ _("за") }}: <strong>{{ fmt2(results[q.id]['for']) }}</strong></div>
+      <div class="col-4">{{ _("против") }}: <strong>{{ fmt2(results[q.id]['against']) }}</strong></div>
+      <div class="col-4">{{ _("возд.") }}: <strong>{{ fmt2(results[q.id]['abstain']) }}</strong></div>
+    </div>
+    <p class="mt-2 mb-0">
+      {% if results[q.id]['passed'] %}<span class="text-success">{{ _("решение принято") }}</span>
+      {% else %}<span class="text-danger">{{ _("решение не принято") }}</span>{% endif %}
+    </p>
+    {% endif %}
+  </div>
+</div>
+{% else %}
+<p class="text-muted">{{ _("Повестка пока пуста.") }}</p>
+{% endfor %}
+
+{% if vote.status.value == 'draft' and is_chairman() %}
+<div class="card bg-body mb-3">
+  <div class="card-body">
+    <h6 class="card-title">{{ _("Добавить вопрос повестки") }}</h6>
+    <form method="post" action="{{ url_for('voting.add_question', vote_id=vote.id) }}" class="row g-2">
+      <div class="col-12">
+        <textarea class="form-control" name="text" rows="2" placeholder="{{ _('Текст вопроса') }}" required></textarea>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label small">{{ _("Порог принятия") }}</label>
+        <input class="form-control form-control-sm" name="majority_threshold" value="0.5">
+        <div class="form-text">{{ _("Доля «за» от всех голосов кооператива — 0.5 = простое большинство, 0.6667 ≈ 2/3.") }}</div>
+      </div>
+      <div class="col-12"><button class="btn btn-sm btn-primary">{{ _("Добавить вопрос") }}</button></div>
+    </form>
+  </div>
+</div>
+
+<form method="post" action="{{ url_for('voting.open_vote', vote_id=vote.id) }}">
+  <button class="btn btn-primary" {{ 'disabled' if not vote.questions }}>{{ _("Открыть голосование") }}</button>
+</form>
+{% endif %}
+
+{% if vote.status.value == 'open' %}
+  {% if is_chairman() %}
+  <form method="post" action="{{ url_for('voting.close_vote', vote_id=vote.id) }}" class="mb-3" onsubmit="return confirm('{{ _('Закрыть голосование и зафиксировать результаты?') }}')">
+    <button class="btn btn-outline-danger">{{ _("Закрыть голосование") }}</button>
+  </form>
+  {% endif %}
+  {% if is_accepting and my_weight > 0 %}
+  <a class="btn btn-primary" href="{{ url_for('voting.ballot', vote_id=vote.id) }}">
+    {{ _("Изменить голос") if my_ballots else _("Проголосовать") }}
+  </a>
+  {% endif %}
+{% endif %}
+
+{% if is_board() %}
+<div class="card bg-body mt-3">
+  <div class="card-body">
+    <h6 class="card-title">{{ _("Протокол") }}</h6>
+    {% if vote.protocol_document_id %}
+      <a href="{{ url_for('documents.download', doc_id=vote.protocol_document_id) }}">{{ _("скачать") }}</a>
+    {% else %}
+      <p class="text-muted small">{{ _("Подписанный протокол ещё не прикреплён.") }}</p>
+    {% endif %}
+    {% if is_chairman() %}
+    <form method="post" action="{{ url_for('voting.attach_protocol', vote_id=vote.id) }}" enctype="multipart/form-data" class="row g-2 mt-1">
+      <div class="col-8"><input class="form-control form-control-sm" type="file" name="protocol_file" required></div>
+      <div class="col-4"><button class="btn btn-sm btn-primary w-100">{{ _("Прикрепить") }}</button></div>
+    </form>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+{% endblock %}

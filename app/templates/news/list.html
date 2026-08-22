@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Новости") }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h3>{{ _("Новости") }}</h3>
+  <a class="btn btn-primary" href="{{ url_for('news.create') }}">+ {{ _("Добавить новость") }}</a>
+</div>
+
+<p class="text-muted small">{{ _("Новости показываются на главной странице (до входа в систему) — последние {n} записей.", n=5) }}</p>
+
+<table class="table bg-body sortable">
+  <thead><tr><th>{{ _("Дата") }}</th><th>{{ _("Заголовок") }}</th><th>{{ _("Автор") }}</th><th class="no-sort"></th></tr></thead>
+  <tbody>
+    {% for item in items %}
+    <tr>
+      <td data-sort-value="{{ item.created_at }}">
+        {{ fmt_date(item.created_at.date()) }}
+        {% if item.updated_at %}<div class="text-muted small">{{ _("изм.") }} {{ fmt_date(item.updated_at.date()) }}</div>{% endif %}
+      </td>
+      <td>{{ item.title }}</td>
+      <td>{{ item.author.username if item.author else "—" }}</td>
+      <td class="text-nowrap">
+        <a class="btn btn-sm btn-primary" href="{{ url_for('news.edit', news_id=item.id) }}">{{ _("Изменить") }}</a>
+        <form method="post" action="{{ url_for('news.delete', news_id=item.id) }}" class="d-inline" onsubmit="return confirm('{{ _("Удалить новость?") }}')">
+          <button class="btn btn-sm btn-outline-danger">{{ _("Удалить") }}</button>
+        </form>
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="4" class="text-muted">{{ _("Новостей пока нет.") }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

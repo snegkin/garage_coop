@@ -2,6 +2,13 @@
 {% block title %}Панель{% endblock %}
 {% block content %}
 <h3 class="mb-4">{{ _("Панель кооператива") }}</h3>
+
+{% if setup_status and not setup_status.all_done %}
+<div class="alert alert-warning d-flex justify-content-between align-items-center">
+  <div>{{ _("Первоначальная настройка ещё не завершена — часть данных не заполнена.") }}</div>
+  <a class="btn btn-primary btn-sm" href="{{ url_for('setup_wizard.index') }}">{{ _("Открыть мастер настройки") }}</a>
+</div>
+{% endif %}
 <div class="row g-3">
   {% if stats.coop_balance is defined %}
   <div class="col-md-3">

@@ -8,6 +8,8 @@ from .permissions import is_board
 from .models import Garage, Person, GeneralMeeting, AnnualReport
 from .accounting import cooperative_balance
 from .penalty import accrue_penalties
+from .permissions import is_chairman
+from .setup_wizard import wizard_status
 
 bp = Blueprint("main", __name__)
 
@@ -32,4 +34,6 @@ def dashboard():
         "last_report": database.db_session.query(AnnualReport).order_by(AnnualReport.year.desc()).first(),
         "coop_balance": cooperative_balance(),
     }
-    return render_template("dashboard.html", stats=stats)
+
+    setup_status = wizard_status() if is_chairman() else None
+    return render_template("dashboard.html", stats=stats, setup_status=setup_status)

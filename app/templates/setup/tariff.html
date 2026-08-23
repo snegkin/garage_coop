@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Тариф на электроэнергию") }}{% endblock %}
+{% block content %}
+{% set title = _("Тариф на электроэнергию") %}
+{% include "setup/_step_header.html" with context %}
+
+{% if tariffs %}
+<table class="table table-bordered bg-body mb-4" style="max-width:500px">
+  <thead><tr><th>{{ _("Действует с") }}</th><th>{{ _("Ставка, ₽/кВт·ч") }}</th></tr></thead>
+  <tbody>
+    {% for t in tariffs %}
+    <tr><td>{{ fmt_date(t.effective_date) }}</td><td>{{ fmt2(t.rate) }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+<form method="post" class="bg-body p-4 rounded border" style="max-width:500px">
+  <div class="mb-3">
+    <label class="form-label">{{ _("Ставка, ₽/кВт·ч") }}</label>
+    <input class="form-control" type="number" step="0.0001" min="0" name="rate" required>
+  </div>
+  <div class="mb-3">
+    <label class="form-label">{{ _("Действует с") }}</label>
+    <input class="form-control" type="date" name="effective_date" value="{{ today.isoformat() }}" required>
+  </div>
+  <div class="mb-3">
+    <label class="form-label">{{ _("Комментарий") }}</label>
+    <input class="form-control" name="comment">
+  </div>
+  <button class="btn btn-primary">{{ _("Добавить и вернуться в мастер") }}</button>
+</form>
+{% endblock %}

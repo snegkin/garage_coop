@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Люди") }}{% endblock %}
+{% block content %}
+{% set title = _("Люди") %}
+{% include "setup/_step_header.html" with context %}
+
+<p class="text-muted">{{ _("Всего в базе:") }} <strong>{{ total }}</strong></p>
+
+<div class="row" style="max-width:1100px">
+  <div class="col-md-5">
+    <h5>{{ _("Добавить одного человека") }}</h5>
+    <p class="text-muted small">{{ _("Полная форма — с паспортными данными, адресами, телефонами.") }}</p>
+    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#createPersonModal">+ {{ _("Новый человек") }}</button>
+  </div>
+
+  <div class="col-md-7">
+    <div class="d-flex justify-content-between align-items-center">
+      <h5 class="mb-0">{{ _("Импорт из CSV") }}</h5>
+      <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#{{ modal_id }}">{{ _("Настроить формат") }}</button>
+    </div>
+    <p class="text-muted small mt-2">
+      {{ _("Файл в кодировке UTF-8, разделитель колонок — запятая, первая строка — заголовок (пропускается). Дублирующиеся по ФИО строки (без учёта регистра) — пропускаются.") }}
+    </p>
+    <p class="small">
+      {{ _("Текущий формат, колонки по порядку:") }}
+      {% for c in active_columns %}{{ _(c) }}{% if not loop.last %}, {% endif %}{% endfor %}.
+      {{ _("Изменить состав и порядок колонок — кнопкой «Настроить формат» выше.") }}
+    </p>
+    <a class="btn btn-primary btn-sm mb-3" href="{{ url_for('setup_wizard.people_template') }}">{{ _("Скачать пример CSV") }}</a>
+    <form method="post" action="{{ url_for('setup_wizard.people_import') }}" enctype="multipart/form-data" class="bg-body p-3 rounded border">
+      <div class="mb-3">
+        <input class="form-control" type="file" name="csv_file" accept=".csv,text/csv" required>
+      </div>
+      <button class="btn btn-primary">{{ _("Импортировать") }}</button>
+    </form>
+  </div>
+</div>
+
+{% if persons %}
+<h5 class="mt-4">{{ _("Последние добавленные") }}</h5>
+<table class="table table-bordered bg-body">
+  <thead><tr><th>{{ _("ФИО") }}</th><th>Email</th><th>{{ _("Телефоны") }}</th></tr></thead>
+  <tbody>
+    {% for p in persons %}
+    <tr>
+      <td><a href="{{ url_for('persons.detail', person_id=p.id) }}">{{ p.full_name }}</a></td>
+      <td>{{ p.email or "—" }}</td>
+      <td>{{ p.phones|map(attribute='number')|join(', ') or "—" }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+{% with next_url = url_for('setup_wizard.people_step') %}
+{% include "persons/_create_modal.html" %}
+{% endwith %}
+{% include "setup/_csv_format_modal.html" with context %}
+{% endblock %}

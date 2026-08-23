@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Гаражи") }}{% endblock %}
+{% block content %}
+{% set title = _("Гаражи") %}
+{% include "setup/_step_header.html" with context %}
+
+<p class="text-muted">{{ _("Всего в базе:") }} <strong>{{ total }}</strong></p>
+
+<div class="row" style="max-width:1100px">
+  <div class="col-md-5">
+    <h5>{{ _("Добавить один гараж") }}</h5>
+    <p class="text-muted small">{{ _("Полная форма — с площадью, кадастровыми номерами, собственниками и фото.") }}</p>
+    <a class="btn btn-primary" href="{{ url_for('garages.create') }}">+ {{ _("Новый гараж") }}</a>
+  </div>
+
+  <div class="col-md-7">
+    <div class="d-flex justify-content-between align-items-center">
+      <h5 class="mb-0">{{ _("Импорт из CSV") }}</h5>
+      <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#{{ modal_id }}">{{ _("Настроить формат") }}</button>
+    </div>
+    <p class="text-muted small mt-2">
+      {{ _("Файл в кодировке UTF-8, разделитель колонок — запятая, первая строка — заголовок (пропускается). Числа — с точкой в качестве десятичного разделителя. Если у гаража несколько собственников, добавьте отдельную строку с тем же номером гаража и другим ФИО собственника — площадь и остальные поля гаража берутся из первой встреченной строки с этим номером. Собственник, которого нет в базе, будет создан автоматически по ФИО.") }}
+    </p>
+    <p class="small">
+      {{ _("Текущий формат, колонки по порядку:") }}
+      {% for c in active_columns %}{{ _(c) }}{% if not loop.last %}, {% endif %}{% endfor %}.
+      {{ _("Изменить состав и порядок колонок — кнопкой «Настроить формат» выше.") }}
+    </p>
+    <a class="btn btn-primary btn-sm mb-3" href="{{ url_for('setup_wizard.garages_template') }}">{{ _("Скачать пример CSV") }}</a>
+    <form method="post" action="{{ url_for('setup_wizard.garages_import') }}" enctype="multipart/form-data" class="bg-body p-3 rounded border">
+      <div class="mb-3">
+        <input class="form-control" type="file" name="csv_file" accept=".csv,text/csv" required>
+      </div>
+      <button class="btn btn-primary">{{ _("Импортировать") }}</button>
+    </form>
+  </div>
+</div>
+
+{% if garages %}
+<h5 class="mt-4">{{ _("Последние добавленные") }}</h5>
+<table class="table table-bordered bg-body">
+  <thead><tr><th>{{ _("Номер") }}</th><th>{{ _("Площадь, м²") }}</th><th>{{ _("Собственники") }}</th></tr></thead>
+  <tbody>
+    {% for g in garages %}
+    <tr>
+      <td><a href="{{ url_for('garages.detail', garage_id=g.id) }}">№{{ g.number }}</a></td>
+      <td>{{ fmt2(g.area_sqm) }}</td>
+      <td>{{ g.ownerships|map(attribute='person')|map(attribute='full_name')|join(', ') or "—" }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% include "setup/_csv_format_modal.html" with context %}
+{% endblock %}

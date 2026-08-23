@@ -17,7 +17,10 @@
         {{ fmt_date(item.created_at.date()) }}
         {% if item.updated_at %}<div class="text-muted small">{{ _("изм.") }} {{ fmt_date(item.updated_at.date()) }}</div>{% endif %}
       </td>
-      <td>{{ item.title }}</td>
+      <td>
+        {{ item.title }}
+        {% if item.attachments %}<span class="badge bg-secondary ms-1">{{ item.attachments|length }} &#128206;</span>{% endif %}
+      </td>
       <td>{{ item.author.username if item.author else "—" }}</td>
       <td class="text-nowrap">
         <a class="btn btn-sm btn-primary" href="{{ url_for('news.edit', news_id=item.id) }}">{{ _("Изменить") }}</a>

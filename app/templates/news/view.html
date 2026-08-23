@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}{{ item.title }}{% endblock %}
+{% block content %}
+<a href="{{ url_for('auth.login') }}" class="d-inline-block mb-3">&larr; {{ _("Ко всем новостям") }}</a>
+
+<div class="card bg-body" style="max-width:800px">
+  <div class="card-body">
+    <h3 class="card-title mb-1">{{ item.title }}</h3>
+    <p class="card-subtitle text-muted small mb-3">
+      {{ fmt_date(item.created_at.date()) }}
+      {% if item.updated_at %}&middot; {{ _("обновлено") }} {{ fmt_date(item.updated_at.date()) }}{% endif %}
+    </p>
+    <div class="card-text">{{ render_news_html(item.body) }}</div>
+
+    {% set images = item.attachments | selectattr("is_image") | list %}
+    {% set files = item.attachments | rejectattr("is_image") | list %}
+
+    {% if images %}
+    <div class="d-flex flex-wrap gap-2 mt-4">
+      {% for att in images %}
+      <a href="{{ url_for('news.attachment', attachment_id=att.id, original_filename=att.original_filename) }}" target="_blank">
+        <img src="{{ url_for('news.attachment', attachment_id=att.id, original_filename=att.original_filename) }}" alt="" style="max-height:220px;border-radius:.375rem">
+      </a>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if files %}
+    <div class="mt-4">
+      <h6>{{ _("Файлы") }}</h6>
+      <ul class="list-unstyled mb-0">
+        {% for att in files %}
+        <li><a href="{{ url_for('news.attachment', attachment_id=att.id, original_filename=att.original_filename) }}">{{ att.original_filename }}</a></li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

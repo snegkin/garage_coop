@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Карточка кооператива") }}{% endblock %}
+{% block content %}
+{% set title = _("Карточка кооператива") %}
+{% include "setup/_step_header.html" with context %}
+
+<form method="post" class="bg-body p-4 rounded border" style="max-width:700px">
+  <div class="mb-3">
+    <label class="form-label">{{ _("Полное наименование") }}</label>
+    <input class="form-control" name="full_name" value="{{ coop.full_name or '' }}" required>
+  </div>
+  <div class="mb-3">
+    <label class="form-label">{{ _("Краткое наименование") }}</label>
+    <input class="form-control" name="short_name" value="{{ coop.short_name or '' }}">
+  </div>
+  <div class="row">
+    <div class="col-md-4 mb-3">
+      <label class="form-label">{{ _("ИНН") }}</label>
+      <input class="form-control" name="inn" value="{{ coop.inn or '' }}" required>
+    </div>
+    <div class="col-md-4 mb-3">
+      <label class="form-label">{{ _("КПП") }}</label>
+      <input class="form-control" name="kpp" value="{{ coop.kpp or '' }}" required>
+    </div>
+    <div class="col-md-4 mb-3">
+      <label class="form-label">{{ _("ОГРН") }}</label>
+      <input class="form-control" name="ogrn" value="{{ coop.ogrn or '' }}" required>
+    </div>
+  </div>
+  <div class="mb-3">
+    <label class="form-label">{{ _("Юридический адрес") }}</label>
+    <textarea class="form-control" name="legal_address">{{ coop.legal_address or '' }}</textarea>
+  </div>
+  <div class="mb-3">
+    <label class="form-label">{{ _("Почтовый адрес") }}</label>
+    <textarea class="form-control" name="postal_address">{{ coop.postal_address or '' }}</textarea>
+  </div>
+  <div class="mb-3">
+    <label class="form-label">{{ _("Дата регистрации") }}</label>
+    <input class="form-control" type="date" name="registration_date" value="{{ coop.registration_date.isoformat() if coop.registration_date else '' }}">
+  </div>
+  <div class="row">
+    <div class="col-md-4 mb-3">
+      <label class="form-label">{{ _("Площадь кооператива, м²") }}</label>
+      <input class="form-control" type="number" step="0.01" name="total_area" value="{{ coop.total_area or '' }}">
+    </div>
+    <div class="col-md-4 mb-3">
+      <label class="form-label">{{ _("Площадь под гаражами, м²") }}</label>
+      <input class="form-control" type="number" step="0.01" name="garage_area" value="{{ coop.garage_area or '' }}">
+    </div>
+    <div class="col-md-4 mb-3">
+      <label class="form-label">{{ _("Площадь общего пользования, м²") }}</label>
+      <input class="form-control" type="number" step="0.01" name="common_area" value="{{ coop.common_area or '' }}">
+    </div>
+  </div>
+  <div class="row">
+    <div class="col-md-6 mb-3">
+      <label class="form-label">{{ _("Единый срок оплаты взносов — день") }}</label>
+      <input class="form-control" type="number" min="1" max="31" name="dues_due_day" value="{{ coop.dues_due_day or '' }}">
+    </div>
+    <div class="col-md-6 mb-3">
+      <label class="form-label">{{ _("Единый срок оплаты взносов — месяц") }}</label>
+      <input class="form-control" type="number" min="1" max="12" name="dues_due_month" value="{{ coop.dues_due_month or '' }}">
+    </div>
+  </div>
+  <div class="form-text mb-3">{{ _("Остальные реквизиты (проценты банка, стандартную площадь под гараж и т.п.) можно уточнить позже в разделе «Реквизиты».") }}</div>
+  <button class="btn btn-primary">{{ _("Сохранить и вернуться в мастер") }}</button>
+  <a class="btn btn-primary" href="{{ url_for('cooperative.edit') }}">{{ _("Открыть полную страницу реквизитов") }}</a>
+</form>
+{% endblock %}

@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Поставщик электроэнергии") }}{% endblock %}
+{% block content %}
+{% set title = _("Поставщик электроэнергии") %}
+{% include "setup/_step_header.html" with context %}
+
+<p class="text-muted">{{ _("Организация, у которой кооператив покупает электроэнергию по общему (вводному) счётчику — на неё будут заводиться расходы при внесении показаний.") }}</p>
+
+{% if settings.supplier %}
+<div class="alert alert-success" style="max-width:700px">
+  {{ _("Текущий поставщик:") }} <strong>{{ settings.supplier.name }}</strong>
+</div>
+{% endif %}
+
+<div class="row" style="max-width:1000px">
+  <div class="col-md-6">
+    <h5>{{ _("Новый контрагент") }}</h5>
+    <form method="post" class="bg-body p-4 rounded border">
+      <input type="hidden" name="action" value="create">
+      <div class="mb-3">
+        <label class="form-label">{{ _("Наименование") }}</label>
+        <input class="form-control" name="name" required>
+      </div>
+      <div class="mb-3">
+        <label class="form-label">{{ _("ИНН") }}</label>
+        <input class="form-control" name="inn">
+      </div>
+      <div class="mb-3">
+        <label class="form-label">{{ _("КПП") }}</label>
+        <input class="form-control" name="kpp">
+      </div>
+      <div class="mb-3">
+        <label class="form-label">{{ _("Телефон") }}</label>
+        <input class="form-control" name="phone">
+      </div>
+      <div class="mb-3">
+        <label class="form-label">Email</label>
+        <input class="form-control" type="email" name="email">
+      </div>
+      <div class="mb-3">
+        <label class="form-label">{{ _("Адрес") }}</label>
+        <textarea class="form-control" name="address"></textarea>
+      </div>
+      <button class="btn btn-primary">{{ _("Создать и привязать") }}</button>
+    </form>
+  </div>
+
+  {% if other_counterparties %}
+  <div class="col-md-6">
+    <h5>{{ _("Или выбрать из уже существующих") }}</h5>
+    <form method="post" class="bg-body p-4 rounded border">
+      <input type="hidden" name="action" value="link">
+      <div class="mb-3">
+        <label class="form-label">{{ _("Контрагент") }}</label>
+        <select class="form-select" name="counterparty_id" data-searchable data-placeholder="{{ _('выберите контрагента') }}">
+          <option value="">— {{ _("выберите контрагента") }} —</option>
+          {% for c in other_counterparties %}
+          <option value="{{ c.id }}" {{ "selected" if settings.supplier_id == c.id }}>{{ c.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <button class="btn btn-primary">{{ _("Сохранить") }}</button>
+    </form>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

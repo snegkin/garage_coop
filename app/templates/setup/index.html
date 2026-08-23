@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Мастер первоначальной настройки") }}{% endblock %}
+{% block content %}
+<h3 class="mb-2">{{ _("Мастер первоначальной настройки") }}</h3>
+<p class="text-muted mb-4">
+  {{ _("Проведите кооператив через первоначальное заполнение данными. Шаги можно проходить в любом порядке и возвращаться сюда в любой момент — ничего не потеряется, статус каждого шага считается по уже введённым данным.") }}
+</p>
+
+{% if status.all_done %}
+<div class="alert alert-success">{{ _("Все шаги первоначальной настройки заполнены. Мастер можно больше не открывать — все дальнейшие изменения делаются на обычных страницах кооператива.") }}</div>
+{% endif %}
+
+<div class="list-group">
+  {% set step_urls = {
+    "cooperative": url_for('setup_wizard.cooperative_step'),
+    "bank_account": url_for('setup_wizard.bank_account_step'),
+    "counterparty": url_for('setup_wizard.counterparty_step'),
+    "tariff": url_for('setup_wizard.tariff_step'),
+    "meter": url_for('setup_wizard.meter_step'),
+    "people": url_for('setup_wizard.people_step'),
+    "garages": url_for('setup_wizard.garages_step'),
+    "board": url_for('setup_wizard.board_step'),
+  } %}
+  {% set step_descriptions = {
+    "cooperative": _("Название, ИНН/КПП/ОГРН, адреса, площади."),
+    "bank_account": _("Хотя бы один расчётный счёт для реквизитов на ПД-4."),
+    "counterparty": _("Контрагент-поставщик электроэнергии, хотя бы один."),
+    "tariff": _("Действующий тариф, ₽/кВт·ч."),
+    "meter": _("Общий (вводный) счётчик кооператива — начальные показания."),
+    "people": _("Члены кооператива и контактные лица — вручную или импортом из CSV."),
+    "garages": _("Гаражи с указанием собственников и их долей — вручную или импортом из CSV."),
+    "board": _("Нынешний состав правления и председатель."),
+  } %}
+  {% for key, title, done in status.steps %}
+  <a class="list-group-item list-group-item-action d-flex justify-content-between align-items-center" href="{{ step_urls[key] }}">
+    <div>
+      <div class="fw-semibold">{{ title }}</div>
+      <div class="text-muted small">{{ step_descriptions[key] }}</div>
+    </div>
+    {% if done %}
+    <span class="badge bg-success">{{ _("заполнено") }}</span>
+    {% else %}
+    <span class="badge bg-secondary">{{ _("не заполнено") }}</span>
+    {% endif %}
+  </a>
+  {% endfor %}
+</div>
+{% endblock %}

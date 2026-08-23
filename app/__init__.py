@@ -17,10 +17,12 @@ def create_app(config_class=Config):
     engine, _db_session = init_engine(app.config["SQLALCHEMY_DATABASE_URI"])
     init_db_lifecycle(app)
 
-    from . import auth, i18n, theme
+    from . import auth, i18n, theme, news_format
     app.register_blueprint(auth.bp)
     i18n.init_app(app)
     theme.init_app(app)
+    app.jinja_env.globals["render_news_html"] = news_format.render_html
+    app.jinja_env.globals["news_excerpt"] = news_format.excerpt
 
     @app.before_request
     def _load_user():
@@ -54,6 +56,7 @@ def create_app(config_class=Config):
     from .penalty import bp as penalty_bp
     from .voting import bp as voting_bp
     from .news import bp as news_bp
+    from .setup_wizard import bp as setup_wizard_bp
 
     app.register_blueprint(main_bp)
     app.register_blueprint(garages_bp)
@@ -70,6 +73,7 @@ def create_app(config_class=Config):
     app.register_blueprint(penalty_bp)
     app.register_blueprint(voting_bp)
     app.register_blueprint(news_bp)
+    app.register_blueprint(setup_wizard_bp)
 
     @app.route("/")
     def index():

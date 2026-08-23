@@ -2,16 +2,99 @@
 {% block title %}{{ _("Новая новость") if not item else _("Редактирование новости") }}{% endblock %}
 {% block content %}
 <h3 class="mb-3">{{ _("Новая новость") if not item else _("Редактирование новости") }}</h3>
-<form method="post" class="bg-body p-4 rounded border" style="max-width:700px">
+<form method="post" enctype="multipart/form-data" class="bg-body p-4 rounded border" style="max-width:700px">
   <div class="mb-3">
     <label class="form-label">{{ _("Заголовок") }}</label>
     <input class="form-control" name="title" value="{{ item.title if item else '' }}" required autofocus>
   </div>
+
   <div class="mb-3">
     <label class="form-label">{{ _("Текст") }}</label>
-    <textarea class="form-control" name="body" rows="8" required>{{ item.body if item else '' }}</textarea>
+    <div class="btn-toolbar mb-2" role="toolbar" aria-label="{{ _('Форматирование') }}">
+      <div class="btn-group btn-group-sm">
+        <button type="button" class="btn btn-outline-secondary fw-bold" data-md-wrap="**" title="{{ _('Жирный') }}">B</button>
+        <button type="button" class="btn btn-outline-secondary fst-italic" data-md-wrap="*" title="{{ _('Курсив') }}">I</button>
+        <button type="button" class="btn btn-outline-secondary" data-md-prefix="### " title="{{ _('Подзаголовок') }}">H</button>
+        <button type="button" class="btn btn-outline-secondary" data-md-prefix="- " title="{{ _('Список') }}">&bull; {{ _("Список") }}</button>
+        <button type="button" class="btn btn-outline-secondary" data-md-link title="{{ _('Ссылка') }}">&#128279;</button>
+      </div>
+    </div>
+    <textarea id="news-body" class="form-control" name="body" rows="10" required>{{ item.body if item else '' }}</textarea>
+    <div class="form-text">{{ _("Поддерживается упрощённая разметка: **жирный**, *курсив*, [текст](ссылка), списки (пустая строка, затем строки с «- »), заголовок (### ). Между абзацами оставляйте пустую строку.") }}</div>
   </div>
+
+  {% if item and item.attachments %}
+  <div class="mb-3">
+    <label class="form-label d-block">{{ _("Прикреплённые файлы") }}</label>
+    {% for att in item.attachments %}
+    <div class="form-check">
+      <input class="form-check-input" type="checkbox" name="remove_attachment" value="{{ att.id }}" id="att{{ att.id }}">
+      <label class="form-check-label" for="att{{ att.id }}">
+        {% if att.is_image %}
+        <img src="{{ url_for('news.attachment', attachment_id=att.id, original_filename=att.original_filename) }}" alt="" style="height:32px;border-radius:.25rem;vertical-align:middle" class="me-1">
+        {% endif %}
+        {{ att.original_filename }}
+      </label>
+    </div>
+    {% endfor %}
+    <div class="form-text">{{ _("Отметьте, чтобы удалить при сохранении.") }}</div>
+  </div>
+  {% endif %}
+
+  <div class="mb-3">
+    <label class="form-label">{{ _("Добавить фото или файлы") }}</label>
+    <input class="form-control" type="file" name="attachments" multiple>
+  </div>
+
   <button class="btn btn-primary">{{ _("Сохранить") }}</button>
   <a class="btn btn-secondary" href="{{ url_for('news.list_news') }}">{{ _("Отмена") }}</a>
 </form>
+
+<script>
+(function () {
+  var textarea = document.getElementById("news-body");
+
+  function wrapSelection(marker) {
+    var start = textarea.selectionStart, end = textarea.selectionEnd;
+    var value = textarea.value;
+    var selected = value.slice(start, end);
+    textarea.value = value.slice(0, start) + marker + selected + marker + value.slice(end);
+    textarea.focus();
+    textarea.selectionStart = start + marker.length;
+    textarea.selectionEnd = start + marker.length + selected.length;
+  }
+
+  function prefixLines(prefix) {
+    var start = textarea.selectionStart, end = textarea.selectionEnd;
+    var value = textarea.value;
+    var lineStart = value.lastIndexOf("\n", start - 1) + 1;
+    var lineEnd = value.indexOf("\n", end);
+    if (lineEnd === -1) lineEnd = value.length;
+    var block = value.slice(lineStart, lineEnd);
+    var withPrefix = block.length ? block.split("\n").map(function (l) { return prefix + l; }).join("\n") : prefix;
+    textarea.value = value.slice(0, lineStart) + withPrefix + value.slice(lineEnd);
+    textarea.focus();
+  }
+
+  document.querySelectorAll("[data-md-wrap]").forEach(function (btn) {
+    btn.addEventListener("click", function () { wrapSelection(btn.dataset.mdWrap); });
+  });
+  document.querySelectorAll("[data-md-prefix]").forEach(function (btn) {
+    btn.addEventListener("click", function () { prefixLines(btn.dataset.mdPrefix); });
+  });
+  var linkBtn = document.querySelector("[data-md-link]");
+  if (linkBtn) {
+    linkBtn.addEventListener("click", function () {
+      var start = textarea.selectionStart, end = textarea.selectionEnd;
+      var value = textarea.value;
+      var selected = value.slice(start, end) || "{{ _('текст ссылки') }}";
+      var url = window.prompt("{{ _('Адрес ссылки:') }}", "https://");
+      if (!url) return;
+      var replacement = "[" + selected + "](" + url + ")";
+      textarea.value = value.slice(0, start) + replacement + value.slice(end);
+      textarea.focus();
+    });
+  }
+})();
+</script>
 {% endblock %}

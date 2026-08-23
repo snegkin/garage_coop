@@ -51,6 +51,7 @@
           <li><hr class="dropdown-divider"></li>
           <li><a class="dropdown-item" href="{{ url_for('finance.mass_charge') }}">{{ _("Массовое начисление") }}</a></li>
           <li><a class="dropdown-item" href="{{ url_for('persons.accounts_list') }}">{{ _("Учётные записи") }}</a></li>
+          <li><a class="dropdown-item" href="{{ url_for('setup_wizard.index') }}">{{ _("Мастер первоначальной настройки") }}</a></li>
           {% endif %}
         </ul>
       </div>

@@ -570,6 +570,29 @@ class News(Base):
     author_id: Mapped[int | None] = mapped_column(ForeignKey("user.id", ondelete="SET NULL"), index=True)
 
     author: Mapped["User | None"] = relationship()
+    attachments: Mapped[list["NewsAttachment"]] = relationship(
+        back_populates="news", cascade="all, delete-orphan", order_by="NewsAttachment.id"
+    )
+
+
+class NewsAttachment(Base):
+    """Фото или файл, прикреплённый к новости. Хранится под случайным именем
+    в UPLOAD_FOLDER (см. app/uploads.py:save_upload), исходное имя — для
+    отображения/скачивания."""
+    __tablename__ = "news_attachment"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    news_id: Mapped[int] = mapped_column(ForeignKey("news.id", ondelete="CASCADE"), index=True)
+    original_filename: Mapped[str] = mapped_column(String(255))
+    stored_filename: Mapped[str] = mapped_column(String(255))
+    content_type: Mapped[str | None] = mapped_column(String(100))
+
+    news: Mapped["News"] = relationship(back_populates="attachments")
+
+    @property
+    def is_image(self) -> bool:
+        ext = self.original_filename.rsplit(".", 1)[-1].lower() if "." in self.original_filename else ""
+        return ext in {"jpg", "jpeg", "png", "gif", "webp"}
 
 
 # ---------------------------------------------------------------------------
@@ -733,6 +756,22 @@ class ElectricitySettings(Base):
     supplier_id: Mapped[int | None] = mapped_column(ForeignKey("counterparty.id", ondelete="SET NULL"))
 
     supplier: Mapped["Counterparty | None"] = relationship()
+
+
+class CsvImportProfile(Base):
+    """
+    Настраиваемый формат CSV-файла для импорта в мастере первого запуска
+    (см. app/setup_wizard.py) — по одной записи на тип импорта ("people",
+    "garages"). columns — JSON-список ключей колонок в том порядке, в
+    котором председатель выгружает их в свой CSV; сохраняется, чтобы не
+    настраивать формат заново при повторном/дополнительном импорте.
+    """
+    __tablename__ = "csv_import_profile"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    import_type: Mapped[str] = mapped_column(String(50), unique=True)
+    columns: Mapped[str] = mapped_column(Text)
+    updated_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.utcnow, onupdate=dt.datetime.utcnow)
 
 
 class KeyRate(Base):

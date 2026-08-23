@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Счётчик кооператива") }}{% endblock %}
+{% block content %}
+{% set title = _("Счётчик кооператива и начальные показания") %}
+{% include "setup/_step_header.html" with context %}
+
+<p class="text-muted" style="max-width:700px">
+  {{ _("Общий (вводный) счётчик кооператива — то, что реально приходит от энергосбытовой компании, отдельно от счётчиков на гаражах. Здесь вносятся самые первые показания по нему; сумма от них не считается — не с чем сравнивать. Все последующие показания вносятся уже на обычной странице «Электроэнергия».") }}
+</p>
+
+{% if not tariff %}
+<div class="alert alert-warning" style="max-width:700px">
+  {{ _("Сначала добавьте тариф на электроэнергию — без него нельзя рассчитать суммы по будущим показаниям.") }}
+  <a class="btn btn-primary btn-sm ms-2" href="{{ url_for('setup_wizard.tariff_step') }}">{{ _("Перейти к тарифу") }}</a>
+</div>
+{% elif has_readings %}
+<div class="alert alert-success" style="max-width:700px">
+  {{ _("Начальные показания уже внесены. Дальнейший ввод — на странице «Электроэнергия».") }}
+  <a class="btn btn-primary btn-sm ms-2" href="{{ url_for('power.view') }}">{{ _("Открыть «Электроэнергия»") }}</a>
+</div>
+{% else %}
+<form method="post" class="bg-body p-4 rounded border" style="max-width:500px">
+  <div class="row">
+    <div class="col-md-6 mb-3">
+      <label class="form-label">{{ _("Год") }}</label>
+      <input class="form-control" type="number" name="year" value="{{ today.year }}" required>
+    </div>
+    <div class="col-md-6 mb-3">
+      <label class="form-label">{{ _("Месяц") }}</label>
+      <input class="form-control" type="number" min="1" max="12" name="month" value="{{ today.month }}" required>
+    </div>
+  </div>
+  <div class="mb-3">
+    <label class="form-label">{{ _("Показания") }}</label>
+    <input class="form-control" type="number" step="0.01" name="reading" required>
+  </div>
+  <div class="mb-3">
+    <label class="form-label">{{ _("Комментарий") }}</label>
+    <input class="form-control" name="comment" placeholder="{{ _('Начальные показания (внесены через мастер первого запуска)') }}">
+  </div>
+  <button class="btn btn-primary">{{ _("Внести и вернуться в мастер") }}</button>
+</form>
+{% endif %}
+{% endblock %}

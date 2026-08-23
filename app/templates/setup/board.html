@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Состав правления") }}{% endblock %}
+{% block content %}
+{% set title = _("Состав правления") %}
+{% include "setup/_step_header.html" with context %}
+
+{% if current_user_unlinked %}
+<div class="alert alert-warning" style="max-width:700px">
+  <div class="mb-2">{{ _("Ваша учётная запись пока не привязана ни к одному человеку в базе — без этого применение состава правления не затронет права входа в этой сессии.") }}</div>
+  <form method="post" action="{{ url_for('setup_wizard.board_link_me') }}" class="d-flex gap-2">
+    <input class="form-control" name="full_name" placeholder="{{ _('Ваше ФИО') }}" required>
+    <button class="btn btn-primary text-nowrap">{{ _("Создать карточку и привязать") }}</button>
+  </form>
+</div>
+{% endif %}
+
+{% if term is none %}
+<p class="text-muted" style="max-width:700px">
+  {{ _("Ни одного созыва правления ещё нет. На старте системы избирать было ещё не из чего — создайте первый созыв как есть, протокол общего собрания указывать не обязательно. Для всех последующих созывов (переизбрания) протокол уже потребуется.") }}
+</p>
+<form method="post" action="{{ url_for('setup_wizard.board_init') }}" class="bg-body p-4 rounded border" style="max-width:400px">
+  <div class="mb-3">
+    <label class="form-label">{{ _("Действует с") }}</label>
+    <input class="form-control" type="date" name="start_date" value="{{ '' }}" placeholder="{{ _('сегодня, если не указано') }}">
+  </div>
+  <button class="btn btn-primary">{{ _("Создать текущий созыв") }}</button>
+</form>
+{% else %}
+<div class="alert alert-info" style="max-width:700px">
+  {{ _("Действующий созыв правления уже создан — состав и применение прав вносятся на его странице.") }}
+</div>
+<a class="btn btn-primary" href="{{ url_for('governance.term_detail', term_id=term.id) }}">{{ _("Открыть состав созыва") }}</a>
+{% endif %}
+{% endblock %}

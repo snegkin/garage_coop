@@ -1,8 +1,8 @@
-"""baseline: текущая схема БД
+"""baseline current db schema
 
-Revision ID: 2c8e0f8015a7
+Revision ID: 3c21308474d2
 Revises: 
-Create Date: 2026-08-15 16:13:08.377753
+Create Date: 2026-08-23 10:09:58.049425
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = '2c8e0f8015a7'
+revision: str = '3c21308474d2'
 down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -27,7 +27,7 @@ def upgrade() -> None:
     sa.Column('owner_digits', sa.Integer(), nullable=False),
     sa.Column('electricity_prefix', sa.String(length=10), nullable=False),
     sa.Column('penalty_prefix', sa.String(length=10), nullable=False),
-    sa.PrimaryKeyConstraint('id')
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_account_number_settings'))
     )
     op.create_table('bank_account',
     sa.Column('id', sa.Integer(), nullable=False),
@@ -37,7 +37,9 @@ def upgrade() -> None:
     sa.Column('correspondent_account', sa.String(length=20), nullable=True),
     sa.Column('is_primary', sa.Boolean(), nullable=False),
     sa.Column('comment', sa.Text(), nullable=True),
-    sa.PrimaryKeyConstraint('id')
+    sa.Column('balance', sa.Numeric(precision=14, scale=2), nullable=True),
+    sa.Column('balance_updated_at', sa.Date(), nullable=True),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_bank_account'))
     )
     op.create_table('cooperative',
     sa.Column('id', sa.Integer(), nullable=False),
@@ -55,9 +57,11 @@ def upgrade() -> None:
     sa.Column('standard_garage_land_area', sa.Numeric(precision=8, scale=2), nullable=True),
     sa.Column('land_tax_rate_percent', sa.Numeric(precision=5, scale=3), nullable=False),
     sa.Column('bank_fee_percent', sa.Numeric(precision=5, scale=3), nullable=True),
+    sa.Column('dues_due_day', sa.Integer(), nullable=True),
+    sa.Column('dues_due_month', sa.Integer(), nullable=True),
     sa.Column('comment', sa.Text(), nullable=True),
-    sa.PrimaryKeyConstraint('id'),
-    sa.UniqueConstraint('inn')
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_cooperative')),
+    sa.UniqueConstraint('inn', name=op.f('uq_cooperative_inn'))
     )
     op.create_table('counterparty',
     sa.Column('id', sa.Integer(), nullable=False),
@@ -69,7 +73,17 @@ def upgrade() -> None:
     sa.Column('email', sa.String(length=120), nullable=True),
     sa.Column('address', sa.Text(), nullable=True),
     sa.Column('comment', sa.Text(), nullable=True),
-    sa.PrimaryKeyConstraint('id')
+    sa.Column('opening_balance', sa.Numeric(precision=14, scale=2), nullable=True),
+    sa.Column('opening_balance_date', sa.Date(), nullable=True),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_counterparty'))
+    )
+    op.create_table('csv_import_profile',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('import_type', sa.String(length=50), nullable=False),
+    sa.Column('columns', sa.Text(), nullable=False),
+    sa.Column('updated_at', sa.DateTime(), nullable=False),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_csv_import_profile')),
+    sa.UniqueConstraint('import_type', name=op.f('uq_csv_import_profile_import_type'))
     )
     op.create_table('document',
     sa.Column('id', sa.Integer(), nullable=False),
@@ -79,7 +93,7 @@ def upgrade() -> None:
     sa.Column('title', sa.String(length=255), nullable=False),
     sa.Column('file_path', sa.String(length=500), nullable=True),
     sa.Column('comment', sa.Text(), nullable=True),
-    sa.PrimaryKeyConstraint('id')
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_document'))
     )
     with op.batch_alter_table('document', schema=None) as batch_op:
         batch_op.create_index(batch_op.f('ix_document_date'), ['date'], unique=False)
@@ -90,7 +104,7 @@ def upgrade() -> None:
     sa.Column('rate', sa.Numeric(precision=10, scale=4), nullable=False),
     sa.Column('effective_date', sa.Date(), nullable=False),
     sa.Column('comment', sa.Text(), nullable=True),
-    sa.PrimaryKeyConstraint('id')
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_electricity_tariff'))
     )
     with op.batch_alter_table('electricity_tariff', schema=None) as batch_op:
         batch_op.create_index(batch_op.f('ix_electricity_tariff_effective_date'), ['effective_date'], unique=False)
@@ -102,8 +116,8 @@ def upgrade() -> None:
     sa.Column('comment', sa.Text(), nullable=True),
     sa.Column('type_code', sa.String(length=5), nullable=True),
     sa.Column('is_penalty', sa.Boolean(), nullable=False),
-    sa.PrimaryKeyConstraint('id'),
-    sa.UniqueConstraint('code')
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_fee_type')),
+    sa.UniqueConstraint('code', name=op.f('uq_fee_type_code'))
     )
     op.create_table('garage',
     sa.Column('id', sa.Integer(), nullable=False),
@@ -115,16 +129,26 @@ def upgrade() -> None:
     sa.Column('land_cadastral_number', sa.String(length=50), nullable=True),
     sa.Column('privatized_land_area', sa.Numeric(precision=8, scale=2), nullable=True),
     sa.Column('comment', sa.Text(), nullable=True),
-    sa.PrimaryKeyConstraint('id'),
-    sa.UniqueConstraint('number')
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_garage')),
+    sa.UniqueConstraint('number', name=op.f('uq_garage_number'))
     )
+    op.create_table('key_rate',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('rate_percent', sa.Numeric(precision=5, scale=2), nullable=False),
+    sa.Column('effective_date', sa.Date(), nullable=False),
+    sa.Column('is_manual', sa.Boolean(), nullable=False),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_key_rate'))
+    )
+    with op.batch_alter_table('key_rate', schema=None) as batch_op:
+        batch_op.create_index(batch_op.f('ix_key_rate_effective_date'), ['effective_date'], unique=True)
+
     op.create_table('land_tax_year',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('year', sa.Integer(), nullable=False),
     sa.Column('cadastral_value', sa.Numeric(precision=14, scale=2), nullable=False),
     sa.Column('comment', sa.Text(), nullable=True),
-    sa.PrimaryKeyConstraint('id'),
-    sa.UniqueConstraint('year')
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_land_tax_year')),
+    sa.UniqueConstraint('year', name=op.f('uq_land_tax_year_year'))
     )
     op.create_table('person',
     sa.Column('id', sa.Integer(), nullable=False),
@@ -144,11 +168,33 @@ def upgrade() -> None:
     sa.Column('is_board_member', sa.Boolean(), nullable=False),
     sa.Column('is_chairman', sa.Boolean(), nullable=False),
     sa.Column('is_accountant', sa.Boolean(), nullable=False),
-    sa.PrimaryKeyConstraint('id')
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_person'))
     )
     with op.batch_alter_table('person', schema=None) as batch_op:
         batch_op.create_index(batch_op.f('ix_person_full_name'), ['full_name'], unique=False)
         batch_op.create_index('uq_single_chairman', ['is_chairman'], unique=True, sqlite_where=sa.text('is_chairman = 1'))
+
+    op.create_table('counterparty_payment',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('counterparty_id', sa.Integer(), nullable=False),
+    sa.Column('bank_account_id', sa.Integer(), nullable=True),
+    sa.Column('date', sa.Date(), nullable=False),
+    sa.Column('amount', sa.Numeric(precision=14, scale=2), nullable=False),
+    sa.Column('document_id', sa.Integer(), nullable=True),
+    sa.Column('comment', sa.Text(), nullable=True),
+    sa.Column('reverses_payment_id', sa.Integer(), nullable=True),
+    sa.ForeignKeyConstraint(['bank_account_id'], ['bank_account.id'], name=op.f('fk_counterparty_payment_bank_account_id_bank_account'), ondelete='SET NULL'),
+    sa.ForeignKeyConstraint(['counterparty_id'], ['counterparty.id'], name=op.f('fk_counterparty_payment_counterparty_id_counterparty')),
+    sa.ForeignKeyConstraint(['document_id'], ['document.id'], name=op.f('fk_counterparty_payment_document_id_document'), ondelete='SET NULL'),
+    sa.ForeignKeyConstraint(['reverses_payment_id'], ['counterparty_payment.id'], name=op.f('fk_counterparty_payment_reverses_payment_id_counterparty_payment'), ondelete='SET NULL'),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_counterparty_payment'))
+    )
+    with op.batch_alter_table('counterparty_payment', schema=None) as batch_op:
+        batch_op.create_index(batch_op.f('ix_counterparty_payment_bank_account_id'), ['bank_account_id'], unique=False)
+        batch_op.create_index(batch_op.f('ix_counterparty_payment_counterparty_id'), ['counterparty_id'], unique=False)
+        batch_op.create_index(batch_op.f('ix_counterparty_payment_date'), ['date'], unique=False)
+        batch_op.create_index(batch_op.f('ix_counterparty_payment_document_id'), ['document_id'], unique=False)
+        batch_op.create_index(batch_op.f('ix_counterparty_payment_reverses_payment_id'), ['reverses_payment_id'], unique=False)
 
     op.create_table('electricity_meter',
     sa.Column('id', sa.Integer(), nullable=False),
@@ -160,8 +206,8 @@ def upgrade() -> None:
     sa.Column('meter_seal_number', sa.String(length=50), nullable=True),
     sa.Column('breaker_seal_number', sa.String(length=50), nullable=True),
     sa.Column('comment', sa.Text(), nullable=True),
-    sa.ForeignKeyConstraint(['garage_id'], ['garage.id'], ondelete='CASCADE'),
-    sa.PrimaryKeyConstraint('id')
+    sa.ForeignKeyConstraint(['garage_id'], ['garage.id'], name=op.f('fk_electricity_meter_garage_id_garage'), ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_electricity_meter'))
     )
     with op.batch_alter_table('electricity_meter', schema=None) as batch_op:
         batch_op.create_index(batch_op.f('ix_electricity_meter_garage_id'), ['garage_id'], unique=False)
@@ -170,8 +216,8 @@ def upgrade() -> None:
     op.create_table('electricity_settings',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('supplier_id', sa.Integer(), nullable=True),
-    sa.ForeignKeyConstraint(['supplier_id'], ['counterparty.id'], ondelete='SET NULL'),
-    sa.PrimaryKeyConstraint('id')
+    sa.ForeignKeyConstraint(['supplier_id'], ['counterparty.id'], name=op.f('fk_electricity_settings_supplier_id_counterparty'), ondelete='SET NULL'),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_electricity_settings'))
     )
     op.create_table('expense',
     sa.Column('id', sa.Integer(), nullable=False),
@@ -181,9 +227,9 @@ def upgrade() -> None:
     sa.Column('category', sa.String(length=100), nullable=True),
     sa.Column('description', sa.Text(), nullable=True),
     sa.Column('document_id', sa.Integer(), nullable=True),
-    sa.ForeignKeyConstraint(['counterparty_id'], ['counterparty.id'], ),
-    sa.ForeignKeyConstraint(['document_id'], ['document.id'], ondelete='SET NULL'),
-    sa.PrimaryKeyConstraint('id')
+    sa.ForeignKeyConstraint(['counterparty_id'], ['counterparty.id'], name=op.f('fk_expense_counterparty_id_counterparty')),
+    sa.ForeignKeyConstraint(['document_id'], ['document.id'], name=op.f('fk_expense_document_id_document'), ondelete='SET NULL'),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_expense'))
     )
     with op.batch_alter_table('expense', schema=None) as batch_op:
         batch_op.create_index(batch_op.f('ix_expense_counterparty_id'), ['counterparty_id'], unique=False)
@@ -194,9 +240,9 @@ def upgrade() -> None:
     sa.Column('garage_id', sa.Integer(), nullable=False),
     sa.Column('person_id', sa.Integer(), nullable=False),
     sa.Column('relation', sa.String(length=100), nullable=True),
-    sa.ForeignKeyConstraint(['garage_id'], ['garage.id'], ondelete='CASCADE'),
-    sa.ForeignKeyConstraint(['person_id'], ['person.id'], ),
-    sa.PrimaryKeyConstraint('id')
+    sa.ForeignKeyConstraint(['garage_id'], ['garage.id'], name=op.f('fk_garage_contact_garage_id_garage'), ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['person_id'], ['person.id'], name=op.f('fk_garage_contact_person_id_person')),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_garage_contact'))
     )
     with op.batch_alter_table('garage_contact', schema=None) as batch_op:
         batch_op.create_index(batch_op.f('ix_garage_contact_garage_id'), ['garage_id'], unique=False)
@@ -207,10 +253,10 @@ def upgrade() -> None:
     sa.Column('garage_id', sa.Integer(), nullable=False),
     sa.Column('person_id', sa.Integer(), nullable=False),
     sa.Column('share', sa.Numeric(precision=6, scale=5), nullable=False),
-    sa.CheckConstraint('share > 0 AND share <= 1', name='ck_share_range'),
-    sa.ForeignKeyConstraint(['garage_id'], ['garage.id'], ondelete='CASCADE'),
-    sa.ForeignKeyConstraint(['person_id'], ['person.id'], ),
-    sa.PrimaryKeyConstraint('id'),
+    sa.CheckConstraint('share > 0 AND share <= 1', name=op.f('ck_garage_ownership_ck_share_range')),
+    sa.ForeignKeyConstraint(['garage_id'], ['garage.id'], name=op.f('fk_garage_ownership_garage_id_garage'), ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['person_id'], ['person.id'], name=op.f('fk_garage_ownership_person_id_person')),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_garage_ownership')),
     sa.UniqueConstraint('garage_id', 'person_id', name='uq_ownership_garage_person')
     )
     with op.batch_alter_table('garage_ownership', schema=None) as batch_op:
@@ -222,8 +268,8 @@ def upgrade() -> None:
     sa.Column('garage_id', sa.Integer(), nullable=False),
     sa.Column('file_path', sa.String(length=500), nullable=False),
     sa.Column('caption', sa.String(length=255), nullable=True),
-    sa.ForeignKeyConstraint(['garage_id'], ['garage.id'], ondelete='CASCADE'),
-    sa.PrimaryKeyConstraint('id')
+    sa.ForeignKeyConstraint(['garage_id'], ['garage.id'], name=op.f('fk_garage_photo_garage_id_garage'), ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_garage_photo'))
     )
     with op.batch_alter_table('garage_photo', schema=None) as batch_op:
         batch_op.create_index(batch_op.f('ix_garage_photo_garage_id'), ['garage_id'], unique=False)
@@ -236,36 +282,16 @@ def upgrade() -> None:
     sa.Column('secretary_person_id', sa.Integer(), nullable=True),
     sa.Column('chairman_person_id', sa.Integer(), nullable=True),
     sa.Column('protocol_document_id', sa.Integer(), nullable=True),
-    sa.ForeignKeyConstraint(['chairman_person_id'], ['person.id'], ondelete='SET NULL'),
-    sa.ForeignKeyConstraint(['protocol_document_id'], ['document.id'], ondelete='SET NULL'),
-    sa.ForeignKeyConstraint(['secretary_person_id'], ['person.id'], ondelete='SET NULL'),
-    sa.PrimaryKeyConstraint('id')
+    sa.ForeignKeyConstraint(['chairman_person_id'], ['person.id'], name=op.f('fk_general_meeting_chairman_person_id_person'), ondelete='SET NULL'),
+    sa.ForeignKeyConstraint(['protocol_document_id'], ['document.id'], name=op.f('fk_general_meeting_protocol_document_id_document'), ondelete='SET NULL'),
+    sa.ForeignKeyConstraint(['secretary_person_id'], ['person.id'], name=op.f('fk_general_meeting_secretary_person_id_person'), ondelete='SET NULL'),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_general_meeting'))
     )
     with op.batch_alter_table('general_meeting', schema=None) as batch_op:
         batch_op.create_index(batch_op.f('ix_general_meeting_chairman_person_id'), ['chairman_person_id'], unique=False)
         batch_op.create_index(batch_op.f('ix_general_meeting_date'), ['date'], unique=False)
         batch_op.create_index(batch_op.f('ix_general_meeting_protocol_document_id'), ['protocol_document_id'], unique=False)
         batch_op.create_index(batch_op.f('ix_general_meeting_secretary_person_id'), ['secretary_person_id'], unique=False)
-
-    op.create_table('master_meter_reading',
-    sa.Column('id', sa.Integer(), nullable=False),
-    sa.Column('year', sa.Integer(), nullable=False),
-    sa.Column('month', sa.Integer(), nullable=False),
-    sa.Column('reading_date', sa.Date(), nullable=False),
-    sa.Column('reading', sa.Numeric(precision=14, scale=2), nullable=False),
-    sa.Column('amount', sa.Numeric(precision=14, scale=2), nullable=True),
-    sa.Column('tariff_id', sa.Integer(), nullable=False),
-    sa.Column('comment', sa.Text(), nullable=True),
-    sa.Column('document_id', sa.Integer(), nullable=True),
-    sa.ForeignKeyConstraint(['document_id'], ['document.id'], ondelete='SET NULL'),
-    sa.ForeignKeyConstraint(['tariff_id'], ['electricity_tariff.id'], ),
-    sa.PrimaryKeyConstraint('id')
-    )
-    with op.batch_alter_table('master_meter_reading', schema=None) as batch_op:
-        batch_op.create_index(batch_op.f('ix_master_meter_reading_document_id'), ['document_id'], unique=False)
-        batch_op.create_index(batch_op.f('ix_master_meter_reading_reading_date'), ['reading_date'], unique=False)
-        batch_op.create_index(batch_op.f('ix_master_meter_reading_tariff_id'), ['tariff_id'], unique=False)
-        batch_op.create_index(batch_op.f('ix_master_meter_reading_year'), ['year'], unique=False)
 
     op.create_table('member_account',
     sa.Column('id', sa.Integer(), nullable=False),
@@ -274,11 +300,11 @@ def upgrade() -> None:
     sa.Column('fee_type_id', sa.Integer(), nullable=False),
     sa.Column('account_number', sa.String(length=20), nullable=False),
     sa.Column('opened_date', sa.Date(), nullable=False),
-    sa.ForeignKeyConstraint(['fee_type_id'], ['fee_type.id'], ),
-    sa.ForeignKeyConstraint(['garage_id'], ['garage.id'], ondelete='CASCADE'),
-    sa.ForeignKeyConstraint(['person_id'], ['person.id'], ),
-    sa.PrimaryKeyConstraint('id'),
-    sa.UniqueConstraint('account_number'),
+    sa.ForeignKeyConstraint(['fee_type_id'], ['fee_type.id'], name=op.f('fk_member_account_fee_type_id_fee_type')),
+    sa.ForeignKeyConstraint(['garage_id'], ['garage.id'], name=op.f('fk_member_account_garage_id_garage'), ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['person_id'], ['person.id'], name=op.f('fk_member_account_person_id_person')),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_member_account')),
+    sa.UniqueConstraint('account_number', name=op.f('uq_member_account_account_number')),
     sa.UniqueConstraint('person_id', 'garage_id', 'fee_type_id', name='uq_member_account')
     )
     with op.batch_alter_table('member_account', schema=None) as batch_op:
@@ -291,21 +317,38 @@ def upgrade() -> None:
     sa.Column('garage_id', sa.Integer(), nullable=False),
     sa.Column('account_number', sa.String(length=30), nullable=False),
     sa.Column('opened_date', sa.Date(), nullable=False),
-    sa.ForeignKeyConstraint(['garage_id'], ['garage.id'], ),
-    sa.PrimaryKeyConstraint('id'),
-    sa.UniqueConstraint('account_number'),
-    sa.UniqueConstraint('garage_id')
+    sa.ForeignKeyConstraint(['garage_id'], ['garage.id'], name=op.f('fk_personal_account_garage_id_garage')),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_personal_account')),
+    sa.UniqueConstraint('account_number', name=op.f('uq_personal_account_account_number')),
+    sa.UniqueConstraint('garage_id', name=op.f('uq_personal_account_garage_id'))
     )
     op.create_table('phone',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('person_id', sa.Integer(), nullable=False),
     sa.Column('number', sa.String(length=30), nullable=False),
     sa.Column('label', sa.String(length=50), nullable=True),
-    sa.ForeignKeyConstraint(['person_id'], ['person.id'], ondelete='CASCADE'),
-    sa.PrimaryKeyConstraint('id')
+    sa.ForeignKeyConstraint(['person_id'], ['person.id'], name=op.f('fk_phone_person_id_person'), ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_phone'))
     )
     with op.batch_alter_table('phone', schema=None) as batch_op:
         batch_op.create_index(batch_op.f('ix_phone_person_id'), ['person_id'], unique=False)
+
+    op.create_table('reconciliation_act',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('counterparty_id', sa.Integer(), nullable=False),
+    sa.Column('period_start', sa.Date(), nullable=False),
+    sa.Column('period_end', sa.Date(), nullable=False),
+    sa.Column('our_balance', sa.Numeric(precision=14, scale=2), nullable=True),
+    sa.Column('counterparty_balance', sa.Numeric(precision=14, scale=2), nullable=True),
+    sa.Column('document_id', sa.Integer(), nullable=True),
+    sa.Column('comment', sa.Text(), nullable=True),
+    sa.ForeignKeyConstraint(['counterparty_id'], ['counterparty.id'], name=op.f('fk_reconciliation_act_counterparty_id_counterparty')),
+    sa.ForeignKeyConstraint(['document_id'], ['document.id'], name=op.f('fk_reconciliation_act_document_id_document'), ondelete='SET NULL'),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_reconciliation_act'))
+    )
+    with op.batch_alter_table('reconciliation_act', schema=None) as batch_op:
+        batch_op.create_index(batch_op.f('ix_reconciliation_act_counterparty_id'), ['counterparty_id'], unique=False)
+        batch_op.create_index(batch_op.f('ix_reconciliation_act_document_id'), ['document_id'], unique=False)
 
     op.create_table('user',
     sa.Column('id', sa.Integer(), nullable=False),
@@ -314,10 +357,10 @@ def upgrade() -> None:
     sa.Column('role', sa.Enum('CHAIRMAN', 'BOARD', 'ACCOUNTANT', 'MEMBER', name='roleenum'), nullable=False),
     sa.Column('person_id', sa.Integer(), nullable=True),
     sa.Column('is_active', sa.Boolean(), nullable=False),
-    sa.ForeignKeyConstraint(['person_id'], ['person.id'], ondelete='SET NULL'),
-    sa.PrimaryKeyConstraint('id'),
-    sa.UniqueConstraint('person_id'),
-    sa.UniqueConstraint('username')
+    sa.ForeignKeyConstraint(['person_id'], ['person.id'], name=op.f('fk_user_person_id_person'), ondelete='SET NULL'),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_user')),
+    sa.UniqueConstraint('person_id', name=op.f('uq_user_person_id')),
+    sa.UniqueConstraint('username', name=op.f('uq_user_username'))
     )
     op.create_table('annual_report',
     sa.Column('id', sa.Integer(), nullable=False),
@@ -328,10 +371,10 @@ def upgrade() -> None:
     sa.Column('budget_approved', sa.Boolean(), nullable=False),
     sa.Column('budget_total', sa.Numeric(precision=14, scale=2), nullable=True),
     sa.Column('comment', sa.Text(), nullable=True),
-    sa.ForeignKeyConstraint(['accounting_report_document_id'], ['document.id'], ondelete='SET NULL'),
-    sa.ForeignKeyConstraint(['meeting_id'], ['general_meeting.id'], ),
-    sa.ForeignKeyConstraint(['spending_report_document_id'], ['document.id'], ondelete='SET NULL'),
-    sa.PrimaryKeyConstraint('id')
+    sa.ForeignKeyConstraint(['accounting_report_document_id'], ['document.id'], name=op.f('fk_annual_report_accounting_report_document_id_document'), ondelete='SET NULL'),
+    sa.ForeignKeyConstraint(['meeting_id'], ['general_meeting.id'], name=op.f('fk_annual_report_meeting_id_general_meeting')),
+    sa.ForeignKeyConstraint(['spending_report_document_id'], ['document.id'], name=op.f('fk_annual_report_spending_report_document_id_document'), ondelete='SET NULL'),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_annual_report'))
     )
     with op.batch_alter_table('annual_report', schema=None) as batch_op:
         batch_op.create_index(batch_op.f('ix_annual_report_accounting_report_document_id'), ['accounting_report_document_id'], unique=False)
@@ -344,8 +387,8 @@ def upgrade() -> None:
     sa.Column('start_date', sa.Date(), nullable=False),
     sa.Column('end_date', sa.Date(), nullable=True),
     sa.Column('elected_by_meeting_id', sa.Integer(), nullable=True),
-    sa.ForeignKeyConstraint(['elected_by_meeting_id'], ['general_meeting.id'], ondelete='SET NULL'),
-    sa.PrimaryKeyConstraint('id')
+    sa.ForeignKeyConstraint(['elected_by_meeting_id'], ['general_meeting.id'], name=op.f('fk_board_term_elected_by_meeting_id_general_meeting'), ondelete='SET NULL'),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_board_term'))
     )
     with op.batch_alter_table('board_term', schema=None) as batch_op:
         batch_op.create_index(batch_op.f('ix_board_term_elected_by_meeting_id'), ['elected_by_meeting_id'], unique=False)
@@ -358,12 +401,61 @@ def upgrade() -> None:
     sa.Column('amount', sa.Numeric(precision=14, scale=2), nullable=True),
     sa.Column('tariff', sa.Numeric(precision=10, scale=4), nullable=True),
     sa.Column('comment', sa.Text(), nullable=True),
-    sa.ForeignKeyConstraint(['meter_id'], ['electricity_meter.id'], ondelete='CASCADE'),
-    sa.PrimaryKeyConstraint('id')
+    sa.ForeignKeyConstraint(['meter_id'], ['electricity_meter.id'], name=op.f('fk_electricity_reading_meter_id_electricity_meter'), ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_electricity_reading'))
     )
     with op.batch_alter_table('electricity_reading', schema=None) as batch_op:
         batch_op.create_index(batch_op.f('ix_electricity_reading_meter_id'), ['meter_id'], unique=False)
         batch_op.create_index(batch_op.f('ix_electricity_reading_reading_date'), ['reading_date'], unique=False)
+
+    op.create_table('expense_allocation',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('expense_id', sa.Integer(), nullable=False),
+    sa.Column('payment_id', sa.Integer(), nullable=False),
+    sa.Column('amount', sa.Numeric(precision=14, scale=2), nullable=False),
+    sa.ForeignKeyConstraint(['expense_id'], ['expense.id'], name=op.f('fk_expense_allocation_expense_id_expense'), ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['payment_id'], ['counterparty_payment.id'], name=op.f('fk_expense_allocation_payment_id_counterparty_payment'), ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_expense_allocation'))
+    )
+    with op.batch_alter_table('expense_allocation', schema=None) as batch_op:
+        batch_op.create_index(batch_op.f('ix_expense_allocation_expense_id'), ['expense_id'], unique=False)
+        batch_op.create_index(batch_op.f('ix_expense_allocation_payment_id'), ['payment_id'], unique=False)
+
+    op.create_table('master_meter_reading',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('year', sa.Integer(), nullable=False),
+    sa.Column('month', sa.Integer(), nullable=False),
+    sa.Column('reading_date', sa.Date(), nullable=False),
+    sa.Column('reading', sa.Numeric(precision=14, scale=2), nullable=False),
+    sa.Column('amount', sa.Numeric(precision=14, scale=2), nullable=True),
+    sa.Column('tariff_id', sa.Integer(), nullable=False),
+    sa.Column('comment', sa.Text(), nullable=True),
+    sa.Column('expense_id', sa.Integer(), nullable=True),
+    sa.Column('document_id', sa.Integer(), nullable=True),
+    sa.ForeignKeyConstraint(['document_id'], ['document.id'], name=op.f('fk_master_meter_reading_document_id_document'), ondelete='SET NULL'),
+    sa.ForeignKeyConstraint(['expense_id'], ['expense.id'], name=op.f('fk_master_meter_reading_expense_id_expense'), ondelete='SET NULL'),
+    sa.ForeignKeyConstraint(['tariff_id'], ['electricity_tariff.id'], name=op.f('fk_master_meter_reading_tariff_id_electricity_tariff')),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_master_meter_reading'))
+    )
+    with op.batch_alter_table('master_meter_reading', schema=None) as batch_op:
+        batch_op.create_index(batch_op.f('ix_master_meter_reading_document_id'), ['document_id'], unique=False)
+        batch_op.create_index(batch_op.f('ix_master_meter_reading_expense_id'), ['expense_id'], unique=True)
+        batch_op.create_index(batch_op.f('ix_master_meter_reading_reading_date'), ['reading_date'], unique=False)
+        batch_op.create_index(batch_op.f('ix_master_meter_reading_tariff_id'), ['tariff_id'], unique=False)
+        batch_op.create_index(batch_op.f('ix_master_meter_reading_year'), ['year'], unique=False)
+
+    op.create_table('news',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('title', sa.String(length=255), nullable=False),
+    sa.Column('body', sa.Text(), nullable=False),
+    sa.Column('created_at', sa.DateTime(), nullable=False),
+    sa.Column('updated_at', sa.DateTime(), nullable=True),
+    sa.Column('author_id', sa.Integer(), nullable=True),
+    sa.ForeignKeyConstraint(['author_id'], ['user.id'], name=op.f('fk_news_author_id_user'), ondelete='SET NULL'),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_news'))
+    )
+    with op.batch_alter_table('news', schema=None) as batch_op:
+        batch_op.create_index(batch_op.f('ix_news_author_id'), ['author_id'], unique=False)
 
     op.create_table('payment',
     sa.Column('id', sa.Integer(), nullable=False),
@@ -373,11 +465,11 @@ def upgrade() -> None:
     sa.Column('amount', sa.Numeric(precision=14, scale=2), nullable=False),
     sa.Column('payer_person_id', sa.Integer(), nullable=True),
     sa.Column('comment', sa.Text(), nullable=True),
-    sa.CheckConstraint('(garage_id IS NOT NULL) + (account_id IS NOT NULL) = 1', name='ck_payment_target'),
-    sa.ForeignKeyConstraint(['account_id'], ['member_account.id'], ondelete='CASCADE'),
-    sa.ForeignKeyConstraint(['garage_id'], ['garage.id'], ondelete='CASCADE'),
-    sa.ForeignKeyConstraint(['payer_person_id'], ['person.id'], ondelete='SET NULL'),
-    sa.PrimaryKeyConstraint('id')
+    sa.CheckConstraint('(garage_id IS NOT NULL) + (account_id IS NOT NULL) = 1', name=op.f('ck_payment_ck_payment_target')),
+    sa.ForeignKeyConstraint(['account_id'], ['member_account.id'], name=op.f('fk_payment_account_id_member_account'), ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['garage_id'], ['garage.id'], name=op.f('fk_payment_garage_id_garage'), ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['payer_person_id'], ['person.id'], name=op.f('fk_payment_payer_person_id_person'), ondelete='SET NULL'),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_payment'))
     )
     with op.batch_alter_table('payment', schema=None) as batch_op:
         batch_op.create_index(batch_op.f('ix_payment_account_id'), ['account_id'], unique=False)
@@ -393,11 +485,11 @@ def upgrade() -> None:
     sa.Column('amount', sa.Numeric(precision=14, scale=2), nullable=False),
     sa.Column('qr_payload', sa.Text(), nullable=True),
     sa.Column('generated_at', sa.DateTime(), nullable=False),
-    sa.CheckConstraint('(account_id IS NOT NULL) + (personal_account_id IS NOT NULL) = 1', name='ck_pd4_document_target'),
-    sa.ForeignKeyConstraint(['account_id'], ['member_account.id'], ondelete='CASCADE'),
-    sa.ForeignKeyConstraint(['bank_account_id'], ['bank_account.id'], ondelete='SET NULL'),
-    sa.ForeignKeyConstraint(['personal_account_id'], ['personal_account.id'], ondelete='CASCADE'),
-    sa.PrimaryKeyConstraint('id')
+    sa.CheckConstraint('(account_id IS NOT NULL) + (personal_account_id IS NOT NULL) = 1', name=op.f('ck_pd4_document_ck_pd4_document_target')),
+    sa.ForeignKeyConstraint(['account_id'], ['member_account.id'], name=op.f('fk_pd4_document_account_id_member_account'), ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['bank_account_id'], ['bank_account.id'], name=op.f('fk_pd4_document_bank_account_id_bank_account'), ondelete='SET NULL'),
+    sa.ForeignKeyConstraint(['personal_account_id'], ['personal_account.id'], name=op.f('fk_pd4_document_personal_account_id_personal_account'), ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_pd4_document'))
     )
     with op.batch_alter_table('pd4_document', schema=None) as batch_op:
         batch_op.create_index(batch_op.f('ix_pd4_document_account_id'), ['account_id'], unique=False)
@@ -413,15 +505,49 @@ def upgrade() -> None:
     sa.Column('submitted_at', sa.DateTime(), nullable=False),
     sa.Column('reviewed_at', sa.DateTime(), nullable=True),
     sa.Column('reviewer_user_id', sa.Integer(), nullable=True),
-    sa.ForeignKeyConstraint(['person_id'], ['person.id'], ),
-    sa.ForeignKeyConstraint(['reviewer_user_id'], ['user.id'], ),
-    sa.ForeignKeyConstraint(['submitted_by_user_id'], ['user.id'], ),
-    sa.PrimaryKeyConstraint('id')
+    sa.ForeignKeyConstraint(['person_id'], ['person.id'], name=op.f('fk_person_data_revision_person_id_person')),
+    sa.ForeignKeyConstraint(['reviewer_user_id'], ['user.id'], name=op.f('fk_person_data_revision_reviewer_user_id_user')),
+    sa.ForeignKeyConstraint(['submitted_by_user_id'], ['user.id'], name=op.f('fk_person_data_revision_submitted_by_user_id_user')),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_person_data_revision'))
     )
     with op.batch_alter_table('person_data_revision', schema=None) as batch_op:
         batch_op.create_index(batch_op.f('ix_person_data_revision_person_id'), ['person_id'], unique=False)
         batch_op.create_index(batch_op.f('ix_person_data_revision_reviewer_user_id'), ['reviewer_user_id'], unique=False)
         batch_op.create_index(batch_op.f('ix_person_data_revision_submitted_by_user_id'), ['submitted_by_user_id'], unique=False)
+
+    op.create_table('revision_commission',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('start_date', sa.Date(), nullable=False),
+    sa.Column('end_date', sa.Date(), nullable=True),
+    sa.Column('elected_by_meeting_id', sa.Integer(), nullable=True),
+    sa.ForeignKeyConstraint(['elected_by_meeting_id'], ['general_meeting.id'], name=op.f('fk_revision_commission_elected_by_meeting_id_general_meeting'), ondelete='SET NULL'),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_revision_commission'))
+    )
+    with op.batch_alter_table('revision_commission', schema=None) as batch_op:
+        batch_op.create_index(batch_op.f('ix_revision_commission_elected_by_meeting_id'), ['elected_by_meeting_id'], unique=False)
+
+    op.create_table('vote',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('title', sa.String(length=255), nullable=False),
+    sa.Column('description', sa.Text(), nullable=True),
+    sa.Column('voting_type', sa.Enum('IN_PERSON_AND_ABSENTEE', 'ABSENTEE', name='votetype'), nullable=False),
+    sa.Column('status', sa.Enum('DRAFT', 'OPEN', 'CLOSED', name='votestatus'), nullable=False),
+    sa.Column('meeting_id', sa.Integer(), nullable=True),
+    sa.Column('opens_at', sa.DateTime(), nullable=False),
+    sa.Column('closes_at', sa.DateTime(), nullable=False),
+    sa.Column('closed_at', sa.DateTime(), nullable=True),
+    sa.Column('created_by_person_id', sa.Integer(), nullable=True),
+    sa.Column('protocol_document_id', sa.Integer(), nullable=True),
+    sa.ForeignKeyConstraint(['created_by_person_id'], ['person.id'], name=op.f('fk_vote_created_by_person_id_person'), ondelete='SET NULL'),
+    sa.ForeignKeyConstraint(['meeting_id'], ['general_meeting.id'], name=op.f('fk_vote_meeting_id_general_meeting'), ondelete='SET NULL'),
+    sa.ForeignKeyConstraint(['protocol_document_id'], ['document.id'], name=op.f('fk_vote_protocol_document_id_document'), ondelete='SET NULL'),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_vote'))
+    )
+    with op.batch_alter_table('vote', schema=None) as batch_op:
+        batch_op.create_index(batch_op.f('ix_vote_created_by_person_id'), ['created_by_person_id'], unique=False)
+        batch_op.create_index(batch_op.f('ix_vote_meeting_id'), ['meeting_id'], unique=False)
+        batch_op.create_index(batch_op.f('ix_vote_protocol_document_id'), ['protocol_document_id'], unique=False)
+        batch_op.create_index(batch_op.f('ix_vote_status'), ['status'], unique=False)
 
     op.create_table('board_member',
     sa.Column('id', sa.Integer(), nullable=False),
@@ -429,9 +555,9 @@ def upgrade() -> None:
     sa.Column('person_id', sa.Integer(), nullable=False),
     sa.Column('is_chairman', sa.Boolean(), nullable=False),
     sa.Column('role', sa.String(length=100), nullable=True),
-    sa.ForeignKeyConstraint(['person_id'], ['person.id'], ),
-    sa.ForeignKeyConstraint(['term_id'], ['board_term.id'], ondelete='CASCADE'),
-    sa.PrimaryKeyConstraint('id'),
+    sa.ForeignKeyConstraint(['person_id'], ['person.id'], name=op.f('fk_board_member_person_id_person')),
+    sa.ForeignKeyConstraint(['term_id'], ['board_term.id'], name=op.f('fk_board_member_term_id_board_term'), ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_board_member')),
     sa.UniqueConstraint('term_id', 'person_id', name='uq_board_member_term_person')
     )
     with op.batch_alter_table('board_member', schema=None) as batch_op:
@@ -448,19 +574,23 @@ def upgrade() -> None:
     sa.Column('annual_report_id', sa.Integer(), nullable=True),
     sa.Column('reading_id', sa.Integer(), nullable=True),
     sa.Column('comment', sa.Text(), nullable=True),
-    sa.CheckConstraint('(garage_id IS NOT NULL) + (account_id IS NOT NULL) = 1', name='ck_charge_target'),
-    sa.ForeignKeyConstraint(['account_id'], ['member_account.id'], ondelete='CASCADE'),
-    sa.ForeignKeyConstraint(['annual_report_id'], ['annual_report.id'], ondelete='SET NULL'),
-    sa.ForeignKeyConstraint(['fee_type_id'], ['fee_type.id'], ),
-    sa.ForeignKeyConstraint(['garage_id'], ['garage.id'], ondelete='CASCADE'),
-    sa.ForeignKeyConstraint(['reading_id'], ['electricity_reading.id'], ondelete='SET NULL'),
-    sa.PrimaryKeyConstraint('id')
+    sa.Column('penalty_calculated_through', sa.Date(), nullable=True),
+    sa.Column('penalty_for_charge_id', sa.Integer(), nullable=True),
+    sa.CheckConstraint('(garage_id IS NOT NULL) + (account_id IS NOT NULL) = 1', name=op.f('ck_charge_ck_charge_target')),
+    sa.ForeignKeyConstraint(['account_id'], ['member_account.id'], name=op.f('fk_charge_account_id_member_account'), ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['annual_report_id'], ['annual_report.id'], name=op.f('fk_charge_annual_report_id_annual_report'), ondelete='SET NULL'),
+    sa.ForeignKeyConstraint(['fee_type_id'], ['fee_type.id'], name=op.f('fk_charge_fee_type_id_fee_type')),
+    sa.ForeignKeyConstraint(['garage_id'], ['garage.id'], name=op.f('fk_charge_garage_id_garage'), ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['penalty_for_charge_id'], ['charge.id'], name=op.f('fk_charge_penalty_for_charge_id_charge'), ondelete='SET NULL'),
+    sa.ForeignKeyConstraint(['reading_id'], ['electricity_reading.id'], name=op.f('fk_charge_reading_id_electricity_reading'), ondelete='SET NULL'),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_charge'))
     )
     with op.batch_alter_table('charge', schema=None) as batch_op:
         batch_op.create_index(batch_op.f('ix_charge_account_id'), ['account_id'], unique=False)
         batch_op.create_index(batch_op.f('ix_charge_annual_report_id'), ['annual_report_id'], unique=False)
         batch_op.create_index(batch_op.f('ix_charge_fee_type_id'), ['fee_type_id'], unique=False)
         batch_op.create_index(batch_op.f('ix_charge_garage_id'), ['garage_id'], unique=False)
+        batch_op.create_index(batch_op.f('ix_charge_penalty_for_charge_id'), ['penalty_for_charge_id'], unique=False)
         batch_op.create_index(batch_op.f('ix_charge_reading_id'), ['reading_id'], unique=False)
         batch_op.create_index(batch_op.f('ix_charge_year'), ['year'], unique=False)
 
@@ -470,26 +600,80 @@ def upgrade() -> None:
     sa.Column('fee_type_id', sa.Integer(), nullable=False),
     sa.Column('rate_per_sqm', sa.Numeric(precision=10, scale=2), nullable=True),
     sa.Column('fixed_amount', sa.Numeric(precision=14, scale=2), nullable=True),
-    sa.ForeignKeyConstraint(['annual_report_id'], ['annual_report.id'], ondelete='CASCADE'),
-    sa.ForeignKeyConstraint(['fee_type_id'], ['fee_type.id'], ),
-    sa.PrimaryKeyConstraint('id')
+    sa.ForeignKeyConstraint(['annual_report_id'], ['annual_report.id'], name=op.f('fk_fee_rate_annual_report_id_annual_report'), ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['fee_type_id'], ['fee_type.id'], name=op.f('fk_fee_rate_fee_type_id_fee_type')),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_fee_rate'))
     )
     with op.batch_alter_table('fee_rate', schema=None) as batch_op:
         batch_op.create_index(batch_op.f('ix_fee_rate_annual_report_id'), ['annual_report_id'], unique=False)
         batch_op.create_index(batch_op.f('ix_fee_rate_fee_type_id'), ['fee_type_id'], unique=False)
+
+    op.create_table('news_attachment',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('news_id', sa.Integer(), nullable=False),
+    sa.Column('original_filename', sa.String(length=255), nullable=False),
+    sa.Column('stored_filename', sa.String(length=255), nullable=False),
+    sa.Column('content_type', sa.String(length=100), nullable=True),
+    sa.ForeignKeyConstraint(['news_id'], ['news.id'], name=op.f('fk_news_attachment_news_id_news'), ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_news_attachment'))
+    )
+    with op.batch_alter_table('news_attachment', schema=None) as batch_op:
+        batch_op.create_index(batch_op.f('ix_news_attachment_news_id'), ['news_id'], unique=False)
+
+    op.create_table('revision_commission_member',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('commission_id', sa.Integer(), nullable=False),
+    sa.Column('person_id', sa.Integer(), nullable=False),
+    sa.Column('is_chair', sa.Boolean(), nullable=False),
+    sa.ForeignKeyConstraint(['commission_id'], ['revision_commission.id'], name=op.f('fk_revision_commission_member_commission_id_revision_commission'), ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['person_id'], ['person.id'], name=op.f('fk_revision_commission_member_person_id_person')),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_revision_commission_member')),
+    sa.UniqueConstraint('commission_id', 'person_id', name='uq_revision_commission_member_commission_person')
+    )
+    with op.batch_alter_table('revision_commission_member', schema=None) as batch_op:
+        batch_op.create_index(batch_op.f('ix_revision_commission_member_commission_id'), ['commission_id'], unique=False)
+        batch_op.create_index(batch_op.f('ix_revision_commission_member_person_id'), ['person_id'], unique=False)
+
+    op.create_table('vote_question',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('vote_id', sa.Integer(), nullable=False),
+    sa.Column('order', sa.Integer(), nullable=False),
+    sa.Column('text', sa.Text(), nullable=False),
+    sa.Column('majority_threshold', sa.Numeric(precision=5, scale=4), nullable=False),
+    sa.ForeignKeyConstraint(['vote_id'], ['vote.id'], name=op.f('fk_vote_question_vote_id_vote'), ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_vote_question'))
+    )
+    with op.batch_alter_table('vote_question', schema=None) as batch_op:
+        batch_op.create_index(batch_op.f('ix_vote_question_vote_id'), ['vote_id'], unique=False)
 
     op.create_table('charge_allocation',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('charge_id', sa.Integer(), nullable=False),
     sa.Column('payment_id', sa.Integer(), nullable=False),
     sa.Column('amount', sa.Numeric(precision=14, scale=2), nullable=False),
-    sa.ForeignKeyConstraint(['charge_id'], ['charge.id'], ondelete='CASCADE'),
-    sa.ForeignKeyConstraint(['payment_id'], ['payment.id'], ondelete='CASCADE'),
-    sa.PrimaryKeyConstraint('id')
+    sa.ForeignKeyConstraint(['charge_id'], ['charge.id'], name=op.f('fk_charge_allocation_charge_id_charge'), ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['payment_id'], ['payment.id'], name=op.f('fk_charge_allocation_payment_id_payment'), ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_charge_allocation'))
     )
     with op.batch_alter_table('charge_allocation', schema=None) as batch_op:
         batch_op.create_index(batch_op.f('ix_charge_allocation_charge_id'), ['charge_id'], unique=False)
         batch_op.create_index(batch_op.f('ix_charge_allocation_payment_id'), ['payment_id'], unique=False)
+
+    op.create_table('vote_ballot',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('question_id', sa.Integer(), nullable=False),
+    sa.Column('person_id', sa.Integer(), nullable=False),
+    sa.Column('choice', sa.Enum('FOR', 'AGAINST', 'ABSTAIN', name='votechoice'), nullable=False),
+    sa.Column('weight', sa.Numeric(precision=8, scale=5), nullable=False),
+    sa.Column('cast_at', sa.DateTime(), nullable=False),
+    sa.ForeignKeyConstraint(['person_id'], ['person.id'], name=op.f('fk_vote_ballot_person_id_person')),
+    sa.ForeignKeyConstraint(['question_id'], ['vote_question.id'], name=op.f('fk_vote_ballot_question_id_vote_question'), ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_vote_ballot')),
+    sa.UniqueConstraint('question_id', 'person_id', name='uq_vote_ballot_question_person')
+    )
+    with op.batch_alter_table('vote_ballot', schema=None) as batch_op:
+        batch_op.create_index(batch_op.f('ix_vote_ballot_person_id'), ['person_id'], unique=False)
+        batch_op.create_index(batch_op.f('ix_vote_ballot_question_id'), ['question_id'], unique=False)
 
     # ### end Alembic commands ###
 
@@ -497,11 +681,29 @@ def upgrade() -> None:
 def downgrade() -> None:
     """Downgrade schema."""
     # ### commands auto generated by Alembic - please adjust! ###
+    with op.batch_alter_table('vote_ballot', schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f('ix_vote_ballot_question_id'))
+        batch_op.drop_index(batch_op.f('ix_vote_ballot_person_id'))
+
+    op.drop_table('vote_ballot')
     with op.batch_alter_table('charge_allocation', schema=None) as batch_op:
         batch_op.drop_index(batch_op.f('ix_charge_allocation_payment_id'))
         batch_op.drop_index(batch_op.f('ix_charge_allocation_charge_id'))
 
     op.drop_table('charge_allocation')
+    with op.batch_alter_table('vote_question', schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f('ix_vote_question_vote_id'))
+
+    op.drop_table('vote_question')
+    with op.batch_alter_table('revision_commission_member', schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f('ix_revision_commission_member_person_id'))
+        batch_op.drop_index(batch_op.f('ix_revision_commission_member_commission_id'))
+
+    op.drop_table('revision_commission_member')
+    with op.batch_alter_table('news_attachment', schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f('ix_news_attachment_news_id'))
+
+    op.drop_table('news_attachment')
     with op.batch_alter_table('fee_rate', schema=None) as batch_op:
         batch_op.drop_index(batch_op.f('ix_fee_rate_fee_type_id'))
         batch_op.drop_index(batch_op.f('ix_fee_rate_annual_report_id'))
@@ -510,6 +712,7 @@ def downgrade() -> None:
     with op.batch_alter_table('charge', schema=None) as batch_op:
         batch_op.drop_index(batch_op.f('ix_charge_year'))
         batch_op.drop_index(batch_op.f('ix_charge_reading_id'))
+        batch_op.drop_index(batch_op.f('ix_charge_penalty_for_charge_id'))
         batch_op.drop_index(batch_op.f('ix_charge_garage_id'))
         batch_op.drop_index(batch_op.f('ix_charge_fee_type_id'))
         batch_op.drop_index(batch_op.f('ix_charge_annual_report_id'))
@@ -521,6 +724,17 @@ def downgrade() -> None:
         batch_op.drop_index(batch_op.f('ix_board_member_person_id'))
 
     op.drop_table('board_member')
+    with op.batch_alter_table('vote', schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f('ix_vote_status'))
+        batch_op.drop_index(batch_op.f('ix_vote_protocol_document_id'))
+        batch_op.drop_index(batch_op.f('ix_vote_meeting_id'))
+        batch_op.drop_index(batch_op.f('ix_vote_created_by_person_id'))
+
+    op.drop_table('vote')
+    with op.batch_alter_table('revision_commission', schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f('ix_revision_commission_elected_by_meeting_id'))
+
+    op.drop_table('revision_commission')
     with op.batch_alter_table('person_data_revision', schema=None) as batch_op:
         batch_op.drop_index(batch_op.f('ix_person_data_revision_submitted_by_user_id'))
         batch_op.drop_index(batch_op.f('ix_person_data_revision_reviewer_user_id'))
@@ -540,6 +754,23 @@ def downgrade() -> None:
         batch_op.drop_index(batch_op.f('ix_payment_account_id'))
 
     op.drop_table('payment')
+    with op.batch_alter_table('news', schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f('ix_news_author_id'))
+
+    op.drop_table('news')
+    with op.batch_alter_table('master_meter_reading', schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f('ix_master_meter_reading_year'))
+        batch_op.drop_index(batch_op.f('ix_master_meter_reading_tariff_id'))
+        batch_op.drop_index(batch_op.f('ix_master_meter_reading_reading_date'))
+        batch_op.drop_index(batch_op.f('ix_master_meter_reading_expense_id'))
+        batch_op.drop_index(batch_op.f('ix_master_meter_reading_document_id'))
+
+    op.drop_table('master_meter_reading')
+    with op.batch_alter_table('expense_allocation', schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f('ix_expense_allocation_payment_id'))
+        batch_op.drop_index(batch_op.f('ix_expense_allocation_expense_id'))
+
+    op.drop_table('expense_allocation')
     with op.batch_alter_table('electricity_reading', schema=None) as batch_op:
         batch_op.drop_index(batch_op.f('ix_electricity_reading_reading_date'))
         batch_op.drop_index(batch_op.f('ix_electricity_reading_meter_id'))
@@ -557,6 +788,11 @@ def downgrade() -> None:
 
     op.drop_table('annual_report')
     op.drop_table('user')
+    with op.batch_alter_table('reconciliation_act', schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f('ix_reconciliation_act_document_id'))
+        batch_op.drop_index(batch_op.f('ix_reconciliation_act_counterparty_id'))
+
+    op.drop_table('reconciliation_act')
     with op.batch_alter_table('phone', schema=None) as batch_op:
         batch_op.drop_index(batch_op.f('ix_phone_person_id'))
 
@@ -568,13 +804,6 @@ def downgrade() -> None:
         batch_op.drop_index(batch_op.f('ix_member_account_fee_type_id'))
 
     op.drop_table('member_account')
-    with op.batch_alter_table('master_meter_reading', schema=None) as batch_op:
-        batch_op.drop_index(batch_op.f('ix_master_meter_reading_year'))
-        batch_op.drop_index(batch_op.f('ix_master_meter_reading_tariff_id'))
-        batch_op.drop_index(batch_op.f('ix_master_meter_reading_reading_date'))
-        batch_op.drop_index(batch_op.f('ix_master_meter_reading_document_id'))
-
-    op.drop_table('master_meter_reading')
     with op.batch_alter_table('general_meeting', schema=None) as batch_op:
         batch_op.drop_index(batch_op.f('ix_general_meeting_secretary_person_id'))
         batch_op.drop_index(batch_op.f('ix_general_meeting_protocol_document_id'))
@@ -607,12 +836,24 @@ def downgrade() -> None:
         batch_op.drop_index(batch_op.f('ix_electricity_meter_garage_id'))
 
     op.drop_table('electricity_meter')
+    with op.batch_alter_table('counterparty_payment', schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f('ix_counterparty_payment_reverses_payment_id'))
+        batch_op.drop_index(batch_op.f('ix_counterparty_payment_document_id'))
+        batch_op.drop_index(batch_op.f('ix_counterparty_payment_date'))
+        batch_op.drop_index(batch_op.f('ix_counterparty_payment_counterparty_id'))
+        batch_op.drop_index(batch_op.f('ix_counterparty_payment_bank_account_id'))
+
+    op.drop_table('counterparty_payment')
     with op.batch_alter_table('person', schema=None) as batch_op:
         batch_op.drop_index('uq_single_chairman', sqlite_where=sa.text('is_chairman = 1'))
         batch_op.drop_index(batch_op.f('ix_person_full_name'))
 
     op.drop_table('person')
     op.drop_table('land_tax_year')
+    with op.batch_alter_table('key_rate', schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f('ix_key_rate_effective_date'))
+
+    op.drop_table('key_rate')
     op.drop_table('garage')
     op.drop_table('fee_type')
     with op.batch_alter_table('electricity_tariff', schema=None) as batch_op:
@@ -624,6 +865,7 @@ def downgrade() -> None:
         batch_op.drop_index(batch_op.f('ix_document_date'))
 
     op.drop_table('document')
+    op.drop_table('csv_import_profile')
     op.drop_table('counterparty')
     op.drop_table('cooperative')
     op.drop_table('bank_account')

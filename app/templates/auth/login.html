@@ -22,6 +22,7 @@
     <h3 class="mb-3">{{ _("Новости кооператива") }}</h3>
     {% if news_items %}
     {% for item in news_items %}
+    {% set preview, truncated = news_excerpt(item.body) %}
     <div class="card bg-body mb-3">
       <div class="card-body">
         <h5 class="card-title mb-1">{{ item.title }}</h5>
@@ -29,7 +30,21 @@
           {{ fmt_date(item.created_at.date()) }}
           {% if item.updated_at %}&middot; {{ _("обновлено") }} {{ fmt_date(item.updated_at.date()) }}{% endif %}
         </p>
-        <p class="card-text" style="white-space:pre-line">{{ item.body }}</p>
+        {% if truncated %}
+        <p class="card-text">{{ preview }}</p>
+        <a href="{{ url_for('news.view', news_id=item.id) }}">{{ _("Читать дальше") }} &rarr;</a>
+        {% else %}
+        <div class="card-text">{{ render_news_html(item.body) }}</div>
+        {% endif %}
+        {% if item.attachments %}
+        <div class="d-flex flex-wrap gap-2 mt-3">
+          {% for att in item.attachments %}
+            {% if att.is_image %}
+            <a href="{{ url_for('news.view', news_id=item.id) }}"><img src="{{ url_for('news.attachment', attachment_id=att.id, original_filename=att.original_filename) }}" alt="" style="height:80px;object-fit:cover;border-radius:.375rem"></a>
+            {% endif %}
+          {% endfor %}
+        </div>
+        {% endif %}
       </div>
     </div>
     {% endfor %}

@@ -4,6 +4,7 @@ from decimal import Decimal, InvalidOperation
 from flask import Blueprint, render_template, request, redirect, url_for, flash, abort, current_app
 
 from . import database
+from . import audit
 from .i18n import translate as _
 from .auth import roles_required
 from .models import (
@@ -167,6 +168,10 @@ def add_expense(counterparty_id):
     ))
     database.db_session.flush()
     reallocate_counterparty_expenses(counterparty)
+    audit.record(
+        "expense.create", entity_type="counterparty", entity_id=counterparty.id,
+        summary=f"Расход {f['amount']} — {counterparty.name}, {f['date']}",
+    )
     database.db_session.commit()
     flash(_("Расход добавлен."), "success")
     return redirect(url_for("counterparties.detail", counterparty_id=counterparty.id))
@@ -193,6 +198,10 @@ def add_payment(counterparty_id):
         bank_account=bank_account,
         document_id=document_id,
         comment=f.get("comment") or None,
+    )
+    audit.record(
+        "counterparty_payment.create", entity_type="counterparty", entity_id=counterparty.id,
+        summary=f"Платёж контрагенту {f['amount']} — {counterparty.name}, {f['date']}",
     )
     database.db_session.commit()
     flash(_("Платёж добавлен."), "success")
@@ -241,6 +250,10 @@ def edit_payment(counterparty_id, payment_id):
         document_id=document_id,
         comment=f.get("comment") or None,
     )
+    audit.record(
+        "counterparty_payment.edit", entity_type="counterparty_payment", entity_id=payment.id,
+        summary=f"Изменён платёж контрагенту #{payment.id} — {counterparty.name}, новая сумма {f['amount']}",
+    )
     database.db_session.commit()
     flash(_("Платёж изменён."), "success")
     return redirect(url_for("counterparties.detail", counterparty_id=counterparty.id))
@@ -273,6 +286,10 @@ def reverse_payment(counterparty_id, payment_id):
         payment=payment,
         date=reverse_date,
         comment=f.get("comment") or None,
+    )
+    audit.record(
+        "counterparty_payment.reverse", entity_type="counterparty_payment", entity_id=payment.id,
+        summary=f"Сторно платежа #{payment.id} — {counterparty.name}, дата сторно {reverse_date.isoformat()}",
     )
     database.db_session.commit()
     flash(_("Отменяющая проводка добавлена."), "success")

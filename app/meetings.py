@@ -4,7 +4,7 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 
 from . import database
 from .i18n import translate as _
-from .auth import login_required, roles_required
+from .auth import login_required, roles_required, is_safe_next_url
 from .models import GeneralMeeting, Person, Document, DocumentType, RoleEnum
 from .uploads import save_upload
 
@@ -52,7 +52,7 @@ def create():
         flash(_("Собрание добавлено."), "success")
 
         next_url = request.form.get("next")
-        if next_url and next_url.startswith("/"):
+        if is_safe_next_url(next_url):
             return redirect(next_url)
         return redirect(url_for("meetings.list_meetings"))
 

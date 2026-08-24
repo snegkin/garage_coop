@@ -10,6 +10,7 @@ import datetime as dt
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from . import database
+from . import audit
 from .auth import login_required
 from .i18n import translate as _
 from .models import Person, Phone, GarageOwnership, MemberAccount, PersonDataRevision, PersonDataRevisionStatus, User
@@ -145,6 +146,10 @@ def change_password():
         return redirect(url_for("cabinet.profile"))
 
     g.user.password_hash = generate_password_hash(new_password)
+    audit.record(
+        "account.password_change", entity_type="user", entity_id=g.user.id,
+        summary=f"Пользователь «{g.user.username}» сменил свой пароль",
+    )
     database.db_session.commit()
     flash(_("Пароль изменён."), "success")
     return redirect(url_for("cabinet.profile"))

@@ -4,6 +4,7 @@ from decimal import Decimal
 from flask import Blueprint, render_template, request, redirect, url_for, flash, g, abort
 
 from . import database
+from . import audit
 from .i18n import translate as _
 from .auth import login_required, roles_required
 from .permissions import can_view_member_account, is_board
@@ -115,6 +116,10 @@ def add_member_charge(account_id):
     ))
     database.db_session.flush()
     reallocate_member_charges(account)
+    audit.record(
+        "charge.create", entity_type="member_account", entity_id=account.id,
+        summary=f"Начисление {f['amount']} на счёт {account.account_number} ({account.person.full_name}), {f['year']} год",
+    )
     database.db_session.commit()
     flash(_("Начисление добавлено."), "success")
     return redirect(url_for("finance.member_account_detail", account_id=account.id))
@@ -137,6 +142,10 @@ def add_member_payment(account_id):
     ))
     database.db_session.flush()
     reallocate_member_charges(account)
+    audit.record(
+        "payment.create", entity_type="member_account", entity_id=account.id,
+        summary=f"Платёж {f['amount']} на счёт {account.account_number} ({account.person.full_name}) от {f['date']}",
+    )
     database.db_session.commit()
     flash(_("Платёж зарегистрирован."), "success")
     return redirect(url_for("finance.member_account_detail", account_id=account.id))
@@ -193,6 +202,10 @@ def delete_member_account(account_id):
     account = database.db_session.get(MemberAccount, account_id)
     if account is None:
         abort(404)
+    audit.record(
+        "member_account.delete", entity_type="member_account", entity_id=account.id,
+        summary=f"Удалён счёт {account.account_number} ({account.person.full_name}, гараж {account.garage.number}, {account.fee_type.name})",
+    )
     database.db_session.delete(account)
     database.db_session.commit()
     flash(_("Счёт удалён."), "success")
@@ -393,6 +406,11 @@ def mass_charge():
             for acc in accounts:
                 if (acc.person_id, acc.garage_id, acc.fee_type_id) in touched_accounts:
                     reallocate_member_charges(acc)
+        if charged_rows:
+            audit.record(
+                "charge.mass_create", entity_type="fee_type", entity_id=fee_type.id,
+                summary=f"Массовое начисление «{fee_type.name}» за {year} год: {len(charged_rows)} счетов на сумму {sum((a for _n,_g,a in charged_rows), Decimal('0'))}",
+            )
         database.db_session.commit()
         results = {
             "fee_type_name": fee_type.name,

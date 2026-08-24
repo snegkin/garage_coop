@@ -9,6 +9,7 @@ from flask import (
 )
 
 from . import database
+from . import audit
 from .i18n import translate as _
 from .auth import login_required, roles_required
 from .permissions import is_board, is_owner_or_board, is_chairman, is_privileged
@@ -696,6 +697,10 @@ def add_charge(garage_id):
     database.db_session.add(charge)
     database.db_session.flush()
     reallocate_garage_charges(garage)
+    audit.record(
+        "charge.create", entity_type="garage", entity_id=garage.id,
+        summary=f"Начисление {f['amount']} на гараж №{garage.number}, {f['year']} год",
+    )
     database.db_session.commit()
     flash(_("Начисление добавлено."), "success")
     return redirect(url_for("garages.detail", garage_id=garage_id, tab="account"))
@@ -721,6 +726,10 @@ def add_payment(garage_id):
     database.db_session.add(payment)
     database.db_session.flush()
     reallocate_garage_charges(garage)
+    audit.record(
+        "payment.create", entity_type="garage", entity_id=garage.id,
+        summary=f"Платёж {f['amount']} на гараж №{garage.number} от {f['date']}",
+    )
     database.db_session.commit()
     flash(_("Платёж зарегистрирован."), "success")
     return redirect(url_for("garages.detail", garage_id=garage_id, tab="account"))

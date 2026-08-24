@@ -8,10 +8,29 @@ from flask import Blueprint, render_template, request, redirect, url_for, sessio
 from werkzeug.security import check_password_hash
 
 from . import database
+from . import audit
+from .rate_limit import limiter
 from .i18n import translate as _
 from .models import User, RoleEnum
 
 bp = Blueprint("auth", __name__, url_prefix="/auth")
+
+
+def is_safe_next_url(next_url: str | None) -> bool:
+    """
+    Проверяет, что `next` — это относительный путь внутри нашего сайта, а не
+    ссылка на внешний домен. Одного `startswith("/")` недостаточно: браузер
+    трактует "//evil.com" и "/\\evil.com" как переход на другой хост
+    (protocol-relative URL), поэтому такие варианты отдельно отсекаем.
+    Используется во всех местах, где после действия делаем redirect(next).
+    """
+    if not next_url:
+        return False
+    if not next_url.startswith("/"):
+        return False
+    if next_url.startswith("//") or next_url.startswith("/\\"):
+        return False
+    return True
 
 # Иерархия ролей: председатель видит всё, что и правление; правление — всё, что и член.
 ROLE_LEVEL = {RoleEnum.MEMBER: 0, RoleEnum.BOARD: 1, RoleEnum.ACCOUNTANT: 1, RoleEnum.CHAIRMAN: 2}
@@ -50,6 +69,7 @@ def roles_required(*roles: RoleEnum):
 
 
 @bp.route("/login", methods=["GET", "POST"])
+@limiter.limit("10 per minute", methods=["POST"])
 def login():
     if request.method == "POST":
         username = request.form["username"].strip()
@@ -57,13 +77,30 @@ def login():
         user = database.db_session.query(User).filter_by(username=username).first()
 
         if user is None or not check_password_hash(user.password_hash, password):
+            audit.record(
+                "auth.login_failed", summary=f"Неудачная попытка входа: логин «{username}»",
+            )
+            database.db_session.commit()
             flash(_("Неверный логин или пароль."), "danger")
         elif not user.is_active:
+            audit.record(
+                "auth.login_failed", entity_type="user", entity_id=user.id,
+                summary=f"Попытка входа в отключённую учётную запись «{username}»", actor=user,
+            )
+            database.db_session.commit()
             flash(_("Учётная запись отключена."), "danger")
         else:
             session.clear()
             session["user_id"] = user.id
-            return redirect(request.args.get("next") or url_for("main.dashboard"))
+            audit.record(
+                "auth.login", entity_type="user", entity_id=user.id,
+                summary=f"Успешный вход: «{username}»", actor=user,
+            )
+            database.db_session.commit()
+            next_url = request.args.get("next")
+            if is_safe_next_url(next_url):
+                return redirect(next_url)
+            return redirect(url_for("main.dashboard"))
 
     # Страница входа — де-факто главная страница сайта (анонимный посетитель
     # всегда попадает сюда, см. index()/dashboard() в main.py), поэтому

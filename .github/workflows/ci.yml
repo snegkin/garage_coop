@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install system dependencies (weasyprint)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpango-1.0-0 libpangocairo-1.0-0 libgdk-pixbuf2.0-0 libffi-dev
+
+      - name: Install Python dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Compile-check all Python files
+        run: |
+          python -c "
+          import py_compile, pathlib, sys
+          errors = []
+          for p in pathlib.Path('.').rglob('*.py'):
+              if '__pycache__' in str(p) or str(p).startswith('.git'):
+                  continue
+              try:
+                  py_compile.compile(str(p), doraise=True)
+              except Exception as e:
+                  errors.append((str(p), str(e)))
+          if errors:
+              for path, err in errors:
+                  print(f'{path}: {err}')
+              sys.exit(1)
+          print('py_compile: OK')
+          "
+
+      - name: Parse all Jinja templates
+        run: |
+          python -c "
+          from jinja2 import Environment, FileSystemLoader, TemplateSyntaxError
+          import pathlib, sys
+          env = Environment(loader=FileSystemLoader('app/templates'))
+          errors = []
+          for p in pathlib.Path('app/templates').rglob('*.html'):
+              rel = str(p.relative_to('app/templates'))
+              try:
+                  env.parse(p.read_text(encoding='utf-8'))
+              except TemplateSyntaxError as e:
+                  errors.append((rel, str(e)))
+          if errors:
+              for path, err in errors:
+                  print(f'{path}: {err}')
+              sys.exit(1)
+          print('jinja parse: OK')
+          "
+
+      - name: Check for duplicate i18n keys
+        run: |
+          python -c "
+          import ast, sys
+          tree = ast.parse(open('app/i18n.py', encoding='utf-8').read())
+          found_dups = False
+          class V(ast.NodeVisitor):
+              def visit_Dict(self, node):
+                  global found_dups
+                  keys = [ast.literal_eval(k) for k in node.keys if isinstance(k, ast.Constant)]
+                  seen, dups = set(), set()
+                  for k in keys:
+                      if k in seen:
+                          dups.add(k)
+                      seen.add(k)
+                  if dups:
+                      print('DUPLICATE i18n KEYS:', dups)
+                      found_dups = True
+                  self.generic_visit(node)
+          V().visit(tree)
+          # Не проваливаем сборку из-за уже известных дублей (см. context.md) —
+          # только предупреждаем, чтобы не блокировать разработку неожиданно.
+          "
+
+      - name: Run test suite
+        run: pytest tests/ -v

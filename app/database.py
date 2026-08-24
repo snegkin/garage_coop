@@ -19,6 +19,15 @@ def init_engine(database_uri: str):
         def _enable_sqlite_foreign_keys(dbapi_connection, connection_record):
             cursor = dbapi_connection.cursor()
             cursor.execute("PRAGMA foreign_keys=ON")
+            # WAL (Write-Ahead Logging) вместо журнала по умолчанию (rollback
+            # journal) — читатели (просмотр страниц) не блокируют писателя
+            # (сохранение платежа/начисления) и наоборот. Для кооператива,
+            # где председатель/бухгалтер/правление могут работать
+            # одновременно, это заметно снижает "database is locked" при
+            # обычной SQLite-блокировке на запись. Настройка постоянная
+            # (сохраняется в самом файле БД), но выставляем на каждое
+            # подключение — дёшево и не зависит от того, кто создал файл.
+            cursor.execute("PRAGMA journal_mode=WAL")
             cursor.close()
 
     db_session = scoped_session(sessionmaker(bind=engine, autoflush=False, autocommit=False))
@@ -52,6 +61,12 @@ def run_migrations(database_uri: str):
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     alembic_cfg = AlembicConfig(os.path.join(project_root, "alembic.ini"))
     alembic_cfg.set_main_option("sqlalchemy.url", database_uri)
+    # attributes — штатный канал Alembic для передачи данных из вызывающего
+    # кода в env.py (см. migrations/env.py: config.attributes.get("db_url_override")).
+    # set_main_option() выше недостаточно сам по себе: env.py исторически
+    # безусловно перезаписывал sqlalchemy.url значением из Config, поэтому
+    # нужен отдельный, более приоритетный канал передачи URL.
+    alembic_cfg.attributes["db_url_override"] = database_uri
     alembic_cfg.attributes["configure_logger"] = False
 
     probe_engine = create_engine(database_uri, connect_args={"check_same_thread": False})

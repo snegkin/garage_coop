@@ -25,8 +25,18 @@ target_metadata = Base.metadata
 
 # URL берём из того же места, что и само приложение (DATABASE_URL / config.py),
 # а не дублируем его в alembic.ini — там он всегда был бы неактуален в проде.
+# ВАЖНО: если вызывающий код (app/database.py:run_migrations) уже явно передал
+# URL через alembic_cfg.attributes["db_url_override"] — например, чтобы
+# мигрировать не боевую, а временную/тестовую БД — используем именно его и
+# НЕ перетираем значением по умолчанию из Config. Раньше здесь было
+# безусловное config.set_main_option("sqlalchemy.url", Config.SQLALCHEMY_DATABASE_URI),
+# из-за чего run_migrations() с кастомным database_uri тихо мигрировал не ту
+# БД (актуально для тестов — каждый тест получает свой временный sqlite-файл,
+# а env.py всё равно накатывал схему на instance/coop.db).
 from config import Config  # noqa: E402
-config.set_main_option("sqlalchemy.url", Config.SQLALCHEMY_DATABASE_URI)
+
+_url_override = config.attributes.get("db_url_override")
+config.set_main_option("sqlalchemy.url", _url_override or Config.SQLALCHEMY_DATABASE_URI)
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:

@@ -1,6 +1,18 @@
-/.gigacode/
-/.kilo/
-/instance/
-/__pycache__/
-/venv/
+# Секреты и локальная конфигурация
+.env
+
+# БД, загрузки, бэкапы, логи — не должны попадать в репозиторий
+instance/
+
+# Python
+__pycache__/
 *.pyc
+.pytest_cache/
+
+# Виртуальное окружение
+venv/
+.venv/
+
+# IDE
+.vscode/
+.idea/

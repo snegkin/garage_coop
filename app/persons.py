@@ -6,8 +6,9 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 from werkzeug.security import generate_password_hash
 
 from . import database
+from . import audit
 from .i18n import translate as _
-from .auth import login_required, roles_required
+from .auth import login_required, roles_required, is_safe_next_url
 from .permissions import is_board, sync_user_role
 from .models import Person, Phone, User, RoleEnum, MemberAccount, PersonDataRevision, PersonDataRevisionStatus
 from .accounting import balance
@@ -91,7 +92,7 @@ def create():
         flash(_("Человек «{name}» добавлен.", name=person.full_name), "success")
 
         next_url = request.form.get("next")
-        if next_url and next_url.startswith("/"):
+        if is_safe_next_url(next_url):
             sep = "&" if "?" in next_url else "?"
             return redirect(f"{next_url}{sep}new_person_id={person.id}")
         return redirect(url_for("persons.detail", person_id=person.id))
@@ -186,6 +187,10 @@ def reset_password(person_id):
         abort(404)
 
     user.password_hash = generate_password_hash(request.form["password"])
+    audit.record(
+        "account.password_reset", entity_type="user", entity_id=user.id,
+        summary=f"Правление сбросило пароль пользователю «{user.username}» ({person.full_name})",
+    )
     database.db_session.commit()
     flash(_("Пароль обновлён."), "success")
     return redirect(url_for("persons.detail", person_id=person.id))
@@ -213,7 +218,12 @@ def change_username(person_id):
         flash(_("Такой логин уже занят."), "danger")
         return redirect(url_for("persons.detail", person_id=person.id))
 
+    old_username = user.username
     user.username = new_username
+    audit.record(
+        "account.username_change", entity_type="user", entity_id=user.id,
+        summary=f"Логин «{old_username}» ({person.full_name}) изменён на «{new_username}»",
+    )
     database.db_session.commit()
     flash(_("Логин обновлён."), "success")
     return redirect(url_for("persons.detail", person_id=person.id))
@@ -230,6 +240,10 @@ def toggle_active(person_id):
         abort(404)
 
     user.is_active = not user.is_active
+    audit.record(
+        "account.toggle_active", entity_type="user", entity_id=user.id,
+        summary=f"Доступ пользователю «{user.username}» ({person.full_name}) {'включён' if user.is_active else 'отключён'}",
+    )
     database.db_session.commit()
     flash(_("Доступ включён.") if user.is_active else _("Доступ отключён."), "success")
     return redirect(url_for("persons.detail", person_id=person.id))

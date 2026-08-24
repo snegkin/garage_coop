@@ -1,4 +1,6 @@
 Flask>=3.0
+Flask-WTF>=1.2
+Flask-Limiter>=3.5
 SQLAlchemy>=2.0
 alembic>=1.13
 segno>=1.6

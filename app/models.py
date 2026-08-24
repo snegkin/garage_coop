@@ -1043,3 +1043,31 @@ class PD4Document(Base):
             name="ck_pd4_document_target",
         ),
     )
+
+
+# ---------------------------------------------------------------------------
+# Журнал аудита
+# ---------------------------------------------------------------------------
+
+class AuditLog(Base):
+    """
+    Журнал действий с деньгами/доступом кооператива: кто, когда и что сделал
+    (начисления, платежи, изменения ролей, вход в систему и т.п.). Не
+    редактируется руками — только через audit.record() (см. app/audit.py).
+    actor_username/actor_role — снимок на момент действия, а не FK-джойн:
+    учётка могла с тех пор смениться/быть отвязана, а запись в журнале
+    должна остаться читаемой как есть (юридически значимая история).
+    """
+    __tablename__ = "audit_log"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.utcnow, index=True)
+    actor_user_id: Mapped[int | None] = mapped_column(ForeignKey("user.id", ondelete="SET NULL"), index=True)
+    actor_username: Mapped[str | None] = mapped_column(String(80))
+    actor_role: Mapped[str | None] = mapped_column(String(20))
+    action: Mapped[str] = mapped_column(String(50), index=True)  # напр. "payment.create", "role.change", "auth.login_failed"
+    entity_type: Mapped[str | None] = mapped_column(String(50), index=True)
+    entity_id: Mapped[int | None] = mapped_column(Integer, index=True)
+    summary: Mapped[str] = mapped_column(Text)  # человекочитаемое описание, уже готовое к показу в журнале
+
+    actor: Mapped["User | None"] = relationship()

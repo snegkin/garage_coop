@@ -1,14 +1,30 @@
 import os
+import logging
 
 from flask import Flask, g, redirect, url_for
+from flask_wtf import CSRFProtect
 
 from config import Config
 from .database import init_engine, run_migrations, init_app as init_db_lifecycle
+from .rate_limit import limiter
+
+csrf = CSRFProtect()
 
 
 def create_app(config_class=Config):
     app = Flask(__name__)
     app.config.from_object(config_class)
+    csrf.init_app(app)
+    limiter.init_app(app)
+
+    if not app.testing:
+        logging.basicConfig(
+            level=logging.INFO,
+            format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        )
+
+    from .errors import register_error_handlers
+    register_error_handlers(app)
 
     os.makedirs(os.path.dirname(app.config["SQLALCHEMY_DATABASE_URI"].replace("sqlite:///", "")), exist_ok=True)
     os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)

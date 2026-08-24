@@ -70,6 +70,7 @@ def sync_user_role(person) -> None:
     user = database.db_session.query(User).filter_by(person_id=person.id).first()
     if user is None:
         return
+    old_role = user.role
     if person.is_chairman:
         user.role = RoleEnum.CHAIRMAN
     elif person.is_accountant:
@@ -78,3 +79,10 @@ def sync_user_role(person) -> None:
         user.role = RoleEnum.BOARD
     else:
         user.role = RoleEnum.MEMBER
+
+    if user.role != old_role:
+        from . import audit
+        audit.record(
+            "role.change", entity_type="user", entity_id=user.id,
+            summary=f"Роль «{user.username}» ({person.full_name}) изменена: {old_role.value} → {user.role.value}",
+        )

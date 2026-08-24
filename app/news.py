@@ -28,8 +28,10 @@ def latest_news(limit: int = FRONT_PAGE_LIMIT):
 
 def _save_attachments(item: News):
     """Сохраняет все файлы из request.files['attachments'] (multiple) и
-    привязывает их к новости. Без ограничения по расширению — как и у
-    остальных загрузок в проекте (документы, протоколы и т.д.)."""
+    привязывает их к новости. save_upload() применяет белый список
+    расширений по умолчанию (DEFAULT_ALLOWED_EXT) — этот эндпоинт публичный
+    (вложения новостей отдаются анонимным посетителям), поэтому важно не
+    дать залить .html/.svg и получить stored XSS."""
     for file_storage in request.files.getlist("attachments"):
         if not file_storage or not file_storage.filename:
             continue

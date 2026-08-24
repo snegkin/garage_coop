@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Журнал аудита") }}{% endblock %}
+{% block content %}
+<h3 class="mb-3">{{ _("Журнал аудита") }}</h3>
+<p class="text-muted small">{{ _("Все начисления, платежи, изменения ролей и доступа — кто и когда сделал. Записи не редактируются.") }}</p>
+
+<table class="table table-bordered bg-body table-sm mb-3">
+  <thead>
+    <tr>
+      <th>{{ _("Когда") }}</th>
+      <th>{{ _("Кто") }}</th>
+      <th>{{ _("Что") }}</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for entry in entries %}
+    <tr>
+      <td class="text-nowrap">{{ fmt_date(entry.created_at) }} {{ entry.created_at.strftime("%H:%M") }}</td>
+      <td class="text-nowrap">
+        {% if entry.actor_username %}
+          {{ entry.actor_username }}
+          {% if entry.actor_role %}<span class="badge bg-secondary">{{ role_label(entry.actor_role) }}</span>{% endif %}
+        {% else %}
+          <span class="text-muted">{{ _("аноним/неизвестно") }}</span>
+        {% endif %}
+      </td>
+      <td>{{ entry.summary }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="3" class="text-muted">{{ _("Записей пока нет.") }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<nav>
+  <ul class="pagination">
+    <li class="page-item {{ 'disabled' if not has_prev }}">
+      <a class="page-link" href="{{ url_for('governance.audit_log', page=page-1) }}">{{ _("Назад") }}</a>
+    </li>
+    <li class="page-item disabled"><span class="page-link">{{ page }}</span></li>
+    <li class="page-item {{ 'disabled' if not has_next }}">
+      <a class="page-link" href="{{ url_for('governance.audit_log', page=page+1) }}">{{ _("Далее") }}</a>
+    </li>
+  </ul>
+</nav>
+{% endblock %}

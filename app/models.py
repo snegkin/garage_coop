@@ -245,10 +245,16 @@ class BankStatementLine(Base):
     document_number: Mapped[str | None] = mapped_column(String(50))
     account_number: Mapped[str | None] = mapped_column(String(20))  # лицевой счёт, распознанный в назначении платежа
     matched_payment_id: Mapped[int | None] = mapped_column(ForeignKey("payment.id", ondelete="SET NULL"))
+    matched_registry_id: Mapped[int | None] = mapped_column(
+        ForeignKey("payment_registry_entry.id", ondelete="SET NULL"),
+    )
     imported_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.utcnow)
 
     bank_account: Mapped["BankAccount"] = relationship()
     matched_payment: Mapped["Payment | None"] = relationship()
+    matched_registry: Mapped["PaymentRegistryEntry | None"] = relationship(
+        foreign_keys="[BankStatementLine.matched_registry_id]",
+    )
 
     __table_args__ = (
         UniqueConstraint("bank_account_id", "external_uid", name="uq_bank_statement_line_external_uid"),
@@ -318,10 +324,16 @@ class PaymentRegistryEntry(Base):
     credited_amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
     fee_amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
     matched_payment_id: Mapped[int | None] = mapped_column(ForeignKey("payment.id", ondelete="SET NULL"))
+    matched_statement_id: Mapped[int | None] = mapped_column(
+        ForeignKey("bank_statement_line.id", ondelete="SET NULL"),
+    )
     fetched_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.utcnow)
 
     bank_account: Mapped["BankAccount"] = relationship()
     matched_payment: Mapped["Payment | None"] = relationship()
+    matched_statement: Mapped["BankStatementLine | None"] = relationship(
+        foreign_keys="[PaymentRegistryEntry.matched_statement_id]",
+    )
 
     __table_args__ = (
         UniqueConstraint("bank_account_id", "external_id", name="uq_payment_registry_entry_external_id"),

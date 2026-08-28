@@ -32,6 +32,7 @@
       <th>{{ _("Сумма") }}</th>
       <th>{{ _("Зачислено (за вычетом комиссии)") }}</th>
       <th>{{ _("Назначение платежа") }}</th>
+      <th>{{ _("Выписка") }}</th>
       <th>{{ _("Статус") }}</th>
       {% if is_chairman() %}<th class="no-sort"></th>{% endif %}
     </tr>
@@ -49,7 +50,17 @@
           {% if entry.fee_amount %}<span class="text-muted small">({{ _("комиссия") }} {{ fmt2(entry.fee_amount) }} ₽)</span>{% endif %}
         {% else %}—{% endif %}
       </td>
-      <td>{{ entry.payment_purpose or "—" }}</td>
+      <td id="entry-{{ entry.id }}">{{ entry.payment_purpose or "—" }}</td>
+      <td>
+        {% if entry.matched_statement %}
+          <a href="{{ url_for('bank_sync.statement', account_id=account.id) }}#line-{{ entry.matched_statement.id }}"
+             class="badge bg-info text-decoration-none" title="Выписка #{{ entry.matched_statement.id }}">
+            {{ _("из выписки") }}
+          </a>
+        {% else %}
+          —
+        {% endif %}
+      </td>
       <td>
         {% if entry.matched_payment_id %}
           <span class="badge bg-success">{{ _("разнесён") }}</span>
@@ -68,8 +79,14 @@
       {% endif %}
     </tr>
     {% else %}
-    <tr><td colspan="8" class="text-muted">{{ _("Записей реестра платежей пока нет.") }}</td></tr>
+    <tr><td colspan="9" class="text-muted">{{ _("Записей реестра платежей пока нет.") }}</td></tr>
     {% endfor %}
   </tbody>
 </table>
+
+{% if is_chairman() %}
+<form method="post" action="{{ url_for('bank_sync.match_registry_and_statement_manual', account_id=account.id) }}" class="d-inline">
+  <button class="btn btn-sm btn-outline-secondary mt-2">{{ _("Сопоставить с выпиской") }}</button>
+</form>
+{% endif %}
 {% endblock %}

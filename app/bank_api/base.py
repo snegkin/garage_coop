@@ -88,7 +88,3 @@ class BankApiClient(abc.ABC):
     @abc.abstractmethod
     def get_charge_registry_status(self, external_id: str) -> ChargeRegistryResult:
         """Текущий статус ранее отправленного реестра начислений."""
-
-    @abc.abstractmethod
-    def get_payment_registry(self, date_from: dt.date, date_to: dt.date) -> list[PaymentRegistryItem]:
-        """Реестр платежей, поступивших по начислениям, за период."""

@@ -47,6 +47,7 @@
       <th>{{ _("Назначение платежа") }}</th>
       <th>{{ _("Номер документа") }}</th>
       <th>{{ _("Погашение") }}</th>
+      <th>{{ _("Реестр") }}</th>
       {% if is_chairman() %}<th class="no-sort"></th>{% endif %}
     </tr>
   </thead>
@@ -66,7 +67,7 @@
       <td>{{ line.counterparty_name or "—" }}</td>
       <td>{{ line.counterparty_inn or "—" }}</td>
       <td>{{ line.payment_purpose or "—" }}</td>
-      <td>{{ line.document_number or "—" }}</td>
+      <td id="line-{{ line.id }}">{{ line.document_number or "—" }}</td>
       <td>
         {% if line.direction != "credit" %}
           —
@@ -74,6 +75,16 @@
           <span class="badge bg-success">{{ _("разнесён") }}</span>
         {% else %}
           <span class="badge bg-secondary">{{ _("не разнесён") }}</span>
+        {% endif %}
+      </td>
+      <td>
+        {% if line.matched_registry %}
+          <a href="{{ url_for('bank_sync.payment_registry', account_id=account.id) }}#entry-{{ line.matched_registry.id }}"
+             class="badge bg-info text-decoration-none" title="Реестр #{{ line.matched_registry.id }}">
+            {{ _("из реестра") }}
+          </a>
+        {% else %}
+          —
         {% endif %}
       </td>
       {% if is_chairman() %}

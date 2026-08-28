@@ -26,7 +26,7 @@ from app.accounting import balance
 from app.models import (
     RoleEnum, BankAccount, BankApiProvider, BankApiCredential, BankStatementLine,
     ChargeRegistryBatch, ChargeRegistryStatus, PaymentRegistryEntry,
-    MemberAccount, FeeType, Charge, Payment, GarageContact,
+    MemberAccount, FeeType, Charge, Payment, GarageContact, PersonalAccount,
 )
 
 from tests.conftest import make_person, make_garage, make_ownership, make_user, login
@@ -1052,24 +1052,640 @@ def test_upload_client_certificate_converts_pkcs12_to_pem(app, db, client):
     assert mode == "600"
 
 
-def test_upload_client_certificate_wrong_passphrase_rejected(app, db, client):
-    account = make_bank_account(db, provider=BankApiProvider.SBERBANK)
-    make_user(db, "chair11", "pass12345", role=RoleEnum.CHAIRMAN)
-    db.commit()
-    login(client, "chair11", "pass12345")
+# ---------------------------------------------------------------------------
+# Сопоставление реестра и выписки
+# ---------------------------------------------------------------------------
 
+def test_match_registry_and_statement_direct_by_external_id(app, db):
+    """Прямое совпадение по внешнему ID банка: PaymentRegistryEntry.external_id
+    == BankStatementLine.external_uid."""
+    account = make_bank_account(db, provider=BankApiProvider.SBERBANK)
+    db.flush()
+
+    line = BankStatementLine(
+        bank_account_id=account.id, external_uid="ext-123",
+        operation_date=dt.date(2026, 8, 15), direction="credit", amount=Decimal("1000.00"),
+        counterparty_name="Иванов Иван Иванович",
+        payment_purpose="Членский взнос",
+    )
+    db.add(line)
+
+    entry = PaymentRegistryEntry(
+        bank_account_id=account.id, external_id="ext-123",
+        operation_date=dt.date(2026, 8, 15), amount=Decimal("1000.00"),
+        payer_name="Иванов Иван Иванович",
+        account_number="10001",
+        payment_purpose="Членский взнос",
+    )
+    db.add(entry)
+    db.commit()
+
+    with app.app_context():
+        direct, parametric = bank_sync._match_registry_and_statement(account.id)
+
+    assert direct == 1
+    assert parametric == 0
+    db.expire_all()
+    assert line.matched_registry_id == entry.id
+    assert entry.matched_statement_id == line.id
+
+
+def test_match_registry_and_statement_parametric_by_account_number(app, db):
+    """Параметрическое совпадение: разные внешние ID, но совпадают
+    account_number, amount и дата (±1 день)."""
+    account = make_bank_account(db, provider=BankApiProvider.SBERBANK)
+    db.flush()
+
+    line = BankStatementLine(
+        bank_account_id=account.id, external_uid="stmt-001",
+        operation_date=dt.date(2026, 8, 15), direction="credit", amount=Decimal("1500.00"),
+        account_number="20002",
+        payment_purpose="Земельный налог",
+    )
+    db.add(line)
+
+    entry = PaymentRegistryEntry(
+        bank_account_id=account.id, external_id="reg-001",
+        operation_date=dt.date(2026, 8, 16), amount=Decimal("1500.00"),
+        payer_name="Петров Пётр Петрович",
+        account_number="20002",
+        payment_purpose="Земельный налог",
+    )
+    db.add(entry)
+    db.commit()
+
+    with app.app_context():
+        direct, parametric = bank_sync._match_registry_and_statement(account.id)
+
+    assert direct == 0
+    assert parametric == 1
+    db.expire_all()
+    assert line.matched_registry_id == entry.id
+    assert entry.matched_statement_id == line.id
+
+
+def test_match_registry_and_statement_no_match_different_account_numbers(app, db):
+    """Нет совпадения: разные номера лицевых счетов — не сопоставлять."""
+    account = make_bank_account(db, provider=BankApiProvider.SBERBANK)
+    db.flush()
+
+    line = BankStatementLine(
+        bank_account_id=account.id, external_uid="stmt-002",
+        operation_date=dt.date(2026, 8, 15), direction="credit", amount=Decimal("1500.00"),
+        account_number="20002",
+    )
+    db.add(line)
+
+    entry = PaymentRegistryEntry(
+        bank_account_id=account.id, external_id="reg-002",
+        operation_date=dt.date(2026, 8, 15), amount=Decimal("1500.00"),
+        account_number="20003",
+    )
+    db.add(entry)
+    db.commit()
+
+    with app.app_context():
+        direct, parametric = bank_sync._match_registry_and_statement(account.id)
+
+    assert direct == 0
+    assert parametric == 0
+    db.expire_all()
+    assert line.matched_registry_id is None
+    assert entry.matched_statement_id is None
+
+
+def test_match_registry_and_statement_no_match_different_amounts(app, db):
+    """Нет совпадения: разные суммы — не сопоставлять, даже если ЛС и дата совпадают."""
+    account = make_bank_account(db, provider=BankApiProvider.SBERBANK)
+    db.flush()
+
+    line = BankStatementLine(
+        bank_account_id=account.id, external_uid="stmt-003",
+        operation_date=dt.date(2026, 8, 15), direction="credit", amount=Decimal("1500.00"),
+        account_number="20004",
+    )
+    db.add(line)
+
+    entry = PaymentRegistryEntry(
+        bank_account_id=account.id, external_id="reg-003",
+        operation_date=dt.date(2026, 8, 15), amount=Decimal("1500.50"),
+        account_number="20004",
+    )
+    db.add(entry)
+    db.commit()
+
+    with app.app_context():
+        direct, parametric = bank_sync._match_registry_and_statement(account.id)
+
+    assert direct == 0
+    assert parametric == 0
+
+
+def test_match_registry_and_statement_no_match_date_too_far(app, db):
+    """Нет совпадения: дата отличается более чем на 1 день."""
+    account = make_bank_account(db, provider=BankApiProvider.SBERBANK)
+    db.flush()
+
+    line = BankStatementLine(
+        bank_account_id=account.id, external_uid="stmt-004",
+        operation_date=dt.date(2026, 8, 15), direction="credit", amount=Decimal("1500.00"),
+        account_number="20005",
+    )
+    db.add(line)
+
+    entry = PaymentRegistryEntry(
+        bank_account_id=account.id, external_id="reg-004",
+        operation_date=dt.date(2026, 8, 20), amount=Decimal("1500.00"),
+        account_number="20005",
+    )
+    db.add(entry)
+    db.commit()
+
+    with app.app_context():
+        direct, parametric = bank_sync._match_registry_and_statement(account.id)
+
+    assert direct == 0
+    assert parametric == 0
+
+
+def test_match_registry_and_statement_already_matched_not_rematched(app, db):
+    """Уже сопоставленные записи не пересоздаются — match 1:1."""
+    account = make_bank_account(db, provider=BankApiProvider.SBERBANK)
+    db.flush()
+
+    line = BankStatementLine(
+        bank_account_id=account.id, external_uid="stmt-005",
+        operation_date=dt.date(2026, 8, 15), direction="credit", amount=Decimal("1500.00"),
+        account_number="20006",
+    )
+    db.add(line)
+
+    entry = PaymentRegistryEntry(
+        bank_account_id=account.id, external_id="reg-005",
+        operation_date=dt.date(2026, 8, 15), amount=Decimal("1500.00"),
+        account_number="20006",
+    )
+    db.add(entry)
+    db.commit()
+
+    # Первое сопоставление
+    bank_sync._match_registry_and_statement(account.id)
+    db.commit()
+
+    # Второе — должно вернуть 0, ничего не изменив
+    direct, parametric = bank_sync._match_registry_and_statement(account.id)
+
+    assert direct == 0
+    assert parametric == 0
+
+
+def test_match_registry_and_statement_multiple_pairs(app, db):
+    """Несколько пар — каждая сопоставляется независимо."""
+    account = make_bank_account(db, provider=BankApiProvider.SBERBANK)
+    db.flush()
+
+    lines = [
+        BankStatementLine(
+            bank_account_id=account.id, external_uid=f"stmt-{i}",
+            operation_date=dt.date(2026, 8, 15), direction="credit", amount=Decimal(str(100 * (i + 1))),
+            account_number=str(30000 + i),
+        )
+        for i in range(3)
+    ]
+    entries = [
+        PaymentRegistryEntry(
+            bank_account_id=account.id, external_id=f"reg-{i}",
+            operation_date=dt.date(2026, 8, 15), amount=Decimal(str(100 * (i + 1))),
+            account_number=str(30000 + i),
+        )
+        for i in range(3)
+    ]
+    for l in lines:
+        db.add(l)
+    for e in entries:
+        db.add(e)
+    db.commit()
+
+    with app.app_context():
+        direct, parametric = bank_sync._match_registry_and_statement(account.id)
+
+    assert direct == 0
+    assert parametric == 3
+    db.expire_all()
+    for i in range(3):
+        assert lines[i].matched_registry_id == entries[i].id
+        assert entries[i].matched_statement_id == lines[i].id
+
+
+def test_match_registry_and_statement_ignores_already_allocated_lines(app, db):
+    """Строки выписки, уже сопоставленные с реестром (matched_registry_id != None),
+    не участвуют в повторном сопоставлении."""
+    account = make_bank_account(db, provider=BankApiProvider.SBERBANK)
+    db.flush()
+
+    line1 = BankStatementLine(
+        bank_account_id=account.id, external_uid="stmt-10",
+        operation_date=dt.date(2026, 8, 15), direction="credit", amount=Decimal("100.00"),
+        account_number="40001",
+    )
+    db.add(line1)
+
+    entry1 = PaymentRegistryEntry(
+        bank_account_id=account.id, external_id="reg-10",
+        operation_date=dt.date(2026, 8, 15), amount=Decimal("100.00"),
+        account_number="40001",
+    )
+    db.add(entry1)
+
+    # Уже сопоставлены вручную (нужен flush, чтобы IDs были присвоены)
+    db.flush()
+    line1.matched_registry_id = entry1.id
+    entry1.matched_statement_id = line1.id
+
+    # Ещё одна пара — должна сопоставиться
+    line2 = BankStatementLine(
+        bank_account_id=account.id, external_uid="stmt-11",
+        operation_date=dt.date(2026, 8, 16), direction="credit", amount=Decimal("200.00"),
+        account_number="40002",
+    )
+    db.add(line2)
+
+    entry2 = PaymentRegistryEntry(
+        bank_account_id=account.id, external_id="reg-11",
+        operation_date=dt.date(2026, 8, 16), amount=Decimal("200.00"),
+        account_number="40002",
+    )
+    db.add(entry2)
+    db.commit()
+
+    direct, parametric = bank_sync._match_registry_and_statement(account.id)
+
+    assert direct == 0
+    assert parametric == 1
+    # Функция не делает commit — фиксируем изменения
+    db.commit()
+    # Функция работает с объектами из своего запроса — нужно обновить объекты теста
+    db.expire_all()
+    db.refresh(line2)
+    db.refresh(entry2)
+    assert line2.matched_registry_id == entry2.id
+
+
+def test_match_registry_and_statement_ignores_missing_account_number(app, db):
+    """Записи без account_number не участвуют в параметрическом match —
+    не можем однозначно сопоставить."""
+    account = make_bank_account(db, provider=BankApiProvider.SBERBANK)
+    db.flush()
+
+    line = BankStatementLine(
+        bank_account_id=account.id, external_uid="stmt-20",
+        operation_date=dt.date(2026, 8, 15), direction="credit", amount=Decimal("100.00"),
+        account_number=None,
+    )
+    db.add(line)
+
+    entry = PaymentRegistryEntry(
+        bank_account_id=account.id, external_id="reg-20",
+        operation_date=dt.date(2026, 8, 15), amount=Decimal("100.00"),
+        account_number=None,
+    )
+    db.add(entry)
+    db.commit()
+
+    with app.app_context():
+        direct, parametric = bank_sync._match_registry_and_statement(account.id)
+
+    assert direct == 0
+    assert parametric == 0
+
+
+def test_match_registry_and_statement_manual_route(app, db, client):
+    """Ручной запуск сопоставления через POST-роут."""
+    account = make_bank_account(db, provider=BankApiProvider.SBERBANK)
+    make_user(db, "chair_match", "pass12345", role=RoleEnum.CHAIRMAN)
+    db.commit()
+    login(client, "chair_match", "pass12345")
+
+    resp = client.post(f"/cooperative/bank-accounts/{account.id}/match-registry-statement")
+    assert resp.status_code == 302
+
+
+def test_match_registry_and_statement_requires_chairman(app, db, client):
+    """Только председатель может запускать сопоставление."""
+    account = make_bank_account(db, provider=BankApiProvider.SBERBANK)
+    make_user(db, "board_member", "pass12345", role=RoleEnum.BOARD)
+    db.commit()
+    login(client, "board_member", "pass12345")
+
+    resp = client.post(f"/cooperative/bank-accounts/{account.id}/match-registry-statement")
+    assert resp.status_code == 302
+
+
+def test_match_registry_and_statement_direct_preferred_over_parametric(app, db):
+    """Если есть прямой match по внешнему ID — он приоритетнее параметрического.
+    Даже если параметрический match тоже возможен."""
+    account = make_bank_account(db, provider=BankApiProvider.SBERBANK)
+    db.flush()
+
+    # Пара с прямым match по external_id
+    line_direct = BankStatementLine(
+        bank_account_id=account.id, external_uid="direct-001",
+        operation_date=dt.date(2026, 8, 15), direction="credit", amount=Decimal("100.00"),
+        account_number="50001",
+    )
+    db.add(line_direct)
+
+    entry_direct = PaymentRegistryEntry(
+        bank_account_id=account.id, external_id="direct-001",
+        operation_date=dt.date(2026, 8, 15), amount=Decimal("100.00"),
+        account_number="50001",
+    )
+    db.add(entry_direct)
+
+    # Пара без прямого match (разные external_id), но с параметрическим (та же сумма и ЛС)
+    line_param = BankStatementLine(
+        bank_account_id=account.id, external_uid="stmt-param-001",
+        operation_date=dt.date(2026, 8, 15), direction="credit", amount=Decimal("200.00"),
+        account_number="50002",
+    )
+    db.add(line_param)
+
+    entry_param = PaymentRegistryEntry(
+        bank_account_id=account.id, external_id="reg-param-001",
+        operation_date=dt.date(2026, 8, 15), amount=Decimal("200.00"),
+        account_number="50002",
+    )
+    db.add(entry_param)
+    db.commit()
+
+    with app.app_context():
+        direct, parametric = bank_sync._match_registry_and_statement(account.id)
+
+    assert direct == 1
+    assert parametric == 1
+    db.expire_all()
+    assert line_direct.matched_registry_id == entry_direct.id
+    assert line_param.matched_registry_id == entry_param.id
+
+
+def test_match_registry_and_statement_no_cross_match_same_account_number_multiple_amounts(app, db):
+    """Если на одном ЛС несколько платежей разных сумм — каждый сопоставляется
+    только со своим. Не должно быть cross-match."""
+    account = make_bank_account(db, provider=BankApiProvider.SBERBANK)
+    db.flush()
+
+    # Выписка: два платежа на один ЛС, разные суммы
+    line_a = BankStatementLine(
+        bank_account_id=account.id, external_uid="stmt-cross-a",
+        operation_date=dt.date(2026, 8, 15), direction="credit", amount=Decimal("100.00"),
+        account_number="60001",
+    )
+    db.add(line_a)
+
+    line_b = BankStatementLine(
+        bank_account_id=account.id, external_uid="stmt-cross-b",
+        operation_date=dt.date(2026, 8, 15), direction="credit", amount=Decimal("200.00"),
+        account_number="60001",
+    )
+    db.add(line_b)
+
+    # Реестр: те же ЛС и суммы, но разные внешние ID
+    entry_a = PaymentRegistryEntry(
+        bank_account_id=account.id, external_id="reg-cross-a",
+        operation_date=dt.date(2026, 8, 15), amount=Decimal("100.00"),
+        account_number="60001",
+    )
+    db.add(entry_a)
+
+    entry_b = PaymentRegistryEntry(
+        bank_account_id=account.id, external_id="reg-cross-b",
+        operation_date=dt.date(2026, 8, 15), amount=Decimal("200.00"),
+        account_number="60001",
+    )
+    db.add(entry_b)
+    db.commit()
+
+    with app.app_context():
+        direct, parametric = bank_sync._match_registry_and_statement(account.id)
+
+    assert direct == 0
+    assert parametric == 2
+    db.expire_all()
+    # Каждая запись реестра сопоставлена с правильной строкой выписки
+    assert line_a.matched_registry_id == entry_a.id
+    assert line_b.matched_registry_id == entry_b.id
+    # Нет перекрёстного сопоставления
+    assert line_a.matched_registry_id != line_b.matched_registry_id
+
+
+def test_match_registry_and_statement_date_diff_exactly_1_day(app, db):
+    """Разница в датах ровно 1 день — должно сопоставиться."""
+    account = make_bank_account(db, provider=BankApiProvider.SBERBANK)
+    db.flush()
+
+    line = BankStatementLine(
+        bank_account_id=account.id, external_uid="stmt-30",
+        operation_date=dt.date(2026, 8, 15), direction="credit", amount=Decimal("100.00"),
+        account_number="70001",
+    )
+    db.add(line)
+
+    entry = PaymentRegistryEntry(
+        bank_account_id=account.id, external_id="reg-30",
+        operation_date=dt.date(2026, 8, 16), amount=Decimal("100.00"),
+        account_number="70001",
+    )
+    db.add(entry)
+    db.commit()
+
+    with app.app_context():
+        direct, parametric = bank_sync._match_registry_and_statement(account.id)
+
+    assert parametric == 1
+
+
+def test_match_registry_and_statement_date_diff_2_days_no_match(app, db):
+    """Разница в датах 2 дня — не сопоставляется."""
+    account = make_bank_account(db, provider=BankApiProvider.SBERBANK)
+    db.flush()
+
+    line = BankStatementLine(
+        bank_account_id=account.id, external_uid="stmt-31",
+        operation_date=dt.date(2026, 8, 15), direction="credit", amount=Decimal("100.00"),
+        account_number="70002",
+    )
+    db.add(line)
+
+    entry = PaymentRegistryEntry(
+        bank_account_id=account.id, external_id="reg-31",
+        operation_date=dt.date(2026, 8, 17), amount=Decimal("100.00"),
+        account_number="70002",
+    )
+    db.add(entry)
+    db.commit()
+
+    with app.app_context():
+        direct, parametric = bank_sync._match_registry_and_statement(account.id)
+
+    assert parametric == 0
+
+
+def test_match_registry_and_statement_mixed_direct_and_parametric(app, db):
+    """Смешанный сценарий: часть пар совпадает по внешнему ID, часть — по параметрам.
+    Оба типа должны сработать независимо."""
+    account = make_bank_account(db, provider=BankApiProvider.SBERBANK)
+    db.flush()
+
+    # Прямая пара
+    line_direct = BankStatementLine(
+        bank_account_id=account.id, external_uid="mix-direct-1",
+        operation_date=dt.date(2026, 8, 15), direction="credit", amount=Decimal("100.00"),
+        account_number="80001",
+    )
+    db.add(line_direct)
+    entry_direct = PaymentRegistryEntry(
+        bank_account_id=account.id, external_id="mix-direct-1",
+        operation_date=dt.date(2026, 8, 15), amount=Decimal("100.00"),
+        account_number="80001",
+    )
+    db.add(entry_direct)
+
+    # Параметрическая пара (разные external_id, но совпадают ЛС и сумма)
+    line_param = BankStatementLine(
+        bank_account_id=account.id, external_uid="stmt-mix-param-1",
+        operation_date=dt.date(2026, 8, 15), direction="credit", amount=Decimal("200.00"),
+        account_number="80002",
+    )
+    db.add(line_param)
+    entry_param = PaymentRegistryEntry(
+        bank_account_id=account.id, external_id="reg-mix-param-1",
+        operation_date=dt.date(2026, 8, 15), amount=Decimal("200.00"),
+        account_number="80002",
+    )
+    db.add(entry_param)
+
+    # Третий — нет совпадений (разные external_id и разные ЛС)
+    line_none = BankStatementLine(
+        bank_account_id=account.id, external_uid="stmt-mix-none-1",
+        operation_date=dt.date(2026, 8, 15), direction="credit", amount=Decimal("300.00"),
+        account_number="80003",
+    )
+    db.add(line_none)
+    entry_none = PaymentRegistryEntry(
+        bank_account_id=account.id, external_id="reg-mix-none-1",
+        operation_date=dt.date(2026, 8, 15), amount=Decimal("300.00"),
+        account_number="80004",  # другой ЛС
+    )
+    db.add(entry_none)
+    db.commit()
+
+    with app.app_context():
+        direct, parametric = bank_sync._match_registry_and_statement(account.id)
+
+    assert direct == 1
+    assert parametric == 1
+    db.expire_all()
+    # Прямая пара
+    assert line_direct.matched_registry_id == entry_direct.id
+    # Параметрическая пара
+    assert line_param.matched_registry_id == entry_param.id
+    # Без совпадений
+    assert line_none.matched_registry_id is None
+    assert entry_none.matched_statement_id is None
+
+
+def test_upload_payment_registry_triggers_match(app, db, client):
+    """Загрузка реестра автоматически запускает сопоставление с существующей выпиской."""
+    person = make_person(db)
+    garage = make_garage(db)
+    fee_type = FeeType(code="10", name="Членский взнос")
+    db.add(fee_type)
+    db.flush()
+    member_account = MemberAccount(
+        person_id=person.id, garage_id=garage.id, fee_type_id=fee_type.id, account_number="90001",
+    )
+    db.add(member_account)
+    db.flush()
+
+    bank_account = make_bank_account(db, provider=BankApiProvider.SBERBANK)
+    make_user(db, "chair_upload_match", "pass12345", role=RoleEnum.CHAIRMAN)
+    db.commit()
+    login(client, "chair_upload_match", "pass12345")
+
+    # Сначала загружаем выписку с конкретным external_uid
+    from app.bank_api.base import StatementLine
+    stub = _StubClient(statement_result=[
+        StatementLine(
+            external_uid="upload-match-001",
+            operation_date=dt.date(2026, 8, 15), direction="credit", amount=Decimal("500.00"),
+            counterparty_name=person.full_name,
+            payment_purpose="ЛС 90001; Членский взнос",
+        ),
+    ])
+
+    import unittest.mock
+    with unittest.mock.patch.object(bank_sync, "get_client", lambda acc: stub):
+        resp = client.post(
+            f"/cooperative/bank-accounts/{bank_account.id}/sync-statement",
+            data={"date_from": "2026-08-01", "date_to": "2026-08-31"},
+        )
+    assert resp.status_code == 302
+
+    # Теперь загружаем реестр с тем же external_id
+    raw = "15-08-2026;10-00-00;0001;0001111V;100200300;90001;Петров Пётр;Взнос;0625;500,00;495,00;5,00;5\r\n"
     from io import BytesIO
-    p12_bytes = _make_test_pkcs12(b"correct-passphrase")
     resp = client.post(
-        f"/cooperative/bank-accounts/{account.id}/api-settings",
-        data={
-            "api_provider": "sberbank", "client_id": "cid", "client_secret": "csecret",
-            "tls_cert_p12": (BytesIO(p12_bytes), "client.pfx"),
-            "tls_cert_passphrase": "wrong-passphrase",
-        },
+        f"/cooperative/bank-accounts/{bank_account.id}/registry/payments/upload",
+        data={"registry_file": (BytesIO(raw.encode("cp1251")), "registry.txt")},
         content_type="multipart/form-data",
     )
     assert resp.status_code == 302
+
+    # Проверяем, что запись реестра сопоставлена с выпиской
     db.expire_all()
-    cred = database.db_session.get(BankAccount, account.id).api_credential
-    assert cred is None or not cred.tls_cert_filename
+    line = database.db_session.query(BankStatementLine).filter_by(bank_account_id=bank_account.id).first()
+    entry = database.db_session.query(PaymentRegistryEntry).filter_by(bank_account_id=bank_account.id).first()
+    assert line.matched_registry_id == entry.id
+    assert entry.matched_statement_id == line.id
+
+
+def test_sync_statement_triggers_match(app, db, client, monkeypatch):
+    """Загрузка выписки автоматически запускает сопоставление с существующим реестром."""
+    bank_account = make_bank_account(db, provider=BankApiProvider.SBERBANK)
+    make_user(db, "chair_sync_match", "pass12345", role=RoleEnum.CHAIRMAN)
+    db.commit()
+    login(client, "chair_sync_match", "pass12345")
+
+    # Сначала загружаем реестр
+    raw = "15-08-2026;10-00-00;0001;0001111V;100200300;90002;Иванов Иван;Взнос;0625;750,00;742,50;7,50;5\r\n"
+    from io import BytesIO
+    resp = client.post(
+        f"/cooperative/bank-accounts/{bank_account.id}/registry/payments/upload",
+        data={"registry_file": (BytesIO(raw.encode("cp1251")), "registry.txt")},
+        content_type="multipart/form-data",
+    )
+    assert resp.status_code == 302
+
+    # Теперь загружаем выписку с тем же external_uid
+    stub = _StubClient(statement_result=[
+        StatementLine(
+            external_uid="sync-match-001",
+            operation_date=dt.date(2026, 8, 15), direction="credit", amount=Decimal("750.00"),
+            counterparty_name="Иванов Иван",
+            payment_purpose="ЛС 90002; Членский взнос",
+        ),
+    ])
+    monkeypatch.setattr(bank_sync, "get_client", lambda acc: stub)
+
+    resp = client.post(
+        f"/cooperative/bank-accounts/{bank_account.id}/sync-statement",
+        data={"date_from": "2026-08-01", "date_to": "2026-08-31"},
+    )
+    assert resp.status_code == 302
+
+    # Проверяем, что выписка сопоставлена с реестром
+    db.expire_all()
+    line = database.db_session.query(BankStatementLine).filter_by(bank_account_id=bank_account.id).first()
+    entry = database.db_session.query(PaymentRegistryEntry).filter_by(bank_account_id=bank_account.id).first()
+    assert line.matched_registry_id == entry.id
+    assert entry.matched_statement_id == line.id

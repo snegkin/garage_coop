@@ -413,20 +413,28 @@ def sync_statement(account_id):
     cred.last_statement_sync_at = dt.datetime.utcnow()
     cred.last_error = None
     _persist_rotated_refresh_token(cred, client)
+
+    # Сопоставить новые строки выписки с записями реестра
+    direct, parametric = _match_registry_and_statement(account.id)
+
     audit.record(
         "bank_api.statement_sync", entity_type="bank_account", entity_id=account.id,
         summary=f"Загружена выписка счёта {account.bank_name} {account.checking_account} за "
-                f"{date_from}—{date_to}: {added} новых операций, {auto_allocated} разнесено автоматически",
+                f"{date_from}—{date_to}: {added} новых операций, {auto_allocated} разнесено автоматически, "
+                f"{direct + parametric} сопоставлено с реестром ({direct} прямых, {parametric} параметрических)",
     )
     database.db_session.commit()
+    extra = ""
+    if direct or parametric:
+        extra = f" Сопоставлено с реестром: {direct} прямых + {parametric} параметрических совпадений."
     if auto_allocated:
         flash(
             _("Выписка обновлена: {n} новых операций, из них {m} автоматически разнесено по лицевым счетам.")
-            .format(n=added, m=auto_allocated),
+            .format(n=added, m=auto_allocated) + extra,
             "success",
         )
     else:
-        flash(_("Выписка обновлена: {n} новых операций.").format(n=added), "success")
+        flash(_("Выписка обновлена: {n} новых операций.").format(n=added) + extra, "success")
     return redirect(url_for("bank_sync.statement", account_id=account.id))
 
 
@@ -663,11 +671,7 @@ def _find_account_by_number(account_number: str):
 # назначения платежа, например: «ЛС 10640; ЧЛЕНСКИЕ ВЗНОСЫ (ФАМИЛИЯ И.О.);
 # 0126;ФАМИЛИЯ ИМЯ» — «ЛС» (лицевой счёт), затем опционально «:»/«№»/пробелы,
 # затем сам номер. Регистронезависимо — некоторые банки шлют «лс» строчными.
-_ACCOUNT_NUMBER_RE = re.compile(r"лс\s*[:№]?\s*(\d+)", re.IGNORECASE)
-
-# Имя файла реестра платежей: EPS{id}_{type}_{index}_{inn}_{account_number}_{file_index}.txt
-# Номер ЛС — предпоследняя группа цифр перед .txt
-_REGISTRY_FILENAME_RE = re.compile(r"(\d{10,20})\.txt$", re.IGNORECASE)
+_ACCOUNT_NUMBER_RE = re.compile(r"л[/]?с\s*[:№]?\s*(\d+)", re.IGNORECASE)
 
 # «Фамилия И.О.» — банк нередко указывает в назначении платежа не самого
 # плательщика, а того, за кого платят (типичный пример из реальных файлов
@@ -688,11 +692,6 @@ def extract_account_number(text: str | None) -> str | None:
         return None
     # Сначала ищем «ЛС 12345» в тексте
     m = _ACCOUNT_NUMBER_RE.search(text)
-    if m:
-        return m.group(1)
-    # Если не нашли — ищем номер ЛС в имени файла реестра
-    # Формат: EPS..._{inn}_{account_number}_{index}.txt
-    m = _REGISTRY_FILENAME_RE.search(text)
     if m:
         return m.group(1)
     return None
@@ -884,6 +883,70 @@ def _allocate_payment_to_account(
     return payment, resolved_account_number
 
 
+def _match_registry_and_statement(account_id: int) -> tuple[int, int]:
+    """
+    Сопоставляет записи реестра платежей и банковской выписки для данного счёта.
+    Возвращает (прямые_совпадения, параметрические_совпадения).
+
+    Приоритет 1 — прямой match по внешнему ID банка:
+        PaymentRegistryEntry.external_id == BankStatementLine.external_uid
+    Приоритет 2 — параметрический match по account_number + amount + date (±1 день).
+    Только для записей, которые ещё не сопоставлены ни с чем.
+    """
+    stmt_lines = (
+        database.db_session.query(BankStatementLine)
+        .filter_by(bank_account_id=account_id, matched_registry_id=None)
+        .all()
+    )
+    reg_entries = (
+        database.db_session.query(PaymentRegistryEntry)
+        .filter_by(bank_account_id=account_id, matched_statement_id=None)
+        .all()
+    )
+
+    direct_matches = 0
+    parametric_matches = 0
+
+    # Прямой match по внешнему ID
+    for entry in reg_entries:
+        for line in stmt_lines:
+            if line.external_uid and line.external_uid == entry.external_id:
+                entry.matched_statement_id = line.id
+                line.matched_registry_id = entry.id
+                direct_matches += 1
+                break
+
+    # Параметрический match по account_number + amount + date
+    matched_line_ids = {line.id for line in stmt_lines if line.matched_registry_id is not None}
+    matched_entry_ids = {entry.id for entry in reg_entries if entry.matched_statement_id is not None}
+
+    for entry in reg_entries:
+        if entry.id in matched_entry_ids:
+            continue
+        entry_account = entry.account_number
+        if not entry_account:
+            continue
+        for line in stmt_lines:
+            if line.id in matched_line_ids:
+                continue
+            if line.matched_registry_id is not None:
+                continue
+            line_account = line.account_number
+            if not line_account:
+                continue
+            if entry_account == line_account and entry.amount == line.amount:
+                date_diff = abs((entry.operation_date - line.operation_date).days)
+                if date_diff <= 1:
+                    entry.matched_statement_id = line.id
+                    line.matched_registry_id = entry.id
+                    parametric_matches += 1
+                    matched_line_ids.add(line.id)
+                    matched_entry_ids.add(entry.id)
+                    break
+
+    return direct_matches, parametric_matches
+
+
 def _store_payment_registry_items(account: BankAccount, items: list) -> int:
     """Общая дедупликация по external_id для обоих источников реестра
     платежей — автоматического (fetch_payment_registry, через API) и
@@ -951,13 +1014,19 @@ def upload_payment_registry_file(account_id):
         return redirect(url_for("bank_sync.payment_registry", account_id=account.id))
 
     added = _store_payment_registry_items(account, items)
+    database.db_session.flush()  # entry IDs нужны для сопоставления
+    direct, parametric = _match_registry_and_statement(account.id)
     audit.record(
         "bank_api.payment_registry_upload", entity_type="bank_account", entity_id=account.id,
         summary=f"Загружен файл реестра платежей вручную для счёта {account.bank_name} "
-                f"{account.checking_account}: {added} новых записей",
+                f"{account.checking_account}: {added} новых записей, "
+                f"{direct + parametric} сопоставлено с выпиской ({direct} прямых, {parametric} параметрических)",
     )
     database.db_session.commit()
-    flash(_("Реестр платежей обновлён из файла: {n} новых записей.").format(n=added), "success")
+    extra = ""
+    if direct or parametric:
+        extra = f" Сопоставлено с выпиской: {direct} прямых + {parametric} параметрических совпадений."
+    flash(_("Реестр платежей обновлён из файла: {n} новых записей.").format(n=added) + extra, "success")
     return redirect(url_for("bank_sync.payment_registry", account_id=account.id))
 
 
@@ -991,4 +1060,23 @@ def allocate_payment_registry_entry(account_id, entry_id):
     )
     database.db_session.commit()
     flash(_("Платёж разнесён."), "success")
+    return redirect(url_for("bank_sync.payment_registry", account_id=account.id))
+
+
+@bp.route("/match-registry-statement", methods=["POST"])
+@roles_required(RoleEnum.CHAIRMAN)
+def match_registry_and_statement_manual(account_id):
+    """Ручной запуск сопоставления реестра и выписки."""
+    account = _get_account(account_id)
+    direct, parametric = _match_registry_and_statement(account.id)
+    database.db_session.commit()
+    if direct or parametric:
+        flash(
+            _("Сопоставлено: {direct} прямых + {parametric} параметрических совпадений.").format(
+                direct=direct, parametric=parametric,
+            ),
+            "success",
+        )
+    else:
+        flash(_("Новых совпадений не найдено."), "info")
     return redirect(url_for("bank_sync.payment_registry", account_id=account.id))

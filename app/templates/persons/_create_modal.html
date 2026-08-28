@@ -1,5 +1,5 @@
 {# Параметры: modal_id (по умолчанию createPersonModal), next_url (куда вернуться после сохранения) #}
-<div class="modal fade" id="{{ modal_id|default('createPersonModal') }}" tabindex="-1" aria-hidden="true">
+<div class="modal fade" id="createPersonModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg modal-dialog-scrollable">
     <div class="modal-content">
       <form method="post" action="{{ url_for('persons.create') }}" enctype="application/x-www-form-urlencoded">

@@ -1,10 +1,31 @@
 {% extends "base.html" %}
-{% block title %}{{ _("Гараж №{n}", n=garage.number) }}{% endblock %}
+{% block title %}{{ page_title }}{% endblock %}
 {% block content %}
 {% set is_owner = current_user.person_id and current_user.person_id in garage.ownerships|map(attribute='person_id')|list %}
 {% set _active_tab = request.args.get('tab', 'info') %}
+
+{# Навигация: предыдущий / следующий гараж #}
+{% if prev_garage or next_garage %}
+<nav class="d-flex justify-content-between mb-3" aria-label="Навигация по гаражам">
+  {% if prev_garage %}
+  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('garages.detail', garage_id=prev_garage.id, tab=_active_tab) }}">
+    &larr; {{ _("Гараж №{n}", n=prev_garage.number) }}
+  </a>
+  {% else %}
+  <span></span>
+  {% endif %}
+  {% if next_garage %}
+  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('garages.detail', garage_id=next_garage.id, tab=_active_tab) }}">
+    {{ _("Гараж №{n}", n=next_garage.number) }} &rarr;
+  </a>
+  {% else %}
+  <span></span>
+  {% endif %}
+</nav>
+{% endif %}
+
 <div class="d-flex justify-content-between align-items-center mb-3">
-  <h3>{{ _("Гараж №{n}", n=garage.number) }}</h3>
+  <h3>{{ page_title }}</h3>
   {% if is_board() %}
   <a class="btn btn-primary" href="{{ url_for('garages.edit', garage_id=garage.id) }}">{{ _("Редактировать") }}</a>
   {% endif %}
@@ -251,12 +272,18 @@
       <tr><th>{{ _("Показания при установке") }}</th><td>{{ fmt2(current_meter.initial_reading) if current_meter.initial_reading is not none else "—" }}</td></tr>
       <tr><th>{{ _("Номер пломбы на счётчике") }}</th><td>{{ current_meter.meter_seal_number or "—" }}</td></tr>
       <tr><th>{{ _("Номер пломбы на вводном автомате") }}</th><td>{{ current_meter.breaker_seal_number or "—" }}</td></tr>
+      {% if current_meter.comment %}
+      <tr><th>{{ _("Комментарий") }}</th><td>{{ current_meter.comment }}</td></tr>
+      {% endif %}
       {% if is_board() %}
       <tr>
         <th></th>
         <td class="text-end">
+          <button type="button" class="btn btn-sm btn-outline-primary me-1" data-bs-toggle="modal" data-bs-target="#editMeterModal" title="{{ _('Изменить параметры') }}">
+            ✎ {{ _("Изменить") }}
+          </button>
           <button type="button" class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#replaceMeterModal" title="{{ _('Заменить прибор учета') }}">
-            ✎ {{ _("Заменить прибор учета") }}
+            🔄 {{ _("Заменить") }}
           </button>
         </td>
       </tr>
@@ -333,6 +360,57 @@
       </div>
     </div>
     {% endif %}
+
+    {% if current_meter and is_board() %}
+    <div class="modal fade" id="editMeterModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">{{ _("Изменить прибор учета") }}</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <form method="post" action="{{ url_for('garages.edit_electricity_meter', garage_id=garage.id, meter_id=current_meter.id) }}" id="editMeterForm">
+              <div class="row g-2">
+                <div class="col-md-6">
+                  <label class="form-label">{{ _("Номер счётчика") }}</label>
+                  <input class="form-control form-control-sm" name="meter_number" value="{{ current_meter.meter_number }}" required>
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">{{ _("Показания при установке") }}</label>
+                  <input class="form-control form-control-sm" name="initial_reading" value="{{ current_meter.initial_reading if current_meter.initial_reading is not none else '' }}">
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">{{ _("Дата установки") }}</label>
+                  <input class="form-control form-control-sm" type="date" name="installed_date" value="{{ current_meter.installed_date.isoformat() if current_meter.installed_date else '' }}">
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">{{ _("Дата опломбировки") }}</label>
+                  <input class="form-control form-control-sm" type="date" name="sealed_date" value="{{ current_meter.sealed_date.isoformat() if current_meter.sealed_date else '' }}">
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">{{ _("Номер пломбы на счётчике") }}</label>
+                  <input class="form-control form-control-sm" name="meter_seal_number" value="{{ current_meter.meter_seal_number or '' }}">
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">{{ _("Номер пломбы на вводном автомате") }}</label>
+                  <input class="form-control form-control-sm" name="breaker_seal_number" value="{{ current_meter.breaker_seal_number or '' }}">
+                </div>
+                <div class="col-12">
+                  <label class="form-label">{{ _("Комментарий") }}</label>
+                  <input class="form-control form-control-sm" name="comment" value="{{ current_meter.comment or '' }}">
+                </div>
+              </div>
+            </form>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+            <button type="submit" form="editMeterForm" class="btn btn-primary">{{ _("Сохранить") }}</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    {% endif %}
   </div>
 
   <div class="col-md-6">
@@ -395,6 +473,7 @@
       <thead>
         <tr>
           <th>{{ _("Дата") }}</th>
+          <th>{{ _("Счётчик") }}</th>
           <th>{{ _("Показания, кВт·ч") }}</th>
           <th>{{ _("Тариф, ₽/кВт·ч") }}</th>
           <th>{{ _("Сумма") }}</th>
@@ -409,6 +488,7 @@
           <td data-sort-value="{{ row.reading_date if row.reading_date else '' }}">
             {% if row.reading_date %}{{ fmt_date(row.reading_date) }}{% elif row.charge_amount is not none %}{{ row.sort_date.year }}{% else %}—{% endif %}
           </td>
+          <td>{{ row.meter_number }}</td>
           <td data-sort-value="{{ row.reading if row.reading is not none else '' }}">{{ fmt2(row.reading) if row.reading is not none else "—" }}</td>
           <td data-sort-value="{{ row.tariff if row.tariff is not none else '' }}">{{ fmt2(row.tariff) if row.tariff is not none else "—" }}</td>
           <td data-sort-value="{{ row.charge_amount if row.charge_amount is not none else '' }}">
@@ -438,7 +518,7 @@
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="7" class="text-muted">{{ _("Записей пока нет.") }}</td></tr>
+        <tr><td colspan="8" class="text-muted">{{ _("Записей пока нет.") }}</td></tr>
         {% endfor %}
       </tbody>
     </table>

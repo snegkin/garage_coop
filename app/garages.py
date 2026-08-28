@@ -135,6 +135,24 @@ def create():
     )
 
 
+def _owner_initials(person) -> str:
+    '''Фамилия и инициалы: Иванов И.П.'''
+    parts = person.full_name.strip().split()
+    if not parts:
+        return person.full_name
+    surname = parts[0]
+    initials = ".".join(p[0] for p in parts[1:3]) + "." if len(parts) > 1 else ""
+    return f"{surname} {initials}" if initials else surname
+
+
+def _truncate(text: str, max_len: int = 70) -> str:
+    """Обрезаем текст, добавляя «…», если не помещается."""
+    text = str(text)
+    if len(text) <= max_len:
+        return text
+    return text[:max_len - 1] + "\u2026"
+
+
 @bp.route("/<int:garage_id>")
 @login_required
 def detail(garage_id):
@@ -144,6 +162,21 @@ def detail(garage_id):
         return redirect(url_for("garages.list_garages") if is_board() else url_for("cabinet.garages"))
     if not is_owner_or_board(garage):
         abort(403)
+
+    # предыдущий / следующий гараж (по ID)
+    prev_garage = (
+        database.db_session.query(Garage)
+        .filter(Garage.id < garage.id)
+        .order_by(Garage.id.desc())
+        .first()
+    )
+    next_garage = (
+        database.db_session.query(Garage)
+        .filter(Garage.id > garage.id)
+        .order_by(Garage.id)
+        .first()
+    )
+
     all_persons = database.db_session.query(Person).order_by(Person.full_name).all()
     total_share = sum((o.share for o in garage.ownerships), Decimal("0"))
     preselect_contact_person_id = request.args.get("new_person_id", type=int)
@@ -152,6 +185,16 @@ def detail(garage_id):
     current_meter = _current_meter(garage)
     meter_history = _meter_history(garage)
     readings = sorted(current_meter.readings, key=lambda r: r.reading_date, reverse=True) if current_meter else []
+
+    # показания всех счётчиков гаража — для журнала показаний и начислений
+    # (при смене счётчика старые показания из истории тоже должны быть видны)
+    all_readings = (
+        database.db_session.query(ElectricityReading)
+        .join(ElectricityMeter)
+        .filter(ElectricityMeter.garage_id == garage.id)
+        .order_by(ElectricityReading.reading_date.desc(), ElectricityReading.id.desc())
+        .all()
+    )
 
     # электросчёт
     account = garage.account
@@ -193,7 +236,7 @@ def detail(garage_id):
             "amount": a.amount,
         } for a in sorted(charge_obj.allocations, key=lambda a: a.payment.date)]
 
-    for r in readings:
+    for r in all_readings:
         charge_obj = r.charge
         ledger_rows.append({
             "sort_date": r.reading_date,
@@ -203,6 +246,7 @@ def detail(garage_id):
             "charge_amount": charge_obj.amount if charge_obj else None,
             "charge_paid": charge_paid_amount(charge_obj) if charge_obj else None,
             "payments": _charge_payments(charge_obj) if charge_obj else [],
+            "meter_number": r.meter.meter_number,
         })
     for c in charges:
         if c.reading_id is not None:
@@ -252,6 +296,15 @@ def detail(garage_id):
         str((-acc_balance).quantize(Decimal("0.01"))) if acc_balance is not None and acc_balance < 0 else ""
     )
 
+    # заголовок: «Гараж №N (Фамилия И.О.)» — не более 70 символов
+    owner_names = ", ".join(
+        _owner_initials(o.person) for o in garage.ownerships
+    )
+    title = _("Гараж №{n}", n=garage.number)
+    if owner_names:
+        title = f"{title} ({owner_names})"
+    title = _truncate(title, 70)
+
     return render_template(
         "garages/detail.html",
         garage=garage,
@@ -261,6 +314,7 @@ def detail(garage_id):
         current_meter=current_meter,
         meter_history=meter_history,
         readings=readings,
+        all_readings=all_readings,
         ledger_rows=ledger_rows,
         account=account,
         account_balance=acc_balance,
@@ -272,6 +326,9 @@ def detail(garage_id):
         owners_sorted=owners_sorted,
         default_payer_id=default_payer_id,
         default_payment_amount=default_payment_amount,
+        prev_garage=prev_garage,
+        next_garage=next_garage,
+        page_title=title,
     )
 
 
@@ -505,6 +562,35 @@ def add_electricity_meter(garage_id):
     database.db_session.add(meter)
     database.db_session.commit()
     flash(_("Счётчик добавлен."), "success")
+    return redirect(url_for("garages.detail", garage_id=garage_id, tab="account"))
+
+
+@bp.route("/<int:garage_id>/electricity/meter/<int:meter_id>/edit", methods=["POST"])
+@roles_required(RoleEnum.BOARD)
+def edit_electricity_meter(garage_id, meter_id):
+    garage = database.db_session.get(Garage, garage_id)
+    if garage is None:
+        abort(404)
+
+    meter = database.db_session.get(ElectricityMeter, meter_id)
+    if meter is None or meter.garage_id != garage_id:
+        abort(404)
+
+    f = request.form
+    installed = f.get("installed_date")
+    sealed = f.get("sealed_date")
+    initial_reading = f.get("initial_reading")
+
+    meter.meter_number = f["meter_number"]
+    meter.installed_date = dt.date.fromisoformat(installed) if installed else None
+    meter.sealed_date = dt.date.fromisoformat(sealed) if sealed else None
+    meter.initial_reading = Decimal(initial_reading) if initial_reading else None
+    meter.meter_seal_number = f.get("meter_seal_number") or None
+    meter.breaker_seal_number = f.get("breaker_seal_number") or None
+    meter.comment = f.get("comment") or None
+
+    database.db_session.commit()
+    flash(_("Счётчик обновлён."), "success")
     return redirect(url_for("garages.detail", garage_id=garage_id, tab="account"))
 
 

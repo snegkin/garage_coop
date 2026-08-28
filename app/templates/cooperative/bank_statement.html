@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Выписка") }} — {{ account.bank_name }}{% endblock %}
+{% block content %}
+<h3 class="mb-3">
+  <a href="{{ url_for('cooperative.view') }}" class="link-body-emphasis text-decoration-none">&larr;</a>
+  {{ _("Выписка по счёту") }} — {{ account.bank_name }} {{ account.checking_account }}
+</h3>
+
+<form method="get" class="d-flex align-items-end gap-2 mb-3 flex-wrap">
+  <div>
+    <label class="form-label mb-0">{{ _("Дата с") }}</label>
+    <input class="form-control" type="date" name="date_from" value="{{ date_from.isoformat() }}">
+  </div>
+  <div>
+    <label class="form-label mb-0">{{ _("Дата по") }}</label>
+    <input class="form-control" type="date" name="date_to" value="{{ date_to.isoformat() }}">
+  </div>
+  <button class="btn btn-outline-secondary">{{ _("Показать") }}</button>
+</form>
+
+{% if is_chairman() %}
+<form method="post" action="{{ url_for('bank_sync.sync_statement', account_id=account.id) }}" class="d-flex align-items-end gap-2 mb-3 flex-wrap">
+  <div>
+    <label class="form-label mb-0">{{ _("Дата с") }}</label>
+    <input class="form-control" type="date" name="date_from" value="{{ date_from.isoformat() }}" required>
+  </div>
+  <div>
+    <label class="form-label mb-0">{{ _("Дата по") }}</label>
+    <input class="form-control" type="date" name="date_to" value="{{ date_to.isoformat() }}" required>
+  </div>
+  <button class="btn btn-primary">{{ _("Загрузить из банка") }}</button>
+</form>
+<p class="text-muted small">
+  {{ _("Зачисления гасят задолженность на лицевом счёте автоматически при загрузке — по номеру счёта, распознанному в назначении платежа («ЛС <номер>»), а если его нет — по совпадению ФИО плательщика или того, за кого платят, включая лиц для связи по гаражу. Полной поступившей суммой, без вычета возможной комиссии банка. Автоматически — только когда совпадение однозначно; в остальных случаях — кнопка «Разнести» ниже.") }}
+</p>
+{% endif %}
+
+<table class="table table-bordered bg-body sortable">
+  <thead>
+    <tr>
+      <th>{{ _("Дата") }}</th>
+      <th>{{ _("Тип") }}</th>
+      <th>{{ _("Сумма") }}</th>
+      <th>{{ _("Лицевой счёт") }}</th>
+      <th>{{ _("Контрагент") }}</th>
+      <th>{{ _("ИНН") }}</th>
+      <th>{{ _("Назначение платежа") }}</th>
+      <th>{{ _("Номер документа") }}</th>
+      <th>{{ _("Погашение") }}</th>
+      {% if is_chairman() %}<th class="no-sort"></th>{% endif %}
+    </tr>
+  </thead>
+  <tbody>
+    {% for line in lines %}
+    <tr>
+      <td>{{ fmt_date(line.operation_date) }}</td>
+      <td>
+        {% if line.direction == "credit" %}
+          <span class="badge bg-success">{{ _("зачисление") }}</span>
+        {% else %}
+          <span class="badge bg-danger">{{ _("списание") }}</span>
+        {% endif %}
+      </td>
+      <td data-sort-value="{{ line.amount }}">{{ fmt2(line.amount) }} ₽</td>
+      <td>{{ line.account_number or "—" }}</td>
+      <td>{{ line.counterparty_name or "—" }}</td>
+      <td>{{ line.counterparty_inn or "—" }}</td>
+      <td>{{ line.payment_purpose or "—" }}</td>
+      <td>{{ line.document_number or "—" }}</td>
+      <td>
+        {% if line.direction != "credit" %}
+          —
+        {% elif line.matched_payment_id %}
+          <span class="badge bg-success">{{ _("разнесён") }}</span>
+        {% else %}
+          <span class="badge bg-secondary">{{ _("не разнесён") }}</span>
+        {% endif %}
+      </td>
+      {% if is_chairman() %}
+      <td>
+        {% if line.direction == "credit" and not line.matched_payment_id %}
+        <form method="post" action="{{ url_for('bank_sync.allocate_statement_line', account_id=account.id, line_id=line.id) }}" class="d-flex gap-1">
+          <input class="form-control form-control-sm" style="width:8rem" type="text" name="account_number" placeholder="{{ line.account_number or _("Лицевой счёт") }}">
+          <button class="btn btn-sm btn-outline-primary">{{ _("Разнести") }}</button>
+        </form>
+        {% endif %}
+      </td>
+      {% endif %}
+    </tr>
+    {% else %}
+    <tr><td colspan="10" class="text-muted">{{ _("За выбранный период операций нет.") }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

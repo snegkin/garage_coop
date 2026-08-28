@@ -36,3 +36,16 @@
   <label class="form-label">{{ _("Комментарий") }}</label>
   <textarea class="form-control" name="comment">{{ (account.comment or '') if account else '' }}</textarea>
 </div>
+<div class="mb-3">
+  <label class="form-label">{{ _("API банка") }}</label>
+  <select class="form-select" name="api_provider">
+    <option value="none" {{ "selected" if not account or account.api_provider.value == "none" }}>{{ _("Не используется — баланс вручную") }}</option>
+    <option value="sberbank" {{ "selected" if account and account.api_provider.value == "sberbank" }}>{{ _("Сбербанк (СберБизнес)") }}</option>
+    <option value="vtb" {{ "selected" if account and account.api_provider.value == "vtb" }}>{{ _("ВТБ (интеграция ещё не реализована)") }}</option>
+    <option value="tbank" {{ "selected" if account and account.api_provider.value == "tbank" }}>{{ _("Т-Банк (интеграция ещё не реализована)") }}</option>
+  </select>
+  <div class="form-text">
+    {{ _("Автоматическое получение баланса, выписки и работа с реестрами начислений/платежей — пока только для Сбербанка.") }}
+    {% if account %}{{ _("Реквизиты подключения (client_id и т.п.) задаются отдельно, кнопкой «Настроить API» после сохранения счёта.") }}{% endif %}
+  </div>
+</div>

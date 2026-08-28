@@ -6,7 +6,7 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 from . import database
 from .i18n import translate as _
 from .auth import login_required, roles_required
-from .models import Cooperative, BankAccount, RoleEnum
+from .models import Cooperative, BankAccount, BankApiProvider, RoleEnum
 from .accounting import cooperative_balance
 
 bp = Blueprint("cooperative", __name__, url_prefix="/cooperative")
@@ -76,6 +76,11 @@ def create_bank_account():
     if is_primary:
         database.db_session.query(BankAccount).update({"is_primary": False})
 
+    try:
+        api_provider = BankApiProvider(f.get("api_provider", "none"))
+    except ValueError:
+        abort(400)
+
     database.db_session.add(BankAccount(
         bank_name=f["bank_name"],
         bik=f.get("bik") or None,
@@ -85,6 +90,7 @@ def create_bank_account():
         comment=f.get("comment") or None,
         balance=_parse_decimal(f.get("balance")),
         balance_updated_at=dt.date.fromisoformat(f["balance_updated_at"]) if f.get("balance_updated_at") else None,
+        api_provider=api_provider,
     ))
     database.db_session.commit()
     flash(_("Расчётный счёт добавлен."), "success")
@@ -111,6 +117,10 @@ def edit_bank_account(account_id):
     account.comment = f.get("comment") or None
     account.balance = _parse_decimal(f.get("balance"))
     account.balance_updated_at = dt.date.fromisoformat(f["balance_updated_at"]) if f.get("balance_updated_at") else None
+    try:
+        account.api_provider = BankApiProvider(f.get("api_provider", "none"))
+    except ValueError:
+        abort(400)
     database.db_session.commit()
     flash(_("Расчётный счёт обновлён."), "success")
     return redirect(url_for("cooperative.view"))

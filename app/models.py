@@ -74,6 +74,22 @@ class Cooperative(Base):
     comment: Mapped[str | None] = mapped_column(Text)
 
 
+class BankApiProvider(str, enum.Enum):
+    """
+    Банк, через API которого можно работать со счётом в автоматическом
+    режиме. У Сбербанка, ВТБ и Т-Банка есть публичное API для организаций —
+    но реализована (см. app/bank_api/) пока только интеграция со Сбербанком
+    (СберБизнес). ВТБ и Т-Банк в списке уже присутствуют — председатель
+    может выбрать банк заранее, UI покажет их как «скоро» — но выбор
+    сохраняется просто как факт (реального клиента для них get_client()
+    не создаёт, см. app/bank_api/__init__.py).
+    """
+    NONE = "none"
+    SBERBANK = "sberbank"
+    VTB = "vtb"
+    TBANK = "tbank"
+
+
 class BankAccount(Base):
     """
     Расчётный счёт кооператива. Может быть несколько — как в одном банке,
@@ -89,13 +105,260 @@ class BankAccount(Base):
     is_primary: Mapped[bool] = mapped_column(Boolean, default=False)       # основной счёт, для ПД-4 и т.п.
     comment: Mapped[str | None] = mapped_column(Text)
 
-    # Фактический баланс именно на этом счёте — вносится вручную (нет
-    # интеграции с банком). Сводный «Баланс кооператива» (на дашборде и на
-    # карточке кооператива) — это именно сумма balance по всем счетам,
-    # см. accounting.cooperative_balance(); отдельного поля для него в
-    # Cooperative больше нет (было раньше, удалено).
+    # Банк, через API которого можно синхронизировать баланс/выписку/реестры
+    # для ЭТОГО конкретного счёта. NONE (по умолчанию) — как раньше, ручной
+    # ввод баланса ниже. Реквизиты подключения — в отдельной таблице
+    # BankApiCredential (см. ниже), не здесь, т.к. они не нужны, пока API
+    # не включён, и содержат секрет.
+    api_provider: Mapped[BankApiProvider] = mapped_column(
+        Enum(BankApiProvider), default=BankApiProvider.NONE, nullable=False
+    )
+
+    # Фактический баланс именно на этом счёте — по умолчанию вносится
+    # вручную; если для счёта включена интеграция с API банка (api_provider
+    # != NONE), обновляется автоматически синхронизацией (см. app/bank_sync.py),
+    # но поле остаётся тем же самым — редактировать вручную по-прежнему можно,
+    # следующая синхронизация просто перезапишет значение. Сводный «Баланс
+    # кооператива» (на дашборде и на карточке кооператива) — это сумма balance
+    # по всем счетам, см. accounting.cooperative_balance().
     balance: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
     balance_updated_at: Mapped[dt.date | None] = mapped_column(Date)
+
+    api_credential: Mapped["BankApiCredential | None"] = relationship(
+        back_populates="bank_account", uselist=False, cascade="all, delete-orphan"
+    )
+    registry_format: Mapped["BankRegistryFormat | None"] = relationship(
+        back_populates="bank_account", uselist=False, cascade="all, delete-orphan"
+    )
+
+
+class BankApiCredential(Base):
+    """
+    Реквизиты подключения к API банка для конкретного расчётного счёта —
+    отдельная таблица, а не поля в BankAccount: они не нужны, пока
+    api_provider на счёте — NONE, и содержат секрет, который не должен
+    попадать в обычную выборку/форму счёта. Не более одной записи на счёт
+    (bank_account_id уникален).
+
+    client_secret/refresh_token хранятся не в открытом виде, а зашифрованы
+    симметрично (Fernet, см. app/bank_api/crypto.py) — в отличие от пароля
+    пользователя (необратимый хэш), секреты API банка нужно расшифровывать
+    обратно, чтобы подставить в запрос к банку при каждой синхронизации.
+
+    **Важно (уточнено по официальной документации Sber API, не по
+    предположению): авторизация — authorization_code + refresh_token, а
+    НЕ client_credentials.** Sber API работает от имени конкретного
+    пользователя СберБизнес — доступ выдаётся не парой client_id/secret
+    самой по себе, а через access_token/refresh_token, которые
+    председатель получает один раз через Личный кабинет Sber API
+    (developers.sber.ru → сервис → «Ключи доступа») и вводит здесь.
+    client_id/client_secret по-прежнему нужны (аутентификация клиента при
+    обновлении access_token через refresh_token — стандартное требование
+    OAuth2), но одних их недостаточно. access_token живёт 60 минут —
+    хранить его в БД не нужно, приложение обновляет его через
+    refresh_token перед каждым обращением к банку (см.
+    app/bank_api/sberbank.py: SberbankClient._get_access_token). Банк
+    может при обновлении вернуть НОВЫЙ refresh_token взамен старого
+    (ротация) — тогда bank_sync.py обязан сохранить его вместо старого,
+    иначе следующее обновление токена не пройдёт.
+
+    API Сбербизнес дополнительно требует клиентский mTLS-сертификат для
+    самого TLS-соединения (не только токен в заголовке) и доверенные
+    корневые сертификаты УЦ Сбера И УЦ Минцифры на стороне приложения —
+    см. tls_cert_filename/tls_key_filename ниже и
+    Config.SBERBANK_API_CA_BUNDLE. Без обоих реальные обращения к банку не
+    установят TLS-соединение вообще, независимо от корректности токенов.
+    """
+    __tablename__ = "bank_api_credential"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    bank_account_id: Mapped[int] = mapped_column(ForeignKey("bank_account.id", ondelete="CASCADE"), unique=True)
+
+    sandbox: Mapped[bool] = mapped_column(Boolean, default=True)  # тестовый контур банка, а не промышленный
+    client_id: Mapped[str | None] = mapped_column(String(255))
+    client_secret_encrypted: Mapped[str | None] = mapped_column(Text)
+    # Получается вместе с client_id/secret в Личном кабинете Sber API
+    # («Ключи доступа» → сгенерировать access_token/refresh_token) —
+    # действует 180 дней с момента получения, приложение обновляет
+    # access_token через него перед каждым обращением к банку. См.
+    # докстринг класса выше — это НЕ то же самое, что client_secret.
+    refresh_token_encrypted: Mapped[str | None] = mapped_column(Text)
+    # Клиентский mTLS-сертификат — банк требует его для ЛЮБОГО обращения к
+    # Sber API (не только для подписи платёжных поручений — это отдельная
+    #, более редкая ЭП, её тут нет, см. app/bank_api/sberbank.py), выдаётся
+    # в личном кабинете Sber API в формате PKCS#12 (.pfx/.p12) с паролем.
+    # Здесь хранятся не сами файлы (это делает небезопасным чтение БД целиком
+    # при бэкапе/утечке), а только имена файлов в BANK_CERTS_FOLDER — каталоге
+    # ВНЕ обычного UPLOAD_FOLDER, который не отдаётся ни одним HTTP-роутом
+    # (см. app/bank_sync.py: _save_client_cert). Пароль от .pfx нужен только
+    # в момент загрузки/конвертации в PEM и не сохраняется вообще —
+    # ни в открытом, ни в зашифрованном виде.
+    tls_cert_filename: Mapped[str | None] = mapped_column(String(255))  # PEM, сертификат (+ цепочка, если была в .p12)
+    tls_key_filename: Mapped[str | None] = mapped_column(String(255))  # PEM, приватный ключ (без пароля)
+    # ИНН/ID организации в СберБизнес — обычно совпадает с ИНН кооператива,
+    # но поле отдельное на случай расхождения (например, тестовый контур
+    # банка использует отдельную тестовую организацию).
+    organization_id: Mapped[str | None] = mapped_column(String(50))
+    # Номер счёта для обращений к API банка, если он отличается от
+    # BankAccount.checking_account (для API некоторых банков нужен именно
+    # лицевой/технический номер, не р/с) — если пусто, используется checking_account.
+    account_number: Mapped[str | None] = mapped_column(String(20))
+
+    last_balance_sync_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
+    last_statement_sync_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
+    last_error: Mapped[str | None] = mapped_column(Text)  # текст последней ошибки синхронизации, для показа в UI
+
+    bank_account: Mapped["BankAccount"] = relationship(back_populates="api_credential")
+
+
+class BankStatementLine(Base):
+    """
+    Одна операция из банковской выписки (зачисление/списание), полученная
+    автоматически через API банка. Хранится как факт из банка отдельно от
+    внутренних Payment/Charge кооператива. external_uid — уникальный номер
+    операции в банке, защищает от дублей при повторной синхронизации
+    одного и того же дня.
+
+    account_number — номер лицевого счёта, распознанный в назначении
+    платежа (см. bank_sync.extract_account_number — банки нередко
+    вписывают его в свободный текст вида «ЛС 10640; ЧЛЕНСКИЕ ВЗНОСЫ
+    (ФАМИЛИЯ И.О.);...»). Если распознан и совпадает с существующим
+    лицевым счётом, зачисление (direction == "credit") автоматически
+    гасит задолженность на полную зачисленную сумму — см.
+    bank_sync.sync_statement/_auto_allocate_statement_line. Комиссия банка
+    (если банк удержал её до зачисления) кооперативом на сумму погашения
+    не переносится — платёж гасится полной суммой, поступившей по
+    выписке, комиссия — расход кооператива, не недоплата члена (тот же
+    принцип, что и в реестре платежей, см. PaymentRegistryEntry).
+    """
+    __tablename__ = "bank_statement_line"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    bank_account_id: Mapped[int] = mapped_column(ForeignKey("bank_account.id", ondelete="CASCADE"), index=True)
+    external_uid: Mapped[str | None] = mapped_column(String(64))
+    operation_date: Mapped[dt.date] = mapped_column(Date, index=True)
+    direction: Mapped[str] = mapped_column(String(6))  # "credit" (зачисление) / "debit" (списание)
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    counterparty_name: Mapped[str | None] = mapped_column(String(255))
+    counterparty_inn: Mapped[str | None] = mapped_column(String(12))
+    payment_purpose: Mapped[str | None] = mapped_column(Text)
+    document_number: Mapped[str | None] = mapped_column(String(50))
+    account_number: Mapped[str | None] = mapped_column(String(20))  # лицевой счёт, распознанный в назначении платежа
+    matched_payment_id: Mapped[int | None] = mapped_column(ForeignKey("payment.id", ondelete="SET NULL"))
+    imported_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.utcnow)
+
+    bank_account: Mapped["BankAccount"] = relationship()
+    matched_payment: Mapped["Payment | None"] = relationship()
+
+    __table_args__ = (
+        UniqueConstraint("bank_account_id", "external_uid", name="uq_bank_statement_line_external_uid"),
+    )
+
+
+class ChargeRegistryStatus(str, enum.Enum):
+    DRAFT = "draft"
+    SENT = "sent"
+    ACCEPTED = "accepted"
+    REJECTED = "rejected"
+    ERROR = "error"
+
+
+class ChargeRegistryBatch(Base):
+    """
+    Пакет начислений, отправленный в банк реестром начислений — банк
+    показывает его плательщикам (по номеру лицевого счёта — см.
+    MemberAccount.account_number / PersonalAccount.account_number), они
+    могут оплатить прямо в приложении банка. Статус — то, что вернул банк
+    по external_id (присваивается банком при отправке).
+    """
+    __tablename__ = "charge_registry_batch"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    bank_account_id: Mapped[int] = mapped_column(ForeignKey("bank_account.id", ondelete="CASCADE"), index=True)
+    period: Mapped[str] = mapped_column(String(20))  # произвольная метка периода, напр. "2026" или "август 2026"
+    external_id: Mapped[str | None] = mapped_column(String(64))
+    status: Mapped[ChargeRegistryStatus] = mapped_column(
+        Enum(ChargeRegistryStatus), default=ChargeRegistryStatus.DRAFT
+    )
+    charges_count: Mapped[int] = mapped_column(Integer, default=0)
+    total_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
+    bank_comment: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.utcnow)
+    sent_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
+
+    bank_account: Mapped["BankAccount"] = relationship()
+
+
+class PaymentRegistryEntry(Base):
+    """
+    Одна запись из реестра платежей, полученного из банка — платёж,
+    сделанный по начислению из ChargeRegistryBatch, с номером лицевого
+    счёта плательщика. matched_payment_id заполняется, когда запись
+    разнесена в учёте кооператива вручную (см. app/bank_sync.py:
+    allocate_payment_registry_entry — создаётся Payment и вызывается
+    reallocate_garage_charges/reallocate_member_charges) — сама по себе
+    запись реестра это только факт из банка, не платёж в учёте.
+    """
+    __tablename__ = "payment_registry_entry"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    bank_account_id: Mapped[int] = mapped_column(ForeignKey("bank_account.id", ondelete="CASCADE"), index=True)
+    external_id: Mapped[str] = mapped_column(String(64))
+    payer_name: Mapped[str | None] = mapped_column(String(255))
+    account_number: Mapped[str | None] = mapped_column(String(20))  # лицевой счёт, распознанный в назначении платежа
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))  # сумма начисления — то, чем гасится долг (не за вычетом комиссии)
+    operation_date: Mapped[dt.date] = mapped_column(Date)
+    payment_purpose: Mapped[str | None] = mapped_column(Text)
+    # Реально поступило кооперативу и удержано банком — из реального файла
+    # реестра платежей это два отдельных поля (сумма начисления гасит долг
+    # члена полностью, а не за вычетом комиссии — комиссия banka это
+    # отдельный расход кооператива, не недоплата члена). Хранятся отдельно
+    # от amount для сверки с фактическим зачислением на счёт, в разнесение
+    # платежа (см. allocate_payment_registry_entry) не участвуют.
+    credited_amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    fee_amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    matched_payment_id: Mapped[int | None] = mapped_column(ForeignKey("payment.id", ondelete="SET NULL"))
+    fetched_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.utcnow)
+
+    bank_account: Mapped["BankAccount"] = relationship()
+    matched_payment: Mapped["Payment | None"] = relationship()
+
+    __table_args__ = (
+        UniqueConstraint("bank_account_id", "external_id", name="uq_payment_registry_entry_external_id"),
+    )
+
+
+class BankRegistryFormat(Base):
+    """
+    Настраиваемый формат текстовых файлов реестра начислений/платежей для
+    конкретного расчётного счёта — по одной записи на счёт (bank_account_id
+    уникален). Точный порядок и состав полей файла зависит от конкретного
+    договора с банком (см. app/bank_api/registry_file.py) — тот же принцип
+    настраиваемости, что и у CsvImportProfile для CSV-импорта в мастере
+    первого запуска: каталог полей + порядок, а не жёсткий формат.
+
+    charge_columns/payment_columns — JSON-список ключей полей (из
+    registry_file.CHARGE_FIELD_CATALOG/PAYMENT_FIELD_CATALOG) в порядке
+    файла. Если запись отсутствует для счёта — используется
+    registry_file.DEFAULT_FORMAT (реальный формат из образцов файлов,
+    полученных от председателя, см. context.md).
+    """
+    __tablename__ = "bank_registry_format"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    bank_account_id: Mapped[int] = mapped_column(ForeignKey("bank_account.id", ondelete="CASCADE"), unique=True)
+
+    charge_columns: Mapped[str] = mapped_column(Text)   # JSON-список ключей
+    payment_columns: Mapped[str] = mapped_column(Text)  # JSON-список ключей
+    charge_decimal_separator: Mapped[str] = mapped_column(String(1), default=".")
+    payment_decimal_separator: Mapped[str] = mapped_column(String(1), default=",")
+    delimiter: Mapped[str] = mapped_column(String(1), default=";")
+    encoding: Mapped[str] = mapped_column(String(20), default="cp1251")
+    trailer_prefix: Mapped[str | None] = mapped_column(String(10), default="=")  # пусто/None — сводки в конце файла нет
+    service_code: Mapped[str] = mapped_column(String(20), default="0625")
+    updated_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.utcnow, onupdate=dt.datetime.utcnow)
+
+    bank_account: Mapped["BankAccount"] = relationship(back_populates="registry_format")
 
 
 class Counterparty(Base):

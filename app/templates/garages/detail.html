@@ -127,6 +127,33 @@
   </div>
 </div>
 
+<h5 class="mt-4">{{ _("Лицевые счета") }}</h5>
+<table class="table table-sm bg-body sortable" style="max-width:700px">
+  <thead><tr><th>{{ _("ФИО") }}</th><th>{{ _("Вид взноса") }}</th><th>{{ _("Номер счёта") }}</th><th>{{ _("Баланс") }}</th></tr></thead>
+  <tbody>
+    {% if account %}
+    <tr>
+      <td class="text-muted">{{ _("Гараж (все собственники)") }}</td>
+      <td>{{ _("Электричество") }}</td>
+      <td>{{ account.account_number }}</td>
+      <td data-sort-value="{{ account_balance }}" class="{{ 'text-danger' if account_balance < 0 else 'text-success' }}">{{ fmt2(account_balance) }} ₽</td>
+    </tr>
+    {% endif %}
+    {% for row in account_summary_rows %}
+    <tr>
+      <td>{% if is_board() %}<a href="{{ url_for('persons.detail', person_id=row.person.id) }}">{{ row.person.full_name }}</a>{% else %}{{ row.person.full_name }}{% endif %}</td>
+      <td>{{ row.fee_type.name }}</td>
+      <td>{{ row.account_number }}</td>
+      <td data-sort-value="{{ row.balance }}" class="{{ 'text-danger' if row.balance < 0 else 'text-success' }}">{{ fmt2(row.balance) }} ₽</td>
+    </tr>
+    {% else %}
+    {% if not account %}
+    <tr><td colspan="4" class="text-muted">{{ _("Лицевых счетов пока нет.") }}</td></tr>
+    {% endif %}
+    {% endfor %}
+  </tbody>
+</table>
+
 <h5 class="mt-4">{{ _("Фото гаража") }}</h5>
 <div class="row g-3 mb-3">
   {% for photo in garage.photos %}

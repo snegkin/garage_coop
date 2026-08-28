@@ -7,3 +7,7 @@ segno>=1.6
 weasyprint>=69.0
 Markdown>=3.6
 bleach>=6.1
+requests>=2.31
+cryptography>=42.0
+requests>=2.31
+cryptography>=42.0

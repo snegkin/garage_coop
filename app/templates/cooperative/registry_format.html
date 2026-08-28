@@ -1,0 +1,163 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Формат файлов реестров") }} — {{ account.bank_name }}{% endblock %}
+{% block content %}
+<h3 class="mb-3">
+  <a href="{{ url_for('cooperative.view') }}" class="link-body-emphasis text-decoration-none">&larr;</a>
+  {{ _("Формат файлов реестров") }} — {{ account.bank_name }} {{ account.checking_account }}
+</h3>
+<p class="text-muted">
+  {{ _("Порядок и состав полей текстового файла реестра — индивидуальны и зависят от конкретного договора с банком. По умолчанию используется формат из реальных образцов файлов; если у вашего подключения он другой — настройте отдельно для реестра начислений и реестра платежей.") }}
+</p>
+
+<div class="row" style="max-width:1100px">
+  <div class="col-md-6">
+    <div class="d-flex justify-content-between align-items-center">
+      <h5 class="mb-0">{{ _("Реестр начислений (исходящий файл)") }}</h5>
+      {% if is_chairman() %}
+      <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#chargeFormatModal">{{ _("Настроить") }}</button>
+      {% endif %}
+    </div>
+    <p class="small mt-2">
+      {% for key, label, required in charge_catalog %}{% if key in active_charge_keys %}{{ _(label) }}{{ ", " if not loop.last and charge_catalog[loop.index:]|selectattr(0, "in", active_charge_keys)|list else "" }}{% endif %}{% endfor %}.
+    </p>
+    <p class="small text-muted">
+      {{ _("Разделитель дробной части суммы:") }} «{{ row.charge_decimal_separator if row else "." }}».
+      {{ _("Код услуги/периода:") }} «{{ row.service_code if row else "0625" }}».
+    </p>
+  </div>
+
+  <div class="col-md-6">
+    <div class="d-flex justify-content-between align-items-center">
+      <h5 class="mb-0">{{ _("Реестр платежей (входящий файл)") }}</h5>
+      {% if is_chairman() %}
+      <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#paymentFormatModal">{{ _("Настроить") }}</button>
+      {% endif %}
+    </div>
+    <p class="small mt-2">
+      {% for key, label, required in payment_catalog %}{% if key in active_payment_keys %}{{ _(label) }}{{ ", " if not loop.last and payment_catalog[loop.index:]|selectattr(0, "in", active_payment_keys)|list else "" }}{% endif %}{% endfor %}.
+    </p>
+    <p class="small text-muted">
+      {{ _("Разделитель дробной части суммы:") }} «{{ row.payment_decimal_separator if row else "," }}».
+      {{ _("Префикс строки-сводки в конце файла (пропускается при разборе):") }}
+      «{{ (row.trailer_prefix if row and row.trailer_prefix else "=") }}».
+    </p>
+  </div>
+</div>
+
+<p class="small text-muted mt-3">
+  {{ _("Разделитель полей и кодировка — общие для обоих файлов:") }}
+  «{{ row.delimiter if row else ";" }}», {{ (row.encoding if row else "cp1251")|upper }}.
+  {{ _("Меняются в настройке реестра начислений.") }}
+</p>
+
+<div class="modal fade" id="chargeFormatModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <form method="post" action="{{ url_for('bank_sync.save_charge_registry_format', account_id=account.id) }}">
+        <div class="modal-header">
+          <h5 class="modal-title">{{ _("Настройка формата реестра начислений") }}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <p class="text-muted small">
+            {{ _("Отметьте, какие поля есть в файле, и укажите их порядковый номер (позицию) в строке слева направо, начиная с 1.") }}
+          </p>
+          <table class="table table-sm align-middle">
+            <thead><tr><th style="width:3rem"></th><th>{{ _("Поле") }}</th><th style="width:8rem">{{ _("Позиция") }}</th></tr></thead>
+            <tbody>
+              {% for key, label, required in charge_catalog %}
+              <tr>
+                <td>
+                  <input class="form-check-input" type="checkbox" name="col_{{ key }}" value="1"
+                         {{ "checked" if key in active_charge_keys }} {{ "disabled" if required }}>
+                  {% if required %}<input type="hidden" name="col_{{ key }}" value="1">{% endif %}
+                </td>
+                <td>{{ _(label) }}{% if required %} <span class="text-muted small">({{ _("обязательно") }})</span>{% endif %}</td>
+                <td><input class="form-control form-control-sm" type="number" min="1" name="pos_{{ key }}" value="{{ charge_positions.get(key, loop.index) }}"></td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          <hr>
+          <div class="row g-2">
+            <div class="col-4">
+              <label class="form-label">{{ _("Разделитель дробной части суммы") }}</label>
+              <input class="form-control" name="charge_decimal_separator" maxlength="1" value="{{ row.charge_decimal_separator if row else "." }}">
+            </div>
+            <div class="col-4">
+              <label class="form-label">{{ _("Разделитель полей") }}</label>
+              <input class="form-control" name="delimiter" maxlength="1" value="{{ row.delimiter if row else ";" }}">
+            </div>
+            <div class="col-4">
+              <label class="form-label">{{ _("Кодировка файла") }}</label>
+              <select class="form-select" name="encoding">
+                <option value="cp1251" {{ "selected" if not row or row.encoding == "cp1251" }}>Windows-1251</option>
+                <option value="utf-8" {{ "selected" if row and row.encoding == "utf-8" }}>UTF-8</option>
+              </select>
+            </div>
+            <div class="col-6">
+              <label class="form-label">{{ _("Код услуги/периода") }}</label>
+              <input class="form-control" name="service_code" value="{{ row.service_code if row else "0625" }}">
+              <div class="form-text">{{ _("Подставляется в поле «Код услуги/периода», если оно включено в формат.") }}</div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+          <button class="btn btn-primary">{{ _("Сохранить формат") }}</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="paymentFormatModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <form method="post" action="{{ url_for('bank_sync.save_payment_registry_format', account_id=account.id) }}">
+        <div class="modal-header">
+          <h5 class="modal-title">{{ _("Настройка формата реестра платежей") }}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <p class="text-muted small">
+            {{ _("Отметьте, какие поля есть в файле, и укажите их порядковый номер (позицию) в строке слева направо, начиная с 1.") }}
+          </p>
+          <table class="table table-sm align-middle">
+            <thead><tr><th style="width:3rem"></th><th>{{ _("Поле") }}</th><th style="width:8rem">{{ _("Позиция") }}</th></tr></thead>
+            <tbody>
+              {% for key, label, required in payment_catalog %}
+              <tr>
+                <td>
+                  <input class="form-check-input" type="checkbox" name="col_{{ key }}" value="1"
+                         {{ "checked" if key in active_payment_keys }} {{ "disabled" if required }}>
+                  {% if required %}<input type="hidden" name="col_{{ key }}" value="1">{% endif %}
+                </td>
+                <td>{{ _(label) }}{% if required %} <span class="text-muted small">({{ _("обязательно") }})</span>{% endif %}</td>
+                <td><input class="form-control form-control-sm" type="number" min="1" name="pos_{{ key }}" value="{{ payment_positions.get(key, loop.index) }}"></td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          <hr>
+          <div class="row g-2">
+            <div class="col-6">
+              <label class="form-label">{{ _("Разделитель дробной части суммы") }}</label>
+              <input class="form-control" name="payment_decimal_separator" maxlength="1" value="{{ row.payment_decimal_separator if row else "," }}">
+            </div>
+            <div class="col-6">
+              <label class="form-label">{{ _("Префикс строки-сводки в конце файла") }}</label>
+              <input class="form-control" name="trailer_prefix" maxlength="10" value="{{ row.trailer_prefix if row and row.trailer_prefix else "=" }}">
+              <div class="form-text">{{ _("Строки, начинающиеся с этого символа, считаются итоговой сводкой и пропускаются при разборе. Оставьте пустым, если сводки в файле нет.") }}</div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+          <button class="btn btn-primary">{{ _("Сохранить формат") }}</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

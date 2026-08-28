@@ -28,6 +28,12 @@ def create_app(config_class=Config):
 
     os.makedirs(os.path.dirname(app.config["SQLALCHEMY_DATABASE_URI"].replace("sqlite:///", "")), exist_ok=True)
     os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
+    # 0o700: только сам процесс приложения может читать/писать сюда — здесь
+    # лежат приватные ключи клиентских mTLS-сертификатов банка (см.
+    # config.py: BANK_CERTS_FOLDER, app/bank_api/sberbank.py). В отличие от
+    # UPLOAD_FOLDER, эта директория не имеет отдающего файлы HTTP-роута.
+    os.makedirs(app.config["BANK_CERTS_FOLDER"], exist_ok=True, mode=0o700)
+    os.chmod(app.config["BANK_CERTS_FOLDER"], 0o700)  # makedirs(mode=...) не применяет режим, если каталог уже существовал
 
     run_migrations(app.config["SQLALCHEMY_DATABASE_URI"])  # накатывает схему через Alembic, не трогая данные
     engine, _db_session = init_engine(app.config["SQLALCHEMY_DATABASE_URI"])
@@ -64,6 +70,7 @@ def create_app(config_class=Config):
     from .documents import bp as documents_bp
     from .meetings import bp as meetings_bp
     from .cooperative import bp as cooperative_bp
+    from .bank_sync import bp as bank_sync_bp
     from .cabinet import bp as cabinet_bp
     from .power import bp as power_bp
     from .counterparties import bp as counterparties_bp
@@ -81,6 +88,7 @@ def create_app(config_class=Config):
     app.register_blueprint(documents_bp)
     app.register_blueprint(meetings_bp)
     app.register_blueprint(cooperative_bp)
+    app.register_blueprint(bank_sync_bp)
     app.register_blueprint(cabinet_bp)
     app.register_blueprint(power_bp)
     app.register_blueprint(counterparties_bp)

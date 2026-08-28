@@ -8,12 +8,14 @@
   {% endif %}
 </div>
 
-<div class="mb-3">
-  <a class="btn btn-sm {{ 'btn-secondary' if not selected_type else 'btn-outline-secondary' }}" href="{{ url_for('documents.list_documents') }}">{{ _("Все") }}</a>
-  {% for dt in doc_types %}
-  <a class="btn btn-sm {{ 'btn-secondary' if selected_type == dt.value else 'btn-outline-secondary' }}" href="{{ url_for('documents.list_documents', type=dt.value) }}">{{ doc_type_label(dt.value) }}</a>
-  {% endfor %}
-</div>
+<form method="get" action="{{ url_for('documents.list_documents') }}" class="mb-3">
+  <select name="type" class="form-select" style="max-width:320px" onchange="this.form.submit()">
+    <option value="" {{ "selected" if not selected_type }}>{{ _("Все") }}</option>
+    {% for dt in doc_types %}
+    <option value="{{ dt.value }}" {{ "selected" if selected_type == dt.value }}>{{ doc_type_label(dt.value) }}</option>
+    {% endfor %}
+  </select>
+</form>
 
 <table class="table bg-body sortable">
   <thead><tr><th>{{ _("Дата") }}</th><th>{{ _("Тип") }}</th><th>{{ _("№") }}</th><th>{{ _("Название") }}</th><th class="no-sort">{{ _("Файл") }}</th></tr></thead>

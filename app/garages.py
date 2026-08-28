@@ -12,7 +12,7 @@ from . import database
 from . import audit
 from .i18n import translate as _
 from .auth import login_required, roles_required
-from .permissions import is_board, is_owner_or_board, is_chairman, is_privileged
+from .permissions import is_board, is_owner_or_board, is_chairman, is_privileged, can_view_member_account
 from .models import (
     Garage, Person, GarageOwnership, GarageContact, GaragePhoto, PersonalAccount,
     MemberAccount, FeeType, RoleEnum, ElectricityMeter, ElectricityReading,
@@ -160,6 +160,22 @@ def detail(garage_id):
     payments = sorted(account.garage.payments, key=lambda p: p.date, reverse=True) if account else []
     fee_types_list = database.db_session.query(FeeType).order_by(FeeType.name).all()
 
+    # Лицевые счета гаража — сводка балансов для вкладки «Информация»: и
+    # электричество (одно на гараж), и все MemberAccount (по одному на
+    # каждого собственника и вид взноса — взносы/налог зависят от доли
+    # владения, поэтому у каждого собственника свой счёт даже на один и
+    # тот же гараж). Рядовой собственник видит в этом списке только СВОИ
+    # счета (can_view_member_account), не счета содольщиков — их баланс
+    # не его дело; правление видит все.
+    member_accounts = (
+        database.db_session.query(MemberAccount).filter_by(garage_id=garage.id).all()
+    )
+    member_accounts.sort(key=lambda ma: (ma.person.full_name, ma.fee_type.name))
+    account_summary_rows = [
+        {"person": ma.person, "fee_type": ma.fee_type, "account_number": ma.account_number, "balance": balance(ma)}
+        for ma in member_accounts if can_view_member_account(ma)
+    ]
+
     # объединённая таблица: показание берёт своё начисление напрямую через связь
     # Charge.reading (FK reading_id, а не текстовым сопоставлением); начисления без
     # привязки к показанию (ручные, любого вида взноса) идут отдельными строками той
@@ -248,6 +264,7 @@ def detail(garage_id):
         ledger_rows=ledger_rows,
         account=account,
         account_balance=acc_balance,
+        account_summary_rows=account_summary_rows,
         charges=charges,
         payments=payments,
         fee_types=fee_types_list,

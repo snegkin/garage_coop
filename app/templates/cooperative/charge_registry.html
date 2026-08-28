@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Реестр начислений") }} — {{ account.bank_name }}{% endblock %}
+{% block content %}
+<h3 class="mb-3">
+  <a href="{{ url_for('cooperative.view') }}" class="link-body-emphasis text-decoration-none">&larr;</a>
+  {{ _("Реестр начислений") }} — {{ account.bank_name }} {{ account.checking_account }}
+</h3>
+<p class="text-muted">
+  {{ _("Реестр — это текущая непогашенная задолженность по всем лицевым счетам (взносы, налоги, электричество), отправленная в банк: плательщики видят её и могут оплатить в приложении банка по своему лицевому счёту.") }}
+</p>
+
+<p>{{ _("Сейчас в долгах") }}: <strong>{{ pending_count }}</strong> {{ _("лицевых счетов на сумму") }} <strong>{{ fmt2(pending_total) }} ₽</strong></p>
+
+{% if is_chairman() %}
+<form method="post" action="{{ url_for('bank_sync.send_charge_registry', account_id=account.id) }}" class="d-flex align-items-end gap-2 mb-2 flex-wrap">
+  <div>
+    <label class="form-label mb-0">{{ _("Период") }}</label>
+    <input class="form-control" name="period" placeholder="{{ _("например, август 2026") }}" required>
+  </div>
+  <button class="btn btn-primary" {{ "disabled" if pending_count == 0 }}>{{ _("Отправить реестр в банк") }}</button>
+</form>
+{% endif %}
+<p class="mb-4">
+  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('bank_sync.download_charge_registry_file', account_id=account.id) }}">{{ _("Скачать файл реестра (CP1251)") }}</a>
+  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('bank_sync.registry_format_settings', account_id=account.id) }}">{{ _("Настроить формат файла") }}</a>
+  <span class="text-muted small">{{ _("на случай, если автоматическая отправка через API недоступна — файл можно загрузить в СберБизнес Онлайн вручную") }}</span>
+</p>
+
+<table class="table table-bordered bg-body sortable">
+  <thead>
+    <tr>
+      <th>{{ _("Отправлен") }}</th>
+      <th>{{ _("Период") }}</th>
+      <th>{{ _("Начислений") }}</th>
+      <th>{{ _("Сумма") }}</th>
+      <th>{{ _("Статус") }}</th>
+      <th>{{ _("Комментарий банка") }}</th>
+      {% if is_chairman() %}<th class="no-sort"></th>{% endif %}
+    </tr>
+  </thead>
+  <tbody>
+    {% for batch in batches %}
+    <tr>
+      <td>{{ fmt_date(batch.sent_at) if batch.sent_at else "—" }}</td>
+      <td>{{ batch.period }}</td>
+      <td>{{ batch.charges_count }}</td>
+      <td data-sort-value="{{ batch.total_amount }}">{{ fmt2(batch.total_amount) }} ₽</td>
+      <td>
+        {% set status_classes = {"draft": "bg-secondary", "sent": "bg-info", "accepted": "bg-success", "rejected": "bg-danger", "error": "bg-danger"} %}
+        <span class="badge {{ status_classes.get(batch.status.value, "bg-secondary") }}">{{ batch.status.value }}</span>
+      </td>
+      <td>{{ batch.bank_comment or "—" }}</td>
+      {% if is_chairman() %}
+      <td>
+        {% if batch.external_id %}
+        <form method="post" action="{{ url_for('bank_sync.refresh_charge_registry', account_id=account.id, batch_id=batch.id) }}">
+          <button class="btn btn-sm btn-outline-secondary">{{ _("Обновить статус") }}</button>
+        </form>
+        {% endif %}
+      </td>
+      {% endif %}
+    </tr>
+    {% else %}
+    <tr><td colspan="7" class="text-muted">{{ _("Реестры ещё не отправлялись.") }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Реестр платежей") }} — {{ account.bank_name }}{% endblock %}
+{% block content %}
+<h3 class="mb-3">
+  <a href="{{ url_for('cooperative.view') }}" class="link-body-emphasis text-decoration-none">&larr;</a>
+  {{ _("Реестр платежей") }} — {{ account.bank_name }} {{ account.checking_account }}
+</h3>
+<p class="text-muted">
+  {{ _("Платежи, поступившие в банк по реестру начислений. Разнести запись — значит создать по ней платёж на найденном лицевом счёте и зачесть его в счёт задолженности (обычный порядок распределения, как при ручном вводе платежа).") }}
+</p>
+
+{% if is_chairman() %}
+<form method="post" action="{{ url_for('bank_sync.upload_payment_registry_file', account_id=account.id) }}" enctype="multipart/form-data" class="d-flex align-items-end gap-2 mb-2 flex-wrap">
+  <div>
+    <label class="form-label mb-0">{{ _("Или загрузить файл реестра вручную (CP1251)") }}</label>
+    <input class="form-control" type="file" name="registry_file" accept=".txt,.csv" required>
+  </div>
+  <button class="btn btn-outline-primary">{{ _("Загрузить файл") }}</button>
+  <span class="text-muted small w-100">{{ _("на случай, если запрос через API недоступен — файл, как его отдаёт СберБизнес Онлайн (кодировка Windows-1251)") }}</span>
+</form>
+<p class="mb-4">
+  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('bank_sync.registry_format_settings', account_id=account.id) }}">{{ _("Настроить формат файла") }}</a>
+</p>
+{% endif %}
+
+<table class="table table-bordered bg-body sortable">
+  <thead>
+    <tr>
+      <th>{{ _("Дата") }}</th>
+      <th>{{ _("Лицевой счёт") }}</th>
+      <th>{{ _("Плательщик") }}</th>
+      <th>{{ _("Сумма") }}</th>
+      <th>{{ _("Зачислено (за вычетом комиссии)") }}</th>
+      <th>{{ _("Назначение платежа") }}</th>
+      <th>{{ _("Статус") }}</th>
+      {% if is_chairman() %}<th class="no-sort"></th>{% endif %}
+    </tr>
+  </thead>
+  <tbody>
+    {% for entry in entries %}
+    <tr>
+      <td>{{ fmt_date(entry.operation_date) }}</td>
+      <td>{{ entry.account_number or "—" }}</td>
+      <td>{{ entry.payer_name or "—" }}</td>
+      <td data-sort-value="{{ entry.amount }}">{{ fmt2(entry.amount) }} ₽</td>
+      <td>
+        {% if entry.credited_amount is not none %}
+          {{ fmt2(entry.credited_amount) }} ₽
+          {% if entry.fee_amount %}<span class="text-muted small">({{ _("комиссия") }} {{ fmt2(entry.fee_amount) }} ₽)</span>{% endif %}
+        {% else %}—{% endif %}
+      </td>
+      <td>{{ entry.payment_purpose or "—" }}</td>
+      <td>
+        {% if entry.matched_payment_id %}
+          <span class="badge bg-success">{{ _("разнесён") }}</span>
+        {% else %}
+          <span class="badge bg-secondary">{{ _("не разнесён") }}</span>
+        {% endif %}
+      </td>
+      {% if is_chairman() %}
+      <td>
+        {% if not entry.matched_payment_id %}
+        <form method="post" action="{{ url_for('bank_sync.allocate_payment_registry_entry', account_id=account.id, entry_id=entry.id) }}">
+          <button class="btn btn-sm btn-outline-primary">{{ _("Разнести") }}</button>
+        </form>
+        {% endif %}
+      </td>
+      {% endif %}
+    </tr>
+    {% else %}
+    <tr><td colspan="8" class="text-muted">{{ _("Записей реестра платежей пока нет.") }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

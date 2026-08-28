@@ -1346,3 +1346,97 @@ class AuditLog(Base):
     summary: Mapped[str] = mapped_column(Text)  # человекочитаемое описание, уже готовое к показу в журнале
 
     actor: Mapped["User | None"] = relationship()
+
+
+# ---------------------------------------------------------------------------
+# Мониторинг электроэнергии по фазам (eWeLink POWCT)
+# ---------------------------------------------------------------------------
+#
+# Отдельная подсистема от MasterMeterReading/ElectricityMeter выше:
+# те — ручной помесячный ввод показаний для биллинга, эта — автоматический
+# снимок текущей мощности/напряжения/тока по 3 фазам вводного щита с
+# устройств Sonoff POWCT через облако eWeLink, для страницы мониторинга на
+# сайте. Показания сюда не участвуют в начислениях/расчётах с поставщиком.
+
+class EWeLinkAccount(Base):
+    """
+    Учётные данные для входа в облако eWeLink — одна запись (singleton, как
+    ElectricitySettings выше). Хранится в БД, редактируется председателем
+    через страницу мониторинга (см. app/electricity_monitor.py), а не в
+    .env — чтобы можно было сменить без деплоя.
+
+    Вход выполняется неофициальным методом (email/пароль напрямую), как в
+    сторонних клиентах (Home Assistant SonoffLAN, ewelink-api) — НЕ через
+    официальный OAuth2 Open API eWeLink (тот требует модерацию заявки на
+    dev.ewelink.cc, до нескольких дней, и был сознательно отклонён на
+    этапе постановки задачи). appSecret и пароль хранятся зашифрованными
+    (Fernet, см. app.bank_api.crypto — модуль назван по банку исторически,
+    но шифрование в нём общего назначения, ключ из SECRET_KEY/
+    BANK_API_ENCRYPTION_KEY; переиспользуем, а не заводим копию).
+
+    access_token/refresh_token — тоже шифруются; access_token живёт
+    ограниченное время (у eWeLink — обычно порядка 30 дней, ТОЧНО НЕ
+    ПОДТВЕРЖДЕНО живым тестом), refresh-логика должна persist-ить новый
+    refresh_token сразу после успешного client.refresh(), даже если
+    последующий запрос статуса устройства упадёт — тот же принцип, что и
+    для Sberbank (см. BankApiCredential выше).
+    """
+    __tablename__ = "ewelink_account"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    app_id: Mapped[str | None] = mapped_column(String(255))
+    app_secret_encrypted: Mapped[str | None] = mapped_column(Text)
+    email: Mapped[str | None] = mapped_column(String(255))
+    password_encrypted: Mapped[str | None] = mapped_column(Text)
+    region: Mapped[str | None] = mapped_column(String(4))  # eu/us/as/cn — уточняется при первом логине
+
+    access_token_encrypted: Mapped[str | None] = mapped_column(Text)
+    refresh_token_encrypted: Mapped[str | None] = mapped_column(Text)
+    token_obtained_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
+
+    last_poll_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
+    last_error: Mapped[str | None] = mapped_column(Text)  # текст последней ошибки опроса, для показа в UI
+
+
+class PowerPhaseDevice(Base):
+    """Одно устройство Sonoff POWCT, привязанное к фазе вводного щита."""
+    __tablename__ = "power_phase_device"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    label: Mapped[str] = mapped_column(String(100))  # "Фаза A" / "Фаза B" / "Фаза C"
+    ewelink_device_id: Mapped[str] = mapped_column(String(32), unique=True)  # deviceid в eWeLink
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)  # временно исключить из опроса, не удаляя историю
+
+    readings: Mapped[list["PowerPhaseReading"]] = relationship(back_populates="device")
+
+
+class PowerPhaseReading(Base):
+    """
+    Один снимок показаний с устройства. Пишется поллером раз в минуту (см.
+    scripts/poll_ewelink.py) — не начисление и не биллинг, только текущее
+    состояние для мониторинга.
+
+    raw_params хранит сырой JSON params из ответа eWeLink целиком — на
+    время, пока точные имена полей (power/voltage/current против
+    power_00/voltage_00/current_00 и т.п.) не подтверждены живым тестом на
+    оборудовании заказчика (см. app/ewelink/client.py). После подтверждения
+    и фиксации в context.md это поле можно будет не заполнять постоянно, а
+    оставить только для диагностики ошибок парсинга.
+    """
+    __tablename__ = "power_phase_reading"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    device_id: Mapped[int] = mapped_column(ForeignKey("power_phase_device.id", ondelete="CASCADE"), index=True)
+    ts: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.utcnow, index=True)
+    power_w: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    voltage_v: Mapped[Decimal | None] = mapped_column(Numeric(6, 2))
+    current_a: Mapped[Decimal | None] = mapped_column(Numeric(8, 3))
+    is_online: Mapped[bool] = mapped_column(Boolean, default=True)
+    raw_params: Mapped[str | None] = mapped_column(Text)
+
+    device: Mapped["PowerPhaseDevice"] = relationship(back_populates="readings")
+
+    __table_args__ = (
+        Index("ix_power_phase_reading_device_ts", "device_id", "ts"),
+    )

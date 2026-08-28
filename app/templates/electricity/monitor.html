@@ -1,0 +1,186 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Мониторинг фаз") }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h3 class="mb-0">{{ _("Мониторинг электроэнергии по фазам") }}</h3>
+  {% if is_chairman() %}
+  <div>
+    <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#devicesModal">{{ _("Устройства") }}</button>
+    <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#settingsModal">{{ _("Подключение к eWeLink") }}</button>
+  </div>
+  {% endif %}
+</div>
+
+{% if not is_configured %}
+<div class="alert alert-warning">
+  {{ _("Подключение к eWeLink ещё не настроено.") }}
+  {% if is_chairman() %}
+  {{ _("Заполните данные в разделе «Подключение к eWeLink» выше.") }}
+  {% else %}
+  {{ _("Обратитесь к председателю.") }}
+  {% endif %}
+</div>
+{% elif account.last_error %}
+<div class="alert alert-danger">
+  {{ _("Последняя попытка опроса устройств завершилась ошибкой:") }} {{ account.last_error }}
+  {% if account.last_poll_at %}<div class="small text-muted">{{ _("Последний опрос:") }} {{ fmt_date(account.last_poll_at) }} {{ account.last_poll_at.strftime('%H:%M') }}</div>{% endif %}
+</div>
+{% endif %}
+
+{% if not devices %}
+<p class="text-muted">{{ _("Устройства ещё не привязаны к фазам.") }}</p>
+{% else %}
+
+<div class="row g-3 mb-4">
+  {% for device in devices %}
+  {% set reading = latest_by_device.get(device.id) %}
+  <div class="col-md-4">
+    <div class="card">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-start">
+          <div class="text-muted">{{ device.label }}</div>
+          {% if reading %}
+            {% if reading.is_online %}
+            <span class="badge bg-success">{{ _("онлайн") }}</span>
+            {% else %}
+            <span class="badge bg-secondary">{{ _("офлайн") }}</span>
+            {% endif %}
+          {% else %}
+          <span class="badge bg-secondary">{{ _("нет данных") }}</span>
+          {% endif %}
+        </div>
+        {% if reading and reading.power_w is not none %}
+        <div class="fs-2">{{ fmt2(reading.power_w) }} {{ _("Вт") }}</div>
+        <div class="text-muted small">
+          {% if reading.voltage_v is not none %}{{ fmt2(reading.voltage_v) }} {{ _("В") }}{% endif %}
+          {% if reading.current_a is not none %} · {{ fmt2(reading.current_a) }} {{ _("А") }}{% endif %}
+        </div>
+        <div class="text-muted small">{{ _("обновлено") }} {{ reading.ts.strftime('%H:%M:%S') }}</div>
+        {% else %}
+        <p class="text-muted mb-0">{{ _("Показаний пока нет.") }}</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+
+  <div class="col-md-4">
+    <div class="card bg-body-secondary">
+      <div class="card-body">
+        <div class="text-muted">{{ _("Суммарная мощность") }}</div>
+        {% if total_power is not none %}
+        <div class="fs-2">{{ fmt2(total_power) }} {{ _("Вт") }}</div>
+        {% else %}
+        <p class="text-muted mb-0">{{ _("Недостаточно данных.") }}</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<h5 class="mb-2">{{ _("История за последние {n} ч.", n=3) }}</h5>
+<div class="row g-3">
+  {% for device in devices %}
+  <div class="col-md-4">
+    <div class="text-muted small mb-1">{{ device.label }}</div>
+    {% set history = history_by_device.get(device.id) %}
+    {% if history %}
+    <table class="table table-sm bg-body">
+      <thead><tr><th>{{ _("Время") }}</th><th>{{ _("Вт") }}</th><th>{{ _("В") }}</th></tr></thead>
+      <tbody>
+        {% for r in history %}
+        <tr>
+          <td>{{ r.ts.strftime('%H:%M:%S') }}</td>
+          <td>{{ fmt2(r.power_w) if r.power_w is not none else "—" }}</td>
+          <td>{{ fmt2(r.voltage_v) if r.voltage_v is not none else "—" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="text-muted small">{{ _("Пока нет истории.") }}</p>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% if is_chairman() %}
+<!-- Модалка: устройства по фазам -->
+<div class="modal fade" id="devicesModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <form method="post" action="{{ url_for('electricity_monitor.save_devices') }}">
+        <div class="modal-header">
+          <h5 class="modal-title">{{ _("Устройства по фазам") }}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <p class="text-muted small">{{ _("Device ID устройства смотрите в приложении eWeLink: Настройки устройства → Информация об устройстве → Device ID.") }}</p>
+          {% for phase, default_label in (("a", _("Фаза A")), ("b", _("Фаза B")), ("c", _("Фаза C"))) %}
+          {% set existing = devices[loop.index0] if devices|length > loop.index0 else None %}
+          <div class="row g-2 mb-2 align-items-end">
+            <div class="col-md-4">
+              <label class="form-label">{{ _("Название") }}</label>
+              <input class="form-control" name="label_{{ phase }}" value="{{ existing.label if existing else default_label }}">
+            </div>
+            <div class="col-md-8">
+              <label class="form-label">{{ _("Device ID") }}</label>
+              <input class="form-control" name="device_id_{{ phase }}" value="{{ existing.ewelink_device_id if existing else '' }}" placeholder="1002334597">
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+          <button class="btn btn-primary">{{ _("Сохранить") }}</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Модалка: подключение к eWeLink -->
+<div class="modal fade" id="settingsModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <form method="post" action="{{ url_for('electricity_monitor.save_settings') }}">
+        <div class="modal-header">
+          <h5 class="modal-title">{{ _("Подключение к eWeLink") }}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <p class="text-muted small">
+            {{ _("Вход выполняется по email и паролю от аккаунта eWeLink (не официальный OAuth2 Open API). App ID/App Secret — идентификатор клиентского приложения, которым вошли; для собственного тестового приложения их можно получить на dev.ewelink.cc.") }}
+          </p>
+          <div class="mb-3">
+            <label class="form-label">App ID</label>
+            <input class="form-control" name="app_id" value="{{ account.app_id or '' }}">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">App Secret</label>
+            <input class="form-control" type="password" name="app_secret" placeholder="{{ _('оставьте пустым, чтобы не менять') if account.app_secret_encrypted else '' }}">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Email</label>
+            <input class="form-control" type="email" name="email" value="{{ account.email or '' }}">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">{{ _("Пароль") }}</label>
+            <input class="form-control" type="password" name="password" placeholder="{{ _('оставьте пустым, чтобы не менять') if account.password_encrypted else '' }}">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+          <button class="btn btn-primary">{{ _("Сохранить") }}</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<form method="post" action="{{ url_for('electricity_monitor.test_connection') }}" class="mt-2">
+  <button class="btn btn-sm btn-outline-primary">{{ _("Проверить подключение") }}</button>
+</form>
+{% endif %}
+{% endblock %}

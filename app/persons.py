@@ -20,12 +20,8 @@ bp = Blueprint("persons", __name__, url_prefix="/persons")
 @bp.route("/")
 @roles_required(RoleEnum.BOARD)
 def list_persons():
-    q = request.args.get("q", "").strip()
+    persons = database.db_session.query(Person).order_by(Person.full_name).all()
     show_pending_only = request.args.get("pending") == "1"
-    query = database.db_session.query(Person)
-    if q:
-        query = query.filter(Person.full_name.ilike(f"%{q}%"))
-    persons = query.order_by(Person.full_name).all()
 
     # Находим всех, у кого есть pending-ревизии
     all_revisions = (
@@ -54,7 +50,7 @@ def list_persons():
     if show_pending_only:
         persons = [p for p in persons if p.id in pending_by_person]
 
-    return render_template("persons/list.html", persons=persons, q=q, balances=balances, pending_by_person=pending_by_person, show_pending_only=show_pending_only)
+    return render_template("persons/list.html", persons=persons, balances=balances, pending_by_person=pending_by_person, show_pending_only=show_pending_only)
 
 
 def _save_from_form(person, f):

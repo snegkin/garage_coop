@@ -4,11 +4,15 @@
 <h3 class="mb-3">{{ _("Учётные записи") }}</h3>
 <p class="text-muted small">{{ _("Здесь можно привязать существующую учётную запись к другому человеку или отвязать её (например, служебную запись «chairman»).") }}</p>
 
-<table class="table bg-body sortable">
+<div class="mb-3">
+  <input class="form-control" id="accountFilterInput" placeholder="{{ _('Поиск по логину, ФИО, роли...') }}">
+</div>
+
+<table class="table bg-body sortable" id="accountTable">
   <thead><tr><th>{{ _("Логин") }}</th><th>{{ _("Роль") }}</th><th>{{ _("Человек") }}</th><th>{{ _("Статус") }}</th><th class="no-sort"></th></tr></thead>
   <tbody>
     {% for user in users %}
-    <tr>
+    <tr data-filter-text="{{ (user.username ~ ' ' ~ (user.person.full_name if user.person else '') ~ ' ' ~ (user.role.value|lower) ~ ' ' ~ ('активна' if user.is_active else 'отключена'))|lower }}">
       <td>{{ user.username }}</td>
       <td>{{ role_label(user.role.value) }}</td>
       <td>
@@ -43,4 +47,26 @@
     {% endfor %}
   </tbody>
 </table>
+<p id="accountNoResults" class="text-muted d-none">{{ _("Ничего не найдено.") }}</p>
+
+<script>
+(function () {
+  const input = document.getElementById("accountFilterInput");
+  const table = document.getElementById("accountTable");
+  const noResults = document.getElementById("accountNoResults");
+  if (!input || !table) return;
+  const rows = Array.from(table.querySelectorAll("tbody tr[data-filter-text]"));
+
+  input.addEventListener("input", function () {
+    const q = input.value.trim().toLowerCase();
+    let visibleCount = 0;
+    rows.forEach(function (row) {
+      const match = !q || row.getAttribute("data-filter-text").includes(q);
+      row.classList.toggle("d-none", !match);
+      if (match) visibleCount++;
+    });
+    noResults.classList.toggle("d-none", !(q && visibleCount === 0));
+  });
+})();
+</script>
 {% endblock %}

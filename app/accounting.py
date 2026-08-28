@@ -3,14 +3,18 @@
 (см. модель AccountNumberSettings — правление может менять ширину номера
 гаража, ширину порядкового номера собственника и префиксы прямо в UI).
 
+Номер гаража в формуле — ID гаража в БД (целое число), а не текстовый
+номер гаража (который может быть нечисловым, напр. «21н»). Это гарантирует
+уникальность и корректное дополнение нулями.
+
 По умолчанию:
 - Электричество (счёт на гараж, один на гараж):
-    0{номер_гаража:03d}0            например, гараж 95 -> 00950
+    0{id:03d}0            например, id 95 -> 00950
 
 - Взнос/налог (счёт на члена кооператива, по конкретному гаражу и виду
   взноса — последняя цифра(ы) — порядковый номер собственника этого гаража,
   начиная с 0, чтобы у совладельцев были разные счета):
-    {код_вида}{номер_гаража:03d}{№ собственника}   например, 10950, 20950
+    {код_вида}{id:03d}{№ собственника}   например, 10950, 20950
 
 - Пеня по такому взносу/налогу — тот же номер с префиксом (по умолчанию "П"):
     П10950, П20950
@@ -39,30 +43,26 @@ def get_settings() -> AccountNumberSettings:
     return settings
 
 
-def _garage_digits(garage_number: str, width: int) -> str:
-    """Гаражи обычно нумеруются простыми числами — дополняем нулями до нужной ширины.
-    Если номер не числовой (нестандартный гараж) или длиннее ширины, используем последние символы."""
-    try:
-        digits = str(int(garage_number))
-    except (TypeError, ValueError):
-        digits = str(garage_number)
+def _garage_digits(garage_id: int, width: int) -> str:
+    """ID гаража в БД — всегда целое число, дополняем нулями до нужной ширины."""
+    digits = str(garage_id)
     if len(digits) > width:
         return digits[-width:]
     return digits.zfill(width)
 
 
-def electricity_account_number(garage_number: str, settings: AccountNumberSettings | None = None) -> str:
+def electricity_account_number(garage_id: int, settings: AccountNumberSettings | None = None) -> str:
     settings = settings or get_settings()
-    return f"{settings.electricity_prefix}{_garage_digits(garage_number, settings.garage_digits)}{'0' * settings.owner_digits}"
+    return f"{settings.electricity_prefix}{_garage_digits(garage_id, settings.garage_digits)}{'0' * settings.owner_digits}"
 
 
 def member_account_number(
-    fee_type_code: str, garage_number: str, owner_index: int, is_penalty: bool,
+    fee_type_code: str, garage_id: int, owner_index: int, is_penalty: bool,
     settings: AccountNumberSettings | None = None,
 ) -> str:
     settings = settings or get_settings()
     owner_part = str(owner_index % (10 ** settings.owner_digits)).zfill(settings.owner_digits)
-    base = f"{fee_type_code}{_garage_digits(garage_number, settings.garage_digits)}{owner_part}"
+    base = f"{fee_type_code}{_garage_digits(garage_id, settings.garage_digits)}{owner_part}"
     return f"{settings.penalty_prefix}{base}" if is_penalty else base
 
 

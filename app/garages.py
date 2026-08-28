@@ -54,7 +54,7 @@ def _ensure_member_accounts(garage: Garage, person_id: int, owner_index: int):
         )
         if exists:
             continue
-        number = member_account_number(fee_type.type_code, garage.number, owner_index, fee_type.is_penalty)
+        number = member_account_number(fee_type.type_code, garage.id, owner_index, fee_type.is_penalty)
         database.db_session.add(MemberAccount(
             person_id=person_id, garage_id=garage.id, fee_type_id=fee_type.id, account_number=number,
         ))
@@ -92,7 +92,7 @@ def create():
         database.db_session.flush()  # чтобы получить garage.id
 
         # лицевой счёт на электричество заводится автоматически вместе с гаражом
-        account = PersonalAccount(garage_id=garage.id, account_number=electricity_account_number(garage.number))
+        account = PersonalAccount(garage_id=garage.id, account_number=electricity_account_number(garage.id))
         database.db_session.add(account)
 
         # собственники, указанные прямо в форме создания

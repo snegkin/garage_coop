@@ -621,7 +621,7 @@ def garages_import():
             database.db_session.add(garage)
             database.db_session.flush()
             database.db_session.add(PersonalAccount(
-                garage_id=garage.id, account_number=electricity_account_number(garage.number),
+                garage_id=garage.id, account_number=electricity_account_number(garage.id),
             ))
             garages_by_number[number] = garage
             garages_created += 1

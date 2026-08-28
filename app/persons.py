@@ -3,6 +3,7 @@ import datetime as dt
 from decimal import Decimal
 
 from flask import Blueprint, render_template, request, redirect, url_for, flash, abort, g
+from sqlalchemy.exc import IntegrityError
 from werkzeug.security import generate_password_hash
 
 from . import database
@@ -79,17 +80,38 @@ def _save_from_form(person, f):
 @roles_required(RoleEnum.BOARD)
 def create():
     if request.method == "POST":
+        # Получаем имя из формы (предполагается, что поле называется full_name)
+        form_name = request.form.get("full_name", "").strip()
+
+        # 1. Проверяем, есть ли уже такой человек
+        existing_person = database.db_session.query(Person).filter(
+            Person.full_name.ilike(form_name)
+        ).first()
+
+        if existing_person:
+            flash(f"Человек с именем «{form_name}» уже существует в базе.", "danger")
+            # Возвращаем пользователя обратно на форму
+            return render_template("persons/form.html", person=None)
+
         person = Person(full_name="")
         _save_from_form(person, request.form)
         database.db_session.add(person)
-        database.db_session.flush()
 
-        phones = [p.strip() for p in request.form.get("phones", "").split(",") if p.strip()]
-        for number in phones:
-            database.db_session.add(Phone(person_id=person.id, number=number))
+        try:
+            database.db_session.flush()
 
-        database.db_session.commit()
-        flash(_("Человек «{name}» добавлен.", name=person.full_name), "success")
+            phones = [p.strip() for p in request.form.get("phones", "").split(",") if p.strip()]
+            for number in phones:
+                database.db_session.add(Phone(person_id=person.id, number=number))
+
+            database.db_session.commit()
+            flash(_("Человек «{name}» добавлен.", name=person.full_name), "success")
+
+        except IntegrityError:
+            # 2. Перехватываем ошибку, если кто-то успел создать запись в эту же миллисекунду
+            database.db_session.rollback()
+            flash("Произошла ошибка при сохранении (возможно, такой человек уже существует).", "danger")
+            return render_template("persons/form.html", person=None)
 
         next_url = request.form.get("next")
         if is_safe_next_url(next_url):

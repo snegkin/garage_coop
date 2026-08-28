@@ -103,7 +103,7 @@ function enhanceSearchableSelect(select) {
   select.dataset.enhanced = "1";
 
   const wrapper = document.createElement("div");
-  wrapper.className = "position-relative";
+  wrapper.className = "position-relative w-100";
   select.parentNode.insertBefore(wrapper, select);
   wrapper.appendChild(select);
   select.style.display = "none";

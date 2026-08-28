@@ -436,7 +436,7 @@ def people_import():
         return redirect(url_for("setup_wizard.people_step"))
 
     columns = _get_import_columns("people", PEOPLE_COLUMN_CATALOG)
-    rows = list(csv.reader(io.StringIO(text)))
+    rows = list(csv.reader(io.StringIO(text), csv.Sniffer().sniff(text, ',\t;')))
     if rows and _looks_like_header_row(rows[0], PEOPLE_COLUMN_CATALOG):
         rows = rows[1:]  # первая строка — заголовок, пропускаем
 
@@ -570,7 +570,7 @@ def garages_import():
         return redirect(url_for("setup_wizard.garages_step"))
 
     columns = _get_import_columns("garages", GARAGES_COLUMN_CATALOG)
-    rows = list(csv.reader(io.StringIO(text)))
+    rows = list(csv.reader(io.StringIO(text), csv.Sniffer().sniff(text, ',\t;')))
     if rows and _looks_like_header_row(rows[0], GARAGES_COLUMN_CATALOG):
         rows = rows[1:]
 

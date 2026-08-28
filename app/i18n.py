@@ -109,8 +109,6 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Площади": "Areas",
         "Площадь кооператива": "Cooperative area",
         "Площадь кооператива, м²": "Cooperative area, m²",
-        "Площадь под гаражами": "Area under garages",
-        "Площадь под гаражами, м²": "Area under garages, m²",
         "Площадь общего пользования": "Common area",
         "Площадь общего пользования, м²": "Common area, m²",
         "Личный кабинет": "Personal cabinet",

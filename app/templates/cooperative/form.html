@@ -42,10 +42,6 @@
       <input class="form-control" type="number" step="0.01" name="total_area" value="{{ coop.total_area if coop.total_area is not none else '' }}">
     </div>
     <div class="col-md-4">
-      <label class="form-label">{{ _("Площадь под гаражами, м²") }}</label>
-      <input class="form-control" type="number" step="0.01" name="garage_area" value="{{ coop.garage_area if coop.garage_area is not none else '' }}">
-    </div>
-    <div class="col-md-4">
       <label class="form-label">{{ _("Площадь общего пользования, м²") }}</label>
       <input class="form-control" type="number" step="0.01" name="common_area" value="{{ coop.common_area if coop.common_area is not none else '' }}">
     </div>

@@ -56,7 +56,6 @@ class Cooperative(Base):
 
     # площади (м²) — для распределения взносов пропорционально площади
     total_area: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))    # площадь кооператива
-    garage_area: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))   # площадь, занятая гаражами
     common_area: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))   # площадь общего пользования
 
     # для автоматического расчёта земельного налога (см. accounting.compute_land_tax)
@@ -72,6 +71,13 @@ class Cooperative(Base):
     dues_due_month: Mapped[int | None] = mapped_column(Integer)  # 1-12
 
     comment: Mapped[str | None] = mapped_column(Text)
+
+    @property
+    def garage_area(self) -> "Decimal | None":
+        """Площадь под гаражами = Площадь кооператива − Площадь общего пользования."""
+        if self.total_area is None or self.common_area is None:
+            return None
+        return self.total_area - self.common_area
 
 
 class BankApiProvider(str, enum.Enum):

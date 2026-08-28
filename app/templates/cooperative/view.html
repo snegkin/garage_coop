@@ -18,10 +18,31 @@
   <tr><th>{{ _("Юридический адрес") }}</th><td>{{ coop.legal_address or "—" }}</td></tr>
   <tr><th>{{ _("Почтовый адрес") }}</th><td>{{ coop.postal_address or "—" }}</td></tr>
   <tr><th>{{ _("Дата регистрации") }}</th><td>{{ fmt_date(coop.registration_date) }}</td></tr>
-  <tr><th>{{ _("Площадь кооператива") }}</th><td>{{ (fmt2(coop.total_area) ~ " м²") if coop.total_area is not none else "—" }}</td></tr>
-  <tr><th>{{ _("Площадь под гаражами") }}</th><td>{{ (fmt2(coop.garage_area) ~ " м²") if coop.garage_area is not none else "—" }}</td></tr>
-  <tr><th>{{ _("Площадь общего пользования") }}</th><td>{{ (fmt2(coop.common_area) ~ " м²") if coop.common_area is not none else "—" }}</td></tr>
-  <tr><th>{{ _("Стандартная площадь под гараж, м²") }}</th><td>{{ fmt2(coop.standard_garage_land_area) }} м²</td></tr>
+  <tr>
+      <th>{{ _("Площадь кооператива") }}</th>
+      <td>
+          {% if coop.total_area %}
+          {{ (fmt2(coop.total_area) ~ " м²") }}
+          <span class="text-muted small">({{ _("площадь кооператива - площадь приватизированных участков") }})</span>
+          {% else %}
+              —
+          {% endif %}
+      </td>
+  </tr>
+  <tr>
+      <th>{{ _("Площадь общего пользования") }}</th>
+      <td>
+          {{ (fmt2(coop.common_area) ~ " м²") if coop.common_area is not none else "—" }}
+          <span class="text-muted small">({{ _("дорога + площадь между гаражами") }})</span>
+      </td>
+  </tr>
+  <tr>
+      <th>{{ _("Стандартная площадь под гараж, м²") }}</th>
+      <td>
+          {{ fmt2(coop.standard_garage_land_area) }} м²
+          <span class="text-muted small">({{ _("24м² + 1,5м² перед гаражом") }})</span>
+      </td>
+  </tr>
   <tr><th>{{ _("Ставка налога, % от кадастровой стоимости") }}</th><td>{{ fmt2(coop.land_tax_rate_percent) }}%</td></tr>
   <tr><th>{{ _("% банка за обслуживание") }}</th><td>{{ (fmt2(coop.bank_fee_percent) ~ "%") if coop.bank_fee_percent is not none else "—" }}</td></tr>
   {% if is_board() %}

@@ -1233,6 +1233,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Код услуги/периода:": "Service/period code:",
         "Префикс строки-сводки в конце файла (пропускается при разборе):": "Summary line prefix at the end of the file (skipped when parsing):",
         "Разделитель полей и кодировка — общие для обоих файлов:": "Field delimiter and encoding are shared between both files:",
+        "Разделитель дробной части суммы": "Amount decimal separator",
+        "Префикс строки-сводки в конце файла": "Summary line prefix at the end of the file",
+        "Строки, начинающиеся с этого символа, считаются итоговой сводкой и пропускаются при разборе. Оставьте пустым, если сводки в файле нет.":
+            "Lines starting with this character are treated as a summary line and skipped when parsing. Leave empty if the file has no summary line.",
         "Меняются в настройке реестра начислений.": "Changed in the charge registry settings.",
         "Настройка формата реестра начислений": "Charge registry format settings",
         "Настройка формата реестра платежей": "Payment registry format settings",
@@ -1262,11 +1266,18 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Формат файла реестра начислений сохранён.": "Charge registry file format saved.",
         "Формат файла реестра платежей сохранён.": "Payment registry file format saved.",
         "Погашение": "Settlement",
+        "Реестр": "Registry",
+        "из реестра": "from registry",
+        "из выписки": "from statement",
+        "Сопоставить с выпиской": "Match with statement",
         "Зачисления гасят задолженность на лицевом счёте автоматически при загрузке — по номеру счёта, распознанному в назначении платежа («ЛС <номер>»), а если его нет — по совпадению ФИО плательщика или того, за кого платят, включая лиц для связи по гаражу. Полной поступившей суммой, без вычета возможной комиссии банка. Автоматически — только когда совпадение однозначно; в остальных случаях — кнопка «Разнести» ниже.":
-            "Credits automatically settle the debt on an account — by the account number recognized in the payment purpose («ЛС <number>»), or, failing that, by a match on the payer's full name or the name of whoever is being paid for, including garage contact persons. Using the full amount received, without deducting any bank fee. Automatic only when the match is unambiguous; otherwise use the «Allocate» button below.",
+            "Credits automatically settle the debt on an account — by the account number recognized in the payment purpose («Acct <number>»), or, failing that, by a match on the payer's full name or the name of whoever is being paid for, including garage contact persons. Using the full amount received, without deducting any bank fee. Automatic only when the match is unambiguous; otherwise use the «Allocate» button below.",
         "Разносить можно только зачисления, не списания.": "Only credits can be allocated, not debits.",
         "Разнесено вручную по выписке банка, операция {uid}": "Manually allocated from the bank statement, transaction {uid}",
         "Автоматически разнесено по выписке банка, операция {uid}": "Automatically allocated from the bank statement, transaction {uid}",
+        "Сопоставлено: {direct} прямых + {parametric} параметрических совпадений.":
+            "Matched: {direct} direct + {parametric} parametric matches.",
+        "Новых совпадений не найдено.": "No new matches found.",
         "Эта операция уже разнесена.": "This transaction has already been allocated.",
         "Выписка обновлена: {n} новых операций, из них {m} автоматически разнесено по лицевым счетам.":
             "Statement updated: {n} new transactions, {m} of them automatically allocated to accounts.",
@@ -1278,6 +1289,53 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "Couldn't find an account by number or by payer name for this registry entry.",
         "Зачислено (за вычетом комиссии)": "Credited (net of fee)",
         "комиссия": "fee",
+
+        # error pages / form-input safety net (app/errors.py, error.html)
+        "Доступ запрещён": "Access denied",
+        "У вас нет прав для просмотра этой страницы.": "You don't have permission to view this page.",
+        "Страница не найдена": "Page not found",
+        "Такой страницы не существует, либо она была удалена.": "This page doesn't exist, or it has been removed.",
+        "Непредвиденная ошибка": "Unexpected error",
+        "Что-то пошло не так на сервере. Попробуйте ещё раз или обратитесь в правление.":
+            "Something went wrong on the server. Please try again or contact the board.",
+        "Сессия формы устарела или недействительна — обновите страницу и попробуйте снова.":
+            "The form session has expired or is invalid — refresh the page and try again.",
+        "Проверьте правильность заполнения формы — одно из полей заполнено некорректно или не заполнено.":
+            "Please check the form — one of the fields is filled in incorrectly or left empty.",
+        "На главную": "Go to dashboard",
+
+        # garages/detail.html — meter controls
+        "Заменить": "Replace",
+        "Изменить параметры": "Edit settings",
+        "Изменить прибор учета": "Change the meter",
+
+        # garages.py
+        "Счётчик обновлён.": "Meter updated.",
+
+        # cabinet/profile.html
+        "Контактные данные": "Contact details",
+        "Паспортные данные": "Passport details",
+        "Если ваши паспортные данные изменились (смена паспорта, регистрация/прописка) — обновите информацию ниже. Изменения применяются только после одобрения председателя.":
+            "If your passport details have changed (new passport, registration/residence permit) — update the information below. Changes apply only after the chairman approves them.",
+
+        # cooperative/view.html
+        "площадь кооператива - площадь приватизированных участков": "cooperative area minus privatized plots",
+        "дорога + площадь между гаражами": "road + area between garages",
+        "24м² + 1,5м² перед гаражом": "24m² + 1.5m² in front of the garage",
+        "Сбербанк": "Sberbank",
+
+        # search placeholders
+        "Поиск по ФИО, гаражу или счёту...": "Search by name, garage, or account...",
+        "Поиск по ФИО, телефону, email...": "Search by name, phone, email...",
+        "Поиск по логину, ФИО, роли...": "Search by username, name, role...",
+        "Поиск по названию, ИНН, комментарию...": "Search by name, tax ID, comment...",
+
+        # finance/mass_charge.html
+        "гаражей выбрано — если ни один не выбран, начисление пойдёт на все гаражи":
+            "garages selected — if none are selected, the charge goes to all garages",
+
+        # pd4 print
+        "Дата платежа": "Payment date",
     }
 }
 

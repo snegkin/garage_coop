@@ -389,6 +389,29 @@ def add_owner(garage_id):
     return redirect(url_for("garages.detail", garage_id=garage_id))
 
 
+@bp.route("/<int:garage_id>/owners/<int:ownership_id>/edit-share", methods=["POST"])
+@roles_required(RoleEnum.BOARD)
+def update_owner_share(garage_id, ownership_id):
+    ownership = database.db_session.get(GarageOwnership, ownership_id)
+    if not ownership or ownership.garage_id != garage_id:
+        abort(404)
+
+    try:
+        share = Decimal(request.form["share"])
+    except (InvalidOperation, KeyError):
+        flash(_("Доля должна быть числом (например 0.5)."), "danger")
+        return redirect(url_for("garages.detail", garage_id=garage_id))
+
+    if not (0 < share <= 1):
+        flash(_("Доля должна быть в диапазоне от 0 (не включая) до 1."), "danger")
+        return redirect(url_for("garages.detail", garage_id=garage_id))
+
+    ownership.share = share
+    database.db_session.commit()
+    flash(_("Доля обновлена."), "success")
+    return redirect(url_for("garages.detail", garage_id=garage_id))
+
+
 @bp.route("/<int:garage_id>/owners/<int:ownership_id>/remove", methods=["POST"])
 @roles_required(RoleEnum.BOARD)
 def remove_owner(garage_id, ownership_id):

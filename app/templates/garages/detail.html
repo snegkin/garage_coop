@@ -82,9 +82,14 @@
           <td data-sort-value="{{ o.share }}">{{ fmt2(o.share) }}</td>
           {% if is_board() %}
           <td>
-            <form method="post" action="{{ url_for('garages.remove_owner', garage_id=garage.id, ownership_id=o.id) }}" onsubmit="return confirm('{{ _("Удалить собственника?") }}')">
-              <button class="btn btn-sm btn-outline-danger">✕</button>
-            </form>
+            <div class="d-flex gap-1">
+              <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#editShareModal-{{ o.id }}" title="{{ _('Изменить долю') }}">
+                ✎
+              </button>
+              <form method="post" action="{{ url_for('garages.remove_owner', garage_id=garage.id, ownership_id=o.id) }}" onsubmit="return confirm('{{ _("Удалить собственника?") }}')">
+                <button class="btn btn-sm btn-outline-danger">✕</button>
+              </form>
+            </div>
           </td>
           {% endif %}
         </tr>
@@ -94,6 +99,32 @@
       </tbody>
     </table>
     {% if is_board() %}
+    {% for o in garage.ownerships %}
+    <div class="modal fade" id="editShareModal-{{ o.id }}" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">{{ _("Изменить долю: {name}", name=o.person.full_name) }}</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <form method="post" action="{{ url_for('garages.update_owner_share', garage_id=garage.id, ownership_id=o.id) }}">
+              <div class="mb-3">
+                <label class="form-label">{{ _("Доля (0...1, например 0.5 для 50%)") }}</label>
+                <input class="form-control form-control-sm" name="share" value="{{ o.share }}" step="0.01" min="0" max="1" required>
+              </div>
+            </form>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+            <button type="submit" form="editShareForm-{{ o.id }}" class="btn btn-primary">{{ _("Сохранить") }}</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <form method="post" action="{{ url_for('garages.update_owner_share', garage_id=garage.id, ownership_id=o.id) }}" id="editShareForm-{{ o.id }}" style="display:none"></form>
+    {% endfor %}
+
     <form method="post" action="{{ url_for('garages.add_owner', garage_id=garage.id) }}" class="d-flex gap-2 mb-4">
       <select name="person_id" class="form-select form-select-sm" data-searchable required>
         {% for p in all_persons %}<option value="{{ p.id }}">{{ p.full_name }}</option>{% endfor %}

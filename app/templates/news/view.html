@@ -28,11 +28,13 @@
     {% if files %}
     <div class="mt-4">
       <h6>{{ _("Файлы") }}</h6>
-      <ul class="list-unstyled mb-0">
+      <div class="list-unstyled mb-0">
         {% for att in files %}
-        <li><a href="{{ url_for('news.attachment', attachment_id=att.id, original_filename=att.original_filename) }}">{{ att.original_filename }}</a></li>
+        <div class="mb-2">
+          <a href="{{ url_for('news.attachment', attachment_id=att.id, original_filename=att.original_filename) }}" class="btn btn-sm btn-outline-secondary">{{ att.original_filename }}</a>
+        </div>
         {% endfor %}
-      </ul>
+      </div>
     </div>
     {% endif %}
   </div>

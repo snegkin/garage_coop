@@ -2,7 +2,15 @@
 {% block title %}{{ _("Голосование") }}{% endblock %}
 {% block content %}
 <h3 class="mb-1">{{ vote.title }}</h3>
+{% if on_behalf_of %}
+<p class="text-muted small mb-3">
+  {{ _("Запись голоса за члена кооператива") }}: <strong>{{ on_behalf_of.full_name }}</strong>
+  · {{ _("вес голоса") }}: <strong>{{ fmt2(weight) }}</strong>
+</p>
+<div class="alert alert-warning small py-2">{{ _("Вы вносите голос от имени другого человека — используется только для очной части очно-заочного голосования (бумажные бюллетени с собрания). Сам член кооператива сможет переголосовать электронно позже, пока приём открыт — учитывается последняя подача.") }}</div>
+{% else %}
 <p class="text-muted small mb-3">{{ _("Ваш вес голоса (сумма долей владения по вашим гаражам)") }}: <strong>{{ fmt2(weight) }}</strong></p>
+{% endif %}
 {% if vote.description %}<p>{{ vote.description }}</p>{% endif %}
 
 <form method="post">
@@ -12,7 +20,7 @@
       <p class="mb-2">{{ loop.index }}. {{ q.text }}</p>
       {% set current = my_ballots[q.id].choice.value if q.id in my_ballots else None %}
       <div class="btn-group" role="group">
-        <input type="radio" class="btn-check" name="choice_{{ q.id }}" id="q{{ q.id }}_for" value="for" {{ 'checked' if current == 'for' }} required>
+        <input type="radio" class="btn-check" name="choice_{{ q.id }}" id="q{{ q.id }}_for" value="for" {{ 'checked' if current == 'for' }} {{ 'required' if not on_behalf_of }}>
         <label class="btn btn-outline-success" for="q{{ q.id }}_for">{{ _("За") }}</label>
 
         <input type="radio" class="btn-check" name="choice_{{ q.id }}" id="q{{ q.id }}_against" value="against" {{ 'checked' if current == 'against' }}>
@@ -25,8 +33,12 @@
   </div>
   {% endfor %}
 
-  <button class="btn btn-primary">{{ _("Отправить бюллетень") }}</button>
+  <button class="btn btn-primary">{{ _("Записать голос") if on_behalf_of else _("Отправить бюллетень") }}</button>
   <a class="btn btn-outline-secondary" href="{{ url_for('voting.detail', vote_id=vote.id) }}">{{ _("Отмена") }}</a>
+  {% if not on_behalf_of %}
   <p class="text-muted small mt-2">{{ _("Пока приём бюллетеней открыт, вы можете вернуться и изменить свой голос — учитывается последняя подача.") }}</p>
+  {% else %}
+  <p class="text-muted small mt-2">{{ _("Можно отметить не все вопросы сразу — незаполненные останутся как есть, к ним можно вернуться позже.") }}</p>
+  {% endif %}
 </form>
 {% endblock %}

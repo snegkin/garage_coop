@@ -251,6 +251,8 @@ def _regenerate_account_numbers(settings) -> tuple[int, int]:
             owner_index_by_garage_person[(garage.id, o.person_id)] = idx
 
     for account in database.db_session.query(MemberAccount).all():
+        if not account.fee_type.type_code:
+            continue  # у ручных счетов без кода вида — номер не трогаем
         owner_index = owner_index_by_garage_person.get((account.garage_id, account.person_id), 0)
         new_number = member_account_number(
             account.fee_type.type_code, account.garage_id, owner_index, account.fee_type.is_penalty, settings,

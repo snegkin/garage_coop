@@ -3,7 +3,7 @@
 {% block content %}
 <h3 class="mb-3">{{ _("Новое голосование") }}</h3>
 
-<form method="post" class="row g-3" style="max-width:700px">
+<form method="post" enctype="multipart/form-data" class="row g-3" style="max-width:700px">
   <div class="col-12">
     <label class="form-label">{{ _("Название") }}</label>
     <input class="form-control" name="title" required placeholder="{{ _('напр. Голосование по смете на 2027 год') }}">
@@ -14,10 +14,12 @@
   </div>
   <div class="col-md-6">
     <label class="form-label">{{ _("Тип голосования") }}</label>
-    <select class="form-select" name="voting_type">
+    <select class="form-select" name="voting_type" id="votingTypeSelect">
       <option value="absentee">{{ _("заочное") }}</option>
       <option value="in_person_and_absentee">{{ _("очно-заочное") }}</option>
+      <option value="in_person">{{ _("очное") }}</option>
     </select>
+    <div class="form-text" id="inPersonHint">{{ _("Решение уже принято на собрании — электронная повестка/бюллетени не заводятся, результаты фиксируются только приложенным протоколом.") }}</div>
   </div>
   <div class="col-md-6">
     <label class="form-label">{{ _("Связанное очное собрание") }}</label>
@@ -29,19 +31,50 @@
     </select>
     <div class="form-text">{{ _("Для очно-заочного — собрание, очную часть которого это голосование дополняет.") }}</div>
   </div>
-  <div class="col-md-6">
+
+  <div class="col-md-6 votes-field votes-field-absentee votes-field-in_person_and_absentee">
     <label class="form-label">{{ _("Начало приёма бюллетеней") }}</label>
-    <input class="form-control" type="datetime-local" name="opens_at" required value="{{ now_local }}">
+    <input class="form-control" type="datetime-local" name="opens_at" value="{{ now_local }}">
   </div>
-  <div class="col-md-6">
+  <div class="col-md-6 votes-field votes-field-absentee votes-field-in_person_and_absentee">
     <label class="form-label">{{ _("Окончание приёма бюллетеней") }}</label>
-    <input class="form-control" type="datetime-local" name="closes_at" required>
+    <input class="form-control" type="datetime-local" name="closes_at">
   </div>
-  <div class="col-12 text-muted small">{{ _("Кворум — правило кооператива, не настраивается за голосование: правомочно, только если приняло участие больше половины голосов кооператива.") }}</div>
+
+  <div class="col-md-6 votes-field votes-field-in_person d-none">
+    <label class="form-label">{{ _("Дата голосования") }}</label>
+    <input class="form-control" type="datetime-local" name="vote_date" value="{{ now_local }}">
+  </div>
+  <div class="col-md-6 votes-field votes-field-in_person d-none">
+    <label class="form-label">{{ _("Протокол с результатами") }}</label>
+    <input class="form-control" type="file" name="protocol_file">
+    <div class="form-text">{{ _("Обязателен для очного голосования — это единственный источник результатов.") }}</div>
+  </div>
+
+  <div class="col-12 text-muted small votes-field votes-field-absentee votes-field-in_person_and_absentee">{{ _("Кворум — правило кооператива, не настраивается за голосование: правомочно, только если приняло участие больше половины голосов кооператива.") }}</div>
   <div class="col-12">
-    <button class="btn btn-primary">{{ _("Создать (черновик)") }}</button>
+    <button class="btn btn-primary" id="submitBtn">{{ _("Создать (черновик)") }}</button>
     <a class="btn btn-outline-secondary" href="{{ url_for('voting.list_votes') }}">{{ _("Отмена") }}</a>
   </div>
-  <div class="col-12 text-muted small">{{ _("После создания добавьте вопросы повестки — голосование останется черновиком, пока вы явно его не откроете.") }}</div>
+  <div class="col-12 text-muted small votes-field votes-field-absentee votes-field-in_person_and_absentee">{{ _("После создания добавьте вопросы повестки — голосование останется черновиком, пока вы явно его не откроете.") }}</div>
 </form>
+
+<script>
+(function () {
+  var select = document.getElementById("votingTypeSelect");
+  var hint = document.getElementById("inPersonHint");
+  function sync() {
+    var type = select.value;
+    document.querySelectorAll(".votes-field").forEach(function (el) { el.classList.add("d-none"); });
+    document.querySelectorAll(".votes-field-" + type).forEach(function (el) { el.classList.remove("d-none"); });
+    document.querySelector("input[name='opens_at']").required = (type !== "in_person");
+    document.querySelector("input[name='closes_at']").required = (type !== "in_person");
+    document.querySelector("input[name='vote_date']").required = (type === "in_person");
+    hint.classList.toggle("d-none", type !== "in_person");
+    document.getElementById("submitBtn").textContent = (type === "in_person") ? "{{ _('Зафиксировать голосование') }}" : "{{ _('Создать (черновик)') }}";
+  }
+  select.addEventListener("change", sync);
+  sync();
+})();
+</script>
 {% endblock %}

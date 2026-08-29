@@ -514,11 +514,22 @@ class DocumentType(str, enum.Enum):
     ACT = "act"
     LETTER = "letter"
     PROTOCOL = "protocol"
+    INVOICE = "invoice"
+    STATEMENT = "statement"
+    CERTIFICATE = "certificate"
+    ESTIMATE = "estimate"
+    REPORT = "report"
     OTHER = "other"
 
 
 class Document(Base):
-    """Внутренний документ: устав, приказ, акт, письмо, протокол."""
+    """Документ кооператива: устав, приказ, акт, письмо, протокол, счёт,
+    выписка, справка, смета, отчёт и т.п.
+
+    is_internal разделяет документы на общедоступные (видны всем вошедшим
+    членам кооператива — прежнее поведение) и внутренние (видны только
+    правлению, is_board()) — см. app/documents.py.
+    """
     __tablename__ = "document"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -527,7 +538,9 @@ class Document(Base):
     date: Mapped[dt.date] = mapped_column(Date, index=True)
     title: Mapped[str] = mapped_column(String(255))
     file_path: Mapped[str | None] = mapped_column(String(500))
+    file_name: Mapped[str | None] = mapped_column(String(500))  # оригинальное имя файла при загрузке
     comment: Mapped[str | None] = mapped_column(Text)
+    is_internal: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
 
 
 class BoardTerm(Base):
@@ -653,6 +666,10 @@ class FeeRate(Base):
 class VoteType(str, enum.Enum):
     IN_PERSON_AND_ABSENTEE = "in_person_and_absentee"  # очно-заочное — дополняет очную часть собрания
     ABSENTEE = "absentee"                               # заочное — без очной части вообще
+    IN_PERSON = "in_person"                             # полностью очное — решение принято на собрании,
+    # электронных вопросов/бюллетеней нет вовсе, единственный источник
+    # результатов — прикреплённый при создании протокол (см. voting.py
+    # create(): для этого типа Vote создаётся сразу в статусе CLOSED).
 
 
 class VoteStatus(str, enum.Enum):
@@ -676,13 +693,15 @@ QUORUM_THRESHOLD = Decimal("0.5")
 
 class Vote(Base):
     """
-    Электронное голосование (очно-заочное или заочное) по одному или
-    нескольким вопросам повестки — альтернатива очному собранию, когда не
-    удаётся очно собрать всех собственников. Голосуют члены кооператива
-    (владельцы гаражей); вес голоса человека = сумма его долей владения по
-    всем гаражам (см. voting.person_voting_weight) — так что «1 гараж —
-    1 голос», а при нескольких собственниках гаража их голос делится ровно
-    по их долям, без специального кода под этот случай.
+    Голосование по одному или нескольким вопросам повестки — заочное,
+    очно-заочное (альтернатива/дополнение очному собранию, когда не
+    удаётся очно собрать всех собственников) или полностью очное
+    (VoteType.IN_PERSON — решение уже принято на собрании, электронных
+    вопросов/бюллетеней нет, результаты только в приложенном протоколе).
+    Голосуют члены кооператива (владельцы гаражей); вес голоса человека =
+    сумма его долей владения по всем гаражам (см. voting.person_voting_weight)
+    — так что «1 гараж — 1 голос», а при нескольких собственниках гаража их
+    голос делится ровно по их долям, без специального кода под этот случай.
     """
     __tablename__ = "vote"
 

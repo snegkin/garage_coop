@@ -301,35 +301,6 @@ def accrue_penalties(target_date: dt.date | None = None) -> dict:
 # Роуты
 # ---------------------------------------------------------------------------
 
-PENALTY_KEY_RATES_PER_PAGE = 20
-
-
-def _pagination_window(current: int, total: int, radius: int = 2) -> list[int | None]:
-    """
-    Список номеров страниц для рендера пагинации: первая, последняя,
-    текущая и `radius` соседей вокруг неё; между несмежными группами —
-    None (означает «…» в шаблоне). Без этого при большом total_pages
-    пагинация рендерила бы ссылку на каждую страницу подряд и вылезала
-    за пределы таблицы/страницы.
-    """
-    if total <= 1:
-        return []
-    pages = {1, total, current}
-    for d in range(1, radius + 1):
-        pages.add(current - d)
-        pages.add(current + d)
-    pages = sorted(p for p in pages if 1 <= p <= total)
-
-    window: list[int | None] = []
-    prev = None
-    for p in pages:
-        if prev is not None and p - prev > 1:
-            window.append(None)
-        window.append(p)
-        prev = p
-    return window
-
-
 @bp.route("/")
 @roles_required(RoleEnum.BOARD)
 def view():
@@ -344,20 +315,10 @@ def view():
     # дату, для этого автопересчёт не нужен и не заменяет её.
     accrue_penalties(dt.date.today())
 
-    rates_query = database.db_session.query(KeyRate).order_by(KeyRate.effective_date.desc())
-    total_rates = rates_query.count()
-    total_pages = max(1, -(-total_rates // PENALTY_KEY_RATES_PER_PAGE))  # ceil division
-    page = min(max(1, request.args.get("page", 1, type=int)), total_pages)
-    rates = (
-        rates_query
-        .offset((page - 1) * PENALTY_KEY_RATES_PER_PAGE)
-        .limit(PENALTY_KEY_RATES_PER_PAGE)
-        .all()
-    )
-    page_window = _pagination_window(page, total_pages)
+    rates = database.db_session.query(KeyRate).order_by(KeyRate.effective_date.desc()).all()
 
     # "С даты" в форме загрузки с ЦБ подставляется от самой свежей загруженной
-    # ставки в БД целиком — независимо от того, какая страница таблицы открыта.
+    # ставки в БД целиком.
     latest_rate = database.db_session.query(KeyRate).order_by(KeyRate.effective_date.desc()).first()
     suggested_from_date = (latest_rate.effective_date + dt.timedelta(days=1)) if latest_rate else dt.date(2020, 1, 1)
 
@@ -365,7 +326,6 @@ def view():
         "finance/penalty.html",
         coop=coop, due_date_this_year=due_date_this_year, rates=rates,
         today=dt.date.today(), suggested_from_date=suggested_from_date,
-        page=page, total_pages=total_pages, total_rates=total_rates, page_window=page_window,
     )
 
 
@@ -400,18 +360,6 @@ def fetch_key_rate():
     return redirect(url_for("penalty.view"))
 
 
-@bp.route("/key-rate/compact", methods=["POST"])
-@roles_required(RoleEnum.BOARD)
-def compact_key_rate():
-    removed = compact_key_rates()
-    database.db_session.commit()
-    if removed:
-        flash(_("Убрано избыточных записей: {n}.", n=removed), "success")
-    else:
-        flash(_("Избыточных записей не найдено."), "info")
-    return redirect(url_for("penalty.view"))
-
-
 @bp.route("/key-rate/manual", methods=["POST"])
 @roles_required(RoleEnum.BOARD)
 def add_manual_key_rate():
@@ -438,7 +386,7 @@ def delete_key_rate(rate_id):
         database.db_session.delete(row)
         database.db_session.commit()
         flash(_("Запись ставки удалена."), "success")
-    return redirect(url_for("penalty.view", page=request.form.get("page", 1)))
+    return redirect(url_for("penalty.view"))
 
 
 @bp.route("/run", methods=["POST"])

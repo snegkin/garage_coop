@@ -1,20 +1,27 @@
 """
-Электронное голосование (очно-заочное / заочное) — альтернатива очному
-собранию, когда не удаётся очно собрать всех собственников. Голосуют члены
-кооператива (владельцы гаражей); вес голоса человека = сумма его долей
-владения по всем его гаражам — см. person_voting_weight(). Так «1 гараж —
-1 голос» и «при нескольких собственниках голос делится по долям»
-получаются автоматически из уже существующего GarageOwnership.share, без
-отдельного кода на этот случай (см. подробный комментарий у моделей
-Vote/VoteQuestion/VoteBallot в models.py).
+Голосование — три вида (VoteType): заочное, очно-заочное и полностью очное.
+Заочное/очно-заочное — электронное голосование по повестке вопросов; вес
+голоса человека = сумма его долей владения по всем его гаражам — см.
+person_voting_weight(). Так «1 гараж — 1 голос» и «при нескольких
+собственниках голос делится по долям» получаются автоматически из уже
+существующего GarageOwnership.share, без отдельного кода на этот случай
+(см. подробный комментарий у моделей Vote/VoteQuestion/VoteBallot в
+models.py).
 
-Организационная модель:
+Организационная модель для заочного/очно-заочного:
 - Председатель создаёт голосование (статус draft) и формирует повестку
   (один или несколько вопросов, у каждого — свой порог принятия).
 - Открывает голосование (draft -> open) — с этого момента и до closes_at
   члены могут подавать/менять бюллетень.
 - Переголосование, пока голосование открыто, разрешено — обновляет тот же
   бюллетень, не создаёт дубль (см. cast_ballots).
+- Для очно-заочного голосования часть членов голосует очно на собрании
+  (на бумаге) — их волеизъявление в систему не попадает само по себе;
+  председатель может внести/поправить бюллетень любого члена вручную,
+  пока голосование open (см. set_ballot_for_person) — это тот же
+  cast_ballots(), что и при самостоятельной подаче бюллетеня, поэтому
+  переголосование самим членом после ручной записи председателем тоже
+  работает как обычно (последняя подача побеждает).
 - Председатель закрывает голосование явно (open -> closed) — либо раньше
   closes_at (досрочно, если, например, все уже проголосовали), либо позже.
   Приём бюллетеней прекращается и при истечении closes_at, даже если
@@ -22,6 +29,11 @@ Vote/VoteQuestion/VoteBallot в models.py).
 - Итоговый протокол (подписанный) прикрепляется как обычный Document —
   так же, как для очных собраний (см. meetings.py) — это отдельный
   юридический документ, генерировать автоматически не пытаемся.
+
+Полностью очное голосование (VoteType.IN_PERSON) — решение принято на
+собрании, электронная повестка/бюллетени не заводятся вовсе: председатель
+сразу при создании прикрепляет протокол с результатами, и Vote создаётся
+уже в статусе CLOSED (см. create()).
 """
 import datetime as dt
 from decimal import Decimal
@@ -31,7 +43,7 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 from . import database
 from .i18n import translate as _
 from .auth import login_required, roles_required
-from .permissions import is_board
+from .permissions import is_board, is_chairman
 from .models import (
     Vote, VoteQuestion, VoteBallot, VoteType, VoteStatus, VoteChoice, QUORUM_THRESHOLD,
     GarageOwnership, Person, GeneralMeeting, Document, DocumentType, RoleEnum,
@@ -129,6 +141,25 @@ def person_ballots_by_question(vote: Vote, person_id: int) -> dict[int, VoteBall
     return result
 
 
+def eligible_voters() -> list[Person]:
+    """
+    Все люди с ненулевой долей владения хотя бы в одном гараже (т.е.
+    person_voting_weight > 0) — потенциальные участники голосования,
+    отсортированы по ФИО. Используется для ручной записи председателем
+    очных голосов по очно-заочному голосованию (см. set_ballot_for_person).
+    """
+    ownerships = database.db_session.query(GarageOwnership).all()
+    person_ids = {o.person_id for o in ownerships if o.share and o.share > 0}
+    if not person_ids:
+        return []
+    return (
+        database.db_session.query(Person)
+        .filter(Person.id.in_(person_ids))
+        .order_by(Person.full_name)
+        .all()
+    )
+
+
 def cast_ballots(vote: Vote, person: Person, choices: dict[int, VoteChoice]) -> None:
     """
     Подаёт/обновляет бюллетень человека по всем переданным вопросам этого
@@ -190,6 +221,50 @@ def list_votes():
 def create():
     if request.method == "POST":
         f = request.form
+        voting_type = VoteType(f.get("voting_type") or VoteType.ABSENTEE.value)
+
+        if voting_type == VoteType.IN_PERSON:
+            # Полностью очное голосование — решение уже принято на собрании,
+            # электронной повестки/бюллетеней не заводим. Протокол
+            # обязателен сразу при создании (без него нечем подтвердить
+            # результат), и Vote создаётся сразу закрытым — открывать/
+            # переголосовывать здесь нечего.
+            vote_date_raw = f.get("vote_date")
+            if not vote_date_raw:
+                flash(_("Укажите дату голосования."), "danger")
+                return redirect(url_for("voting.create"))
+            vote_date = dt.datetime.fromisoformat(vote_date_raw)
+
+            file_path = save_upload(request.files.get("protocol_file"), current_app.config["UPLOAD_FOLDER"])
+            if not file_path:
+                flash(_("Для очного голосования обязательно приложите протокол с результатами."), "danger")
+                return redirect(url_for("voting.create"))
+
+            vote = Vote(
+                title=f["title"],
+                description=f.get("description") or None,
+                voting_type=voting_type,
+                meeting_id=int(f["meeting_id"]) if f.get("meeting_id") else None,
+                opens_at=vote_date, closes_at=vote_date, closed_at=dt.datetime.now(),
+                created_by_person_id=g.user.person_id,
+                status=VoteStatus.CLOSED,
+            )
+            database.db_session.add(vote)
+            database.db_session.flush()
+
+            doc = Document(
+                doc_type=DocumentType.PROTOCOL,
+                date=vote_date.date(),
+                title=_("Протокол голосования «{title}»", title=vote.title),
+                file_path=file_path,
+            )
+            database.db_session.add(doc)
+            database.db_session.flush()
+            vote.protocol_document_id = doc.id
+            database.db_session.commit()
+            flash(_("Очное голосование зафиксировано, протокол прикреплён."), "success")
+            return redirect(url_for("voting.detail", vote_id=vote.id))
+
         opens_at = dt.datetime.fromisoformat(f["opens_at"])
         closes_at = dt.datetime.fromisoformat(f["closes_at"])
         if closes_at <= opens_at:
@@ -199,7 +274,7 @@ def create():
         vote = Vote(
             title=f["title"],
             description=f.get("description") or None,
-            voting_type=VoteType(f.get("voting_type") or VoteType.ABSENTEE.value),
+            voting_type=voting_type,
             meeting_id=int(f["meeting_id"]) if f.get("meeting_id") else None,
             opens_at=opens_at, closes_at=closes_at,
             created_by_person_id=g.user.person_id,
@@ -232,12 +307,20 @@ def detail(vote_id):
 
     results = {q.id: question_results(q) for q in vote.questions} if (is_board() or vote.status == VoteStatus.CLOSED) else {}
 
+    # Ручная запись очных голосов — только председатель, только для
+    # очно-заочного голосования, пока оно открыто (см. set_ballot_for_person).
+    show_manual_ballots = is_chairman() and vote.voting_type == VoteType.IN_PERSON_AND_ABSENTEE and vote.status == VoteStatus.OPEN
+    voters = eligible_voters() if show_manual_ballots else []
+    voter_ballots = {p.id: person_ballots_by_question(vote, p.id) for p in voters} if show_manual_ballots else {}
+    voter_weights = {p.id: person_voting_weight(p.id) for p in voters} if show_manual_ballots else {}
+
     return render_template(
         "voting/detail.html", vote=vote, results=results,
         my_weight=my_weight, my_ballots=my_ballots,
         is_accepting=is_accepting_ballots(vote),
         quorum=quorum_met(vote), participation=vote_participation_weight(vote) if is_board() else None,
         total_weight=total_cooperative_weight(),
+        show_manual_ballots=show_manual_ballots, voters=voters, voter_ballots=voter_ballots, voter_weights=voter_weights,
     )
 
 
@@ -375,3 +458,56 @@ def ballot(vote_id):
 
     my_ballots = person_ballots_by_question(vote, person.id)
     return render_template("voting/ballot.html", vote=vote, weight=weight, my_ballots=my_ballots)
+
+
+# ---------------------------------------------------------------------------
+# Роут — председатель фиксирует, как проголосовал конкретный член
+# кооператива (для очно-заочного: часть голосов подаётся очно на
+# собрании, на бумаге, и в систему сама не попадает)
+# ---------------------------------------------------------------------------
+
+@bp.route("/<int:vote_id>/ballot/<int:person_id>", methods=["GET", "POST"])
+@roles_required(RoleEnum.CHAIRMAN)
+def set_ballot_for_person(vote_id, person_id):
+    vote = database.db_session.get(Vote, vote_id)
+    if vote is None:
+        flash(_("Голосование не найдено."), "warning")
+        return redirect(url_for("voting.list_votes"))
+
+    if vote.voting_type != VoteType.IN_PERSON_AND_ABSENTEE:
+        flash(_("Ручная запись голоса доступна только для очно-заочного голосования."), "danger")
+        return redirect(url_for("voting.detail", vote_id=vote_id))
+    if vote.status != VoteStatus.OPEN:
+        flash(_("Записывать голоса можно только пока голосование открыто."), "danger")
+        return redirect(url_for("voting.detail", vote_id=vote_id))
+
+    person = database.db_session.get(Person, person_id)
+    if person is None:
+        flash(_("Человек не найден."), "warning")
+        return redirect(url_for("voting.detail", vote_id=vote_id))
+
+    weight = person_voting_weight(person.id)
+    if weight <= 0:
+        flash(_("У этого человека нет доли ни в одном гараже — голосовать он не может."), "warning")
+        return redirect(url_for("voting.detail", vote_id=vote_id))
+
+    if request.method == "POST":
+        f = request.form
+        choices = {}
+        for question in vote.questions:
+            raw = f.get(f"choice_{question.id}")
+            if raw:
+                choices[question.id] = VoteChoice(raw)
+        if not choices:
+            flash(_("Отметьте хотя бы один вопрос повестки."), "danger")
+            return redirect(url_for("voting.set_ballot_for_person", vote_id=vote_id, person_id=person_id))
+        cast_ballots(vote, person, choices)
+        database.db_session.commit()
+        flash(_("Голос члена кооператива «{name}» зафиксирован.", name=person.full_name), "success")
+        return redirect(url_for("voting.detail", vote_id=vote_id))
+
+    ballots = person_ballots_by_question(vote, person.id)
+    return render_template(
+        "voting/ballot.html", vote=vote, weight=weight, my_ballots=ballots,
+        on_behalf_of=person,
+    )

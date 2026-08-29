@@ -505,6 +505,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Название документа": "Document title",
         "Документ добавлен.": "Document added.",
         "Файл не найден.": "File not found.",
+        "Внутренний документ (виден только правлению)": "Internal document (visible to the board only)",
+        "Доступ": "Access",
+        "внутренний": "internal",
+        "общедоступный": "public",
 
         # meetings
         "Общие собрания": "General meetings",
@@ -1347,11 +1351,24 @@ ROLE_LABELS = {
 DOC_TYPE_LABELS = {
     "ru": {
         "charter": "устав", "order": "приказ", "act": "акт",
-        "letter": "письмо", "protocol": "протокол", "other": "прочее",
+        "letter": "письмо", "protocol": "протокол",
+        "invoice": "счёт", "statement": "выписка", "certificate": "справка",
+        "estimate": "смета", "report": "отчёт", "other": "прочее",
     },
     "en": {
         "charter": "charter", "order": "order", "act": "act",
-        "letter": "letter", "protocol": "protocol", "other": "other",
+        "letter": "letter", "protocol": "protocol",
+        "invoice": "invoice", "statement": "statement", "certificate": "certificate",
+        "estimate": "estimate", "report": "report", "other": "other",
+    },
+}
+
+VOTE_TYPE_LABELS = {
+    "ru": {
+        "absentee": "заочное", "in_person_and_absentee": "очно-заочное", "in_person": "очное",
+    },
+    "en": {
+        "absentee": "absentee", "in_person_and_absentee": "in-person + absentee", "in_person": "in-person",
     },
 }
 
@@ -1379,6 +1396,11 @@ def role_label(role_value: str) -> str:
 def doc_type_label(doc_type_value: str) -> str:
     locale = getattr(g, "locale", DEFAULT_LANGUAGE)
     return DOC_TYPE_LABELS.get(locale, DOC_TYPE_LABELS["ru"]).get(doc_type_value, doc_type_value)
+
+
+def vote_type_label(vote_type_value: str) -> str:
+    locale = getattr(g, "locale", DEFAULT_LANGUAGE)
+    return VOTE_TYPE_LABELS.get(locale, VOTE_TYPE_LABELS["ru"]).get(vote_type_value, vote_type_value)
 
 
 DATE_FORMATS = {"ru": "%d.%m.%Y", "en": "%Y-%m-%d"}
@@ -1419,6 +1441,7 @@ def init_app(app):
     app.jinja_env.globals["_"] = translate
     app.jinja_env.globals["role_label"] = role_label
     app.jinja_env.globals["doc_type_label"] = doc_type_label
+    app.jinja_env.globals["vote_type_label"] = vote_type_label
     app.jinja_env.globals["fmt_date"] = format_date
     app.jinja_env.globals["fmt2"] = fmt2
     app.jinja_env.globals["SUPPORTED_LANGUAGES"] = SUPPORTED_LANGUAGES

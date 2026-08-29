@@ -1,8 +1,9 @@
 import datetime as dt
+import os
 
 from flask import (
     Blueprint, render_template, request, redirect, url_for, flash, abort,
-    g, current_app, send_from_directory,
+    g, current_app, send_file,
 )
 
 from . import database
@@ -129,7 +130,9 @@ def attachment(attachment_id, original_filename):
     att = database.db_session.get(NewsAttachment, attachment_id)
     if att is None:
         abort(404)
-    return send_from_directory(
-        current_app.config["UPLOAD_FOLDER"], att.stored_filename,
+    upload_folder = current_app.config["UPLOAD_FOLDER"]
+    return send_file(
+        os.path.join(upload_folder, att.stored_filename),
+        as_attachment=True,
         download_name=att.original_filename,
     )

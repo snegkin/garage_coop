@@ -10,8 +10,8 @@
 
 {% if coop %}
 <h4>{{ _("Реквизиты") }}</h4>
-<table class="table table-bordered bg-body mb-4">
-  <tr><th style="width:280px">{{ _("Полное наименование") }}</th><td>{{ coop.full_name }}</td></tr>
+<table class="table table-bordered bg-body table-labels mb-4">
+  <tr><th class="table-label">{{ _("Полное наименование") }}</th><td>{{ coop.full_name }}</td></tr>
   <tr><th>{{ _("Краткое наименование") }}</th><td>{{ coop.short_name or "—" }}</td></tr>
   <tr><th>{{ _("ИНН") }}</th><td>{{ coop.inn }}</td></tr>
   <tr><th>{{ _("КПП") }}</th><td>{{ coop.kpp }}</td></tr>
@@ -32,8 +32,8 @@
 </table>
 
 <h4>{{ _("Площади и налоги") }}</h4>
-<table class="table table-bordered bg-body">
-  <tr><th style="width:280px">{{ _("Полная площадь кооператива (по документам), м²") }}</th><td>{{ fmt2(coop.total_area) if coop.total_area else "—" }}</td></tr>
+<table class="table table-bordered bg-body table-labels">
+  <tr><th class="table-label">{{ _("Полная площадь кооператива (по документам), м²") }}</th><td>{{ fmt2(coop.total_area) if coop.total_area else "—" }}</td></tr>
   <tr><th>{{ _("Площадь кооператива (кадастровая), м²") }}</th><td>{{ fmt2(coop.cadastral_area) if coop.cadastral_area else "—" }}</td></tr>
   <tr><th>{{ _("Из них, площадь общего пользования, м²") }}</th><td>{{ fmt2(coop.common_area) if coop.common_area else "—" }}</td></tr>
   <tr><th>{{ _("Стоимость земли (кадастровая), ₽") }}</th><td>{{ fmt2(coop.cadastral_value) if coop.cadastral_value else "—" }}</td></tr>

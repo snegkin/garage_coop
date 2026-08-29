@@ -180,7 +180,7 @@ def create_member_account():
             .all()
         )
         owner_index = next((i for i, o in enumerate(ownerships) if o.person_id == person_id), 0)
-        account_number = member_account_number(fee_type.type_code, garage.id, owner_index, fee_type.is_penalty)
+        account_number = member_account_number(fee_type.id, garage.id, owner_index, fee_type.is_penalty)
 
     account = MemberAccount(
         person_id=person_id, garage_id=garage_id, fee_type_id=fee_type_id, account_number=account_number,
@@ -251,11 +251,9 @@ def _regenerate_account_numbers(settings) -> tuple[int, int]:
             owner_index_by_garage_person[(garage.id, o.person_id)] = idx
 
     for account in database.db_session.query(MemberAccount).all():
-        if not account.fee_type.type_code:
-            continue  # у ручных счетов без кода вида — номер не трогаем
         owner_index = owner_index_by_garage_person.get((account.garage_id, account.person_id), 0)
         new_number = member_account_number(
-            account.fee_type.type_code, account.garage_id, owner_index, account.fee_type.is_penalty, settings,
+            account.fee_type.id, account.garage_id, owner_index, account.fee_type.is_penalty, settings,
         )
         if new_number == account.account_number:
             continue
@@ -300,8 +298,8 @@ def account_format():
         "finance/account_format.html",
         settings=settings,
         example_electricity=electricity_account_number(95, settings),
-        example_member=member_account_number("1", 95, 0, False, settings),
-        example_penalty=member_account_number("1", 95, 0, True, settings),
+        example_member=member_account_number(1, 95, 0, False, settings),
+        example_penalty=member_account_number(1, 95, 0, True, settings),
     )
 
 

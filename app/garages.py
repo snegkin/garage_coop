@@ -54,7 +54,7 @@ def _ensure_member_accounts(garage: Garage, person_id: int, owner_index: int):
         )
         if exists:
             continue
-        number = member_account_number(fee_type.type_code, garage.id, owner_index, fee_type.is_penalty)
+        number = member_account_number(fee_type.id, garage.id, owner_index, fee_type.is_penalty)
         database.db_session.add(MemberAccount(
             person_id=person_id, garage_id=garage.id, fee_type_id=fee_type.id, account_number=number,
         ))
@@ -394,6 +394,14 @@ def add_owner(garage_id):
 def remove_owner(garage_id, ownership_id):
     ownership = database.db_session.get(GarageOwnership, ownership_id)
     if ownership and ownership.garage_id == garage_id:
+        # Удаляем все лицевые счета этого собственника по этому гаражу
+        member_accounts = (
+            database.db_session.query(MemberAccount)
+            .filter_by(person_id=ownership.person_id, garage_id=garage_id)
+            .all()
+        )
+        for account in member_accounts:
+            database.db_session.delete(account)
         database.db_session.delete(ownership)
         database.db_session.commit()
         flash(_("Собственник удалён."), "success")

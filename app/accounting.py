@@ -12,9 +12,10 @@
     0{id:03d}0            например, id 95 -> 00950
 
 - Взнос/налог (счёт на члена кооператива, по конкретному гаражу и виду
-  взноса — последняя цифра(ы) — порядковый номер собственника этого гаража,
-  начиная с 0, чтобы у совладельцев были разные счета):
-    {код_вида}{id:03d}{№ собственника}   например, 10950, 20950
+  взноса — ID вида взноса, затем номер гаража, затем порядковый номер
+  собственника этого гаража, начиная с 0, чтобы у совладельцев были
+  разные счета):
+    {id_вида}{id:03d}{№ собственника}   например, 10950, 20950
 
 - Пеня по такому взносу/налогу — тот же номер с префиксом (по умолчанию "П"):
     П10950, П20950
@@ -57,13 +58,13 @@ def electricity_account_number(garage_id: int, settings: AccountNumberSettings |
 
 
 def member_account_number(
-    fee_type_code: str, garage_id: int, owner_index: int, is_penalty: bool,
+    fee_type_id: int, garage_id: int, owner_index: int, is_penalty: bool,
     settings: AccountNumberSettings | None = None,
 ) -> str:
     settings = settings or get_settings()
     owner_part = str(owner_index % (10 ** settings.owner_digits)).zfill(settings.owner_digits)
-    base = f"{fee_type_code}{_garage_digits(garage_id, settings.garage_digits)}{owner_part}"
-    return f"{settings.penalty_prefix}{base}" if is_penalty else base
+    base = f"{fee_type_id}{_garage_digits(garage_id, settings.garage_digits)}{owner_part}"
+    return base
 
 
 def balance(account) -> Decimal:

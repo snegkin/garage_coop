@@ -181,13 +181,13 @@
 
 <h5 class="mt-4">{{ _("Лицевые счета") }}</h5>
 <table class="table table-sm bg-body sortable">
-  <thead><tr><th>{{ _("ФИО") }}</th><th>{{ _("Вид взноса") }}</th><th>{{ _("Номер счёта") }}</th><th>{{ _("Баланс") }}</th></tr></thead>
+  <thead><tr><th>{{ _("ФИО") }}</th><th>{{ _("Вид взноса") }}</th><th class="text-end">{{ _("Номер счёта") }}</th><th>{{ _("Баланс") }}</th></tr></thead>
   <tbody>
     {% if account %}
     <tr>
       <td class="text-muted">{{ _("Гараж (все собственники)") }}</td>
       <td>{{ _("Электричество") }}</td>
-      <td>{{ account.account_number }}</td>
+      <td class="text-end">{{ account.account_number }}</td>
       <td data-sort-value="{{ account_balance }}" class="{{ 'text-danger' if account_balance < 0 else 'text-success' }}">{{ fmt2(account_balance) }} ₽</td>
     </tr>
     {% endif %}
@@ -195,7 +195,7 @@
     <tr>
       <td>{% if is_board() %}<a href="{{ url_for('persons.detail', person_id=row.person.id) }}">{{ row.person.full_name }}</a>{% else %}{{ row.person.full_name }}{% endif %}</td>
       <td>{{ row.fee_type.name }}</td>
-      <td>{{ row.account_number }}</td>
+      <td class="text-end">{{ row.account_number }}</td>
       <td data-sort-value="{{ row.balance }}" class="{{ 'text-danger' if row.balance < 0 else 'text-success' }}">{{ fmt2(row.balance) }} ₽</td>
     </tr>
     {% else %}

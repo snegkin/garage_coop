@@ -18,6 +18,7 @@ from .models import (
     MemberAccount, FeeType, RoleEnum, ElectricityMeter, ElectricityReading,
     Charge, Payment, User,
 )
+from sqlalchemy.orm import joinedload
 from .accounting import electricity_account_number, member_account_number, balance, current_tariff, reallocate_garage_charges, charge_paid_amount
 
 bp = Blueprint("garages", __name__, url_prefix="/garages")
@@ -54,7 +55,7 @@ def _ensure_member_accounts(garage: Garage, person_id: int, owner_index: int):
         )
         if exists:
             continue
-        number = member_account_number(fee_type.id, garage.id, owner_index, fee_type.is_penalty)
+        number = member_account_number(fee_type.type_code, garage.id, owner_index, fee_type.is_penalty)
         database.db_session.add(MemberAccount(
             person_id=person_id, garage_id=garage.id, fee_type_id=fee_type.id, account_number=number,
         ))
@@ -211,12 +212,17 @@ def detail(garage_id):
     # счета (can_view_member_account), не счета содольщиков — их баланс
     # не его дело; правление видит все.
     member_accounts = (
-        database.db_session.query(MemberAccount).filter_by(garage_id=garage.id).all()
+        database.db_session.query(MemberAccount)
+        .filter_by(garage_id=garage.id)
+        .options(joinedload(MemberAccount.charges))
+        .all()
     )
     member_accounts.sort(key=lambda ma: (ma.person.full_name, ma.fee_type.name))
     account_summary_rows = [
         {"person": ma.person, "fee_type": ma.fee_type, "account_number": ma.account_number, "balance": balance(ma)}
-        for ma in member_accounts if can_view_member_account(ma)
+        for ma in member_accounts
+        if can_view_member_account(ma)
+        and (not ma.fee_type.is_penalty or ma.charges)
     ]
 
     # объединённая таблица: показание берёт своё начисление напрямую через связь

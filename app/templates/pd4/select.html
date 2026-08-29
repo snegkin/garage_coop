@@ -19,7 +19,7 @@
         {% if is_board() %}<th>{{ _("ФИО") }}</th>{% endif %}
         <th>{{ _("Гараж") }}</th>
         <th>{{ _("Вид взноса") }}</th>
-        <th>{{ _("Счёт") }}</th>
+        <th class="text-end">{{ _("Счёт") }}</th>
         <th>{{ _("Долг") }}</th>
       </tr>
     </thead>
@@ -30,7 +30,7 @@
         {% if is_board() %}<td>{{ account.person.full_name }}</td>{% endif %}
         <td data-sort-value="{{ account.garage.number }}">№{{ account.garage.number }}</td>
         <td>{{ account.fee_type.name }}</td>
-        <td>{{ account.account_number }}</td>
+        <td class="text-end">{{ account.account_number }}</td>
         <td class="text-danger" data-sort-value="{{ debt }}">{{ fmt2(-debt) }} ₽</td>
       </tr>
       {% endfor %}

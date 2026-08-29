@@ -12,6 +12,7 @@ from .i18n import translate as _
 from .auth import login_required, roles_required, is_safe_next_url
 from .permissions import is_board, sync_user_role
 from .models import Person, Phone, User, RoleEnum, MemberAccount, PersonDataRevision, PersonDataRevisionStatus
+from sqlalchemy.orm import joinedload
 from .accounting import balance
 
 bp = Blueprint("persons", __name__, url_prefix="/persons")
@@ -137,7 +138,16 @@ def detail(person_id):
     if not is_board() and g.user.person_id != person_id:
         abort(403)
     account = database.db_session.query(User).filter_by(person_id=person.id).first()
-    member_accounts = database.db_session.query(MemberAccount).filter_by(person_id=person.id).all()
+    member_accounts = (
+        database.db_session.query(MemberAccount)
+        .filter_by(person_id=person.id)
+        .options(joinedload(MemberAccount.charges))
+        .all()
+    )
+    member_accounts = [
+        ma for ma in member_accounts
+        if not ma.fee_type.is_penalty or ma.charges
+    ]
     return render_template("persons/detail.html", person=person, account=account, member_accounts=member_accounts)
 
 

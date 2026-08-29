@@ -4,7 +4,7 @@
   см. app/garages.py: detail(), account_summary_rows.
 - Приватность: рядовой собственник видит в этой сводке только СВОИ
   MemberAccount (can_view_member_account), не счета содольщиков.
-- Фильтр на странице документов — селектор, не кнопки (app/templates/documents/list.html).
+- Фильтр на странице документов — текстовый поиск, не кнопки (app/templates/documents/list.html).
 """
 from decimal import Decimal
 import datetime as dt
@@ -103,10 +103,10 @@ def test_garage_detail_board_sees_all_member_accounts(app, db, client):
 
 
 # ---------------------------------------------------------------------------
-# Документы — фильтр селектором, не кнопками
+# Документы — текстовый поиск, не кнопки
 # ---------------------------------------------------------------------------
 
-def test_documents_list_filter_is_a_select(app, db, client):
+def test_documents_list_has_search_input(app, db, client):
     make_user(db, "docuser", "pass12345", role=RoleEnum.MEMBER)
     db.commit()
     login(client, "docuser", "pass12345")
@@ -114,13 +114,13 @@ def test_documents_list_filter_is_a_select(app, db, client):
     resp = client.get("/documents/")
     assert resp.status_code == 200
     html = resp.get_data(as_text=True)
-    assert '<select name="type"' in html
-    assert 'onchange="this.form.submit()"' in html
+    assert 'id="documentFilterInput"' in html
+    assert 'placeholder' in html
     # старых кнопок-фильтров быть не должно
     assert "btn-outline-secondary\" href=\"{{ url_for('documents.list_documents', type=" not in html
 
 
-def test_documents_list_filter_selects_current_type(app, db, client):
+def test_documents_list_shows_documents_in_table(app, db, client):
     make_user(db, "docuser2", "pass12345", role=RoleEnum.MEMBER)
     db.add(Document(
         doc_type=DocumentType.PROTOCOL, date=__import__("datetime").date(2026, 1, 1),
@@ -133,9 +133,10 @@ def test_documents_list_filter_selects_current_type(app, db, client):
     db.commit()
     login(client, "docuser2", "pass12345")
 
-    resp = client.get("/documents/", query_string={"type": DocumentType.PROTOCOL.value})
+    resp = client.get("/documents/")
     assert resp.status_code == 200
     html = resp.get_data(as_text=True)
-    assert f'value="{DocumentType.PROTOCOL.value}" selected' in html
     assert "Протокол №1" in html
-    assert "Устав" not in html
+    assert "Устав" in html
+    # таблица с данными
+    assert 'id="documentsTable"' in html

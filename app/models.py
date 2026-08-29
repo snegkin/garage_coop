@@ -55,10 +55,16 @@ class Cooperative(Base):
     registration_date: Mapped[dt.date | None] = mapped_column(Date)
 
     # площади (м²) — для распределения взносов пропорционально площади
-    total_area: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))    # площадь кооператива
-    common_area: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))   # площадь общего пользования
+    total_area: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))    # полная площадь кооператива (до приватизаций)
+    common_area: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))   # площадь общего пользования (дороги и т.д.)
 
     # для автоматического расчёта земельного налога (см. accounting.compute_land_tax)
+    # Текущая площадь кооператива на кадастровой карте — уменьшается при приватизации.
+    cadastral_area: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    # Текущая кадастровая стоимость кооператива на кадастровой карте —
+    # уменьшается при приватизации (вместо LandTaxYear).
+    cadastral_value: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+
     standard_garage_land_area: Mapped[Decimal | None] = mapped_column(Numeric(8, 2), default=Decimal("30"))
     land_tax_rate_percent: Mapped[Decimal] = mapped_column(Numeric(5, 3), default=Decimal("1.5"))  # % от кадастровой стоимости
 
@@ -78,6 +84,13 @@ class Cooperative(Base):
         if self.total_area is None or self.common_area is None:
             return None
         return self.total_area - self.common_area
+
+    @property
+    def rental_price_per_sqm(self) -> "Decimal | None":
+        """Справочная стоимость аренды 1 м² = кадастровая стоимость / кадастровая площадь."""
+        if self.cadastral_value is None or self.cadastral_area is None or self.cadastral_area == 0:
+            return None
+        return self.cadastral_value / self.cadastral_area
 
 
 class BankApiProvider(str, enum.Enum):

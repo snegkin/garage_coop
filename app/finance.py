@@ -11,7 +11,7 @@ from .permissions import can_view_member_account, is_board
 from .models import (
     GarageOwnership, Charge, Payment, Garage, PersonalAccount,
     FeeType, MemberAccount, Person, RoleEnum,
-    Cooperative, LandTaxYear,
+    Cooperative,
 )
 from .accounting import (
     get_settings, electricity_account_number, member_account_number, balance as _balance,
@@ -322,7 +322,9 @@ def mass_charge():
     гаражей теперь прямо здесь (необязательный — если ничего не отмечено,
     начисление идёт на все гаражи, как и раньше).
     """
-    fee_types_list = database.db_session.query(FeeType).filter(FeeType.type_code.isnot(None)).order_by(FeeType.name).all()
+    fee_types_list = database.db_session.query(FeeType).filter(
+        FeeType.type_code.isnot(None), FeeType.is_penalty.is_(False)
+    ).order_by(FeeType.name).all()
     coop = database.db_session.query(Cooperative).first()
     all_garages = database.db_session.query(Garage).order_by(Garage.number).all()
     person_names = {
@@ -343,26 +345,19 @@ def mass_charge():
         charged_rows = []   # (person_name, garage_number, amount)
         skipped_rows = []   # (person_name, garage_number) — нет лицевого счёта на этот вид взноса
 
+        round_up_raw = f.get("round_up", "0")
+        round_up = int(round_up_raw) if round_up_raw else 0
+
         if strategy == "land_tax":
             fee_type = database.db_session.query(FeeType).filter_by(code="land_tax").first()
             if fee_type is None:
                 flash(_("Не найден вид взноса «land_tax» — проверьте справочник видов взносов."), "danger")
                 return render_template("finance/mass_charge.html", fee_types=fee_types_list, results=None, coop=coop, garages=all_garages, person_names=person_names)
 
-            cadastral_value_raw = f.get("cadastral_value")
-            if cadastral_value_raw:
-                land_tax_year = database.db_session.query(LandTaxYear).filter_by(year=year).first()
-                if land_tax_year is None:
-                    land_tax_year = LandTaxYear(year=year, cadastral_value=Decimal(cadastral_value_raw))
-                    database.db_session.add(land_tax_year)
-                else:
-                    land_tax_year.cadastral_value = Decimal(cadastral_value_raw)
-                database.db_session.flush()
-
             garage_amounts = compute_land_tax(year)
             if garage_amounts is None:
                 flash(_(
-                    "Недостаточно данных для расчёта: заполните площади кооператива в его карточке и кадастровую стоимость на {year} год.", year=year,
+                    "Недостаточно данных для расчёта: заполните текущую площадь и кадастровую стоимость кооператива в его карточке.",
                 ), "danger")
                 return render_template("finance/mass_charge.html", fee_types=fee_types_list, results=None, coop=coop, garages=all_garages, person_names=person_names)
         elif strategy == "coefficient":
@@ -379,6 +374,15 @@ def mass_charge():
             else:
                 garage_amounts = {garage.id: Decimal("0") for garage in garages}
 
+        def _round_up(value, step):
+            if step <= 0:
+                return value.quantize(Decimal("0.01"))
+            int_value = int(value)
+            remainder = int_value % step
+            if remainder == 0:
+                return Decimal(int_value).quantize(Decimal("0.01"))
+            return Decimal(int_value + step - remainder).quantize(Decimal("0.01"))
+
         for garage in garages:
             garage_amount = garage_amounts[garage.id]
             for ownership in garage.ownerships:
@@ -389,7 +393,14 @@ def mass_charge():
                 if account is None:
                     skipped_rows.append((ownership.person.full_name, garage.number))
                     continue
-                database.db_session.add(Charge(account_id=account.id, year=year, amount=owner_amount))
+                owner_amount = _round_up(owner_amount, round_up)
+                database.db_session.add(Charge(
+                    account_id=account.id,
+                    fee_type_id=fee_type.id,
+                    year=year,
+                    amount=owner_amount,
+                    comment=f"Массовое начисление за {year} год",
+                ))
                 charged_rows.append((ownership.person.full_name, garage.number, owner_amount))
 
         database.db_session.flush()

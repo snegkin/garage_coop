@@ -33,6 +33,16 @@
       <label class="form-label">{{ _("Год") }}</label>
       <input class="form-control" type="number" name="year" value="2026" required>
     </div>
+    <div class="col-md-12">
+      <label class="form-label">{{ _("Округлять сумму в большую сторону, руб.") }}</label>
+      <select class="form-select" name="round_up">
+        <option value="0">{{ _("Не округлять") }}</option>
+        <option value="10">{{ _("10") }}</option>
+        <option value="50">{{ _("50") }}</option>
+        <option value="100">{{ _("100") }}</option>
+      </select>
+      <div class="form-text">{{ _("Сумма начисления на каждого собственника округляется вверх до указанного значения.") }}</div>
+    </div>
 
     <div class="col-12"><hr></div>
 
@@ -62,13 +72,12 @@
       <div class="form-check">
         <input class="form-check-input" type="radio" name="strategy" value="land_tax" id="strategyLandTax">
         <label class="form-check-label" for="strategyLandTax"><strong>{{ _("Земельный налог (автоматический расчёт)") }}</strong></label>
-        <div class="form-text">{{ _("Считается по площадям кооператива и кадастровой стоимости за указанный год — под постройкой и общей территорией, с учётом приватизированных участков и % банка за обслуживание. Вид взноса определяется автоматически («Земельный налог»).") }}</div>
+        <div class="form-text">{{ _("Считается по текущей площади и кадастровой стоимости кооператива — под постройкой и общей территорией, с учётом приватизированных участков и % банка за обслуживание. Вид взноса определяется автоматически («Земельный налог»).") }}</div>
       </div>
-      <input class="form-control mt-2 strategy-field strategy-field-land_tax" name="cadastral_value" placeholder="{{ _('кадастровая стоимость на указанный год, напр. 3892792.20') }}">
-      {% if coop and coop.total_area and coop.common_area %}
-      <div class="form-text">{{ _("Площадь кооператива") }}: {{ fmt2(coop.total_area) }} м², {{ _("общего пользования") }}: {{ fmt2(coop.common_area) }} м². {{ _("Изменить можно в реквизитах кооператива.") }}</div>
+      {% if coop and coop.cadastral_area and coop.cadastral_value %}
+      <div class="form-text">{{ _("Площадь кооператива на кадастровой карте") }}: {{ fmt2(coop.cadastral_area) }} м², {{ _("кадастровая стоимость") }}: {{ fmt2(coop.cadastral_value) }} ₽. {{ _("Изменить можно в реквизитах кооператива.") }}</div>
       {% else %}
-      <div class="form-text text-danger">{{ _("В реквизитах кооператива не заполнены площади — расчёт невозможен.") }}</div>
+      <div class="form-text text-danger">{{ _("В реквизитах кооператива не заполнены кадастровая площадь и стоимость — расчёт невозможен.") }}</div>
       {% endif %}
     </div>
   </div>

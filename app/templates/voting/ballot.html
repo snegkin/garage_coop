@@ -33,8 +33,10 @@
   </div>
   {% endfor %}
 
-  <button class="btn btn-primary">{{ _("Записать голос") if on_behalf_of else _("Отправить бюллетень") }}</button>
-  <a class="btn btn-outline-secondary" href="{{ url_for('voting.detail', vote_id=vote.id) }}">{{ _("Отмена") }}</a>
+  <div class="d-flex justify-content-end gap-2">
+    <button class="btn btn-primary">{{ _("Записать голос") if on_behalf_of else _("Отправить бюллетень") }}</button>
+    <a class="btn btn-secondary" href="{{ url_for('voting.detail', vote_id=vote.id) }}">{{ _("Отмена") }}</a>
+  </div>
   {% if not on_behalf_of %}
   <p class="text-muted small mt-2">{{ _("Пока приём бюллетеней открыт, вы можете вернуться и изменить свой голос — учитывается последняя подача.") }}</p>
   {% else %}

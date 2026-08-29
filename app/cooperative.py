@@ -50,6 +50,8 @@ def edit():
         coop.registration_date = dt.date.fromisoformat(reg_date) if reg_date else None
         coop.total_area = _parse_decimal(f.get("total_area"))
         coop.common_area = _parse_decimal(f.get("common_area"))
+        coop.cadastral_area = _parse_decimal(f.get("cadastral_area"))
+        coop.cadastral_value = _parse_decimal(f.get("cadastral_value"))
         coop.standard_garage_land_area = _parse_decimal(f.get("standard_garage_land_area")) or Decimal("30")
         coop.land_tax_rate_percent = _parse_decimal(f.get("land_tax_rate_percent")) or Decimal("1.5")
         coop.bank_fee_percent = _parse_decimal(f.get("bank_fee_percent"))

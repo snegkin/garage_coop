@@ -53,8 +53,10 @@
 
   <div class="col-12 text-muted small votes-field votes-field-absentee votes-field-in_person_and_absentee">{{ _("Кворум — правило кооператива, не настраивается за голосование: правомочно, только если приняло участие больше половины голосов кооператива.") }}</div>
   <div class="col-12">
-    <button class="btn btn-primary" id="submitBtn">{{ _("Создать (черновик)") }}</button>
-    <a class="btn btn-outline-secondary" href="{{ url_for('voting.list_votes') }}">{{ _("Отмена") }}</a>
+    <div class="d-flex justify-content-end gap-2">
+      <button class="btn btn-primary" id="submitBtn">{{ _("Создать (черновик)") }}</button>
+      <a class="btn btn-secondary" href="{{ url_for('voting.list_votes') }}">{{ _("Отмена") }}</a>
+    </div>
   </div>
   <div class="col-12 text-muted small votes-field votes-field-absentee votes-field-in_person_and_absentee">{{ _("После создания добавьте вопросы повестки — голосование останется черновиком, пока вы явно его не откроете.") }}</div>
 </form>

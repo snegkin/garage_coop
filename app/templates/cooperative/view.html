@@ -9,7 +9,8 @@
 </div>
 
 {% if coop %}
-<table class="table table-bordered bg-body">
+<h4>{{ _("Реквизиты") }}</h4>
+<table class="table table-bordered bg-body mb-4">
   <tr><th style="width:280px">{{ _("Полное наименование") }}</th><td>{{ coop.full_name }}</td></tr>
   <tr><th>{{ _("Краткое наименование") }}</th><td>{{ coop.short_name or "—" }}</td></tr>
   <tr><th>{{ _("ИНН") }}</th><td>{{ coop.inn }}</td></tr>
@@ -18,33 +19,6 @@
   <tr><th>{{ _("Юридический адрес") }}</th><td>{{ coop.legal_address or "—" }}</td></tr>
   <tr><th>{{ _("Почтовый адрес") }}</th><td>{{ coop.postal_address or "—" }}</td></tr>
   <tr><th>{{ _("Дата регистрации") }}</th><td>{{ fmt_date(coop.registration_date) }}</td></tr>
-  <tr>
-      <th>{{ _("Площадь кооператива") }}</th>
-      <td>
-          {% if coop.total_area %}
-          {{ (fmt2(coop.total_area) ~ " м²") }}
-          <span class="text-muted small">({{ _("площадь кооператива - площадь приватизированных участков") }})</span>
-          {% else %}
-              —
-          {% endif %}
-      </td>
-  </tr>
-  <tr>
-      <th>{{ _("Площадь общего пользования") }}</th>
-      <td>
-          {{ (fmt2(coop.common_area) ~ " м²") if coop.common_area is not none else "—" }}
-          <span class="text-muted small">({{ _("дорога + площадь между гаражами") }})</span>
-      </td>
-  </tr>
-  <tr>
-      <th>{{ _("Стандартная площадь под гараж, м²") }}</th>
-      <td>
-          {{ fmt2(coop.standard_garage_land_area) }} м²
-          <span class="text-muted small">({{ _("24м² + 1,5м² перед гаражом") }})</span>
-      </td>
-  </tr>
-  <tr><th>{{ _("Ставка налога, % от кадастровой стоимости") }}</th><td>{{ fmt2(coop.land_tax_rate_percent) }}%</td></tr>
-  <tr><th>{{ _("% банка за обслуживание") }}</th><td>{{ (fmt2(coop.bank_fee_percent) ~ "%") if coop.bank_fee_percent is not none else "—" }}</td></tr>
   {% if is_board() %}
   <tr>
     <th>{{ _("Баланс") }}</th>
@@ -55,6 +29,17 @@
   </tr>
   <tr><th>{{ _("Комментарий") }}</th><td>{{ coop.comment or "—" }}</td></tr>
   {% endif %}
+</table>
+
+<h4>{{ _("Площади и налоги") }}</h4>
+<table class="table table-bordered bg-body">
+  <tr><th style="width:280px">{{ _("Полная площадь кооператива (по документам), м²") }}</th><td>{{ fmt2(coop.total_area) if coop.total_area else "—" }}</td></tr>
+  <tr><th>{{ _("Площадь кооператива (кадастровая), м²") }}</th><td>{{ fmt2(coop.cadastral_area) if coop.cadastral_area else "—" }}</td></tr>
+  <tr><th>{{ _("Из них, площадь общего пользования, м²") }}</th><td>{{ fmt2(coop.common_area) if coop.common_area else "—" }}</td></tr>
+  <tr><th>{{ _("Стоимость земли (кадастровая), ₽") }}</th><td>{{ fmt2(coop.cadastral_value) if coop.cadastral_value else "—" }}</td></tr>
+  <tr><th>{{ _("Стоимость аренды 1 м² (справочная), ₽/м²") }}</th><td>{{ fmt2(coop.rental_price_per_sqm) if coop.rental_price_per_sqm else "—" }}</td></tr>
+  <tr><th>{{ _("Ставка налога, % от кадастровой стоимости") }}</th><td>{{ fmt2(coop.land_tax_rate_percent) }}%</td></tr>
+  <tr><th>{{ _("% банка за зачисление") }}</th><td>{{ (fmt2(coop.bank_fee_percent) ~ "%") if coop.bank_fee_percent is not none else "—" }}</td></tr>
 </table>
 {% else %}
 <p class="text-muted">{{ _("Реквизиты ещё не заполнены.") }}</p>
@@ -149,8 +134,8 @@
           {% set account = None %}
           {% include "cooperative/_bank_account_fields.html" %}
         </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+        <div class="modal-footer d-flex justify-content-end">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
           <button class="btn btn-primary">{{ _("Сохранить") }}</button>
         </div>
       </form>
@@ -170,8 +155,8 @@
         <div class="modal-body">
           {% include "cooperative/_bank_account_fields.html" %}
         </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+        <div class="modal-footer d-flex justify-content-end">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
           <button class="btn btn-primary">{{ _("Сохранить") }}</button>
         </div>
       </form>
@@ -262,8 +247,8 @@
           </div>
           {% endif %}
         </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+        <div class="modal-footer d-flex justify-content-end">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
           <button class="btn btn-primary">{{ _("Сохранить") }}</button>
         </div>
       </form>

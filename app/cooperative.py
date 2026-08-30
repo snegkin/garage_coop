@@ -204,8 +204,10 @@ def edit_document(doc_id):
     file_storage = request.files.get("file")
     if file_storage and file_storage.filename:
         # Удаляем старый файл
-        if doc.file_path and os.path.exists(doc.file_path):
-            os.remove(doc.file_path)
+        if doc.file_path:
+            old_path = os.path.join(current_app.config["UPLOAD_FOLDER"], doc.file_path)
+            if os.path.exists(old_path):
+                os.remove(old_path)
         doc.file_path = save_upload(file_storage, current_app.config["UPLOAD_FOLDER"])
         doc.file_name = secure_filename(file_storage.filename)
 
@@ -224,7 +226,8 @@ def download_document(doc_id):
         abort(403)
     if not doc.file_path:
         abort(404)
-    return send_file(doc.file_path, as_attachment=True, download_name=doc.file_name)
+    full_path = os.path.join(current_app.config["UPLOAD_FOLDER"], doc.file_path)
+    return send_file(full_path, as_attachment=True, download_name=doc.file_name)
 
 
 @bp.route("/documents/<int:doc_id>/delete", methods=["POST"])
@@ -233,8 +236,10 @@ def delete_document(doc_id):
     doc = database.db_session.get(Document, doc_id)
     if doc is None:
         abort(404)
-    if doc.file_path and os.path.exists(doc.file_path):
-        os.remove(doc.file_path)
+    if doc.file_path:
+        full_path = os.path.join(current_app.config["UPLOAD_FOLDER"], doc.file_path)
+        if os.path.exists(full_path):
+            os.remove(full_path)
     database.db_session.delete(doc)
     database.db_session.commit()
     flash(_("Документ удалён."), "success")

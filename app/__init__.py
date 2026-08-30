@@ -71,7 +71,7 @@ def create_app(config_class=Config):
     from .garages import bp as garages_bp
     from .persons import bp as persons_bp
     from .finance import bp as finance_bp
-    from .documents import bp as documents_bp
+
     from .meetings import bp as meetings_bp
     from .cooperative import bp as cooperative_bp
     from .bank_sync import bp as bank_sync_bp
@@ -90,7 +90,7 @@ def create_app(config_class=Config):
     app.register_blueprint(garages_bp)
     app.register_blueprint(persons_bp)
     app.register_blueprint(finance_bp)
-    app.register_blueprint(documents_bp)
+
     app.register_blueprint(meetings_bp)
     app.register_blueprint(cooperative_bp)
     app.register_blueprint(bank_sync_bp)

@@ -1,6 +1,6 @@
 """
 Тесты на разделение документов на общедоступные и внутренние
-(Document.is_internal, см. app/documents.py и app/permissions.is_board()).
+(Document.is_internal, см. app/cooperative.py и app/permissions.is_board()).
 
 Общедоступный документ (is_internal=False) — виден и доступен для скачивания
 любому вошедшему члену кооператива, как и раньше. Внутренний
@@ -47,7 +47,7 @@ def test_member_does_not_see_internal_document_in_list(app, db, client):
     _make_member(db)
 
     login(client, "member1", "pass1234")
-    resp = client.get("/documents/")
+    resp = client.get("/cooperative/")
     assert resp.status_code == 200
     body = resp.get_data(as_text=True)
     assert "Public Doc" in body
@@ -61,7 +61,7 @@ def test_board_sees_both_public_and_internal_documents(app, db, client):
     _make_board(db)
 
     login(client, "board1", "pass1234")
-    resp = client.get("/documents/")
+    resp = client.get("/cooperative/")
     assert resp.status_code == 200
     body = resp.get_data(as_text=True)
     assert "Public Doc" in body
@@ -70,37 +70,38 @@ def test_board_sees_both_public_and_internal_documents(app, db, client):
 
 def test_member_cannot_download_internal_document_directly(app, db, client):
     """IDOR-проверка: даже зная id внутреннего документа и прямой URL
-    /documents/<id>/file, рядовой член не должен получить файл."""
+    /cooperative/documents/<id>/file, рядовой член не должен получить файл."""
     doc = _make_document(db, is_internal=True, title="Internal Doc")
     doc.file_path = "somefile.pdf"
     db.commit()
     _make_member(db)
 
     login(client, "member1", "pass1234")
-    resp = client.get(f"/documents/{doc.id}/file")
+    resp = client.get(f"/cooperative/documents/{doc.id}/file")
     assert resp.status_code == 403
 
 
 def test_member_can_download_public_document(app, db, client, tmp_path):
     upload_dir = app.config["UPLOAD_FOLDER"]
     file_name = "public_report.txt"
-    with open(f"{upload_dir}/{file_name}", "w") as f:
+    file_path = f"{upload_dir}/{file_name}"
+    with open(file_path, "w") as f:
         f.write("hello")
 
     doc = _make_document(db, is_internal=False, title="Public Doc")
-    doc.file_path = file_name
+    doc.file_path = file_path
     db.commit()
     _make_member(db)
 
     login(client, "member1", "pass1234")
-    resp = client.get(f"/documents/{doc.id}/file")
+    resp = client.get(f"/cooperative/documents/{doc.id}/file")
     assert resp.status_code == 200
 
 
 def test_only_board_can_create_document(client, db):
     _make_member(db)
     login(client, "member1", "pass1234")
-    resp = client.post("/documents/new", data={
+    resp = client.post("/cooperative/documents/new", data={
         "doc_type": DocumentType.REPORT.value,
         "date": "2026-01-01",
         "title": "Sneaky doc",
@@ -113,7 +114,7 @@ def test_board_create_document_checkbox_sets_is_internal(app, db, client):
     _make_board(db)
     login(client, "board1", "pass1234")
 
-    resp = client.post("/documents/new", data={
+    resp = client.post("/cooperative/documents/new", data={
         "doc_type": DocumentType.ESTIMATE.value,
         "date": "2026-01-01",
         "title": "Internal Estimate",
@@ -129,7 +130,7 @@ def test_board_create_document_without_checkbox_is_public(app, db, client):
     _make_board(db)
     login(client, "board1", "pass1234")
 
-    resp = client.post("/documents/new", data={
+    resp = client.post("/cooperative/documents/new", data={
         "doc_type": DocumentType.INVOICE.value,
         "date": "2026-01-01",
         "title": "Public Invoice",

@@ -4,7 +4,7 @@
   см. app/garages.py: detail(), account_summary_rows.
 - Приватность: рядовой собственник видит в этой сводке только СВОИ
   MemberAccount (can_view_member_account), не счета содольщиков.
-- Фильтр на странице документов — текстовый поиск, не кнопки (app/templates/documents/list.html).
+- Фильтр на странице документов — текстовый поиск, не кнопки (app/templates/cooperative/view.html).
 """
 from decimal import Decimal
 import datetime as dt
@@ -111,7 +111,7 @@ def test_documents_list_has_search_input(app, db, client):
     db.commit()
     login(client, "docuser", "pass12345")
 
-    resp = client.get("/documents/")
+    resp = client.get("/cooperative/")
     assert resp.status_code == 200
     html = resp.get_data(as_text=True)
     assert 'id="documentFilterInput"' in html
@@ -133,7 +133,7 @@ def test_documents_list_shows_documents_in_table(app, db, client):
     db.commit()
     login(client, "docuser2", "pass12345")
 
-    resp = client.get("/documents/")
+    resp = client.get("/cooperative/")
     assert resp.status_code == 200
     html = resp.get_data(as_text=True)
     assert "Протокол №1" in html

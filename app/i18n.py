@@ -113,6 +113,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Последний годовой отчёт": "Last annual report",
 
         # cooperative
+        "Информация о кооперативе": "Ibformation about cooperative",
         "Реквизиты кооператива": "Cooperative legal details",
         "Расчётные счета": "Settlement accounts",
         "Добавить счёт": "Add account",

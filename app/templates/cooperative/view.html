@@ -217,7 +217,8 @@
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body">
-          {% include "cooperative/_document_fields.html" %}
+          {% set doc = d %}
+          {% include "cooperative/_document_fields.html" with context %}
         </div>
         <div class="modal-footer d-flex justify-content-end">
           <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>

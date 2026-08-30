@@ -1,19 +1,25 @@
 """
-Тесты на вики кооператива (app/wiki.py, WikiPage) — справочные заметки
-(параметры видеонаблюдения, схема сети, телефоны контрагентов и аварийных
-служб). Видимость настраивается ПО СТРАНИЦЕ через WikiPage.is_internal —
-тот же принцип, что у Document.is_internal (см. test_documents.py):
-общедоступная страница видна любому вошедшему члену, внутренняя — только
-правлению (не только в списке, но и при прямом обращении по id — IDOR).
-Создают/редактируют/удаляют только правление независимо от is_internal.
+Тесты на вики кооператива (app/wiki.py, WikiPage) — справочные заметки,
+организованные ДЕРЕВОМ разделов/подразделов (WikiPage.parent_id), не
+хронологической лентой, как News. Видимость настраивается ПО СТРАНИЦЕ
+через WikiPage.is_internal — тот же принцип, что у Document.is_internal
+(см. test_cooperative_documents.py): общедоступная страница видна любому вошедшему
+члену, внутренняя — только правлению (не только в списке-дереве, но и при
+прямом обращении по id — IDOR). Создают/редактируют/удаляют только
+правление независимо от is_internal.
+
+Покрывает также: скрытые узлы не рвут дерево — их видимые потомки
+поднимаются к ближайшему видимому предку (_build_visible_tree); нельзя
+удалить раздел с детьми; нельзя сделать родителем себя/своего потомка
+(защита от цикла).
 """
 from app.models import RoleEnum, WikiPage
 
 from tests.conftest import make_person, make_user, login
 
 
-def _make_page(db, is_internal, title="Страница", category=None, body="Текст"):
-    page = WikiPage(title=title, category=category, body=body, is_internal=is_internal)
+def _make_page(db, is_internal=False, title="Страница", parent_id=None, body="Текст"):
+    page = WikiPage(title=title, parent_id=parent_id, body=body, is_internal=is_internal)
     db.add(page)
     db.flush()
     return page
@@ -31,7 +37,11 @@ def _make_board(db, username="board1"):
     db.commit()
 
 
-def test_member_does_not_see_internal_page_in_list(db, client):
+# ---------------------------------------------------------------------------
+# Видимость (is_internal)
+# ---------------------------------------------------------------------------
+
+def test_member_does_not_see_internal_page_in_tree(db, client):
     _make_page(db, is_internal=False, title="Public Page")
     _make_page(db, is_internal=True, title="Internal Page")
     db.commit()
@@ -81,6 +91,43 @@ def test_member_can_open_public_page(db, client):
     assert resp.status_code == 200
 
 
+# ---------------------------------------------------------------------------
+# Дерево: скрытый предок не должен «рвать» видимость потомков
+# ---------------------------------------------------------------------------
+
+def test_visible_child_of_internal_section_promoted_to_root_for_member(db, client):
+    section = _make_page(db, is_internal=True, title="Internal Section")
+    child = _make_page(db, is_internal=False, title="Public Child", parent_id=section.id)
+    db.commit()
+    _make_member(db)
+
+    login(client, "member1", "pass1234")
+    resp = client.get("/wiki/")
+    body = resp.get_data(as_text=True)
+    assert "Internal Section" not in body
+    assert "Public Child" in body, "visible child of a hidden section must still be reachable in the tree"
+
+    resp = client.get(f"/wiki/{child.id}")
+    assert resp.status_code == 200
+
+
+def test_board_sees_full_nesting(db, client):
+    section = _make_page(db, is_internal=False, title="Section")
+    sub = _make_page(db, is_internal=False, title="Subsection", parent_id=section.id)
+    leaf = _make_page(db, is_internal=False, title="Leaf Page", parent_id=sub.id)
+    db.commit()
+    _make_board(db)
+
+    login(client, "board1", "pass1234")
+    resp = client.get("/wiki/")
+    body = resp.get_data(as_text=True)
+    assert "Section" in body and "Subsection" in body and "Leaf Page" in body
+
+
+# ---------------------------------------------------------------------------
+# Права
+# ---------------------------------------------------------------------------
+
 def test_only_board_can_create_page(client, db):
     _make_member(db)
     login(client, "member1", "pass1234")
@@ -98,7 +145,6 @@ def test_board_create_page_checkbox_sets_is_internal(db, client):
 
     resp = client.post("/wiki/new", data={
         "title": "Camera creds",
-        "category": "видеонаблюдение",
         "body": "логин/пароль",
         "is_internal": "on",
     })
@@ -106,21 +152,21 @@ def test_board_create_page_checkbox_sets_is_internal(db, client):
     page = db.query(WikiPage).filter_by(title="Camera creds").first()
     assert page is not None
     assert page.is_internal is True
-    assert page.category == "видеонаблюдение"
 
 
-def test_board_create_page_without_checkbox_is_public(db, client):
+def test_board_create_page_with_parent(db, client):
+    section = _make_page(db, is_internal=False, title="Видеонаблюдение")
+    db.commit()
     _make_board(db)
     login(client, "board1", "pass1234")
 
     resp = client.post("/wiki/new", data={
-        "title": "Emergency phones",
-        "body": "112",
+        "title": "Камера №1", "body": "IP: 10.0.0.5", "parent_id": str(section.id),
     })
     assert resp.status_code == 302
-    page = db.query(WikiPage).filter_by(title="Emergency phones").first()
+    page = db.query(WikiPage).filter_by(title="Камера №1").first()
     assert page is not None
-    assert page.is_internal is False
+    assert page.parent_id == section.id
 
 
 def test_member_cannot_edit_or_delete_page(db, client):
@@ -139,25 +185,21 @@ def test_member_cannot_edit_or_delete_page(db, client):
 
 
 def test_board_can_edit_page(db, client):
-    page = _make_page(db, is_internal=False, title="Old Title", category=None)
+    page = _make_page(db, is_internal=False, title="Old Title")
     db.commit()
     _make_board(db)
 
     login(client, "board1", "pass1234")
     resp = client.post(f"/wiki/{page.id}/edit", data={
-        "title": "New Title",
-        "category": "сеть",
-        "body": "новый текст",
-        "is_internal": "on",
+        "title": "New Title", "body": "новый текст", "is_internal": "on",
     })
     assert resp.status_code == 302
     updated = db.query(WikiPage).get(page.id)
     assert updated.title == "New Title"
-    assert updated.category == "сеть"
     assert updated.is_internal is True
 
 
-def test_board_can_delete_page(db, client):
+def test_board_can_delete_leaf_page(db, client):
     page = _make_page(db, is_internal=False, title="To Delete")
     db.commit()
     _make_board(db)
@@ -168,15 +210,63 @@ def test_board_can_delete_page(db, client):
     assert db.query(WikiPage).get(page.id) is None
 
 
-def test_category_filter(db, client):
-    _make_page(db, is_internal=False, title="Cam Page", category="видеонаблюдение")
-    _make_page(db, is_internal=False, title="Net Page", category="сеть")
-    db.commit()
-    _make_member(db)
+# ---------------------------------------------------------------------------
+# Целостность дерева
+# ---------------------------------------------------------------------------
 
-    login(client, "member1", "pass1234")
-    resp = client.get("/wiki/?category=видеонаблюдение")
+def test_cannot_delete_section_with_children(db, client):
+    section = _make_page(db, is_internal=False, title="Section")
+    _make_page(db, is_internal=False, title="Child", parent_id=section.id)
+    db.commit()
+    _make_board(db)
+
+    login(client, "board1", "pass1234")
+    resp = client.post(f"/wiki/{section.id}/delete", follow_redirects=True)
     assert resp.status_code == 200
-    body = resp.get_data(as_text=True)
-    assert "Cam Page" in body
-    assert "Net Page" not in body
+    assert db.query(WikiPage).get(section.id) is not None, "section with children must not be deleted"
+
+
+def test_cannot_set_self_as_parent(db, client):
+    page = _make_page(db, is_internal=False, title="Page")
+    db.commit()
+    _make_board(db)
+
+    login(client, "board1", "pass1234")
+    resp = client.post(f"/wiki/{page.id}/edit", data={
+        "title": "Page", "body": "текст", "parent_id": str(page.id),
+    })
+    assert resp.status_code == 200  # переотрисовка формы с ошибкой, не редирект
+    unchanged = db.query(WikiPage).get(page.id)
+    assert unchanged.parent_id is None
+
+
+def test_cannot_set_descendant_as_parent(db, client):
+    root = _make_page(db, is_internal=False, title="Root")
+    child = _make_page(db, is_internal=False, title="Child", parent_id=root.id)
+    db.commit()
+    _make_board(db)
+
+    login(client, "board1", "pass1234")
+    # пытаемся сделать Root ребёнком его же потомка Child — цикл
+    resp = client.post(f"/wiki/{root.id}/edit", data={
+        "title": "Root", "body": "текст", "parent_id": str(child.id),
+    })
+    assert resp.status_code == 200
+    unchanged = db.query(WikiPage).get(root.id)
+    assert unchanged.parent_id is None
+
+
+def test_reparent_to_valid_new_parent_works(db, client):
+    section_a = _make_page(db, is_internal=False, title="Section A")
+    section_b = _make_page(db, is_internal=False, title="Section B")
+    page = _make_page(db, is_internal=False, title="Movable", parent_id=section_a.id)
+    db.commit()
+    _make_board(db)
+
+    login(client, "board1", "pass1234")
+    resp = client.post(f"/wiki/{page.id}/edit", data={
+        "title": "Movable", "body": "текст", "parent_id": str(section_b.id),
+    })
+    assert resp.status_code == 302
+    moved = db.query(WikiPage).get(page.id)
+    assert moved.parent_id == section_b.id

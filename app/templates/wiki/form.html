@@ -2,21 +2,24 @@
 {% block title %}{{ _("Новая страница вики") if not page else _("Редактирование страницы вики") }}{% endblock %}
 {% block content %}
 <h3 class="mb-3">{{ _("Новая страница вики") if not page else _("Редактирование страницы вики") }}</h3>
-<form method="post" class="bg-body p-4 rounded border" style="max-width:700px">
+<form method="post" class="bg-body p-4 rounded border">
   <div class="mb-3">
     <label class="form-label">{{ _("Заголовок") }}</label>
     <input class="form-control" name="title" value="{{ page.title if page else '' }}" required autofocus>
   </div>
 
   <div class="mb-3">
-    <label class="form-label">{{ _("Категория") }}</label>
-    <input class="form-control" name="category" value="{{ page.category if page else '' }}" list="wikiCategoryList" placeholder="{{ _('например: видеонаблюдение, сеть, контакты') }}">
-    <datalist id="wikiCategoryList">
-      {% for c in categories %}
-      <option value="{{ c }}">
+    <label class="form-label">{{ _("Родительская страница") }}</label>
+    <select class="form-select" name="parent_id">
+      <option value="">{{ _("— нет (корневой раздел) —") }}</option>
+      {% for opt_page, depth in parent_options %}
+      <option value="{{ opt_page.id }}"
+        {{ 'selected' if (page and page.parent_id == opt_page.id) or (not page and preselected_parent_id == opt_page.id) }}>
+        {{ "— " * depth }}{{ opt_page.title }}
+      </option>
       {% endfor %}
-    </datalist>
-    <div class="form-text">{{ _("Необязательно — используется для фильтра в списке страниц.") }}</div>
+    </select>
+    <div class="form-text">{{ _("Необязательно — без родителя страница станет корневым разделом дерева.") }}</div>
   </div>
 
   <div class="mb-3">
@@ -28,10 +31,13 @@
         <button type="button" class="btn btn-outline-secondary" data-md-prefix="### " title="{{ _('Подзаголовок') }}">H</button>
         <button type="button" class="btn btn-outline-secondary" data-md-prefix="- " title="{{ _('Список') }}">&bull; {{ _("Список") }}</button>
         <button type="button" class="btn btn-outline-secondary" data-md-link title="{{ _('Ссылка') }}">&#128279;</button>
+        <button type="button" class="btn btn-outline-secondary" id="wiki-insert-image-btn" title="{{ _('Вставить картинку') }}">&#128247;</button>
+        <input type="file" id="wiki-image-input" accept="image/jpeg,image/png,image/webp,image/gif" class="d-none">
       </div>
     </div>
     <textarea id="wiki-body" class="form-control" name="body" rows="14" required>{{ page.body if page else '' }}</textarea>
-    <div class="form-text">{{ _("Поддерживается упрощённая разметка: **жирный**, *курсив*, [текст](ссылка), списки (пустая строка, затем строки с «- »), заголовок (### ). Между абзацами оставляйте пустую строку.") }}</div>
+    <div class="form-text">{{ _("Поддерживается упрощённая разметка: **жирный**, *курсив*, [текст](ссылка), списки (пустая строка, затем строки с «- »), заголовок (### ). Между абзацами оставляйте пустую строку.") }} {{ _("Кнопка с камерой загружает картинку и сразу вставляет её в текст в месте курсора.") }}</div>
+    <div id="wiki-image-status" class="form-text text-danger"></div>
   </div>
 
   <div class="mb-3 form-check">
@@ -88,6 +94,52 @@
       var replacement = "[" + selected + "](" + url + ")";
       textarea.value = value.slice(0, start) + replacement + value.slice(end);
       textarea.focus();
+    });
+  }
+
+  // Вставка картинки: загружается сразу по выбору файла (AJAX, до
+  // сохранения самой страницы — см. wiki.py: upload_inline_attachment),
+  // markdown-ссылка вставляется в текст в позицию курсора по готовности.
+  var insertImageBtn = document.getElementById("wiki-insert-image-btn");
+  var imageInput = document.getElementById("wiki-image-input");
+  var imageStatus = document.getElementById("wiki-image-status");
+  if (insertImageBtn && imageInput) {
+    insertImageBtn.addEventListener("click", function () { imageInput.click(); });
+    imageInput.addEventListener("change", function () {
+      var file = imageInput.files[0];
+      if (!file) return;
+      imageStatus.textContent = "";
+      insertImageBtn.disabled = true;
+      var cursorPos = textarea.selectionStart;
+
+      var formData = new FormData();
+      formData.append("image", file);
+      var csrfMeta = document.querySelector('meta[name="csrf-token"]');
+
+      fetch("{{ url_for('wiki.upload_inline_attachment') }}", {
+        method: "POST",
+        headers: csrfMeta ? { "X-CSRFToken": csrfMeta.getAttribute("content") } : {},
+        body: formData,
+      })
+        .then(function (r) { return r.json().then(function (data) { return { ok: r.ok, data: data }; }); })
+        .then(function (result) {
+          if (!result.ok) {
+            imageStatus.textContent = result.data.error || "{{ _('Не удалось загрузить файл.') }}";
+            return;
+          }
+          var markdown = "![](" + result.data.url + ")";
+          var value = textarea.value;
+          textarea.value = value.slice(0, cursorPos) + markdown + value.slice(cursorPos);
+          textarea.focus();
+          textarea.selectionStart = textarea.selectionEnd = cursorPos + markdown.length;
+        })
+        .catch(function () {
+          imageStatus.textContent = "{{ _('Не удалось загрузить файл.') }}";
+        })
+        .finally(function () {
+          insertImageBtn.disabled = false;
+          imageInput.value = "";
+        });
     });
   }
 })();

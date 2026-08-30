@@ -3,7 +3,7 @@
 Расширяет DocumentType новыми видами документов (счета, выписки, справки,
 смета, отчёт) и добавляет Document.is_internal — разделение документов на
 общедоступные (видны всем вошедшим членам, прежнее поведение) и внутренние
-(видны только правлению). См. app/documents.py и app/permissions.is_board().
+(видны только правлению). См. app/cooperative.documents и app/permissions.is_board().
 
 Revision ID: 57671066ae31
 Revises: 2a97e92adbab
@@ -34,7 +34,7 @@ def upgrade() -> None:
         # внезапно стали бы недоступны рядовым членам после апгрейда.
         # Дальше server_default убирается: на уровне приложения значение
         # всегда задаётся явно (Document.is_internal берётся из чекбокса
-        # формы, см. app/documents.py), потребности держать его в схеме
+        # формы, см. app/cooperative.documents), потребности держать его в схеме
         # БД нет — тот же приём, что и в a1f14574f3e5_add_bank_api_integration.
         batch_op.add_column(sa.Column('is_internal', sa.Boolean(), nullable=False, server_default=sa.false()))
         batch_op.alter_column('doc_type',

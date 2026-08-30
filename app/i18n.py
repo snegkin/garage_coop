@@ -86,8 +86,23 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Страница вики обновлена.": "Wiki page updated.",
         "Страница вики удалена.": "Wiki page deleted.",
         "Ко всем страницам": "Back to all pages",
+        "Родительская страница": "Parent page",
+        "— нет (корневой раздел) —": "— none (root section) —",
+        "Необязательно — без родителя страница станет корневым разделом дерева.":
+            "Optional — without a parent, the page becomes a root section of the tree.",
+        "Добавить подраздел": "Add subsection",
+        "Сначала удалите или перенесите подразделы.": "Delete or move the subsections first.",
+        "Нельзя удалить раздел, в котором есть подразделы/страницы — сначала удалите или перенесите их.":
+            "Can't delete a section that still has subsections/pages — delete or move them first.",
+        "Нельзя сделать родителем саму страницу или её же подраздел.": "The page itself or its own subsection can't be set as its parent.",
 
         "Форматирование": "Formatting",
+        "Вставить картинку": "Insert image",
+        "Кнопка с камерой загружает картинку и сразу вставляет её в текст в месте курсора.":
+            "The camera button uploads an image and inserts it into the text at the cursor position right away.",
+        "Файл не выбран.": "No file selected.",
+        "Недопустимый формат файла. Разрешены: jpg, png, webp, gif.": "Unsupported file format. Allowed: jpg, png, webp, gif.",
+        "Не удалось загрузить файл.": "Failed to upload the file.",
         "Жирный": "Bold",
         "Курсив": "Italic",
         "Подзаголовок": "Heading",

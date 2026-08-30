@@ -12,8 +12,9 @@
     </p>
     <div class="card-text">{{ render_news_html(item.body) }}</div>
 
-    {% set images = item.attachments | selectattr("is_image") | list %}
-    {% set files = item.attachments | rejectattr("is_image") | list %}
+    {% set gallery_attachments = item.attachments | rejectattr("is_inline") | list %}
+    {% set images = gallery_attachments | selectattr("is_image") | list %}
+    {% set files = gallery_attachments | rejectattr("is_image") | list %}
 
     {% if images %}
     <div class="d-flex flex-wrap gap-2 mt-4">

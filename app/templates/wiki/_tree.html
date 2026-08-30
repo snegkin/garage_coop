@@ -1,0 +1,55 @@
+{# Рекурсивный макрос дерева страниц вики.
+   nodes         — список {"page": WikiPage, "children": [...]}
+   current_page_id — id текущей просматриваемой страницы (подсвечивается), может быть None
+   path_ids      — set id узлов, которые нужно раскрыть по умолчанию (предки текущей страницы + она сама)
+   show_actions  — показывать ли иконки «изменить»/«добавить подраздел»/«удалить» (только для правления)
+   depth         — текущая глубина (для уникальных id коллапсов и небольшого отступа) #}
+{% macro render_tree(nodes, current_page_id=None, path_ids=None, show_actions=False, depth=0) %}
+{% set path_ids = path_ids or [] %}
+<ul class="wiki-tree list-unstyled {{ 'mb-0' if depth > 0 else '' }}" {{ 'style="padding-left:1.1rem"' if depth > 0 }}>
+  {% for node in nodes %}
+  {% set p = node.page %}
+  {% set has_children = node.children | length > 0 %}
+  {% set expanded = p.id in path_ids %}
+  <li class="wiki-tree-item">
+    <div class="d-flex align-items-center gap-1">
+      {% if has_children %}
+      <button type="button" class="btn btn-sm btn-link p-0 wiki-tree-toggle {{ '' if expanded else 'collapsed' }}"
+              data-bs-toggle="collapse" data-bs-target="#wikinode-{{ p.id }}" aria-expanded="{{ 'true' if expanded else 'false' }}">
+        <span class="chevron">&#9662;</span>
+      </button>
+      {% else %}
+      <span class="wiki-tree-spacer"></span>
+      {% endif %}
+
+      <a href="{{ url_for('wiki.view', page_id=p.id) }}"
+         class="wiki-tree-link {{ 'fw-semibold text-body' if p.id == current_page_id else '' }}">
+        {{ p.title }}
+      </a>
+      {% if p.is_internal %}
+      <span class="badge bg-secondary badge-sm" title="{{ _('внутренняя') }}">&#128274;</span>
+      {% endif %}
+
+      {% if show_actions %}
+      <span class="wiki-tree-actions ms-auto">
+        <a href="{{ url_for('wiki.create', parent_id=p.id) }}" class="btn btn-sm btn-link p-0 text-muted" title="{{ _('Добавить подраздел') }}">&#10133;</a>
+        <a href="{{ url_for('wiki.edit', page_id=p.id) }}" class="btn btn-sm btn-link p-0 text-muted" title="{{ _('Изменить') }}">&#9998;</a>
+        <form method="post" action="{{ url_for('wiki.delete', page_id=p.id) }}" class="d-inline"
+              onsubmit="return confirm('{{ _("Удалить страницу вики?") }}')">
+          <button class="btn btn-sm btn-link p-0 text-muted" title="{{ _('Удалить') }}" {{ 'disabled' if has_children }}>&#128465;</button>
+        </form>
+      </span>
+      {% endif %}
+    </div>
+
+    {% if has_children %}
+    <div class="collapse {{ 'show' if expanded else '' }}" id="wikinode-{{ p.id }}">
+      {{ render_tree(node.children, current_page_id, path_ids, show_actions, depth + 1) }}
+    </div>
+    {% endif %}
+  </li>
+  {% else %}
+  <li class="text-muted small">{{ _("Страниц пока нет.") }}</li>
+  {% endfor %}
+</ul>
+{% endmacro %}

@@ -12,7 +12,7 @@ from decimal import Decimal
 
 from sqlalchemy import (
     String, Integer, Numeric, Date, DateTime, Boolean, Text,
-    ForeignKey, Enum, UniqueConstraint, CheckConstraint, Index, MetaData, text
+    ForeignKey, Enum, UniqueConstraint, CheckConstraint, Index, MetaData, text, event
 )
 from sqlalchemy.orm import (
     DeclarativeBase, Mapped, mapped_column, relationship
@@ -541,7 +541,7 @@ class Document(Base):
 
     is_internal разделяет документы на общедоступные (видны всем вошедшим
     членам кооператива — прежнее поведение) и внутренние (видны только
-    правлению, is_board()) — см. app/documents.py.
+    правлению, is_board()) — см. app/cooperative.documents.
     """
     __tablename__ = "document"
 
@@ -891,16 +891,39 @@ class News(Base):
 class NewsAttachment(Base):
     """Фото или файл, прикреплённый к новости. Хранится под случайным именем
     в UPLOAD_FOLDER (см. app/uploads.py:save_upload), исходное имя — для
-    отображения/скачивания."""
+    отображения/скачивания.
+
+    is_inline=False (по умолчанию) — классическое вложение через блок
+    «Добавить фото или файлы» в форме, показывается отдельной галереей под
+    текстом (см. news/view.html).
+    is_inline=True — картинка, вставленная в САМ текст через кнопку
+    «Вставить картинку» (AJAX-загрузка на лету, POST /news/attachments/upload,
+    см. news.py), в галерею отдельно не выводится — она уже видна в теле
+    статьи через ![](url) в markdown.
+
+    news_id nullable — при создании через AJAX-загрузку картинка попадает в
+    БД РАНЬШЕ, чем сохранена сама статья (её ещё может не существовать —
+    пользователь только начал писать текст): news_id=None, «осиротевшее»
+    вложение. При сохранении статьи (create/edit) news.py:
+    _sync_inline_attachments() разбирает markdown в body, «забирает» в
+    статью все is_inline-вложения, на которые там есть ссылка (и только
+    свои — author_id == текущий пользователь), и удаляет ранее забранные
+    inline-вложения, ссылку на которые из текста убрали. Вложения, так и
+    не попавшие ни в одну статью (черновик закрыли не сохранив), чистит
+    scripts/cleanup_orphan_attachments.py по cron — см. .sh-обёртку."""
     __tablename__ = "news_attachment"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    news_id: Mapped[int] = mapped_column(ForeignKey("news.id", ondelete="CASCADE"), index=True)
+    news_id: Mapped[int | None] = mapped_column(ForeignKey("news.id", ondelete="CASCADE"), index=True)
     original_filename: Mapped[str] = mapped_column(String(255))
     stored_filename: Mapped[str] = mapped_column(String(255))
     content_type: Mapped[str | None] = mapped_column(String(100))
+    is_inline: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    author_id: Mapped[int | None] = mapped_column(ForeignKey("user.id", ondelete="SET NULL"), index=True)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.utcnow, index=True)
 
-    news: Mapped["News"] = relationship(back_populates="attachments")
+    news: Mapped["News | None"] = relationship(back_populates="attachments")
+    author: Mapped["User | None"] = relationship()
 
     @property
     def is_image(self) -> bool:
@@ -921,12 +944,29 @@ class WikiPage(Base):
     часть (пароли от видеонаблюдения) — только правлению. Редактируют в
     любом случае только правление (см. app/wiki.py), is_internal влияет
     только на то, кто может ЧИТАТЬ.
-    """
+
+    parent_id — дерево разделов/подразделов (self-referencing FK, глубина
+    не ограничена: подраздел может сам содержать подразделы). Раздел — это
+    обычная WikiPage, просто с детьми: у него тоже может быть свой текст
+    (не пустая папка-заглушка), и он так же создаётся/правится/удаляется,
+    как любая страница (см. app/wiki.py: единая форма для всех уровней).
+    ondelete="RESTRICT" — сознательно НЕ каскад: удаление раздела с
+    непустыми подразделами запрещено на уровне БД (и явной проверкой в
+    app/wiki.py:delete() с понятным сообщением до похода в БД) — иначе
+    случайное удаление раздела верхнего уровня беззвучно снесло бы всё
+    дерево под ним. Порядок сортировки — по алфавиту (WikiPage.title) на
+    каждом уровне, без отдельного поля сортировки (не требовалось —
+    можно добавить позже, не меняя структуру дерева).
+
+    Раньше вместо дерева была плоская произвольная категория (свободный
+    текст) — заменена деревом при переходе на иерархическую навигацию (см.
+    миграцию add_wiki_page_tree: старые значения category стали корневыми
+    разделами, существующие страницы этой категории — их детьми)."""
     __tablename__ = "wiki_page"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     title: Mapped[str] = mapped_column(String(255))
-    category: Mapped[str | None] = mapped_column(String(100), index=True)  # произвольная метка для фильтра в списке, необязательна
+    parent_id: Mapped[int | None] = mapped_column(ForeignKey("wiki_page.id", ondelete="RESTRICT"), index=True)
     body: Mapped[str] = mapped_column(Text)  # markdown-исходник, тот же формат, что у News.body (см. news_format.py)
     is_internal: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.utcnow)
@@ -936,6 +976,73 @@ class WikiPage(Base):
 
     author: Mapped["User | None"] = relationship(foreign_keys=[author_id])
     updated_by: Mapped["User | None"] = relationship(foreign_keys=[updated_by_id])
+    parent: Mapped["WikiPage | None"] = relationship(remote_side=[id], back_populates="children")
+    children: Mapped[list["WikiPage"]] = relationship(back_populates="parent", order_by="WikiPage.title")
+    attachments: Mapped[list["WikiAttachment"]] = relationship(
+        back_populates="page", cascade="all, delete-orphan", order_by="WikiAttachment.id"
+    )
+
+
+class WikiAttachment(Base):
+    """Картинка, вставленная в текст страницы вики (![](url) в markdown тела
+    WikiPage.body). В отличие от News, у вики нет отдельной «галереи» под
+    текстом — единственное назначение вложения здесь — быть встроенным в
+    body через markdown, поэтому отдельного is_inline не нужно (все строки
+    этой таблицы по смыслу inline).
+
+    page_id nullable — тот же приём, что у NewsAttachment: картинка
+    загружается на лету (AJAX, POST /wiki/attachments/upload) РАНЬШЕ, чем
+    сохранена сама страница. При сохранении (create/edit) wiki.py:
+    _sync_inline_attachments() разбирает markdown, «забирает» вложения, на
+    которые есть ссылка в новом body (и только свои — author_id), и удаляет
+    ранее забранные, ссылку на которые убрали из текста. «Осиротевшие»
+    (черновик так и не сохранён) чистит scripts/cleanup_orphan_attachments.py
+    по cron, как и для News.
+
+    Видимость файла при отдаче (см. wiki.py: attachment()) наследуется от
+    страницы: WikiPage.is_internal — та же логика, что и у самой страницы,
+    иначе картинка во внутренней странице была бы доступна по прямой ссылке
+    в обход ограничения."""
+    __tablename__ = "wiki_attachment"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    page_id: Mapped[int | None] = mapped_column(ForeignKey("wiki_page.id", ondelete="CASCADE"), index=True)
+    original_filename: Mapped[str] = mapped_column(String(255))
+    stored_filename: Mapped[str] = mapped_column(String(255))
+    content_type: Mapped[str | None] = mapped_column(String(100))
+    author_id: Mapped[int | None] = mapped_column(ForeignKey("user.id", ondelete="SET NULL"), index=True)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.utcnow, index=True)
+
+    page: Mapped["WikiPage | None"] = relationship(back_populates="attachments")
+    author: Mapped["User | None"] = relationship()
+
+    @property
+    def is_image(self) -> bool:
+        ext = self.original_filename.rsplit(".", 1)[-1].lower() if "." in self.original_filename else ""
+        return ext in {"jpg", "jpeg", "png", "gif", "webp"}
+
+
+def _delete_attachment_file(mapper, connection, target):
+    """after_delete для NewsAttachment/WikiAttachment — убирает файл с диска
+    вместе с удалением строки в БД. Один общий обработчик на оба вложения:
+    покрывает удаление через чекбокс в форме, каскадное удаление при
+    удалении новости/страницы вики и удаление «осиротевших» вложений по
+    cron (scripts/cleanup_orphan_attachments.py) — раньше файлы на диске
+    оставались висеть при любом из этих путей, теперь один хук для всех."""
+    from flask import current_app
+    import os
+    try:
+        folder = current_app.config["UPLOAD_FOLDER"]
+    except RuntimeError:
+        return  # нет активного контекста приложения — в норме такого не бывает
+    try:
+        os.remove(os.path.join(folder, target.stored_filename))
+    except OSError:
+        pass  # файла уже нет на диске — не страшно
+
+
+event.listen(NewsAttachment, "after_delete", _delete_attachment_file)
+event.listen(WikiAttachment, "after_delete", _delete_attachment_file)
 
 
 # ---------------------------------------------------------------------------

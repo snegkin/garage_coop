@@ -117,7 +117,7 @@ def test_documents_list_has_search_input(app, db, client):
     assert 'id="documentFilterInput"' in html
     assert 'placeholder' in html
     # старых кнопок-фильтров быть не должно
-    assert "btn-outline-secondary\" href=\"{{ url_for('documents.list_documents', type=" not in html
+    assert "btn-outline-secondary\" href=\"{{ url_for('cooperative.documents.list_documents', type=" not in html
 
 
 def test_documents_list_shows_documents_in_table(app, db, client):

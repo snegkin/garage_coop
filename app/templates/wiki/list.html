@@ -1,3 +1,4 @@
+{% import "wiki/_tree.html" as wikitree %}
 {% extends "base.html" %}
 {% block title %}{{ _("Вики") }}{% endblock %}
 {% block content %}
@@ -10,46 +11,7 @@
 
 <p class="text-muted small">{{ _("Справочные заметки кооператива: параметры подключений, схемы, контакты подрядчиков и аварийных служб и т.п.") }}</p>
 
-{% if categories %}
-<div class="mb-3">
-  <select class="form-select form-select-sm" style="max-width:280px" onchange="if (this.value) location.href = this.value; else location.href = '{{ url_for('wiki.list_pages') }}';">
-    <option value="{{ url_for('wiki.list_pages') }}">{{ _("Все категории") }}</option>
-    {% for c in categories %}
-    <option value="{{ url_for('wiki.list_pages', category=c) }}" {{ 'selected' if c == selected_category }}>{{ c }}</option>
-    {% endfor %}
-  </select>
+<div class="bg-body p-3 rounded border" style="max-width:700px">
+  {{ wikitree.render_tree(tree, current_page_id=None, path_ids=[], show_actions=is_board()) }}
 </div>
-{% endif %}
-
-<table class="table table-hover bg-body sortable">
-  <thead><tr><th>{{ _("Заголовок") }}</th><th>{{ _("Категория") }}</th><th>{{ _("Обновлено") }}</th>{% if is_board() %}<th>{{ _("Доступ") }}</th>{% endif %}<th class="no-sort"></th></tr></thead>
-  <tbody>
-    {% for page in pages %}
-    <tr>
-      <td><a href="{{ url_for('wiki.view', page_id=page.id) }}">{{ page.title }}</a></td>
-      <td>{{ page.category or "—" }}</td>
-      <td data-sort-value="{{ page.updated_at or page.created_at }}">{{ fmt_date((page.updated_at or page.created_at).date()) }}</td>
-      {% if is_board() %}
-      <td>
-        {% if page.is_internal %}
-        <span class="badge bg-secondary">{{ _("внутренняя") }}</span>
-        {% else %}
-        <span class="badge bg-success">{{ _("общедоступная") }}</span>
-        {% endif %}
-      </td>
-      {% endif %}
-      <td class="text-nowrap">
-        {% if is_board() %}
-        <a class="btn btn-sm btn-primary" href="{{ url_for('wiki.edit', page_id=page.id) }}">{{ _("Изменить") }}</a>
-        <form method="post" action="{{ url_for('wiki.delete', page_id=page.id) }}" class="d-inline" onsubmit="return confirm('{{ _("Удалить страницу вики?") }}')">
-          <button class="btn btn-sm btn-outline-danger">{{ _("Удалить") }}</button>
-        </form>
-        {% endif %}
-      </td>
-    </tr>
-    {% else %}
-    <tr><td colspan="{{ 5 if is_board() else 4 }}" class="text-muted">{{ _("Страниц пока нет.") }}</td></tr>
-    {% endfor %}
-  </tbody>
-</table>
 {% endblock %}

@@ -222,6 +222,15 @@ table.sortable thead th:not(.no-sort)::after { content: "⇅"; opacity: .35; mar
 table.sortable thead th.sort-asc::after { content: "↑"; opacity: 1; }
 table.sortable thead th.sort-desc::after { content: "↓"; opacity: 1; }
 table.table-labels th.table-label { white-space: normal; word-break: break-word; width: 380px; }
+.card-text img { max-width: 100%; height: auto; border-radius: .375rem; }
+.wiki-tree-toggle .chevron { display: inline-block; transition: transform .15s; }
+.wiki-tree-toggle.collapsed .chevron { transform: rotate(-90deg); }
+.wiki-tree-spacer { display: inline-block; width: 1.1rem; }
+.wiki-tree-link { text-decoration: none; }
+.wiki-tree-link:hover { text-decoration: underline; }
+.wiki-tree-actions { opacity: 0; transition: opacity .1s; }
+.wiki-tree-item:hover > div > .wiki-tree-actions { opacity: 1; }
+.badge-sm { font-size: .55em; vertical-align: middle; }
 </style>
 <script>
 // Клик по заголовку у любой таблицы с классом "sortable" сортирует строки её tbody.

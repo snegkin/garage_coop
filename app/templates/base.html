@@ -26,60 +26,80 @@
     <div class="collapse navbar-collapse" id="nav">
       <ul class="navbar-nav me-auto">
         <li class="nav-item"><a class="nav-link" href="{{ url_for('wiki.list_pages') }}">{{ _("Вики") }}</a></li>
-        <li class="nav-item"><a class="nav-link" href="{{ url_for('meetings.list_meetings') }}">{{ _("Собрания") }}</a></li>
-        <li class="nav-item"><a class="nav-link" href="{{ url_for('voting.list_votes') }}">{{ _("Голосования") }}</a></li>
-        <li class="nav-item"><a class="nav-link" href="{{ url_for('governance.view') }}">{{ _("Правление") }}</a></li>
-        <li class="nav-item"><a class="nav-link" href="{{ url_for('cooperative.view') }}">{{ _("О кооперативе") }}</a></li>
+        <li class="nav-item dropdown">
+          <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+            {{ _("Кооператив") }}
+          </a>
+          <ul class="dropdown-menu">
+            <li><a class="dropdown-item" href="{{ url_for('cooperative.view') }}">{{ _("О кооперативе") }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('meetings.list_meetings') }}">{{ _("Собрания") }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('voting.list_votes') }}">{{ _("Голосования") }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('governance.view') }}">{{ _("Состав правления") }}</a></li>
+
+            {% if is_board() %}
+            <li><hr class="dropdown-divider"></li>
+            <li><h6 class="dropdown-header">{{ _("Реестры") }}</h6></li>
+            <li><a class="dropdown-item" href="{{ url_for('garages.list_garages') }}">{{ _("Гаражи") }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('persons.list_persons') }}">{{ _("Люди") }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('counterparties.list_counterparties') }}">{{ _("Контрагенты") }}</a></li>
+
+            <li><hr class="dropdown-divider"></li>
+            <li><h6 class="dropdown-header">{{ _("Финансы") }}</h6></li>
+            <li><a class="dropdown-item" href="{{ url_for('power.view') }}">{{ _("Электроэнергия") }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('penalty.view') }}">{{ _("Пеня") }}</a></li>
+            {% if is_privileged() %}
+            <li><a class="dropdown-item" href="{{ url_for('finance.member_accounts') }}">{{ _("Счета членов кооператива") }}</a></li>
+            {% endif %}
+            {% if is_chairman() %}
+            <li><a class="dropdown-item" href="{{ url_for('finance.mass_charge') }}">{{ _("Массовое начисление") }}</a></li>
+            {% endif %}
+
+            <li><hr class="dropdown-divider"></li>
+            <li><h6 class="dropdown-header">{{ _("Контент") }}</h6></li>
+            <li><a class="dropdown-item" href="{{ url_for('news.list_news') }}">{{ _("Новости") }}</a></li>
+
+            {% if is_chairman() %}
+            <li><hr class="dropdown-divider"></li>
+            <li><h6 class="dropdown-header">{{ _("Администрирование") }}</h6></li>
+            <li><a class="dropdown-item" href="{{ url_for('persons.accounts_list') }}">{{ _("Учётные записи") }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('setup_wizard.index') }}">{{ _("Мастер первоначальной настройки") }}</a></li>
+            {% endif %}
+            {% endif %}
+          </ul>
+        </li>
       </ul>
-      <div class="dropdown me-2">
-        <button class="btn btn-outline-light btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown">
-          {{ LANGUAGE_FLAGS[current_locale] }}
-        </button>
-        <ul class="dropdown-menu dropdown-menu-end">
-          {% for code, label in SUPPORTED_LANGUAGES.items() %}
-          <li><a class="dropdown-item {{ 'active' if code == current_locale }}" href="{{ url_for('set_language', lang=code) }}">{{ LANGUAGE_FLAGS[code] }} {{ label }}</a></li>
-          {% endfor %}
-        </ul>
-      </div>
-      <a class="btn btn-outline-light btn-sm me-3" href="{{ url_for('set_theme', theme=next_theme(current_theme)) }}" title="{{ _('Переключить тему') }}" aria-label="{{ _('Переключить тему') }}">
-        {{ THEME_TOGGLE_ICONS[current_theme] }}
-      </a>
-      {% if is_board() %}
-      <div class="dropdown me-3">
-        <button class="btn btn-outline-light btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown">
-          {{ _("Правление") }}
-        </button>
-        <ul class="dropdown-menu dropdown-menu-end">
-          <li><a class="dropdown-item" href="{{ url_for('garages.list_garages') }}">{{ _("Гаражи") }}</a></li>
-          <li><a class="dropdown-item" href="{{ url_for('persons.list_persons') }}">{{ _("Люди") }}</a></li>
-          <li><a class="dropdown-item" href="{{ url_for('power.view') }}">{{ _("Электроэнергия") }}</a></li>
-          <li><a class="dropdown-item" href="{{ url_for('counterparties.list_counterparties') }}">{{ _("Контрагенты") }}</a></li>
-          <li><a class="dropdown-item" href="{{ url_for('penalty.view') }}">{{ _("Пеня") }}</a></li>
-          <li><a class="dropdown-item" href="{{ url_for('news.list_news') }}">{{ _("Новости") }}</a></li>
-          {% if is_chairman() %}
-          <li><hr class="dropdown-divider"></li>
-          <li><a class="dropdown-item" href="{{ url_for('finance.mass_charge') }}">{{ _("Массовое начисление") }}</a></li>
-          <li><a class="dropdown-item" href="{{ url_for('persons.accounts_list') }}">{{ _("Учётные записи") }}</a></li>
-          <li><a class="dropdown-item" href="{{ url_for('setup_wizard.index') }}">{{ _("Мастер первоначальной настройки") }}</a></li>
-          {% endif %}
-        </ul>
-      </div>
-      {% endif %}
-      <div class="dropdown">
-        <button class="btn btn-outline-light btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown">
-          {{ current_user.username }} · {{ role_label(current_user.role.value) }}
-        </button>
-        <ul class="dropdown-menu dropdown-menu-end">
-          <li><a class="dropdown-item" href="{{ url_for('cabinet.profile') }}">{{ _("Мой профиль") }}</a></li>
-          <li><a class="dropdown-item" href="{{ url_for('cabinet.garages') }}">{{ _("Мой гараж") }}</a></li>
-          <li><a class="dropdown-item" href="{{ url_for('pd4.select') }}">{{ _("Печать ПД-4") }}</a></li>
-          {% if is_privileged() %}
-          <li><a class="dropdown-item" href="{{ url_for('finance.member_accounts') }}">{{ _("Счета членов кооператива") }}</a></li>
-          {% endif %}
-          <li><hr class="dropdown-divider"></li>
-          <li><a class="dropdown-item" href="{{ url_for('auth.logout') }}">{{ _("Выйти") }}</a></li>
-        </ul>
-      </div>
+      <ul class="navbar-nav ms-auto align-items-lg-center">
+        <li class="nav-item dropdown">
+          <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+            {{ LANGUAGE_FLAGS[current_locale] }}
+          </a>
+          <ul class="dropdown-menu dropdown-menu-end">
+            {% for code, label in SUPPORTED_LANGUAGES.items() %}
+            <li><a class="dropdown-item {{ 'active' if code == current_locale }}" href="{{ url_for('set_language', lang=code) }}">{{ LANGUAGE_FLAGS[code] }} {{ label }}</a></li>
+            {% endfor %}
+          </ul>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link" href="{{ url_for('set_theme', theme=next_theme(current_theme)) }}" title="{{ _('Переключить тему') }}" aria-label="{{ _('Переключить тему') }}">
+            {{ THEME_TOGGLE_ICONS[current_theme] }}
+          </a>
+        </li>
+        <li class="nav-item dropdown">
+          <a class="nav-link dropdown-toggle d-flex align-items-center py-1" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+            <span class="d-flex flex-column text-center" style="line-height:1.15;">
+              <span>{{ current_user.username }}</span>
+              <small class="text-secondary" style="font-size:0.7rem;">{{ role_label(current_user.role.value) }}</small>
+            </span>
+          </a>
+          <ul class="dropdown-menu dropdown-menu-end">
+            <li><a class="dropdown-item" href="{{ url_for('cabinet.profile') }}">{{ _("Мой профиль") }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('cabinet.garages') }}">{{ _("Мой гараж") }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('pd4.select') }}">{{ _("Печать ПД-4") }}</a></li>
+            <li><hr class="dropdown-divider"></li>
+            <li><a class="dropdown-item" href="{{ url_for('auth.logout') }}">{{ _("Выйти") }}</a></li>
+          </ul>
+        </li>
+      </ul>
     </div>
   </div>
 </nav>

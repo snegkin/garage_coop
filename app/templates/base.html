@@ -26,17 +26,14 @@
     <div class="collapse navbar-collapse" id="nav">
       <ul class="navbar-nav me-auto">
         <li class="nav-item"><a class="nav-link" href="{{ url_for('wiki.list_pages') }}">{{ _("Вики") }}</a></li>
+        <li class="nav-item"><a class="nav-link" href="{{ url_for('meetings.list_meetings') }}">{{ _("Собрания") }}</a></li>
+        <li class="nav-item"><a class="nav-link" href="{{ url_for('voting.list_votes') }}">{{ _("Голосования") }}</a></li>
+        <li class="nav-item"><a class="nav-link" href="{{ url_for('governance.view') }}">{{ _("Состав правления") }}</a></li>
+        <li class="nav-item"><a class="nav-link" href="{{ url_for('cooperative.view') }}">{{ _("О кооперативе") }}</a></li>
+        {% if is_board() %}
         <li class="nav-item dropdown">
-          <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-            {{ _("Кооператив") }}
-          </a>
+          <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">{{ _("Кооператив") }}</a>
           <ul class="dropdown-menu">
-            <li><a class="dropdown-item" href="{{ url_for('cooperative.view') }}">{{ _("О кооперативе") }}</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('meetings.list_meetings') }}">{{ _("Собрания") }}</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('voting.list_votes') }}">{{ _("Голосования") }}</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('governance.view') }}">{{ _("Состав правления") }}</a></li>
-
-            {% if is_board() %}
             <li><hr class="dropdown-divider"></li>
             <li><h6 class="dropdown-header">{{ _("Реестры") }}</h6></li>
             <li><a class="dropdown-item" href="{{ url_for('garages.list_garages') }}">{{ _("Гаражи") }}</a></li>
@@ -64,9 +61,9 @@
             <li><a class="dropdown-item" href="{{ url_for('persons.accounts_list') }}">{{ _("Учётные записи") }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('setup_wizard.index') }}">{{ _("Мастер первоначальной настройки") }}</a></li>
             {% endif %}
-            {% endif %}
           </ul>
         </li>
+        {% endif %}
       </ul>
       <ul class="navbar-nav ms-auto align-items-lg-center">
         <li class="nav-item dropdown">
@@ -85,14 +82,26 @@
           </a>
         </li>
         <li class="nav-item dropdown">
-          <a class="nav-link dropdown-toggle d-flex align-items-center py-1" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-            <span class="d-flex flex-column text-center" style="line-height:1.15;">
-              <span>{{ current_user.username }}</span>
+          <a class="nav-link dropdown-toggle d-flex align-items-center py-1 position-relative" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+            <span class="d-flex flex-column text-center position-relative" style="line-height:1.15;">
+              <span style="color: var(--bs-gray-100);">{{ current_user.username }}</span>
               <small class="text-secondary" style="font-size:0.7rem;">{{ role_label(current_user.role.value) }}</small>
+              {% if pending_votes_count > 0 %}
+              <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-info" style="font-size:0.55em; margin-left: 1.2em;">{{ pending_votes_count }}</span>
+              {% endif %}
+              {% if is_chairman() and pending_pd_count > 0 %}
+              <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" style="font-size:0.55em; margin-left: 1.2em;">{{ pending_pd_count }}</span>
+              {% endif %}
             </span>
           </a>
           <ul class="dropdown-menu dropdown-menu-end">
             <li><a class="dropdown-item" href="{{ url_for('cabinet.profile') }}">{{ _("Мой профиль") }}</a></li>
+            {% if is_chairman() and pending_pd_count > 0 %}
+            <li><a class="dropdown-item text-warning fw-semibold" href="{{ url_for('persons.list_persons') }}">⚠ {{ _("Ожидает одобрения") }} {{ pending_pd_count }}</a></li>
+            {% endif %}
+            {% if pending_votes_count > 0 %}
+            <li><a class="dropdown-item text-info fw-semibold" href="{{ url_for('voting.list_votes') }}">⚠ {{ _("Не проголосовано") }} {{ pending_votes_count }}</a></li>
+            {% endif %}
             <li><a class="dropdown-item" href="{{ url_for('cabinet.garages') }}">{{ _("Мой гараж") }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('pd4.select') }}">{{ _("Печать ПД-4") }}</a></li>
             <li><hr class="dropdown-divider"></li>

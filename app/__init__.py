@@ -1,3 +1,4 @@
+import datetime as dt
 import os
 import logging
 
@@ -57,14 +58,42 @@ def create_app(config_class=Config):
     @app.context_processor
     def _inject_user():
         from . import database
-        from .models import Cooperative
+        from .models import Cooperative, PersonDataRevision, PersonDataRevisionStatus, Vote, VoteQuestion, VoteBallot, VoteStatus, RoleEnum, Person
         from .accounting import balance as _balance
         from .permissions import is_board, is_chairman, is_privileged
         coop = database.db_session.query(Cooperative).first()
         coop_name = (coop.short_name or coop.full_name) if coop and (coop.short_name or coop.full_name) else "ГСК"
+
+        # уведомления для председателя — ожидающие одобрения изменений ПД
+        pending_pd = 0
+        user = g.get("user")
+        if user and user.role == RoleEnum.CHAIRMAN:
+            pending_pd = database.db_session.query(PersonDataRevision).filter(
+                PersonDataRevision.status == PersonDataRevisionStatus.PENDING
+            ).count()
+
+        # уведомления для всех — открытые голосования без бюллетеня пользователя
+        pending_votes = 0
+        if user and user.person_id:
+            person = database.db_session.get(Person, user.person_id)
+            if person:
+                # открытые голосования, где у пользователя нет ни одного бюллетеня
+                pending_votes = database.db_session.query(Vote).filter(
+                    Vote.status == VoteStatus.OPEN,
+                    Vote.closes_at > dt.datetime.utcnow(),
+                    ~database.db_session.query(VoteQuestion.id)
+                    .join(VoteBallot)
+                    .filter(
+                        VoteQuestion.vote_id == Vote.id,
+                        VoteBallot.person_id == person.id,
+                    ).exists(),
+                ).count()
+
         return {
-            "current_user": g.get("user"), "coop_name": coop_name, "balance": _balance,
+            "current_user": user, "coop_name": coop_name, "balance": _balance,
             "is_board": is_board, "is_chairman": is_chairman, "is_privileged": is_privileged,
+            "pending_pd_count": pending_pd,
+            "pending_votes_count": pending_votes,
         }
 
     from .main import bp as main_bp

@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}{{ page.title }}{% endblock %}
+{% block content %}
+<a href="{{ url_for('wiki.list_pages') }}" class="d-inline-block mb-3">&larr; {{ _("Ко всем страницам") }}</a>
+
+<div class="card bg-body" style="max-width:800px">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-start">
+      <h3 class="card-title mb-1">{{ page.title }}</h3>
+      {% if page.is_internal %}
+      <span class="badge bg-secondary">{{ _("внутренняя") }}</span>
+      {% endif %}
+    </div>
+    <p class="card-subtitle text-muted small mb-3">
+      {% if page.category %}{{ page.category }} &middot; {% endif %}
+      {{ _("обновлено") }} {{ fmt_date((page.updated_at or page.created_at).date()) }}
+      {% if page.updated_by %}({{ page.updated_by.username }}){% endif %}
+    </p>
+    <div class="card-text">{{ render_wiki_html(page.body) }}</div>
+
+    {% if is_board() %}
+    <div class="d-flex gap-2 mt-4">
+      <a class="btn btn-sm btn-primary" href="{{ url_for('wiki.edit', page_id=page.id) }}">{{ _("Изменить") }}</a>
+      <form method="post" action="{{ url_for('wiki.delete', page_id=page.id) }}" class="d-inline" onsubmit="return confirm('{{ _("Удалить страницу вики?") }}')">
+        <button class="btn btn-sm btn-outline-danger">{{ _("Удалить") }}</button>
+      </form>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

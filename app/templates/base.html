@@ -26,6 +26,7 @@
     <div class="collapse navbar-collapse" id="nav">
       <ul class="navbar-nav me-auto">
         <li class="nav-item"><a class="nav-link" href="{{ url_for('documents.list_documents') }}">{{ _("Документы") }}</a></li>
+        <li class="nav-item"><a class="nav-link" href="{{ url_for('wiki.list_pages') }}">{{ _("Вики") }}</a></li>
         <li class="nav-item"><a class="nav-link" href="{{ url_for('meetings.list_meetings') }}">{{ _("Собрания") }}</a></li>
         <li class="nav-item"><a class="nav-link" href="{{ url_for('voting.list_votes') }}">{{ _("Голосования") }}</a></li>
         <li class="nav-item"><a class="nav-link" href="{{ url_for('governance.view') }}">{{ _("Правление") }}</a></li>

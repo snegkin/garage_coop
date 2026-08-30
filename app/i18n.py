@@ -65,6 +65,28 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Читать дальше": "Read more",
         "Ко всем новостям": "Back to news",
         "Файлы": "Files",
+
+        # wiki
+        "Вики": "Wiki",
+        "Добавить страницу": "Add page",
+        "Справочные заметки кооператива: параметры подключений, схемы, контакты подрядчиков и аварийных служб и т.п.":
+            "Reference notes for the cooperative: connection settings, network diagrams, contractor and emergency service contacts, etc.",
+        "Все категории": "All categories",
+        "например: видеонаблюдение, сеть, контакты": "e.g. CCTV, network, contacts",
+        "Необязательно — используется для фильтра в списке страниц.": "Optional — used as a filter in the page list.",
+        "Обновлено": "Updated",
+        "внутренняя": "internal",
+        "общедоступная": "public",
+        "Страниц пока нет.": "No pages yet.",
+        "Удалить страницу вики?": "Delete this wiki page?",
+        "Новая страница вики": "New wiki page",
+        "Редактирование страницы вики": "Edit wiki page",
+        "Внутренняя страница (видна только правлению)": "Internal page (visible to the board only)",
+        "Страница вики добавлена.": "Wiki page added.",
+        "Страница вики обновлена.": "Wiki page updated.",
+        "Страница вики удалена.": "Wiki page deleted.",
+        "Ко всем страницам": "Back to all pages",
+
         "Форматирование": "Formatting",
         "Жирный": "Bold",
         "Курсив": "Italic",
@@ -509,6 +531,14 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Доступ": "Access",
         "внутренний": "internal",
         "общедоступный": "public",
+        "Документ не найден.": "Document not found.",
+        "Документ обновлён.": "Document updated.",
+        "Документ удалён.": "Document deleted.",
+        "Редактирование документа": "Edit document",
+        "Скачать": "Download",
+        "Текущий файл: ": "Current file: ",
+        "Удалить документ?": "Delete this document?",
+        "Поиск по названию, номеру или типу...": "Search by title, number or type...",
 
         # meetings
         "Общие собрания": "General meetings",
@@ -999,6 +1029,41 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Пока приём бюллетеней открыт, вы можете вернуться и изменить свой голос — учитывается последняя подача.":
             "While ballot submission is open, you can come back and change your vote — the latest submission counts.",
 
+        # electronic voting — IN_PERSON / manual ballot recording (ранее не переведено, аудит i18n)
+        "Дата голосования": "Voting date",
+        "Протокол с результатами": "Protocol with results",
+        "Обязателен для очного голосования — это единственный источник результатов.":
+            "Required for in-person voting — it's the only source of results.",
+        "Зафиксировать голосование": "Record the vote",
+        "Решение уже принято на собрании — электронная повестка/бюллетени не заводятся, результаты фиксируются только приложенным протоколом.":
+            "The decision has already been made at the meeting — no electronic agenda or ballots are created; results are recorded solely via the attached protocol.",
+        "очное": "in-person",
+        "Это очное голосование — решение принято на собрании, электронная повестка не заводится. Результаты зафиксированы в протоколе ниже.":
+            "This is an in-person vote — the decision was made at the meeting, no electronic agenda is created. Results are recorded in the protocol below.",
+        "Вес голоса": "Voting weight",
+        "Голоса по вопросам": "Votes by question",
+        "Ручная запись очных голосов": "Manual recording of in-person ballots",
+        "Для членов, проголосовавших очно на собрании (на бумаге) — их голос не попадает в систему сам, отметьте его здесь. Сам член кооператива сможет переголосовать электронно позже — учитывается последняя подача.":
+            "For members who voted in person at the meeting (on paper) — their vote doesn't enter the system on its own, record it here. The member can still re-vote electronically later — the latest submission counts.",
+        "Отметить голос": "Record vote",
+        "Нет ни одного человека с долей владения в гараже.": "No one owns a share in any garage.",
+        "дата голосования": "voting date",
+        "Запись голоса за члена кооператива": "Recording a vote on behalf of a member",
+        "Вы вносите голос от имени другого человека — используется только для очной части очно-заочного голосования (бумажные бюллетени с собрания). Сам член кооператива сможет переголосовать электронно позже, пока приём открыт — учитывается последняя подача.":
+            "You're recording a vote on someone else's behalf — used only for the in-person part of an in-person-and-absentee vote (paper ballots from the meeting). The member can still re-vote electronically later while submission is open — the latest submission counts.",
+        "вес голоса": "voting weight",
+        "Можно отметить не все вопросы сразу — незаполненные останутся как есть, к ним можно вернуться позже.":
+            "You don't have to record all questions at once — unfilled ones stay as they are, you can come back to them later.",
+        "Записать голос": "Record vote",
+        "Укажите дату голосования.": "Please enter the voting date.",
+        "Для очного голосования обязательно приложите протокол с результатами.": "For an in-person vote, attaching the results protocol is required.",
+        "Очное голосование зафиксировано, протокол прикреплён.": "In-person vote recorded, protocol attached.",
+        "Ручная запись голоса доступна только для очно-заочного голосования.": "Manual ballot recording is available only for in-person-and-absentee voting.",
+        "Записывать голоса можно только пока голосование открыто.": "Ballots can only be recorded while the vote is open.",
+        "У этого человека нет доли ни в одном гараже — голосовать он не может.": "This person doesn't own a share in any garage — they cannot vote.",
+        "Отметьте хотя бы один вопрос повестки.": "Mark at least one agenda question.",
+        "Голос члена кооператива «{name}» зафиксирован.": "The vote for member «{name}» has been recorded.",
+
         # setup wizard (мастер первоначальной настройки)
         "Мастер первоначальной настройки": "First-launch setup wizard",
         "Проведите кооператив через первоначальное заполнение данными. Шаги можно проходить в любом порядке и возвращаться сюда в любой момент — ничего не потеряется, статус каждого шага считается по уже введённым данным.":
@@ -1337,6 +1402,50 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         # finance/mass_charge.html
         "гаражей выбрано — если ни один не выбран, начисление пойдёт на все гаражи":
             "garages selected — if none are selected, the charge goes to all garages",
+        "Выберите стратегию и заполните поля для предварительного расчёта.":
+            "Choose a strategy and fill in the fields for a preliminary calculation.",
+        "Превью расчёта": "Calculation preview",
+        "Округлять сумму в большую сторону, руб.": "Round the amount up, RUB",
+        "Не округлять": "Don't round",
+        "10": "10",
+        "50": "50",
+        "100": "100",
+        "Площадь кооператива на кадастровой карте": "Cooperative area on the cadastral map",
+        "кадастровая стоимость": "cadastral value",
+        "Сумма начисления на каждого собственника округляется вверх до указанного значения.":
+            "The charge amount for each owner is rounded up to the specified value.",
+        "Считается по текущей площади и кадастровой стоимости кооператива — под постройкой и общей территорией, с учётом приватизированных участков и % банка за обслуживание. Вид взноса определяется автоматически («Земельный налог»).":
+            "Calculated from the cooperative's current area and cadastral value — under the buildings and shared land, accounting for privatized plots and the bank's service fee %. The fee type is set automatically («Land tax»).",
+        "В реквизитах кооператива не заполнены кадастровая площадь и стоимость — расчёт невозможен.":
+            "The cooperative's legal details don't have the cadastral area and value filled in — calculation isn't possible.",
+
+        # cooperative/view.html — площади и налоги
+        "% банка за зачисление": "Bank fee % on crediting",
+        "Из них, площадь общего пользования, м²": "Of which, shared-use area, m²",
+        "Площади и налоги": "Areas and taxes",
+        "Площадь кооператива (кадастровая), м²": "Cooperative area (cadastral), m²",
+        "Полная площадь кооператива (по документам), м²": "Full cooperative area (per documents), m²",
+        "Стоимость аренды 1 м² (справочная), ₽/м²": "Rental value per m² (reference), RUB/m²",
+        "Стоимость земли (кадастровая), ₽": "Land value (cadastral), RUB",
+        "Текущая площадь на кадастровой карте, уменьшается при приватизации.":
+            "Current area on the cadastral map, decreases as plots are privatized.",
+        "Уменьшается при приватизации.": "Decreases as plots are privatized.",
+
+        # garages/detail.html — доля собственника
+        "Доля (0...1, например 0.5 для 50%)": "Share (0...1, e.g. 0.5 for 50%)",
+        "Изменить долю": "Edit share",
+        "Изменить долю: {name}": "Edit share: {name}",
+
+        # garages.py
+        "Доля обновлена.": "Share updated.",
+
+        # finance.py
+        "Недостаточно данных для расчёта: заполните текущую площадь и кадастровую стоимость кооператива в его карточке.":
+            "Not enough data for the calculation: fill in the cooperative's current area and cadastral value in its card.",
+
+        # search placeholders
+        "Поиск по дате или ставке...": "Search by date or rate...",
+        "Поиск по действию, пользователю или описанию...": "Search by action, user, or description...",
 
         # pd4 print
         "Дата платежа": "Payment date",

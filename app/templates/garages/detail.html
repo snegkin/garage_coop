@@ -297,7 +297,7 @@
     <h5>{{ _("Текущий счётчик") }}</h5>
     {% if current_meter %}
     <table class="table table-bordered bg-body">
-      <tr><th style="width:220px">{{ _("Номер счётчика") }}</th><td>{{ current_meter.meter_number }}</td></tr>
+      <tr><th style="width:350px">{{ _("Номер счётчика") }}</th><td>{{ current_meter.meter_number }}</td></tr>
       <tr><th>{{ _("Дата установки") }}</th><td>{{ fmt_date(current_meter.installed_date) }}</td></tr>
       <tr><th>{{ _("Дата опломбировки") }}</th><td>{{ fmt_date(current_meter.sealed_date) }}</td></tr>
       <tr><th>{{ _("Показания при установке") }}</th><td>{{ fmt2(current_meter.initial_reading) if current_meter.initial_reading is not none else "—" }}</td></tr>
@@ -464,8 +464,8 @@
     {% if current_meter and (is_board() or is_owner) %}
     <h6 class="mt-3">{{ _("Внести показания") }}</h6>
     <form method="post" action="{{ url_for('garages.add_electricity_reading', garage_id=garage.id) }}" class="d-flex gap-2 border rounded p-3 bg-body">
-      <input class="form-control form-control-sm" name="reading" placeholder="{{ _('Показания') }}" required>
-      <button class="btn btn-sm btn-primary">{{ _("Внести показания") }}</button>
+      <input class="form-control form-control-sm flex-grow-1" name="reading" placeholder="{{ _('Показания') }}" required>
+      <button class="btn btn-sm btn-primary text-nowrap">{{ _("Внести показания") }}</button>
     </form>
     {% endif %}
 

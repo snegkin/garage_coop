@@ -908,6 +908,36 @@ class NewsAttachment(Base):
         return ext in {"jpg", "jpeg", "png", "gif", "webp"}
 
 
+class WikiPage(Base):
+    """Вики кооператива: справочные заметки для правления и/или всех членов
+    (параметры видеонаблюдения, структура сети, телефоны контрагентов и
+    аварийных служб и т.п.) — в отличие от News (лента событий/объявлений),
+    это не хронологический поток, а набор страниц-справок, которые
+    правятся по мере необходимости.
+
+    is_internal — тот же принцип, что у Document (см. выше): видимость
+    настраивается ПО СТРАНИЦЕ, не глобально для всей вики — часть заметок
+    (например, телефоны аварийных служб) уместно показывать всем членам,
+    часть (пароли от видеонаблюдения) — только правлению. Редактируют в
+    любом случае только правление (см. app/wiki.py), is_internal влияет
+    только на то, кто может ЧИТАТЬ.
+    """
+    __tablename__ = "wiki_page"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    title: Mapped[str] = mapped_column(String(255))
+    category: Mapped[str | None] = mapped_column(String(100), index=True)  # произвольная метка для фильтра в списке, необязательна
+    body: Mapped[str] = mapped_column(Text)  # markdown-исходник, тот же формат, что у News.body (см. news_format.py)
+    is_internal: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.utcnow)
+    updated_at: Mapped[dt.datetime | None] = mapped_column(DateTime, nullable=True, onupdate=dt.datetime.utcnow)
+    author_id: Mapped[int | None] = mapped_column(ForeignKey("user.id", ondelete="SET NULL"), index=True)
+    updated_by_id: Mapped[int | None] = mapped_column(ForeignKey("user.id", ondelete="SET NULL"), index=True)
+
+    author: Mapped["User | None"] = relationship(foreign_keys=[author_id])
+    updated_by: Mapped["User | None"] = relationship(foreign_keys=[updated_by_id])
+
+
 # ---------------------------------------------------------------------------
 # Гаражи
 # ---------------------------------------------------------------------------

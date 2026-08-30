@@ -45,6 +45,10 @@ def create_app(config_class=Config):
     theme.init_app(app)
     app.jinja_env.globals["render_news_html"] = news_format.render_html
     app.jinja_env.globals["news_excerpt"] = news_format.excerpt
+    # Вики использует тот же markdown-рендер, что и новости (news_format.py
+    # не завязан на модель News) — отдельное имя jinja-глобала для ясности
+    # в шаблонах wiki/*.html, функция та же самая.
+    app.jinja_env.globals["render_wiki_html"] = news_format.render_html
 
     @app.before_request
     def _load_user():
@@ -79,6 +83,7 @@ def create_app(config_class=Config):
     from .penalty import bp as penalty_bp
     from .voting import bp as voting_bp
     from .news import bp as news_bp
+    from .wiki import bp as wiki_bp
     from .setup_wizard import bp as setup_wizard_bp
 
     app.register_blueprint(main_bp)
@@ -97,6 +102,7 @@ def create_app(config_class=Config):
     app.register_blueprint(penalty_bp)
     app.register_blueprint(voting_bp)
     app.register_blueprint(news_bp)
+    app.register_blueprint(wiki_bp)
     app.register_blueprint(setup_wizard_bp)
 
     @app.route("/")

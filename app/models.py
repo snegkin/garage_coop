@@ -12,7 +12,7 @@ from decimal import Decimal
 
 from sqlalchemy import (
     String, Integer, Numeric, Date, DateTime, Boolean, Text,
-    ForeignKey, Enum, UniqueConstraint, CheckConstraint, Index, MetaData, text
+    ForeignKey, Enum, UniqueConstraint, CheckConstraint, Index, MetaData, text, event
 )
 from sqlalchemy.orm import (
     DeclarativeBase, Mapped, mapped_column, relationship
@@ -55,11 +55,16 @@ class Cooperative(Base):
     registration_date: Mapped[dt.date | None] = mapped_column(Date)
 
     # площади (м²) — для распределения взносов пропорционально площади
-    total_area: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))    # площадь кооператива
-    garage_area: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))   # площадь, занятая гаражами
-    common_area: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))   # площадь общего пользования
+    total_area: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))    # полная площадь кооператива (до приватизаций)
+    common_area: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))   # площадь общего пользования (дороги и т.д.)
 
     # для автоматического расчёта земельного налога (см. accounting.compute_land_tax)
+    # Текущая площадь кооператива на кадастровой карте — уменьшается при приватизации.
+    cadastral_area: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    # Текущая кадастровая стоимость кооператива на кадастровой карте —
+    # уменьшается при приватизации (вместо LandTaxYear).
+    cadastral_value: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+
     standard_garage_land_area: Mapped[Decimal | None] = mapped_column(Numeric(8, 2), default=Decimal("30"))
     land_tax_rate_percent: Mapped[Decimal] = mapped_column(Numeric(5, 3), default=Decimal("1.5"))  # % от кадастровой стоимости
 
@@ -72,6 +77,20 @@ class Cooperative(Base):
     dues_due_month: Mapped[int | None] = mapped_column(Integer)  # 1-12
 
     comment: Mapped[str | None] = mapped_column(Text)
+
+    @property
+    def garage_area(self) -> "Decimal | None":
+        """Площадь под гаражами = Площадь кооператива − Площадь общего пользования."""
+        if self.total_area is None or self.common_area is None:
+            return None
+        return self.total_area - self.common_area
+
+    @property
+    def rental_price_per_sqm(self) -> "Decimal | None":
+        """Справочная стоимость аренды 1 м² = кадастровая стоимость / кадастровая площадь."""
+        if self.cadastral_value is None or self.cadastral_area is None or self.cadastral_area == 0:
+            return None
+        return self.cadastral_value / self.cadastral_area
 
 
 class BankApiProvider(str, enum.Enum):
@@ -508,11 +527,22 @@ class DocumentType(str, enum.Enum):
     ACT = "act"
     LETTER = "letter"
     PROTOCOL = "protocol"
+    INVOICE = "invoice"
+    STATEMENT = "statement"
+    CERTIFICATE = "certificate"
+    ESTIMATE = "estimate"
+    REPORT = "report"
     OTHER = "other"
 
 
 class Document(Base):
-    """Внутренний документ: устав, приказ, акт, письмо, протокол."""
+    """Документ кооператива: устав, приказ, акт, письмо, протокол, счёт,
+    выписка, справка, смета, отчёт и т.п.
+
+    is_internal разделяет документы на общедоступные (видны всем вошедшим
+    членам кооператива — прежнее поведение) и внутренние (видны только
+    правлению, is_board()) — см. app/cooperative.documents.
+    """
     __tablename__ = "document"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -521,7 +551,9 @@ class Document(Base):
     date: Mapped[dt.date] = mapped_column(Date, index=True)
     title: Mapped[str] = mapped_column(String(255))
     file_path: Mapped[str | None] = mapped_column(String(500))
+    file_name: Mapped[str | None] = mapped_column(String(500))  # оригинальное имя файла при загрузке
     comment: Mapped[str | None] = mapped_column(Text)
+    is_internal: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
 
 
 class BoardTerm(Base):
@@ -647,6 +679,10 @@ class FeeRate(Base):
 class VoteType(str, enum.Enum):
     IN_PERSON_AND_ABSENTEE = "in_person_and_absentee"  # очно-заочное — дополняет очную часть собрания
     ABSENTEE = "absentee"                               # заочное — без очной части вообще
+    IN_PERSON = "in_person"                             # полностью очное — решение принято на собрании,
+    # электронных вопросов/бюллетеней нет вовсе, единственный источник
+    # результатов — прикреплённый при создании протокол (см. voting.py
+    # create(): для этого типа Vote создаётся сразу в статусе CLOSED).
 
 
 class VoteStatus(str, enum.Enum):
@@ -670,13 +706,15 @@ QUORUM_THRESHOLD = Decimal("0.5")
 
 class Vote(Base):
     """
-    Электронное голосование (очно-заочное или заочное) по одному или
-    нескольким вопросам повестки — альтернатива очному собранию, когда не
-    удаётся очно собрать всех собственников. Голосуют члены кооператива
-    (владельцы гаражей); вес голоса человека = сумма его долей владения по
-    всем гаражам (см. voting.person_voting_weight) — так что «1 гараж —
-    1 голос», а при нескольких собственниках гаража их голос делится ровно
-    по их долям, без специального кода под этот случай.
+    Голосование по одному или нескольким вопросам повестки — заочное,
+    очно-заочное (альтернатива/дополнение очному собранию, когда не
+    удаётся очно собрать всех собственников) или полностью очное
+    (VoteType.IN_PERSON — решение уже принято на собрании, электронных
+    вопросов/бюллетеней нет, результаты только в приложенном протоколе).
+    Голосуют члены кооператива (владельцы гаражей); вес голоса человека =
+    сумма его долей владения по всем гаражам (см. voting.person_voting_weight)
+    — так что «1 гараж — 1 голос», а при нескольких собственниках гаража их
+    голос делится ровно по их долям, без специального кода под этот случай.
     """
     __tablename__ = "vote"
 
@@ -853,21 +891,158 @@ class News(Base):
 class NewsAttachment(Base):
     """Фото или файл, прикреплённый к новости. Хранится под случайным именем
     в UPLOAD_FOLDER (см. app/uploads.py:save_upload), исходное имя — для
-    отображения/скачивания."""
+    отображения/скачивания.
+
+    is_inline=False (по умолчанию) — классическое вложение через блок
+    «Добавить фото или файлы» в форме, показывается отдельной галереей под
+    текстом (см. news/view.html).
+    is_inline=True — картинка, вставленная в САМ текст через кнопку
+    «Вставить картинку» (AJAX-загрузка на лету, POST /news/attachments/upload,
+    см. news.py), в галерею отдельно не выводится — она уже видна в теле
+    статьи через ![](url) в markdown.
+
+    news_id nullable — при создании через AJAX-загрузку картинка попадает в
+    БД РАНЬШЕ, чем сохранена сама статья (её ещё может не существовать —
+    пользователь только начал писать текст): news_id=None, «осиротевшее»
+    вложение. При сохранении статьи (create/edit) news.py:
+    _sync_inline_attachments() разбирает markdown в body, «забирает» в
+    статью все is_inline-вложения, на которые там есть ссылка (и только
+    свои — author_id == текущий пользователь), и удаляет ранее забранные
+    inline-вложения, ссылку на которые из текста убрали. Вложения, так и
+    не попавшие ни в одну статью (черновик закрыли не сохранив), чистит
+    scripts/cleanup_orphan_attachments.py по cron — см. .sh-обёртку."""
     __tablename__ = "news_attachment"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    news_id: Mapped[int] = mapped_column(ForeignKey("news.id", ondelete="CASCADE"), index=True)
+    news_id: Mapped[int | None] = mapped_column(ForeignKey("news.id", ondelete="CASCADE"), index=True)
     original_filename: Mapped[str] = mapped_column(String(255))
     stored_filename: Mapped[str] = mapped_column(String(255))
     content_type: Mapped[str | None] = mapped_column(String(100))
+    is_inline: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    author_id: Mapped[int | None] = mapped_column(ForeignKey("user.id", ondelete="SET NULL"), index=True)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.utcnow, index=True)
 
-    news: Mapped["News"] = relationship(back_populates="attachments")
+    news: Mapped["News | None"] = relationship(back_populates="attachments")
+    author: Mapped["User | None"] = relationship()
 
     @property
     def is_image(self) -> bool:
         ext = self.original_filename.rsplit(".", 1)[-1].lower() if "." in self.original_filename else ""
         return ext in {"jpg", "jpeg", "png", "gif", "webp"}
+
+
+class WikiPage(Base):
+    """Вики кооператива: справочные заметки для правления и/или всех членов
+    (параметры видеонаблюдения, структура сети, телефоны контрагентов и
+    аварийных служб и т.п.) — в отличие от News (лента событий/объявлений),
+    это не хронологический поток, а набор страниц-справок, которые
+    правятся по мере необходимости.
+
+    is_internal — тот же принцип, что у Document (см. выше): видимость
+    настраивается ПО СТРАНИЦЕ, не глобально для всей вики — часть заметок
+    (например, телефоны аварийных служб) уместно показывать всем членам,
+    часть (пароли от видеонаблюдения) — только правлению. Редактируют в
+    любом случае только правление (см. app/wiki.py), is_internal влияет
+    только на то, кто может ЧИТАТЬ.
+
+    parent_id — дерево разделов/подразделов (self-referencing FK, глубина
+    не ограничена: подраздел может сам содержать подразделы). Раздел — это
+    обычная WikiPage, просто с детьми: у него тоже может быть свой текст
+    (не пустая папка-заглушка), и он так же создаётся/правится/удаляется,
+    как любая страница (см. app/wiki.py: единая форма для всех уровней).
+    ondelete="RESTRICT" — сознательно НЕ каскад: удаление раздела с
+    непустыми подразделами запрещено на уровне БД (и явной проверкой в
+    app/wiki.py:delete() с понятным сообщением до похода в БД) — иначе
+    случайное удаление раздела верхнего уровня беззвучно снесло бы всё
+    дерево под ним. Порядок сортировки — по алфавиту (WikiPage.title) на
+    каждом уровне, без отдельного поля сортировки (не требовалось —
+    можно добавить позже, не меняя структуру дерева).
+
+    Раньше вместо дерева была плоская произвольная категория (свободный
+    текст) — заменена деревом при переходе на иерархическую навигацию (см.
+    миграцию add_wiki_page_tree: старые значения category стали корневыми
+    разделами, существующие страницы этой категории — их детьми)."""
+    __tablename__ = "wiki_page"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    title: Mapped[str] = mapped_column(String(255))
+    parent_id: Mapped[int | None] = mapped_column(ForeignKey("wiki_page.id", ondelete="RESTRICT"), index=True)
+    body: Mapped[str] = mapped_column(Text)  # markdown-исходник, тот же формат, что у News.body (см. news_format.py)
+    is_internal: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.utcnow)
+    updated_at: Mapped[dt.datetime | None] = mapped_column(DateTime, nullable=True, onupdate=dt.datetime.utcnow)
+    author_id: Mapped[int | None] = mapped_column(ForeignKey("user.id", ondelete="SET NULL"), index=True)
+    updated_by_id: Mapped[int | None] = mapped_column(ForeignKey("user.id", ondelete="SET NULL"), index=True)
+
+    author: Mapped["User | None"] = relationship(foreign_keys=[author_id])
+    updated_by: Mapped["User | None"] = relationship(foreign_keys=[updated_by_id])
+    parent: Mapped["WikiPage | None"] = relationship(remote_side=[id], back_populates="children")
+    children: Mapped[list["WikiPage"]] = relationship(back_populates="parent", order_by="WikiPage.title")
+    attachments: Mapped[list["WikiAttachment"]] = relationship(
+        back_populates="page", cascade="all, delete-orphan", order_by="WikiAttachment.id"
+    )
+
+
+class WikiAttachment(Base):
+    """Картинка, вставленная в текст страницы вики (![](url) в markdown тела
+    WikiPage.body). В отличие от News, у вики нет отдельной «галереи» под
+    текстом — единственное назначение вложения здесь — быть встроенным в
+    body через markdown, поэтому отдельного is_inline не нужно (все строки
+    этой таблицы по смыслу inline).
+
+    page_id nullable — тот же приём, что у NewsAttachment: картинка
+    загружается на лету (AJAX, POST /wiki/attachments/upload) РАНЬШЕ, чем
+    сохранена сама страница. При сохранении (create/edit) wiki.py:
+    _sync_inline_attachments() разбирает markdown, «забирает» вложения, на
+    которые есть ссылка в новом body (и только свои — author_id), и удаляет
+    ранее забранные, ссылку на которые убрали из текста. «Осиротевшие»
+    (черновик так и не сохранён) чистит scripts/cleanup_orphan_attachments.py
+    по cron, как и для News.
+
+    Видимость файла при отдаче (см. wiki.py: attachment()) наследуется от
+    страницы: WikiPage.is_internal — та же логика, что и у самой страницы,
+    иначе картинка во внутренней странице была бы доступна по прямой ссылке
+    в обход ограничения."""
+    __tablename__ = "wiki_attachment"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    page_id: Mapped[int | None] = mapped_column(ForeignKey("wiki_page.id", ondelete="CASCADE"), index=True)
+    original_filename: Mapped[str] = mapped_column(String(255))
+    stored_filename: Mapped[str] = mapped_column(String(255))
+    content_type: Mapped[str | None] = mapped_column(String(100))
+    author_id: Mapped[int | None] = mapped_column(ForeignKey("user.id", ondelete="SET NULL"), index=True)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.utcnow, index=True)
+
+    page: Mapped["WikiPage | None"] = relationship(back_populates="attachments")
+    author: Mapped["User | None"] = relationship()
+
+    @property
+    def is_image(self) -> bool:
+        ext = self.original_filename.rsplit(".", 1)[-1].lower() if "." in self.original_filename else ""
+        return ext in {"jpg", "jpeg", "png", "gif", "webp"}
+
+
+def _delete_attachment_file(mapper, connection, target):
+    """after_delete для NewsAttachment/WikiAttachment — убирает файл с диска
+    вместе с удалением строки в БД. Один общий обработчик на оба вложения:
+    покрывает удаление через чекбокс в форме, каскадное удаление при
+    удалении новости/страницы вики и удаление «осиротевших» вложений по
+    cron (scripts/cleanup_orphan_attachments.py) — раньше файлы на диске
+    оставались висеть при любом из этих путей, теперь один хук для всех."""
+    from flask import current_app
+    import os
+    try:
+        folder = current_app.config["UPLOAD_FOLDER"]
+    except RuntimeError:
+        return  # нет активного контекста приложения — в норме такого не бывает
+    try:
+        os.remove(os.path.join(folder, target.stored_filename))
+    except OSError:
+        pass  # файла уже нет на диске — не страшно
+
+
+event.listen(NewsAttachment, "after_delete", _delete_attachment_file)
+event.listen(WikiAttachment, "after_delete", _delete_attachment_file)
 
 
 # ---------------------------------------------------------------------------

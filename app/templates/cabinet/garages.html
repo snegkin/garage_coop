@@ -23,13 +23,13 @@
         {% set elec = electricity_by_garage.get(o.garage.id) %}
         {% if my_accounts or elec %}
         <table class="table table-sm mt-3 mb-0">
-          <thead><tr><th>{{ _("Вид взноса") }}</th><th>{{ _("Счёт") }}</th><th>{{ _("Баланс") }}</th><th class="no-sort"></th></tr></thead>
+          <thead><tr><th>{{ _("Вид взноса") }}</th><th class="text-end">{{ _("Счёт") }}</th><th>{{ _("Баланс") }}</th><th class="no-sort"></th></tr></thead>
           <tbody>
             {% if elec %}
             {% set elec_account, elec_balance = elec %}
             <tr>
               <td onclick="window.location='{{ url_for('garages.detail', garage_id=o.garage.id, tab='account') }}'" style="cursor:pointer">{{ _("Электроэнергия") }}</td>
-              <td onclick="window.location='{{ url_for('garages.detail', garage_id=o.garage.id, tab='account') }}'" style="cursor:pointer">{{ elec_account.account_number }}</td>
+              <td onclick="window.location='{{ url_for('garages.detail', garage_id=o.garage.id, tab='account') }}'" style="cursor:pointer" class="text-end">{{ elec_account.account_number }}</td>
               <td class="{{ 'text-danger' if elec_balance < 0 else 'text-success' }}" onclick="window.location='{{ url_for('garages.detail', garage_id=o.garage.id, tab='account') }}'" style="cursor:pointer">
                 {{ fmt2(elec_balance) }} ₽
               </td>
@@ -44,7 +44,7 @@
             {% set acc_balance = acc.payments|sum(attribute='amount') - acc.charges|sum(attribute='amount') %}
             <tr>
               <td onclick="window.location='{{ url_for('finance.member_account_detail', account_id=acc.id) }}'" style="cursor:pointer">{{ acc.fee_type.name }}</td>
-              <td onclick="window.location='{{ url_for('finance.member_account_detail', account_id=acc.id) }}'" style="cursor:pointer">{{ acc.account_number }}</td>
+              <td onclick="window.location='{{ url_for('finance.member_account_detail', account_id=acc.id) }}'" style="cursor:pointer" class="text-end">{{ acc.account_number }}</td>
               <td class="{{ 'text-danger' if acc_balance < 0 else 'text-success' }}" onclick="window.location='{{ url_for('finance.member_account_detail', account_id=acc.id) }}'" style="cursor:pointer">
                 {{ fmt2(acc_balance) }} ₽
               </td>

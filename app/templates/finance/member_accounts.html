@@ -13,14 +13,14 @@
 </div>
 <p class="text-muted small">{{ _("Земельный налог, членские взносы и пени по ним — отдельный счёт на каждого собственника по каждому гаражу.") }}</p>
 <table class="table table-hover bg-body sortable">
-  <thead><tr><th>{{ _("ФИО") }}</th><th>{{ _("Гараж") }}</th><th>{{ _("Вид взноса") }}</th><th>{{ _("Счёт") }}</th><th>{{ _("Баланс") }}</th></tr></thead>
+  <thead><tr><th>{{ _("ФИО") }}</th><th>{{ _("Гараж") }}</th><th>{{ _("Вид взноса") }}</th><th class="text-end">{{ _("Счёт") }}</th><th>{{ _("Баланс") }}</th></tr></thead>
   <tbody>
     {% for account, balance in rows %}
     <tr onclick="window.location='{{ url_for('finance.member_account_detail', account_id=account.id) }}'" style="cursor:pointer">
       <td>{{ account.person.full_name }}</td>
       <td data-sort-value="{{ account.garage.number }}">№{{ account.garage.number }}</td>
       <td>{{ account.fee_type.name }}</td>
-      <td>{{ account.account_number }}</td>
+      <td class="text-end">{{ account.account_number }}</td>
       <td class="{{ 'text-danger' if balance < 0 else 'text-success' }}" data-sort-value="{{ balance }}">{{ fmt2(balance) }} ₽</td>
     </tr>
     {% else %}
@@ -61,8 +61,8 @@
             <input class="form-control" name="account_number" placeholder="{{ _('оставьте пустым — сформируется автоматически') }}">
           </div>
         </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+        <div class="modal-footer d-flex justify-content-end">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
           <button class="btn btn-primary">{{ _("Создать") }}</button>
         </div>
       </form>

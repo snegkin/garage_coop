@@ -41,7 +41,7 @@
       <th>{{ _("Дата") }}</th>
       <th>{{ _("Тип") }}</th>
       <th>{{ _("Сумма") }}</th>
-      <th>{{ _("Лицевой счёт") }}</th>
+      <th class="text-end">{{ _("Лицевой счёт") }}</th>
       <th>{{ _("Контрагент") }}</th>
       <th>{{ _("ИНН") }}</th>
       <th>{{ _("Назначение платежа") }}</th>
@@ -63,7 +63,7 @@
         {% endif %}
       </td>
       <td data-sort-value="{{ line.amount }}">{{ fmt2(line.amount) }} ₽</td>
-      <td>{{ line.account_number or "—" }}</td>
+      <td class="text-end">{{ line.account_number or "—" }}</td>
       <td>{{ line.counterparty_name or "—" }}</td>
       <td>{{ line.counterparty_inn or "—" }}</td>
       <td>{{ line.payment_purpose or "—" }}</td>

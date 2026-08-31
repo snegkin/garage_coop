@@ -27,7 +27,7 @@
   <thead>
     <tr>
       <th>{{ _("Дата") }}</th>
-      <th>{{ _("Лицевой счёт") }}</th>
+      <th class="text-end">{{ _("Лицевой счёт") }}</th>
       <th>{{ _("Плательщик") }}</th>
       <th>{{ _("Сумма") }}</th>
       <th>{{ _("Зачислено (за вычетом комиссии)") }}</th>
@@ -41,7 +41,7 @@
     {% for entry in entries %}
     <tr>
       <td>{{ fmt_date(entry.operation_date) }}</td>
-      <td>{{ entry.account_number or "—" }}</td>
+      <td class="text-end">{{ entry.account_number or "—" }}</td>
       <td>{{ entry.payer_name or "—" }}</td>
       <td data-sort-value="{{ entry.amount }}">{{ fmt2(entry.amount) }} ₽</td>
       <td>

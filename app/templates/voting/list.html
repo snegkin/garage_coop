@@ -26,7 +26,7 @@
     {% for v in votes %}
     <tr>
       <td><a href="{{ url_for('voting.detail', vote_id=v.id) }}">{{ v.title }}</a></td>
-      <td>{{ _("очно-заочное") if v.voting_type.value == 'in_person_and_absentee' else _("заочное") }}</td>
+      <td>{{ vote_type_label(v.voting_type.value) }}</td>
       <td>
         {% if v.status.value == 'draft' %}<span class="badge text-bg-secondary">{{ _("черновик") }}</span>
         {% elif v.status.value == 'open' %}<span class="badge text-bg-success">{{ _("идёт приём голосов") }}</span>

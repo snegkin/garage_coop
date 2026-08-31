@@ -388,25 +388,16 @@ def delete_commission_member(commission_id, member_id):
 # Журнал аудита
 # ---------------------------------------------------------------------------
 
-AUDIT_LOG_PAGE_SIZE = 50
-
-
 @bp.route("/audit-log")
 @roles_required(RoleEnum.BOARD)
 def audit_log():
     """
     Журнал денежных/ролевых/учётных действий (см. app/audit.py) — доступен
     всему правлению (не только председателю), это инструмент подотчётности,
-    а не управления. Простая постраничная лента без фильтров: для реального
-    объёма событий кооператива (десятки-сотни в месяц) поиск по странице
-    браузера (Ctrl+F) уже достаточен, а усложнять UI фильтрами до того, как
-    в этом возникнет реальная необходимость, смысла нет.
+    а не управления. Клиентская пагинация и поиск — для реального объёма
+    событий кооператива (десятки-сотни в месяц).
     """
-    page = max(1, request.args.get("page", 1, type=int))
-    query = database.db_session.query(AuditLog).order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
-    total = query.count()
-    entries = query.offset((page - 1) * AUDIT_LOG_PAGE_SIZE).limit(AUDIT_LOG_PAGE_SIZE).all()
-    has_next = page * AUDIT_LOG_PAGE_SIZE < total
+    entries = database.db_session.query(AuditLog).order_by(AuditLog.created_at.desc(), AuditLog.id.desc()).all()
     return render_template(
-        "governance/audit_log.html", entries=entries, page=page, has_next=has_next, has_prev=page > 1,
+        "governance/audit_log.html", entries=entries,
     )

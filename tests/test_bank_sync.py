@@ -517,8 +517,8 @@ def test_initials_key():
 
 
 def test_extract_initials_candidates():
-    text = "ЧЛЕНСКИЕ ВЗНОСЫ (ЛИКСАНОВ Г.Н.);0126;ФАМИЛИЯ ИМЯ"
-    assert bank_sync._extract_initials_candidates(text) == {"ЛИКСАНОВ Г.Н."}
+    text = "ЧЛЕНСКИЕ ВЗНОСЫ (ПРИМЕРНЫЙ Г.Н.);0126;ФАМИЛИЯ ИМЯ"
+    assert bank_sync._extract_initials_candidates(text) == {"ПРИМЕРНЫЙ Г.Н."}
     assert bank_sync._extract_initials_candidates("обычный текст без имён") == set()
     assert bank_sync._extract_initials_candidates(None) == set()
 
@@ -533,12 +533,12 @@ def test_find_persons_by_name_full_name_match(db):
 def test_find_persons_by_name_initials_in_purpose(db):
     """Ключевой сценарий из примера банка: плательщик — один человек, а в
     назначении платежа в скобках указан ДРУГОЙ, за кого платят."""
-    payer = make_person(db, full_name="Ликсанова Ольга Викторовна")
-    owner = make_person(db, full_name="Ликсанов Геннадий Николаевич")
+    payer = make_person(db, full_name="Примерная Ольга Викторовна")
+    owner = make_person(db, full_name="Примерный Геннадий Николаевич")
     db.commit()
     found = bank_sync._find_persons_by_name(
-        payer_name="Ликсанова Ольга Викторовна",
-        purpose="ЧЛЕНСКИЕ ВЗНОСЫ (Ликсанов Г.Н.)",
+        payer_name="Примерная Ольга Викторовна",
+        purpose="ЧЛЕНСКИЕ ВЗНОСЫ (Примерный Г.Н.)",
     )
     assert payer in found
     assert owner in found
@@ -778,7 +778,7 @@ def test_build_charge_registry_file_matches_real_sample():
     expected = open(os.path.join(FIXTURES_DIR, "sample_charge_registry.txt"), "rb").read().decode("cp1251")
     item = _ChargeRegistryItem(
         account_number="10010", payer_name="ПРИМЕРНЫЙ ГЕННАДИЙ БАТЬКОВИЧ",
-        amount=Decimal("1710.00"), purpose="ЧЛЕНСКИЕ ВЗНОСЫ (ЛИКСАНОВ Г.Н.)", service_code="0625",
+        amount=Decimal("1710.00"), purpose="ЧЛЕНСКИЕ ВЗНОСЫ (ПРИМЕРНЫЙ Г.Н.)", service_code="0625",
     )
     built = registry_file.build_charge_registry_file([item]).decode("cp1251")
     assert built == expected.splitlines()[0] + "\r\n"
@@ -827,7 +827,7 @@ def test_parse_payment_registry_file_matches_real_sample():
     assert first.credited_amount == Decimal("836.40")  # реально зачислено (за вычетом комиссии)
     assert first.fee_amount == Decimal("13.60")  # комиссия банка
     assert first.operation_date == dt.date(2026, 5, 15)
-    assert first.payment_purpose == "ЗЕМЕЛЬНЫЙ НАЛОГ (БЫКОВА А.А.)"
+    assert first.payment_purpose == "ЗЕМЕЛЬНЫЙ НАЛОГ (ПРИМЕРНАЯ А.А.)"
 
     # Итоговая строка "=4;5120,00;5038,08;81,92;945839;18-05-2026" не должна
     # была превратиться в пятую запись реестра.

@@ -116,7 +116,6 @@ def cooperative_step():
         reg_date = f.get("registration_date")
         coop.registration_date = dt.date.fromisoformat(reg_date) if reg_date else None
         coop.total_area = _parse_decimal(f.get("total_area"))
-        coop.garage_area = _parse_decimal(f.get("garage_area"))
         coop.common_area = _parse_decimal(f.get("common_area"))
         dues_due_day = f.get("dues_due_day")
         dues_due_month = f.get("dues_due_month")

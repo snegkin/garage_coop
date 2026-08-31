@@ -25,6 +25,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Документы": "Documents",
         "Собрания": "Meetings",
         "Реквизиты": "Legal details",
+        "О кооперативе": "About the cooperative",
+        "Кооператив": "Cooperative",
         "Выйти": "Log out",
         "Сохранить": "Save",
         "Отмена": "Cancel",
@@ -65,7 +67,44 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Читать дальше": "Read more",
         "Ко всем новостям": "Back to news",
         "Файлы": "Files",
+
+        # wiki
+        "Вики": "Wiki",
+        "Добавить страницу": "Add page",
+        "Справочные заметки кооператива: параметры подключений, схемы, контакты подрядчиков и аварийных служб и т.п.":
+            "Reference notes for the cooperative: connection settings, network diagrams, contractor and emergency service contacts, etc.",
+        "Все категории": "All categories",
+        "например: видеонаблюдение, сеть, контакты": "e.g. CCTV, network, contacts",
+        "Необязательно — используется для фильтра в списке страниц.": "Optional — used as a filter in the page list.",
+        "Обновлено": "Updated",
+        "внутренняя": "internal",
+        "общедоступная": "public",
+        "Страниц пока нет.": "No pages yet.",
+        "Удалить страницу вики?": "Delete this wiki page?",
+        "Новая страница вики": "New wiki page",
+        "Редактирование страницы вики": "Edit wiki page",
+        "Внутренняя страница (видна только правлению)": "Internal page (visible to the board only)",
+        "Страница вики добавлена.": "Wiki page added.",
+        "Страница вики обновлена.": "Wiki page updated.",
+        "Страница вики удалена.": "Wiki page deleted.",
+        "Ко всем страницам": "Back to all pages",
+        "Родительская страница": "Parent page",
+        "— нет (корневой раздел) —": "— none (root section) —",
+        "Необязательно — без родителя страница станет корневым разделом дерева.":
+            "Optional — without a parent, the page becomes a root section of the tree.",
+        "Добавить подраздел": "Add subsection",
+        "Сначала удалите или перенесите подразделы.": "Delete or move the subsections first.",
+        "Нельзя удалить раздел, в котором есть подразделы/страницы — сначала удалите или перенесите их.":
+            "Can't delete a section that still has subsections/pages — delete or move them first.",
+        "Нельзя сделать родителем саму страницу или её же подраздел.": "The page itself or its own subsection can't be set as its parent.",
+
         "Форматирование": "Formatting",
+        "Вставить картинку": "Insert image",
+        "Кнопка с камерой загружает картинку и сразу вставляет её в текст в месте курсора.":
+            "The camera button uploads an image and inserts it into the text at the cursor position right away.",
+        "Файл не выбран.": "No file selected.",
+        "Недопустимый формат файла. Разрешены: jpg, png, webp, gif.": "Unsupported file format. Allowed: jpg, png, webp, gif.",
+        "Не удалось загрузить файл.": "Failed to upload the file.",
         "Жирный": "Bold",
         "Курсив": "Italic",
         "Подзаголовок": "Heading",
@@ -91,6 +130,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Последний годовой отчёт": "Last annual report",
 
         # cooperative
+        "Информация о кооперативе": "Ibformation about cooperative",
         "Реквизиты кооператива": "Cooperative legal details",
         "Расчётные счета": "Settlement accounts",
         "Добавить счёт": "Add account",
@@ -109,8 +149,6 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Площади": "Areas",
         "Площадь кооператива": "Cooperative area",
         "Площадь кооператива, м²": "Cooperative area, m²",
-        "Площадь под гаражами": "Area under garages",
-        "Площадь под гаражами, м²": "Area under garages, m²",
         "Площадь общего пользования": "Common area",
         "Площадь общего пользования, м²": "Common area, m²",
         "Личный кабинет": "Personal cabinet",
@@ -272,6 +310,11 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Нельзя удалить контрагента — по нему есть записи о расходах.": "Can't delete this vendor — there are expense records linked to it.",
         "Нельзя удалить контрагента — по нему есть записи о расходах или платежах.": "Can't delete this vendor — there are expense or payment records linked to it.",
         "Правление": "Board",
+        "Управление": "Management",
+        "Реестры": "Registries",
+        "Финансы": "Finance",
+        "Контент": "Content",
+        "Администрирование": "Administration",
         "По": "Until",
         "действует сейчас": "in effect now",
         "общего пользования": "common area",
@@ -507,6 +550,18 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Название документа": "Document title",
         "Документ добавлен.": "Document added.",
         "Файл не найден.": "File not found.",
+        "Внутренний документ (виден только правлению)": "Internal document (visible to the board only)",
+        "Доступ": "Access",
+        "внутренний": "internal",
+        "общедоступный": "public",
+        "Документ не найден.": "Document not found.",
+        "Документ обновлён.": "Document updated.",
+        "Документ удалён.": "Document deleted.",
+        "Редактирование документа": "Edit document",
+        "Скачать": "Download",
+        "Текущий файл: ": "Current file: ",
+        "Удалить документ?": "Delete this document?",
+        "Поиск по названию, номеру или типу...": "Search by title, number or type...",
 
         # meetings
         "Общие собрания": "General meetings",
@@ -1033,6 +1088,41 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Пока приём бюллетеней открыт, вы можете вернуться и изменить свой голос — учитывается последняя подача.":
             "While ballot submission is open, you can come back and change your vote — the latest submission counts.",
 
+        # electronic voting — IN_PERSON / manual ballot recording (ранее не переведено, аудит i18n)
+        "Дата голосования": "Voting date",
+        "Протокол с результатами": "Protocol with results",
+        "Обязателен для очного голосования — это единственный источник результатов.":
+            "Required for in-person voting — it's the only source of results.",
+        "Зафиксировать голосование": "Record the vote",
+        "Решение уже принято на собрании — электронная повестка/бюллетени не заводятся, результаты фиксируются только приложенным протоколом.":
+            "The decision has already been made at the meeting — no electronic agenda or ballots are created; results are recorded solely via the attached protocol.",
+        "очное": "in-person",
+        "Это очное голосование — решение принято на собрании, электронная повестка не заводится. Результаты зафиксированы в протоколе ниже.":
+            "This is an in-person vote — the decision was made at the meeting, no electronic agenda is created. Results are recorded in the protocol below.",
+        "Вес голоса": "Voting weight",
+        "Голоса по вопросам": "Votes by question",
+        "Ручная запись очных голосов": "Manual recording of in-person ballots",
+        "Для членов, проголосовавших очно на собрании (на бумаге) — их голос не попадает в систему сам, отметьте его здесь. Сам член кооператива сможет переголосовать электронно позже — учитывается последняя подача.":
+            "For members who voted in person at the meeting (on paper) — their vote doesn't enter the system on its own, record it here. The member can still re-vote electronically later — the latest submission counts.",
+        "Отметить голос": "Record vote",
+        "Нет ни одного человека с долей владения в гараже.": "No one owns a share in any garage.",
+        "дата голосования": "voting date",
+        "Запись голоса за члена кооператива": "Recording a vote on behalf of a member",
+        "Вы вносите голос от имени другого человека — используется только для очной части очно-заочного голосования (бумажные бюллетени с собрания). Сам член кооператива сможет переголосовать электронно позже, пока приём открыт — учитывается последняя подача.":
+            "You're recording a vote on someone else's behalf — used only for the in-person part of an in-person-and-absentee vote (paper ballots from the meeting). The member can still re-vote electronically later while submission is open — the latest submission counts.",
+        "вес голоса": "voting weight",
+        "Можно отметить не все вопросы сразу — незаполненные останутся как есть, к ним можно вернуться позже.":
+            "You don't have to record all questions at once — unfilled ones stay as they are, you can come back to them later.",
+        "Записать голос": "Record vote",
+        "Укажите дату голосования.": "Please enter the voting date.",
+        "Для очного голосования обязательно приложите протокол с результатами.": "For an in-person vote, attaching the results protocol is required.",
+        "Очное голосование зафиксировано, протокол прикреплён.": "In-person vote recorded, protocol attached.",
+        "Ручная запись голоса доступна только для очно-заочного голосования.": "Manual ballot recording is available only for in-person-and-absentee voting.",
+        "Записывать голоса можно только пока голосование открыто.": "Ballots can only be recorded while the vote is open.",
+        "У этого человека нет доли ни в одном гараже — голосовать он не может.": "This person doesn't own a share in any garage — they cannot vote.",
+        "Отметьте хотя бы один вопрос повестки.": "Mark at least one agenda question.",
+        "Голос члена кооператива «{name}» зафиксирован.": "The vote for member «{name}» has been recorded.",
+
         # setup wizard (мастер первоначальной настройки)
         "Мастер первоначальной настройки": "First-launch setup wizard",
         "Проведите кооператив через первоначальное заполнение данными. Шаги можно проходить в любом порядке и возвращаться сюда в любой момент — ничего не потеряется, статус каждого шага считается по уже введённым данным.":
@@ -1271,6 +1361,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Код услуги/периода:": "Service/period code:",
         "Префикс строки-сводки в конце файла (пропускается при разборе):": "Summary line prefix at the end of the file (skipped when parsing):",
         "Разделитель полей и кодировка — общие для обоих файлов:": "Field delimiter and encoding are shared between both files:",
+        "Разделитель дробной части суммы": "Amount decimal separator",
+        "Префикс строки-сводки в конце файла": "Summary line prefix at the end of the file",
+        "Строки, начинающиеся с этого символа, считаются итоговой сводкой и пропускаются при разборе. Оставьте пустым, если сводки в файле нет.":
+            "Lines starting with this character are treated as a summary line and skipped when parsing. Leave empty if the file has no summary line.",
         "Меняются в настройке реестра начислений.": "Changed in the charge registry settings.",
         "Настройка формата реестра начислений": "Charge registry format settings",
         "Настройка формата реестра платежей": "Payment registry format settings",
@@ -1300,11 +1394,18 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Формат файла реестра начислений сохранён.": "Charge registry file format saved.",
         "Формат файла реестра платежей сохранён.": "Payment registry file format saved.",
         "Погашение": "Settlement",
+        "Реестр": "Registry",
+        "из реестра": "from registry",
+        "из выписки": "from statement",
+        "Сопоставить с выпиской": "Match with statement",
         "Зачисления гасят задолженность на лицевом счёте автоматически при загрузке — по номеру счёта, распознанному в назначении платежа («ЛС <номер>»), а если его нет — по совпадению ФИО плательщика или того, за кого платят, включая лиц для связи по гаражу. Полной поступившей суммой, без вычета возможной комиссии банка. Автоматически — только когда совпадение однозначно; в остальных случаях — кнопка «Разнести» ниже.":
-            "Credits automatically settle the debt on an account — by the account number recognized in the payment purpose («ЛС <number>»), or, failing that, by a match on the payer's full name or the name of whoever is being paid for, including garage contact persons. Using the full amount received, without deducting any bank fee. Automatic only when the match is unambiguous; otherwise use the «Allocate» button below.",
+            "Credits automatically settle the debt on an account — by the account number recognized in the payment purpose («Acct <number>»), or, failing that, by a match on the payer's full name or the name of whoever is being paid for, including garage contact persons. Using the full amount received, without deducting any bank fee. Automatic only when the match is unambiguous; otherwise use the «Allocate» button below.",
         "Разносить можно только зачисления, не списания.": "Only credits can be allocated, not debits.",
         "Разнесено вручную по выписке банка, операция {uid}": "Manually allocated from the bank statement, transaction {uid}",
         "Автоматически разнесено по выписке банка, операция {uid}": "Automatically allocated from the bank statement, transaction {uid}",
+        "Сопоставлено: {direct} прямых + {parametric} параметрических совпадений.":
+            "Matched: {direct} direct + {parametric} parametric matches.",
+        "Новых совпадений не найдено.": "No new matches found.",
         "Эта операция уже разнесена.": "This transaction has already been allocated.",
         "Выписка обновлена: {n} новых операций, из них {m} автоматически разнесено по лицевым счетам.":
             "Statement updated: {n} new transactions, {m} of them automatically allocated to accounts.",
@@ -1316,6 +1417,97 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "Couldn't find an account by number or by payer name for this registry entry.",
         "Зачислено (за вычетом комиссии)": "Credited (net of fee)",
         "комиссия": "fee",
+
+        # error pages / form-input safety net (app/errors.py, error.html)
+        "Доступ запрещён": "Access denied",
+        "У вас нет прав для просмотра этой страницы.": "You don't have permission to view this page.",
+        "Страница не найдена": "Page not found",
+        "Такой страницы не существует, либо она была удалена.": "This page doesn't exist, or it has been removed.",
+        "Непредвиденная ошибка": "Unexpected error",
+        "Что-то пошло не так на сервере. Попробуйте ещё раз или обратитесь в правление.":
+            "Something went wrong on the server. Please try again or contact the board.",
+        "Сессия формы устарела или недействительна — обновите страницу и попробуйте снова.":
+            "The form session has expired or is invalid — refresh the page and try again.",
+        "Проверьте правильность заполнения формы — одно из полей заполнено некорректно или не заполнено.":
+            "Please check the form — one of the fields is filled in incorrectly or left empty.",
+        "На главную": "Go to dashboard",
+
+        # garages/detail.html — meter controls
+        "Заменить": "Replace",
+        "Изменить параметры": "Edit settings",
+        "Изменить прибор учета": "Change the meter",
+
+        # garages.py
+        "Счётчик обновлён.": "Meter updated.",
+
+        # cabinet/profile.html
+        "Контактные данные": "Contact details",
+        "Паспортные данные": "Passport details",
+        "Если ваши паспортные данные изменились (смена паспорта, регистрация/прописка) — обновите информацию ниже. Изменения применяются только после одобрения председателя.":
+            "If your passport details have changed (new passport, registration/residence permit) — update the information below. Changes apply only after the chairman approves them.",
+
+        # cooperative/view.html
+        "площадь кооператива - площадь приватизированных участков": "cooperative area minus privatized plots",
+        "дорога + площадь между гаражами": "road + area between garages",
+        "24м² + 1,5м² перед гаражом": "24m² + 1.5m² in front of the garage",
+        "Сбербанк": "Sberbank",
+
+        # search placeholders
+        "Поиск по ФИО, гаражу или счёту...": "Search by name, garage, or account...",
+        "Поиск по ФИО, телефону, email...": "Search by name, phone, email...",
+        "Поиск по логину, ФИО, роли...": "Search by username, name, role...",
+        "Поиск по названию, ИНН, комментарию...": "Search by name, tax ID, comment...",
+
+        # finance/mass_charge.html
+        "гаражей выбрано — если ни один не выбран, начисление пойдёт на все гаражи":
+            "garages selected — if none are selected, the charge goes to all garages",
+        "Выберите стратегию и заполните поля для предварительного расчёта.":
+            "Choose a strategy and fill in the fields for a preliminary calculation.",
+        "Превью расчёта": "Calculation preview",
+        "Округлять сумму в большую сторону, руб.": "Round the amount up, RUB",
+        "Не округлять": "Don't round",
+        "10": "10",
+        "50": "50",
+        "100": "100",
+        "Площадь кооператива на кадастровой карте": "Cooperative area on the cadastral map",
+        "кадастровая стоимость": "cadastral value",
+        "Сумма начисления на каждого собственника округляется вверх до указанного значения.":
+            "The charge amount for each owner is rounded up to the specified value.",
+        "Считается по текущей площади и кадастровой стоимости кооператива — под постройкой и общей территорией, с учётом приватизированных участков и % банка за обслуживание. Вид взноса определяется автоматически («Земельный налог»).":
+            "Calculated from the cooperative's current area and cadastral value — under the buildings and shared land, accounting for privatized plots and the bank's service fee %. The fee type is set automatically («Land tax»).",
+        "В реквизитах кооператива не заполнены кадастровая площадь и стоимость — расчёт невозможен.":
+            "The cooperative's legal details don't have the cadastral area and value filled in — calculation isn't possible.",
+
+        # cooperative/view.html — площади и налоги
+        "% банка за зачисление": "Bank fee % on crediting",
+        "Из них, площадь общего пользования, м²": "Of which, shared-use area, m²",
+        "Площади и налоги": "Areas and taxes",
+        "Площадь кооператива (кадастровая), м²": "Cooperative area (cadastral), m²",
+        "Полная площадь кооператива (по документам), м²": "Full cooperative area (per documents), m²",
+        "Стоимость аренды 1 м² (справочная), ₽/м²": "Rental value per m² (reference), RUB/m²",
+        "Стоимость земли (кадастровая), ₽": "Land value (cadastral), RUB",
+        "Текущая площадь на кадастровой карте, уменьшается при приватизации.":
+            "Current area on the cadastral map, decreases as plots are privatized.",
+        "Уменьшается при приватизации.": "Decreases as plots are privatized.",
+
+        # garages/detail.html — доля собственника
+        "Доля (0...1, например 0.5 для 50%)": "Share (0...1, e.g. 0.5 for 50%)",
+        "Изменить долю": "Edit share",
+        "Изменить долю: {name}": "Edit share: {name}",
+
+        # garages.py
+        "Доля обновлена.": "Share updated.",
+
+        # finance.py
+        "Недостаточно данных для расчёта: заполните текущую площадь и кадастровую стоимость кооператива в его карточке.":
+            "Not enough data for the calculation: fill in the cooperative's current area and cadastral value in its card.",
+
+        # search placeholders
+        "Поиск по дате или ставке...": "Search by date or rate...",
+        "Поиск по действию, пользователю или описанию...": "Search by action, user, or description...",
+
+        # pd4 print
+        "Дата платежа": "Payment date",
     }
 }
 
@@ -1327,11 +1519,24 @@ ROLE_LABELS = {
 DOC_TYPE_LABELS = {
     "ru": {
         "charter": "устав", "order": "приказ", "act": "акт",
-        "letter": "письмо", "protocol": "протокол", "other": "прочее",
+        "letter": "письмо", "protocol": "протокол",
+        "invoice": "счёт", "statement": "выписка", "certificate": "справка",
+        "estimate": "смета", "report": "отчёт", "other": "прочее",
     },
     "en": {
         "charter": "charter", "order": "order", "act": "act",
-        "letter": "letter", "protocol": "protocol", "other": "other",
+        "letter": "letter", "protocol": "protocol",
+        "invoice": "invoice", "statement": "statement", "certificate": "certificate",
+        "estimate": "estimate", "report": "report", "other": "other",
+    },
+}
+
+VOTE_TYPE_LABELS = {
+    "ru": {
+        "absentee": "заочное", "in_person_and_absentee": "очно-заочное", "in_person": "очное",
+    },
+    "en": {
+        "absentee": "absentee", "in_person_and_absentee": "in-person + absentee", "in_person": "in-person",
     },
 }
 
@@ -1359,6 +1564,11 @@ def role_label(role_value: str) -> str:
 def doc_type_label(doc_type_value: str) -> str:
     locale = getattr(g, "locale", DEFAULT_LANGUAGE)
     return DOC_TYPE_LABELS.get(locale, DOC_TYPE_LABELS["ru"]).get(doc_type_value, doc_type_value)
+
+
+def vote_type_label(vote_type_value: str) -> str:
+    locale = getattr(g, "locale", DEFAULT_LANGUAGE)
+    return VOTE_TYPE_LABELS.get(locale, VOTE_TYPE_LABELS["ru"]).get(vote_type_value, vote_type_value)
 
 
 DATE_FORMATS = {"ru": "%d.%m.%Y", "en": "%Y-%m-%d"}
@@ -1399,6 +1609,7 @@ def init_app(app):
     app.jinja_env.globals["_"] = translate
     app.jinja_env.globals["role_label"] = role_label
     app.jinja_env.globals["doc_type_label"] = doc_type_label
+    app.jinja_env.globals["vote_type_label"] = vote_type_label
     app.jinja_env.globals["fmt_date"] = format_date
     app.jinja_env.globals["fmt2"] = fmt2
     app.jinja_env.globals["SUPPORTED_LANGUAGES"] = SUPPORTED_LANGUAGES

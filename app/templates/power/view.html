@@ -85,7 +85,7 @@
         {% endif %}
       </td>
       <td>{{ r.comment or "—" }}</td>
-      <td>{% if r.document_id %}<a href="{{ url_for('documents.download', doc_id=r.document_id) }}">{{ _("скачать") }}</a>{% else %}—{% endif %}</td>
+      <td>{% if r.document_id %}<a href="{{ url_for('cooperative.download_document', doc_id=r.document_id) }}">{{ _("скачать") }}</a>{% else %}—{% endif %}</td>
       <td class="no-sort">
         {% if loop.first %}
         <form method="post" action="{{ url_for('power.delete_reading', reading_id=r.id) }}" onsubmit="return confirm('{{ _('Удалить показание?') }}')">
@@ -126,7 +126,7 @@
           </div>
         </div>
         <div class="modal-footer">
-          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
           <button class="btn btn-primary">{{ _("Сохранить") }}</button>
         </div>
       </form>
@@ -162,7 +162,7 @@
           </div>
         </div>
         <div class="modal-footer">
-          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
           <button class="btn btn-primary">{{ _("Сохранить") }}</button>
         </div>
       </form>
@@ -227,7 +227,7 @@
           </div>
         </div>
         <div class="modal-footer">
-          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
           <button class="btn btn-primary">{{ _("Сохранить") }}</button>
         </div>
       </form>

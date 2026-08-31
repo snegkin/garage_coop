@@ -10,7 +10,7 @@
     <div class="text-muted small">
       {% if commission.elected_by_meeting %}
         {{ _("Избрана протоколом от") }} {{ fmt_date(commission.elected_by_meeting.date) }}
-        {% if commission.elected_by_meeting.protocol_document_id %}(<a href="{{ url_for('documents.download', doc_id=commission.elected_by_meeting.protocol_document_id) }}">{{ _("скачать протокол") }}</a>){% endif %}
+        {% if commission.elected_by_meeting.protocol_document_id %}(<a href="{{ url_for('cooperative.download_document', doc_id=commission.elected_by_meeting.protocol_document_id) }}">{{ _("скачать протокол") }}</a>){% endif %}
       {% endif %}
     </div>
   </div>
@@ -80,8 +80,8 @@
             <label class="form-check-label" for="newMemberChair">{{ _("Председатель комиссии (снимет флаг с текущего, если был)") }}</label>
           </div>
         </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+        <div class="modal-footer d-flex justify-content-end">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
           <button class="btn btn-primary">{{ _("Добавить") }}</button>
         </div>
       </form>
@@ -104,8 +104,8 @@
             <label class="form-check-label" for="editChair{{ m.id }}">{{ _("Председатель комиссии (снимет флаг с текущего, если был)") }}</label>
           </div>
         </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+        <div class="modal-footer d-flex justify-content-end">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
           <button class="btn btn-primary">{{ _("Сохранить") }}</button>
         </div>
       </form>

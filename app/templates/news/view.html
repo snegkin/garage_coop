@@ -12,8 +12,9 @@
     </p>
     <div class="card-text">{{ render_news_html(item.body) }}</div>
 
-    {% set images = item.attachments | selectattr("is_image") | list %}
-    {% set files = item.attachments | rejectattr("is_image") | list %}
+    {% set gallery_attachments = item.attachments | rejectattr("is_inline") | list %}
+    {% set images = gallery_attachments | selectattr("is_image") | list %}
+    {% set files = gallery_attachments | rejectattr("is_image") | list %}
 
     {% if images %}
     <div class="d-flex flex-wrap gap-2 mt-4">
@@ -28,11 +29,13 @@
     {% if files %}
     <div class="mt-4">
       <h6>{{ _("Файлы") }}</h6>
-      <ul class="list-unstyled mb-0">
+      <div class="list-unstyled mb-0">
         {% for att in files %}
-        <li><a href="{{ url_for('news.attachment', attachment_id=att.id, original_filename=att.original_filename) }}">{{ att.original_filename }}</a></li>
+        <div class="mb-2">
+          <a href="{{ url_for('news.attachment', attachment_id=att.id, original_filename=att.original_filename) }}" class="btn btn-sm btn-outline-secondary">{{ att.original_filename }}</a>
+        </div>
         {% endfor %}
-      </ul>
+      </div>
     </div>
     {% endif %}
   </div>

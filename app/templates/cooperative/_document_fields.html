@@ -1,0 +1,34 @@
+{# Ожидает переменную doc_types. Переменная doc (опционально) — документ для редактирования. Только поля, без <form> и кнопок. #}
+<div class="mb-3">
+  <label class="form-label">{{ _("Тип документа") }}</label>
+  <select class="form-select" name="doc_type" required>
+    {% for dt in doc_types %}
+    <option value="{{ dt.value }}" {{ "selected" if doc is defined and doc and doc.doc_type == dt }}>{{ doc_type_label(dt.value) }}</option>
+    {% endfor %}
+  </select>
+</div>
+<div class="mb-3">
+  <label class="form-label">{{ _("Номер") }}</label>
+  <input class="form-control" name="number" value="{{ doc.number if doc is defined and doc else '' }}">
+</div>
+<div class="mb-3">
+  <label class="form-label">{{ _("Дата") }}</label>
+  <input class="form-control" type="date" name="date" value="{{ doc.date.isoformat() if doc is defined and doc else '' }}" required>
+</div>
+<div class="mb-3">
+  <label class="form-label">{{ _("Название") }}</label>
+  <input class="form-control" name="title" value="{{ doc.title if doc is defined and doc else '' }}" required>
+</div>
+<div class="mb-3">
+  <label class="form-label">{{ _("Файл") }}</label>
+  <input class="form-control" type="file" name="file">
+  {% if doc is defined and doc and doc.file_path %}<small class="text-muted">{{ _("Текущий файл: ") }}{{ doc.file_path }}</small>{% endif %}
+</div>
+<div class="mb-3">
+  <label class="form-label">{{ _("Комментарий") }}</label>
+  <textarea class="form-control" name="comment">{{ doc.comment or '' if doc is defined else '' }}</textarea>
+</div>
+<div class="form-check mb-3">
+  <input class="form-check-input" type="checkbox" name="is_internal" id="isInternalDocument" {{ "checked" if doc is defined and doc and doc.is_internal else '' }}>
+  <label class="form-check-label" for="isInternalDocument">{{ _("Внутренний документ (виден только правлению)") }}</label>
+</div>

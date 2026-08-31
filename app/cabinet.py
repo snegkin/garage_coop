@@ -15,6 +15,7 @@ from .auth import login_required
 from .i18n import translate as _
 from .models import Person, Phone, GarageOwnership, MemberAccount, PersonDataRevision, PersonDataRevisionStatus, User
 from .accounting import balance as account_balance
+from sqlalchemy.orm import joinedload
 
 bp = Blueprint("cabinet", __name__, url_prefix="/cabinet")
 
@@ -168,8 +169,15 @@ def garages():
             .filter_by(person_id=person.id)
             .all()
         )
-        accounts = database.db_session.query(MemberAccount).filter_by(person_id=person.id).all()
+        accounts = (
+            database.db_session.query(MemberAccount)
+            .filter_by(person_id=person.id)
+            .options(joinedload(MemberAccount.charges))
+            .all()
+        )
         for acc in accounts:
+            if acc.fee_type.is_penalty and not acc.charges:
+                continue
             member_accounts_by_garage.setdefault(acc.garage_id, []).append(acc)
         for o in ownerships:
             garage = o.garage

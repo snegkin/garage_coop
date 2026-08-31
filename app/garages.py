@@ -18,6 +18,7 @@ from .models import (
     MemberAccount, FeeType, RoleEnum, ElectricityMeter, ElectricityReading,
     Charge, Payment, User,
 )
+from sqlalchemy.orm import joinedload
 from .accounting import electricity_account_number, member_account_number, balance, current_tariff, reallocate_garage_charges, charge_paid_amount
 
 bp = Blueprint("garages", __name__, url_prefix="/garages")
@@ -211,12 +212,17 @@ def detail(garage_id):
     # счета (can_view_member_account), не счета содольщиков — их баланс
     # не его дело; правление видит все.
     member_accounts = (
-        database.db_session.query(MemberAccount).filter_by(garage_id=garage.id).all()
+        database.db_session.query(MemberAccount)
+        .filter_by(garage_id=garage.id)
+        .options(joinedload(MemberAccount.charges))
+        .all()
     )
     member_accounts.sort(key=lambda ma: (ma.person.full_name, ma.fee_type.name))
     account_summary_rows = [
         {"person": ma.person, "fee_type": ma.fee_type, "account_number": ma.account_number, "balance": balance(ma)}
-        for ma in member_accounts if can_view_member_account(ma)
+        for ma in member_accounts
+        if can_view_member_account(ma)
+        and (not ma.fee_type.is_penalty or ma.charges)
     ]
 
     # объединённая таблица: показание берёт своё начисление напрямую через связь
@@ -389,11 +395,42 @@ def add_owner(garage_id):
     return redirect(url_for("garages.detail", garage_id=garage_id))
 
 
+@bp.route("/<int:garage_id>/owners/<int:ownership_id>/edit-share", methods=["POST"])
+@roles_required(RoleEnum.BOARD)
+def update_owner_share(garage_id, ownership_id):
+    ownership = database.db_session.get(GarageOwnership, ownership_id)
+    if not ownership or ownership.garage_id != garage_id:
+        abort(404)
+
+    try:
+        share = Decimal(request.form["share"])
+    except (InvalidOperation, KeyError):
+        flash(_("Доля должна быть числом (например 0.5)."), "danger")
+        return redirect(url_for("garages.detail", garage_id=garage_id))
+
+    if not (0 < share <= 1):
+        flash(_("Доля должна быть в диапазоне от 0 (не включая) до 1."), "danger")
+        return redirect(url_for("garages.detail", garage_id=garage_id))
+
+    ownership.share = share
+    database.db_session.commit()
+    flash(_("Доля обновлена."), "success")
+    return redirect(url_for("garages.detail", garage_id=garage_id))
+
+
 @bp.route("/<int:garage_id>/owners/<int:ownership_id>/remove", methods=["POST"])
 @roles_required(RoleEnum.BOARD)
 def remove_owner(garage_id, ownership_id):
     ownership = database.db_session.get(GarageOwnership, ownership_id)
     if ownership and ownership.garage_id == garage_id:
+        # Удаляем все лицевые счета этого собственника по этому гаражу
+        member_accounts = (
+            database.db_session.query(MemberAccount)
+            .filter_by(person_id=ownership.person_id, garage_id=garage_id)
+            .all()
+        )
+        for account in member_accounts:
+            database.db_session.delete(account)
         database.db_session.delete(ownership)
         database.db_session.commit()
         flash(_("Собственник удалён."), "success")

@@ -64,7 +64,7 @@
         {% elif paid > 0 %}<span class="badge bg-warning text-dark">{{ fmt2(paid) }} {{ _("из") }} {{ fmt2(e.amount) }} ₽</span>
         {% else %}<span class="badge bg-danger">{{ _("не оплачено") }}</span>{% endif %}
       </td>
-      <td>{% if e.document_id %}<a href="{{ url_for('documents.download', doc_id=e.document_id) }}">{{ _("скачать") }}</a>{% else %}—{% endif %}</td>
+      <td>{% if e.document_id %}<a href="{{ url_for('cooperative.download_document', doc_id=e.document_id) }}">{{ _("скачать") }}</a>{% else %}—{% endif %}</td>
     </tr>
     {% else %}
     <tr><td colspan="6" class="text-muted">{{ _("Расходов пока нет.") }}</td></tr>
@@ -92,7 +92,7 @@
         {% if p.reverses_payment_id and p.reverses %}<div class="text-muted small">{{ _("сторно платежа от {date}", date=fmt_date(p.reverses.date)) }}</div>{% endif %}
         {% if p.reverses_payment_id is none and p.reversed_by %}<div class="text-muted small">{{ _("отменён проводкой от {date}", date=fmt_date(p.reversed_by[0].date)) }}</div>{% endif %}
       </td>
-      <td>{% if p.document_id %}<a href="{{ url_for('documents.download', doc_id=p.document_id) }}">{{ _("скачать") }}</a>{% else %}—{% endif %}</td>
+      <td>{% if p.document_id %}<a href="{{ url_for('cooperative.download_document', doc_id=p.document_id) }}">{{ _("скачать") }}</a>{% else %}—{% endif %}</td>
       <td class="text-nowrap">
         {% if p.reverses_payment_id is none %}
           {% if p.id == last_payment_id %}
@@ -128,7 +128,7 @@
         {% endif %}
       </td>
       <td>{{ a.comment or "—" }}</td>
-      <td>{% if a.document_id %}<a href="{{ url_for('documents.download', doc_id=a.document_id) }}">{{ _("скачать") }}</a>{% else %}—{% endif %}</td>
+      <td>{% if a.document_id %}<a href="{{ url_for('cooperative.download_document', doc_id=a.document_id) }}">{{ _("скачать") }}</a>{% else %}—{% endif %}</td>
     </tr>
     {% else %}
     <tr><td colspan="5" class="text-muted">{{ _("Актов сверки пока нет.") }}</td></tr>
@@ -149,8 +149,8 @@
           {% set c = counterparty %}
           {% include "counterparties/_fields.html" %}
         </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+        <div class="modal-footer d-flex justify-content-end">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
           <button class="btn btn-primary">{{ _("Сохранить") }}</button>
         </div>
       </form>
@@ -191,8 +191,8 @@
             <input class="form-control" type="file" name="document_file">
           </div>
         </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+        <div class="modal-footer d-flex justify-content-end">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
           <button class="btn btn-primary">{{ _("Сохранить") }}</button>
         </div>
       </form>
@@ -239,8 +239,8 @@
             <input class="form-control" type="file" name="document_file">
           </div>
         </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+        <div class="modal-footer d-flex justify-content-end">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
           <button class="btn btn-primary">{{ _("Сохранить") }}</button>
         </div>
       </form>
@@ -289,8 +289,8 @@
             <input class="form-control" type="file" name="document_file">
           </div>
         </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+        <div class="modal-footer d-flex justify-content-end">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
           <button class="btn btn-primary">{{ _("Сохранить") }}</button>
         </div>
       </form>
@@ -318,8 +318,8 @@
             <textarea class="form-control" name="comment" placeholder="{{ _('напр. ошибка в реквизитах, банк вернул платёж') }}"></textarea>
           </div>
         </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+        <div class="modal-footer d-flex justify-content-end">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
           <button class="btn btn-primary">{{ _("Сторнировать") }}</button>
         </div>
       </form>
@@ -369,8 +369,8 @@
             <input class="form-control" type="file" name="document_file">
           </div>
         </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+        <div class="modal-footer d-flex justify-content-end">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
           <button class="btn btn-primary">{{ _("Сохранить") }}</button>
         </div>
       </form>

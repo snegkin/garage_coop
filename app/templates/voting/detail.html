@@ -5,12 +5,16 @@
   <div>
     <h3 class="mb-1">{{ vote.title }}</h3>
     <div class="text-muted small">
-      {{ _("очно-заочное") if vote.voting_type.value == 'in_person_and_absentee' else _("заочное") }}
+      {{ vote_type_label(vote.voting_type.value) }}
       ·
       {% if vote.status.value == 'draft' %}<span class="badge text-bg-secondary">{{ _("черновик") }}</span>
       {% elif vote.status.value == 'open' %}<span class="badge text-bg-success">{{ _("идёт приём голосов") }}</span>
       {% else %}<span class="badge text-bg-secondary">{{ _("закрыто") }}</span>{% endif %}
+      {% if vote.voting_type.value == 'in_person' %}
+      · {{ _("дата голосования") }}: {{ fmt_date(vote.opens_at.date()) }}
+      {% else %}
       · {{ _("приём бюллетеней") }}: {{ fmt_date(vote.opens_at.date()) }} — {{ fmt_date(vote.closes_at.date()) }}
+      {% endif %}
       {% if vote.meeting %} · {{ _("собрание от") }} {{ fmt_date(vote.meeting.date) }}{% endif %}
     </div>
     {% if vote.description %}<p class="mt-2">{{ vote.description }}</p>{% endif %}
@@ -18,7 +22,7 @@
   <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('voting.list_votes') }}">{{ _("← ко всем голосованиям") }}</a>
 </div>
 
-{% if is_board() %}
+{% if is_board() and vote.voting_type.value != 'in_person' %}
 <div class="card bg-body mb-3">
   <div class="card-body">
     <h6 class="card-title">{{ _("Явка / кворум") }}</h6>
@@ -31,6 +35,9 @@
 </div>
 {% endif %}
 
+{% if vote.voting_type.value == 'in_person' %}
+<p class="text-muted">{{ _("Это очное голосование — решение принято на собрании, электронная повестка не заводится. Результаты зафиксированы в протоколе ниже.") }}</p>
+{% else %}
 <h5>{{ _("Повестка") }}</h5>
 {% for q in vote.questions %}
 <div class="card bg-body mb-2">
@@ -69,6 +76,7 @@
 {% else %}
 <p class="text-muted">{{ _("Повестка пока пуста.") }}</p>
 {% endfor %}
+{% endif %}
 
 {% if vote.status.value == 'draft' and is_chairman() %}
 <div class="card bg-body mb-3">
@@ -106,19 +114,55 @@
   {% endif %}
 {% endif %}
 
+{% if show_manual_ballots %}
+<div class="card bg-body mt-3">
+  <div class="card-body">
+    <h6 class="card-title">{{ _("Ручная запись очных голосов") }}</h6>
+    <p class="text-muted small">{{ _("Для членов, проголосовавших очно на собрании (на бумаге) — их голос не попадает в систему сам, отметьте его здесь. Сам член кооператива сможет переголосовать электронно позже — учитывается последняя подача.") }}</p>
+    <table class="table table-sm bg-body sortable mb-0">
+      <thead><tr><th>{{ _("ФИО") }}</th><th>{{ _("Вес голоса") }}</th><th class="no-sort">{{ _("Голоса по вопросам") }}</th><th class="no-sort"></th></tr></thead>
+      <tbody>
+        {% for p in voters %}
+        <tr>
+          <td>{{ p.full_name }}</td>
+          <td data-sort-value="{{ voter_weights.get(p.id) }}">{{ fmt2(voter_weights.get(p.id)) }}</td>
+          <td>
+            {% set pb = voter_ballots.get(p.id, {}) %}
+            {% if vote.questions %}
+              {% for q in vote.questions %}
+                {% if q.id in pb %}
+                  {% set c = pb[q.id].choice.value %}
+                  <span class="badge text-bg-light border">{{ loop.index }}: {{ _("за") if c == 'for' else (_("против") if c == 'against' else _("воздержался")) }}</span>
+                {% else %}
+                  <span class="badge text-bg-light border text-muted">{{ loop.index }}: —</span>
+                {% endif %}
+              {% endfor %}
+            {% else %}—{% endif %}
+          </td>
+          <td><a class="btn btn-sm btn-outline-primary" href="{{ url_for('voting.set_ballot_for_person', vote_id=vote.id, person_id=p.id) }}">{{ _("Отметить голос") }}</a></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" class="text-muted">{{ _("Нет ни одного человека с долей владения в гараже.") }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
 {% if is_board() %}
 <div class="card bg-body mt-3">
   <div class="card-body">
     <h6 class="card-title">{{ _("Протокол") }}</h6>
     {% if vote.protocol_document_id %}
-      <a href="{{ url_for('documents.download', doc_id=vote.protocol_document_id) }}">{{ _("скачать") }}</a>
+      <a href="{{ url_for('cooperative.download_document', doc_id=vote.protocol_document_id) }}">{{ _("скачать") }}</a>
     {% else %}
       <p class="text-muted small">{{ _("Подписанный протокол ещё не прикреплён.") }}</p>
     {% endif %}
     {% if is_chairman() %}
     <form method="post" action="{{ url_for('voting.attach_protocol', vote_id=vote.id) }}" enctype="multipart/form-data" class="row g-2 mt-1">
       <div class="col-8"><input class="form-control form-control-sm" type="file" name="protocol_file" required></div>
-      <div class="col-4"><button class="btn btn-sm btn-primary w-100">{{ _("Прикрепить") }}</button></div>
+      <div class="col-4"><button class="btn btn-sm btn-primary w-100">{{ _("Прикрепить") if not vote.protocol_document_id else _("Заменить") }}</button></div>
     </form>
     {% endif %}
   </div>

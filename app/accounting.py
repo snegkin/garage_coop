@@ -12,16 +12,17 @@
     0{id:03d}0            например, id 95 -> 00950
 
 - Взнос/налог (счёт на члена кооператива, по конкретному гаражу и виду
-  взноса — последняя цифра(ы) — порядковый номер собственника этого гаража,
-  начиная с 0, чтобы у совладельцев были разные счета):
-    {код_вида}{id:03d}{№ собственника}   например, 10950, 20950
+  взноса — type_code вида взноса, затем номер гаража, затем порядковый
+  номер собственника этого гаража, начиная с 0, чтобы у совладельцев были
+  разные счета):
+    {type_code}{id:03d}{№ собственника}   например, 10950, 20950
 
 - Пеня по такому взносу/налогу — тот же номер с префиксом (по умолчанию "П"):
     П10950, П20950
 """
 import calendar
 import datetime as dt
-from decimal import Decimal, ROUND_CEILING
+from decimal import Decimal
 
 from sqlalchemy import func
 
@@ -372,23 +373,29 @@ def compute_land_tax(year: int) -> dict[int, Decimal] | None:
     Автоматический расчёт земельного налога на гараж.
 
     Формула:
-    - чистая налогооблагаемая площадь = площадь кооператива − сумма приватизированных участков
-    - полный налог = кадастровая стоимость (за этот год) × ставка налога, %
-    - цена за м² = полный налог / чистая налогооблагаемая площадь (без промежуточного округления)
-    - площадь на гараж в среднем = площадь кооператива / количество гаражей (округляется вверх до целого)
-    - налог на общую территорию (на гараж) = цена за м² × (площадь общего пользования / количество гаражей)
-    - для НЕприватизированного гаража: налог = цена за м² × стандартная площадь под гараж + налог на общую территорию
-    - для приватизированного гаража: налог = max(0, цена за м² × (среднее на гараж − площадь приватизированного участка)) + налог на общую территорию
-    - итог увеличивается на % банка за обслуживание
+    - чистая налогооблагаемая площадь = cadastral_area (текущая площадь
+      кооператива на кадастровой карте, уже без приватизированных участков)
+    - налог за 1 м2 = (cadastral_value / чистая площадь) * ставка налога, %
+      (без промежуточного округления)
+    - налог на общую территорию (на гараж) = налог за 1 м2 * (common_area / количество гаражей)
+      - эту часть платят АБСОЛЮТНО ВСЕ (и приватизированные, и нет)
+    - налог под самим гаражом = налог за 1 м2 * standard_garage_land_area
+      - эту часть платят ТОЛЬКО владельцы НЕприватизированных гаражей
+    - ИТОГО для неприватизированного гаража: (налог на общую территорию + налог под гаражом) * (1 + % банка)
+    - ИТОГО для приватизированного гаража: ТОЛЬКО налог на общую территорию
+      (участок уже приватизирован, платится напрямую государству)
+    - Результат умножается на коэффициент гаража (coefficient)
+    - Далее сумма делится между собственниками по их долям.
 
     Возвращает {garage_id: сумма} или None, если не хватает исходных данных
-    (не указаны площади кооператива или кадастровая стоимость за этот год).
+    (не указаны cadastral_area или cadastral_value).
     """
     coop = database.db_session.query(Cooperative).first()
-    land_tax_year = database.db_session.query(LandTaxYear).filter_by(year=year).first()
-    if coop is None or land_tax_year is None:
+    if coop is None:
         return None
-    if coop.total_area is None or coop.common_area is None:
+    if coop.cadastral_area is None or coop.cadastral_value is None:
+        return None
+    if coop.common_area is None:
         return None
 
     garages = database.db_session.query(Garage).all()
@@ -396,17 +403,13 @@ def compute_land_tax(year: int) -> dict[int, Decimal] | None:
     if garage_count == 0:
         return {}
 
-    privatized_total_area = sum(
-        (g.privatized_land_area or Decimal("0")) for g in garages if g.land_privatized
-    )
-    net_taxable_area = coop.total_area - privatized_total_area
+    net_taxable_area = coop.cadastral_area
     if net_taxable_area <= 0:
         return None
 
-    total_tax = land_tax_year.cadastral_value * (coop.land_tax_rate_percent / Decimal("100"))
+    total_tax = coop.cadastral_value * (coop.land_tax_rate_percent / Decimal("100"))
     price_per_sqm = total_tax / net_taxable_area  # полная точность, без промежуточного округления
 
-    avg_footprint = (coop.total_area / garage_count).to_integral_value(rounding=ROUND_CEILING)
     common_area_tax = price_per_sqm * (coop.common_area / garage_count)
     standard_area = coop.standard_garage_land_area or Decimal("30")
     bank_multiplier = Decimal("1") + (coop.bank_fee_percent or Decimal("0")) / Decimal("100")
@@ -414,13 +417,13 @@ def compute_land_tax(year: int) -> dict[int, Decimal] | None:
     result = {}
     for garage in garages:
         if garage.land_privatized:
-            under_building = max(
-                Decimal("0"),
-                (avg_footprint - (garage.privatized_land_area or Decimal("0"))) * price_per_sqm,
-            )
+            # Только доля в налоге за дороги — участок уже приватизирован.
+            garage_tax = common_area_tax
         else:
             under_building = standard_area * price_per_sqm
-        garage_tax = (under_building + common_area_tax) * bank_multiplier
+            garage_tax = (under_building + common_area_tax) * bank_multiplier
+        # Коэффициент гаража (напр. 2 — двойной гараж, 0.5 — маленький)
+        garage_tax = garage_tax * garage.coefficient
         result[garage.id] = garage_tax.quantize(Decimal("0.01"))
     return result
 

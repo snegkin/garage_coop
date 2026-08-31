@@ -17,7 +17,7 @@
       <td>{{ _("да") if m.is_annual_report_meeting else "" }}</td>
       <td>{{ m.secretary.full_name if m.secretary else "—" }}</td>
       <td>{{ m.chairman.full_name if m.chairman else "—" }}</td>
-      <td>{% if m.protocol_document_id %}<a href="{{ url_for('documents.download', doc_id=m.protocol_document_id) }}">{{ _("файл") }}</a>{% else %}—{% endif %}</td>
+      <td>{% if m.protocol_document_id %}<a href="{{ url_for('cooperative.download_document', doc_id=m.protocol_document_id) }}">{{ _("файл") }}</a>{% else %}—{% endif %}</td>
     </tr>
     {% else %}
     <tr><td colspan="6" class="text-muted">{{ _("Собраний пока нет.") }}</td></tr>

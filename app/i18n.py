@@ -220,6 +220,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "да": "yes",
         "нет": "no",
         "Лицевой счёт": "Personal account",
+        "Предполагаемый счёт": "Suggested account",
+        "л/с": "acct.",
         "Доля": "Share",
         "Собственники не указаны.": "No owners listed.",
         "Удалить собственника?": "Remove this owner?",
@@ -437,6 +439,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Выберите хотя бы один гараж.": "Select at least one garage.",
         "Номер счёта": "Account number",
         "Номер счёта обновлён.": "Account number updated.",
+        "По умолчанию": "Default",
+        "У вида взноса «{name}» нет кода для формулы номера — задайте номер вручную.":
+            "The fee type «{name}» has no code for the number formula — set the account number manually.",
+        "Не удалось вычислить номер по умолчанию.": "Couldn't compute the default account number.",
         "Такой номер счёта уже используется.": "That account number is already in use.",
         "Электросчёт": "Electricity account",
         "Электроэнергия": "Electricity supply",
@@ -1240,6 +1246,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Показать": "Show",
         "Загрузить из банка": "Fetch from bank",
         "Номер документа": "Document number",
+        "№ документа": "Doc. no.",
         "зачисление": "credit",
         "списание": "debit",
         "За выбранный период операций нет.": "No transactions for the selected period.",
@@ -1272,6 +1279,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Лицевой счёт «{number}» не найден в системе.": "Account number «{number}» wasn't found in the system.",
         "Импорт из реестра платежей банка (id {id})": "Imported from bank payment registry (id {id})",
         "Платёж разнесён.": "Payment allocated.",
+        "Не удалось выполнить запрос — проверьте соединение и попробуйте ещё раз.":
+            "Couldn't complete the request — check your connection and try again.",
         "Реестр платежей обновлён: {n} новых записей.": "Payment registry updated: {n} new entries.",
         "Не удалось получить реестр платежей: {error}": "Failed to fetch the payment registry: {error}",
         "Для этого счёта не настроен или не поддерживается реестр платежей.": "This account has no configured or supported payment registry.",
@@ -1288,14 +1297,15 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Скачать файл реестра (CP1251)": "Download registry file (CP1251)",
         "на случай, если автоматическая отправка через API недоступна — файл можно загрузить в СберБизнес Онлайн вручную":
             "in case automatic sending via API isn't available — the file can be uploaded to SberBusiness Online manually",
-        "Или загрузить файл реестра вручную (CP1251)": "Or upload a registry file manually (CP1251)",
-        "Загрузить файл": "Upload file",
-        "на случай, если запрос через API недоступен — файл, как его отдаёт СберБизнес Онлайн (кодировка Windows-1251)":
-            "in case the API request isn't available — the file as provided by SberBusiness Online (Windows-1251 encoding)",
+        "Или загрузить файл(ы) реестра вручную (CP1251)": "Or upload registry file(s) manually (CP1251)",
+        "Загрузить файлы": "Upload files",
+        "на случай, если запрос через API недоступен — файлы, как их отдаёт СберБизнес Онлайн (кодировка Windows-1251); можно выбрать сразу несколько":
+            "in case the API request isn't available — the files as provided by SberBusiness Online (Windows-1251 encoding); you can select several at once",
         "Файл реестра не выбран.": "No registry file selected.",
-        "В файле не найдено ни одной корректной строки — проверьте, что файл в кодировке Windows-1251.":
-            "No valid rows found in the file — check that it's encoded as Windows-1251.",
-        "Реестр платежей обновлён из файла: {n} новых записей.": "Payment registry updated from file: {n} new entries.",
+        "Ни в одном из {n} файлов не найдено ни одной корректной строки — проверьте, что файлы в кодировке Windows-1251.":
+            "None of the {n} files had any valid rows — check that they're encoded as Windows-1251.",
+        "Пропущено файлов без корректных строк: {n} ({files}).": "Files skipped for having no valid rows: {n} ({files}).",
+        "Реестр платежей обновлён из {n} файл(ов): {added} новых записей.": "Payment registry updated from {n} file(s): {added} new entries.",
         "Не удалось получить реестр платежей через API: {error}. Можно скачать файл в СберБизнес Онлайн и загрузить его вручную ниже.":
             "Failed to fetch the payment registry via API: {error}. You can download the file from SberBusiness Online and upload it manually below.",
         "Клиентский сертификат (mTLS)": "Client certificate (mTLS)",
@@ -1310,6 +1320,18 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Обязателен — Sber API работает не по client_id/secret напрямую, а по access_token/refresh_token, выданным конкретному пользователю СберБизнес. Получите пару access_token/refresh_token в личном кабинете Sber API («Ключи доступа» → сгенерировать) и вставьте сюда refresh_token — access_token приложению не нужен, он сам обновляется через refresh_token перед каждым обращением к банку.":
             "Required — Sber API doesn't authenticate with client_id/secret alone, but with an access_token/refresh_token pair issued to a specific SberBusiness user. Get an access_token/refresh_token pair in the Sber API personal cabinet («Access keys» → generate) and paste the refresh_token here — the access_token itself isn't needed by the app, it's refreshed automatically before every request to the bank.",
         "Уже сохранён — заполните заново только чтобы заменить.": "Already saved — fill in again only to replace it.",
+        "Разнести всё возможное": "Allocate everything possible",
+        "повторяет автоматическое распознавание для всех ещё не разнесённых зачислений разом — удобно после добавления нового лицевого счёта":
+            "re-runs automatic matching for all not-yet-allocated credits at once — handy after adding a new account",
+        "реестр платежей": "payment registry",
+        "Сумма сразу за нескольких плательщиков — разносится через реестр платежей, не здесь.":
+            "A single amount covering several payers — allocate it via the payment registry, not here.",
+        "К реестру платежей": "Go to payment registry",
+        "Разнесено: {n} операций.": "Allocated: {n} transactions.",
+        "Не удалось разнести ни одной операции — для оставшихся нужен ручной ввод номера счёта.":
+            "Couldn't allocate any transactions — the remaining ones need the account number entered manually.",
+        "Осталось неразнесённых (нужен ручной ввод номера счёта): {n}.":
+            "Still unallocated (need the account number entered manually): {n}.",
         "Не удалось прочитать файл сертификата (.pfx/.p12) — проверьте пароль и формат файла.":
             "Couldn't read the certificate file (.pfx/.p12) — check the password and file format.",
         "Файл сертификата не содержит приватного ключа или самого сертификата.":
@@ -1468,6 +1490,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
 
         # search placeholders
         "Поиск по дате или ставке...": "Search by date or rate...",
+        "Поиск по счёту, плательщику, назначению...": "Search by account, payer, purpose...",
         "Поиск по действию, пользователю или описанию...": "Search by action, user, or description...",
 
         # pd4 print

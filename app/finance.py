@@ -14,7 +14,7 @@ from .models import (
     Cooperative,
 )
 from .accounting import (
-    get_settings, electricity_account_number, member_account_number, balance as _balance,
+    get_settings, electricity_account_number, member_account_number, owner_index_for, balance as _balance,
     compute_land_tax, reallocate_member_charges,
 )
 
@@ -84,7 +84,23 @@ def member_account_detail(account_id):
         return redirect(url_for("finance.member_accounts"))
     if not can_view_member_account(account):
         abort(403)
-    return render_template("finance/member_account_detail.html", account=account, balance=_balance(account))
+
+    # предыдущий/следующий счёт (по ID, как на странице гаража) —
+    # рядовому члену показываем только его собственные счета (иначе
+    # «Вперёд» почти наверняка выведет на чужой счёт и упрётся в 403 —
+    # у member'а обычно 1-2 счёта на весь список, ID глобальный по всей
+    # таблице); правлению/бухгалтеру/председателю — по всем счетам сразу,
+    # как и на самой странице списка счетов, которую они видят целиком.
+    nav_query = database.db_session.query(MemberAccount)
+    if not is_board():
+        nav_query = nav_query.filter(MemberAccount.person_id == g.user.person_id)
+    prev_account = nav_query.filter(MemberAccount.id < account.id).order_by(MemberAccount.id.desc()).first()
+    next_account = nav_query.filter(MemberAccount.id > account.id).order_by(MemberAccount.id).first()
+
+    return render_template(
+        "finance/member_account_detail.html", account=account, balance=_balance(account),
+        prev_account=prev_account, next_account=next_account,
+    )
 
 
 @bp.route("/member-accounts/<int:account_id>/number", methods=["POST"])
@@ -102,6 +118,36 @@ def update_member_account_number(account_id):
         return redirect(url_for("finance.member_account_detail", account_id=account.id))
     flash(_("Номер счёта обновлён."), "success")
     return redirect(url_for("finance.member_account_detail", account_id=account.id))
+
+
+@bp.route("/member-accounts/<int:account_id>/number/default")
+@roles_required(RoleEnum.BOARD)
+def suggest_member_account_number(account_id):
+    """
+    Считает номер счёта «по умолчанию» — по той же формуле и с теми же
+    настройками (AccountNumberSettings), что при автосоздании счёта и при
+    массовом пересчёте (см. accounting.member_account_number/owner_index_for,
+    finance._regenerate_account_numbers) — не выдумывает отдельное правило.
+    Только СЧИТАЕТ и отдаёт JSON, ничего не сохраняет — кнопка «По
+    умолчанию» на странице счёта просто подставляет результат в поле
+    ввода, реальное сохранение по-прежнему идёт через обычную форму/роут
+    update_member_account_number (там же и проверка на занятый номер) —
+    председатель успевает посмотреть и поправить перед сохранением, а не
+    сохраняет вслепую одним кликом.
+    """
+    account = database.db_session.get(MemberAccount, account_id)
+    if account is None:
+        abort(404)
+    if not account.fee_type.type_code:
+        return {
+            "error": _("У вида взноса «{name}» нет кода для формулы номера — задайте номер вручную.")
+            .format(name=account.fee_type.name),
+        }
+    owner_index = owner_index_for(account.garage_id, account.person_id)
+    account_number = member_account_number(
+        account.fee_type.type_code, account.garage_id, owner_index, account.fee_type.is_penalty,
+    )
+    return {"account_number": account_number}
 
 
 @bp.route("/member-accounts/<int:account_id>/charges/add", methods=["POST"])
@@ -173,13 +219,7 @@ def create_member_account():
         if not fee_type.type_code:
             flash(_("У этого вида взноса нет кода счёта — укажите номер счёта вручную."), "danger")
             return redirect(url_for("finance.member_accounts"))
-        ownerships = (
-            database.db_session.query(GarageOwnership)
-            .filter_by(garage_id=garage_id)
-            .order_by(GarageOwnership.id)
-            .all()
-        )
-        owner_index = next((i for i, o in enumerate(ownerships) if o.person_id == person_id), 0)
+        owner_index = owner_index_for(garage_id, person_id)
         account_number = member_account_number(fee_type.type_code, garage.id, owner_index, fee_type.is_penalty)
 
     account = MemberAccount(

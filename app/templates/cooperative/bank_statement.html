@@ -33,46 +33,53 @@
 <p class="text-muted small">
   {{ _("Зачисления гасят задолженность на лицевом счёте автоматически при загрузке — по номеру счёта, распознанному в назначении платежа («ЛС <номер>»), а если его нет — по совпадению ФИО плательщика или того, за кого платят, включая лиц для связи по гаражу. Полной поступившей суммой, без вычета возможной комиссии банка. Автоматически — только когда совпадение однозначно; в остальных случаях — кнопка «Разнести» ниже.") }}
 </p>
+{% if pending_credits %}
+<form method="post" action="{{ url_for('bank_sync.allocate_all_statement_lines', account_id=account.id) }}" class="mb-3">
+  <input type="hidden" name="date_from" value="{{ date_from.isoformat() }}">
+  <input type="hidden" name="date_to" value="{{ date_to.isoformat() }}">
+  <button class="btn btn-outline-primary">{{ _("Разнести всё возможное") }} ({{ pending_credits }})</button>
+  <span class="text-muted small">{{ _("повторяет автоматическое распознавание для всех ещё не разнесённых зачислений разом — удобно после добавления нового лицевого счёта") }}</span>
+</form>
+{% endif %}
 {% endif %}
 
 <table class="table table-bordered bg-body sortable">
   <thead>
     <tr>
       <th>{{ _("Дата") }}</th>
-      <th>{{ _("Тип") }}</th>
       <th>{{ _("Сумма") }}</th>
-      <th class="text-end">{{ _("Лицевой счёт") }}</th>
+      <th class="text-end">{{ _("л/с") }}</th>
       <th>{{ _("Контрагент") }}</th>
-      <th>{{ _("ИНН") }}</th>
       <th>{{ _("Назначение платежа") }}</th>
-      <th>{{ _("Номер документа") }}</th>
+      <th>{{ _("№ документа") }}</th>
       <th>{{ _("Погашение") }}</th>
       <th>{{ _("Реестр") }}</th>
       {% if is_chairman() %}<th class="no-sort"></th>{% endif %}
     </tr>
   </thead>
   <tbody>
+    {# Зачисления — зелёный текст строки, списания — красный (не фон: у
+       проекта есть тёмная тема, а строка Bootstrap-класс типа text-success
+       на <tr> всё равно не сработала бы — Bootstrap задаёт color каждой
+       <td> явно через переменную --bs-table-color, а не наследованием от
+       родителя, поэтому переопределяем именно эту CSS-переменную на
+       строке — тогда её подхватывают все ячейки, и светлая/тёмная тема
+       остаются рабочими "из коробки" через var(--bs-success)/var(--bs-danger). #}
     {% for line in lines %}
-    <tr>
+    <tr id="stmt-line-{{ line.id }}" style="--bs-table-color: var({{ '--bs-success' if line.direction == 'credit' else '--bs-danger' }});">
       <td>{{ fmt_date(line.operation_date) }}</td>
-      <td>
-        {% if line.direction == "credit" %}
-          <span class="badge bg-success">{{ _("зачисление") }}</span>
-        {% else %}
-          <span class="badge bg-danger">{{ _("списание") }}</span>
-        {% endif %}
-      </td>
       <td data-sort-value="{{ line.amount }}">{{ fmt2(line.amount) }} ₽</td>
-      <td class="text-end">{{ line.account_number or "—" }}</td>
+      <td class="text-end js-account-number">{{ line.account_number or "—" }}</td>
       <td>{{ line.counterparty_name or "—" }}</td>
-      <td>{{ line.counterparty_inn or "—" }}</td>
       <td>{{ line.payment_purpose or "—" }}</td>
       <td id="line-{{ line.id }}">{{ line.document_number or "—" }}</td>
-      <td>
+      <td class="js-settlement-status">
         {% if line.direction != "credit" %}
           —
         {% elif line.matched_payment_id %}
           <span class="badge bg-success">{{ _("разнесён") }}</span>
+        {% elif is_aggregate_registry_payment(line.payment_purpose) %}
+          <span class="badge bg-info text-dark" title="{{ _("Сумма сразу за нескольких плательщиков — разносится через реестр платежей, не здесь.") }}">{{ _("реестр платежей") }}</span>
         {% else %}
           <span class="badge bg-secondary">{{ _("не разнесён") }}</span>
         {% endif %}
@@ -88,19 +95,72 @@
         {% endif %}
       </td>
       {% if is_chairman() %}
-      <td>
-        {% if line.direction == "credit" and not line.matched_payment_id %}
-        <form method="post" action="{{ url_for('bank_sync.allocate_statement_line', account_id=account.id, line_id=line.id) }}" class="d-flex gap-1">
-          <input class="form-control form-control-sm" style="width:8rem" type="text" name="account_number" placeholder="{{ line.account_number or _("Лицевой счёт") }}">
-          <button class="btn btn-sm btn-outline-primary">{{ _("Разнести") }}</button>
+      <td class="js-allocate-cell">
+        {% if line.direction == "credit" and not line.matched_payment_id and not is_aggregate_registry_payment(line.payment_purpose) %}
+        <form method="post" action="{{ url_for('bank_sync.allocate_statement_line', account_id=account.id, line_id=line.id) }}" class="js-allocate-form d-flex flex-column gap-1">
+          <div class="d-flex gap-1">
+            <input class="form-control form-control-sm" style="width:8rem" type="text" name="account_number" placeholder="{{ line.account_number or suggested_numbers.get(line.id) or _("Лицевой счёт") }}">
+            <button class="btn btn-sm btn-outline-primary">{{ _("Разнести") }}</button>
+          </div>
+          {% if not line.account_number and suggested_numbers.get(line.id) %}
+          <div class="text-muted small">{{ _("Предполагаемый счёт") }}: {{ suggested_numbers[line.id] }}</div>
+          {% endif %}
+          <div class="text-danger small js-allocate-error d-none"></div>
         </form>
+        {% elif line.direction == "credit" and is_aggregate_registry_payment(line.payment_purpose) %}
+        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('bank_sync.payment_registry', account_id=account.id) }}">{{ _("К реестру платежей") }}</a>
         {% endif %}
       </td>
       {% endif %}
     </tr>
     {% else %}
-    <tr><td colspan="10" class="text-muted">{{ _("За выбранный период операций нет.") }}</td></tr>
+    <tr><td colspan="9" class="text-muted">{{ _("За выбранный период операций нет.") }}</td></tr>
     {% endfor %}
   </tbody>
 </table>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  // «Разнести» — AJAX, чтобы не терять фильтр периода (дата с/по) страницы
+  // при обычном POST+redirect: сам роут отдаёт JSON при заголовке
+  // X-Requested-With, здесь просто обновляем нужные ячейки строки на
+  // месте, без перезагрузки. При отключённом JS форма сработает как
+  // обычная (роут поддерживает оба варианта).
+  document.querySelectorAll(".js-allocate-form").forEach(function (form) {
+    form.addEventListener("submit", function (e) {
+      e.preventDefault();
+      var errorBox = form.querySelector(".js-allocate-error");
+      var button = form.querySelector("button");
+      errorBox.classList.add("d-none");
+      button.disabled = true;
+      fetch(form.action, {
+        method: "POST",
+        body: new FormData(form),
+        headers: { "X-Requested-With": "XMLHttpRequest" },
+      })
+        .then(function (resp) { return resp.json(); })
+        .then(function (data) {
+          if (data.success) {
+            var row = form.closest("tr");
+            var statusCell = row.querySelector(".js-settlement-status");
+            statusCell.innerHTML = '<span class="badge bg-success">{{ _("разнесён") }}</span>';
+            if (data.account_number) {
+              row.querySelector(".js-account-number").textContent = data.account_number;
+            }
+            row.querySelector(".js-allocate-cell").innerHTML = "";
+          } else {
+            errorBox.textContent = data.message;
+            errorBox.classList.remove("d-none");
+            button.disabled = false;
+          }
+        })
+        .catch(function () {
+          errorBox.textContent = "{{ _("Не удалось выполнить запрос — проверьте соединение и попробуйте ещё раз.") }}";
+          errorBox.classList.remove("d-none");
+          button.disabled = false;
+        });
+    });
+  });
+});
+</script>
 {% endblock %}

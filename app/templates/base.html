@@ -30,11 +30,27 @@
         <li class="nav-item"><a class="nav-link" href="{{ url_for('voting.list_votes') }}">{{ _("Голосования") }}</a></li>
         <li class="nav-item"><a class="nav-link" href="{{ url_for('governance.view') }}">{{ _("Состав правления") }}</a></li>
         <li class="nav-item"><a class="nav-link" href="{{ url_for('cooperative.view') }}">{{ _("О кооперативе") }}</a></li>
+      </ul>
+      <ul class="navbar-nav ms-auto align-items-lg-center">
+        <li class="nav-item dropdown">
+          <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+            {{ LANGUAGE_FLAGS[current_locale] }}
+          </a>
+          <ul class="dropdown-menu dropdown-menu-end">
+            {% for code, label in SUPPORTED_LANGUAGES.items() %}
+            <li><a class="dropdown-item {{ 'active' if code == current_locale }}" href="{{ url_for('set_language', lang=code) }}">{{ LANGUAGE_FLAGS[code] }} {{ label }}</a></li>
+            {% endfor %}
+          </ul>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link" href="{{ url_for('set_theme', theme=next_theme(current_theme)) }}" title="{{ _('Переключить тему') }}" aria-label="{{ _('Переключить тему') }}">
+            {{ THEME_TOGGLE_ICONS[current_theme] }}
+          </a>
+        </li>
         {% if is_board() %}
         <li class="nav-item dropdown">
-          <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">{{ _("Кооператив") }}</a>
+          <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">{{ _("Управление") }}</a>
           <ul class="dropdown-menu">
-            <li><hr class="dropdown-divider"></li>
             <li><h6 class="dropdown-header">{{ _("Реестры") }}</h6></li>
             <li><a class="dropdown-item" href="{{ url_for('garages.list_garages') }}">{{ _("Гаражи") }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('persons.list_persons') }}">{{ _("Люди") }}</a></li>
@@ -64,23 +80,6 @@
           </ul>
         </li>
         {% endif %}
-      </ul>
-      <ul class="navbar-nav ms-auto align-items-lg-center">
-        <li class="nav-item dropdown">
-          <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-            {{ LANGUAGE_FLAGS[current_locale] }}
-          </a>
-          <ul class="dropdown-menu dropdown-menu-end">
-            {% for code, label in SUPPORTED_LANGUAGES.items() %}
-            <li><a class="dropdown-item {{ 'active' if code == current_locale }}" href="{{ url_for('set_language', lang=code) }}">{{ LANGUAGE_FLAGS[code] }} {{ label }}</a></li>
-            {% endfor %}
-          </ul>
-        </li>
-        <li class="nav-item">
-          <a class="nav-link" href="{{ url_for('set_theme', theme=next_theme(current_theme)) }}" title="{{ _('Переключить тему') }}" aria-label="{{ _('Переключить тему') }}">
-            {{ THEME_TOGGLE_ICONS[current_theme] }}
-          </a>
-        </li>
         <li class="nav-item dropdown">
           <a class="nav-link dropdown-toggle d-flex align-items-center py-1 position-relative" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
             <span class="d-flex flex-column text-center position-relative" style="line-height:1.15;">
@@ -95,17 +94,17 @@
             </span>
           </a>
           <ul class="dropdown-menu dropdown-menu-end">
-            <li><a class="dropdown-item" href="{{ url_for('cabinet.profile') }}">{{ _("Мой профиль") }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('cabinet.profile') }}"><span class="dropdown-icon"></span>{{ _("Мой профиль") }}</a></li>
             {% if is_chairman() and pending_pd_count > 0 %}
-            <li><a class="dropdown-item text-warning fw-semibold" href="{{ url_for('persons.list_persons') }}">⚠ {{ _("Ожидает одобрения") }} {{ pending_pd_count }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('persons.list_persons') }}"><span class="dropdown-icon">⚠</span>{{ _("Ожидает одобрения") }} {{ pending_pd_count }}</a></li>
             {% endif %}
             {% if pending_votes_count > 0 %}
-            <li><a class="dropdown-item text-info fw-semibold" href="{{ url_for('voting.list_votes') }}">⚠ {{ _("Не проголосовано") }} {{ pending_votes_count }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('voting.list_votes') }}"><span class="dropdown-icon">⚠</span>{{ _("Не проголосовано") }} {{ pending_votes_count }}</a></li>
             {% endif %}
-            <li><a class="dropdown-item" href="{{ url_for('cabinet.garages') }}">{{ _("Мой гараж") }}</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('pd4.select') }}">{{ _("Печать ПД-4") }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('cabinet.garages') }}"><span class="dropdown-icon"></span>{{ _("Мой гараж") }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('pd4.select') }}"><span class="dropdown-icon"></span>{{ _("Печать ПД-4") }}</a></li>
             <li><hr class="dropdown-divider"></li>
-            <li><a class="dropdown-item" href="{{ url_for('auth.logout') }}">{{ _("Выйти") }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('auth.logout') }}"><span class="dropdown-icon"></span>{{ _("Выйти") }}</a></li>
           </ul>
         </li>
       </ul>
@@ -260,6 +259,7 @@ table.table-labels th.table-label { white-space: normal; word-break: break-word;
 .wiki-tree-actions { opacity: 0; transition: opacity .1s; }
 .wiki-tree-item:hover > div > .wiki-tree-actions { opacity: 1; }
 .badge-sm { font-size: .55em; vertical-align: middle; }
+.dropdown-icon { display: inline-block; width: 1.25rem; text-align: center; margin-right: 0.5rem; }
 </style>
 <script>
 // Клик по заголовку у любой таблицы с классом "sortable" сортирует строки её tbody.

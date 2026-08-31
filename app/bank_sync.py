@@ -335,8 +335,36 @@ def statement(account_id):
         .order_by(BankStatementLine.operation_date.desc(), BankStatementLine.id.desc())
         .all()
     )
+
+    # Предполагаемый номер счёта для ещё не разнесённых зачислений — тот же
+    # поиск (номер из текста → имя/лица для связи → сужение по виду взноса
+    # и по голому числу в конце), что и при реальном разнесении, но БЕЗ
+    # записи в БД — только чтобы подсказать в плейсхолдере поля ввода, что
+    # система предложит, если нажать «Разнести». Без этого предпросмотра
+    # плейсхолдер показывал номер, только если его поймал явный regex
+    # («ЛС»/«Л/С»/«ЛСИ») при синхронизации — для строк, которые распознаются
+    # только по имени (см. _resolve_account_by_name), поле всегда было
+    # пустой подсказкой «Лицевой счёт», даже когда угадать уже можно.
+    suggested_numbers = {}
+    for line in lines:
+        if line.direction != "credit" or line.matched_payment_id or line.account_number:
+            continue
+        if is_aggregate_registry_payment(line.payment_purpose):
+            continue
+        account_number = extract_account_number(line.payment_purpose)
+        if not account_number:
+            _kind, _target, account_number = _resolve_account_by_name(line.counterparty_name, line.payment_purpose)
+        if account_number:
+            suggested_numbers[line.id] = account_number
+
     return render_template(
         "cooperative/bank_statement.html", account=account, lines=lines, date_from=date_from, date_to=date_to,
+        is_aggregate_registry_payment=is_aggregate_registry_payment, suggested_numbers=suggested_numbers,
+        pending_credits=sum(
+            1 for line in lines
+            if line.direction == "credit" and not line.matched_payment_id
+            and not is_aggregate_registry_payment(line.payment_purpose)
+        ),
     )
 
 
@@ -435,7 +463,8 @@ def sync_statement(account_id):
         )
     else:
         flash(_("Выписка обновлена: {n} новых операций.").format(n=added) + extra, "success")
-    return redirect(url_for("bank_sync.statement", account_id=account.id))
+    # Показываем только что загруженный период, а не сбрасываем на дефолт.
+    return redirect(url_for("bank_sync.statement", account_id=account.id, date_from=date_from.isoformat(), date_to=date_to.isoformat()))
 
 
 @bp.route("/statement/<int:line_id>/allocate", methods=["POST"])
@@ -449,20 +478,46 @@ def allocate_statement_line(account_id, line_id):
     если поле пустое — повторяется тот же поиск, что и при автоматическом
     разнесении (по номеру из текста, затем по имени/лицам для связи) — на
     случай, если лицевой счёт завели уже ПОСЛЕ синхронизации выписки.
+
+    Вызывается через AJAX со страницы выписки (см. bank_statement.html) —
+    обычный POST+redirect сбрасывал бы фильтры периода в адресной строке
+    (дата с/по — GET-параметры, отдельные от этой формы), председателю
+    приходилось выбирать период заново после каждого разнесения. Если
+    запрос помечен заголовком `X-Requested-With: XMLHttpRequest` — отвечаем
+    JSON вместо редиректа; обычная форма (JS отключён) по-прежнему
+    работает через redirect+flash, как раньше.
     """
+    is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
+
+    def respond(success: bool, message: str, **extra):
+        """И для AJAX, и для обычной формы (JS отключён) — общая точка
+        выхода. Для AJAX всегда отвечаем 200 с полем success в теле —
+        HTTP-код здесь не несёт бизнес-смысла (сама операция обработана
+        корректно, даже если результат — «не нашли счёт»), фронтенд
+        разбирает success, а не статус ответа."""
+        if is_ajax:
+            return {"success": success, "message": message, **extra}
+        flash(message, "success" if success else "danger")
+        return redirect(url_for("bank_sync.statement", account_id=account_id))
+
     account = _get_account(account_id)
     line = database.db_session.get(BankStatementLine, line_id)
     if line is None or line.bank_account_id != account.id:
         abort(404)
     if line.matched_payment_id is not None:
-        flash(_("Эта операция уже разнесена."), "warning")
-        return redirect(url_for("bank_sync.statement", account_id=account.id))
+        return respond(False, _("Эта операция уже разнесена."))
     if line.direction != "credit":
-        flash(_("Разносить можно только зачисления, не списания."), "danger")
-        return redirect(url_for("bank_sync.statement", account_id=account.id))
+        return respond(False, _("Разносить можно только зачисления, не списания."))
 
     override = (request.form.get("account_number") or "").strip()
-    account_number = override or line.account_number
+    # Тот же порядок, что и при автоматическом разнесении (sync_statement)
+    # и в предпросмотре подсказки (statement()): переопределение из формы →
+    # уже сохранённый номер → повторный разбор текста. Раньше здесь не
+    # было последнего шага — из-за этого подсказка «Предполагаемый счёт»
+    # (которая как раз и вычисляется через extract_account_number) могла
+    # показать номер, а сама кнопка «Разнести» с пустым полем — ничего не
+    # найти, хотя номер буквально виден в тексте назначения платежа.
+    account_number = override or line.account_number or extract_account_number(line.payment_purpose)
 
     comment = _("Разнесено вручную по выписке банка, операция {uid}").format(uid=line.external_uid or line.id)
     payment, resolved_number = _allocate_payment_to_account(
@@ -474,8 +529,7 @@ def allocate_statement_line(account_id, line_id):
             msg = _("Лицевой счёт «{number}» не найден, и по имени плательщика однозначно определить его тоже не удалось.").format(number=account_number)
         else:
             msg = _("Не удалось определить лицевой счёт по имени плательщика — укажите номер лицевого счёта вручную.")
-        flash(msg, "danger")
-        return redirect(url_for("bank_sync.statement", account_id=account.id))
+        return respond(False, msg)
 
     line.account_number = resolved_number
     line.matched_payment_id = payment.id
@@ -484,8 +538,81 @@ def allocate_statement_line(account_id, line_id):
         summary=f"Операция выписки ({resolved_number}, {line.amount} ₽) разнесена платежом вручную",
     )
     database.db_session.commit()
-    flash(_("Платёж разнесён."), "success")
-    return redirect(url_for("bank_sync.statement", account_id=account.id))
+    return respond(True, _("Платёж разнесён."), account_number=resolved_number)
+
+
+@bp.route("/statement/allocate-all", methods=["POST"])
+@roles_required(RoleEnum.CHAIRMAN)
+def allocate_all_statement_lines(account_id):
+    """
+    «Разнести всё возможное одной кнопкой» — повторяет автоматическое
+    погашение (номер лицевого счёта → имя плательщика/лица для связи, см.
+    _allocate_payment_to_account) для ВСЕХ ещё не разнесённых зачислений
+    счёта разом, а не по одному через ручную кнопку на каждой строке.
+    Полезно после того, как в справочник добавили новый лицевой счёт или
+    поправили формат распознавания номера — старые строки выписки сами
+    не пересчитываются, а тут пересчитываются все за один клик, ЗАНОВО
+    разбирая номер из текста (а не только используя то, что уже было
+    сохранено в line.account_number при первой синхронизации) — иначе
+    улучшение регэкспа не помогло бы уже загруженным старым операциям.
+    Пропускает агрегированные проводки по реестру платежей (см.
+    is_aggregate_registry_payment) — их в принципе нельзя отнести на один
+    счёт, это не «не получилось», а «не должно пытаться».
+    """
+    account = _get_account(account_id)
+    lines = (
+        database.db_session.query(BankStatementLine)
+        .filter(
+            BankStatementLine.bank_account_id == account.id,
+            BankStatementLine.direction == "credit",
+            BankStatementLine.matched_payment_id.is_(None),
+        )
+        .all()
+    )
+    allocated = 0
+    skipped_aggregate = 0
+    for line in lines:
+        if is_aggregate_registry_payment(line.payment_purpose):
+            skipped_aggregate += 1
+            continue
+        comment = _("Автоматически разнесено по выписке банка, операция {uid}").format(
+            uid=line.external_uid or line.id,
+        )
+        account_number = line.account_number or extract_account_number(line.payment_purpose)
+        payment, resolved_number = _allocate_payment_to_account(
+            line.operation_date, line.amount, comment,
+            account_number=account_number, payer_name=line.counterparty_name, purpose=line.payment_purpose,
+        )
+        if payment is not None:
+            line.matched_payment_id = payment.id
+            line.account_number = resolved_number
+            allocated += 1
+
+    if allocated:
+        audit.record(
+            "bank_api.statement_bulk_allocate", entity_type="bank_account", entity_id=account.id,
+            summary=f"Массовое разнесение выписки счёта {account.bank_name} {account.checking_account}: "
+                    f"{allocated} операций",
+        )
+    database.db_session.commit()
+    remaining = len(lines) - allocated - skipped_aggregate
+    if allocated:
+        flash(_("Разнесено: {n} операций.").format(n=allocated), "success")
+    else:
+        flash(_("Не удалось разнести ни одной операции — для оставшихся нужен ручной ввод номера счёта."), "warning")
+    if remaining:
+        flash(
+            _("Осталось неразнесённых (нужен ручной ввод номера счёта): {n}.").format(n=remaining),
+            "warning",
+        )
+    # Сохраняем текущий отображаемый период (даты «показать» на странице,
+    # они отдельны от диапазона синхронизации) — иначе редирект на голый
+    # URL без query-параметров сбрасывает фильтр на дефолтные последние
+    # 30 дней, и председателю приходится выбирать период заново.
+    return redirect(url_for(
+        "bank_sync.statement", account_id=account.id,
+        date_from=request.form.get("date_from") or None, date_to=request.form.get("date_to") or None,
+    ))
 
 
 # ---------------------------------------------------------------------------
@@ -671,7 +798,44 @@ def _find_account_by_number(account_number: str):
 # назначения платежа, например: «ЛС 10640; ЧЛЕНСКИЕ ВЗНОСЫ (ФАМИЛИЯ И.О.);
 # 0126;ФАМИЛИЯ ИМЯ» — «ЛС» (лицевой счёт), затем опционально «:»/«№»/пробелы,
 # затем сам номер. Регистронезависимо — некоторые банки шлют «лс» строчными.
-_ACCOUNT_NUMBER_RE = re.compile(r"л[/]?с\s*[:№]?\s*(\d+)", re.IGNORECASE)
+#
+# **Проверено на реальной выписке (81 зачисление,
+# tests/fixtures/statement_sample.csv — структура и форматы подлинные,
+# все ФИО/ИНН/адреса/номера счетов в файле вымышленные, см. context.md)**:
+# более узкий вариант без «ЛСИ» ловил заметно меньше — тот же банк/
+# подключение вперемешку с обычным «ЛС» присылает ещё «Л/С» (слэш между
+# буквами) и «ЛСИ» (третья буква, иногда с пробелом перед двоеточием —
+# «ЛСИ :20780»). Регэксп ниже покрывает все три варианта одним выражением: «л» + необязательный «/» +
+# «с» + необязательное «и» + необязательные пробелы/«:»/«№» + номер. С
+# «ЛСИ» распознаётся 29 из 81 зачисления вместо 10 без него — остальные
+# 52 не баг регэкспа: 22 из них — агрегированные проводки по реестру
+# платежей (см. is_aggregate_registry_payment ниже, туда номер счёта в
+# принципе не подставить), оставшиеся не содержат номера в тексте вовсе и
+# рассчитаны на разбор по имени (см. _resolve_account_by_name). Если при
+# доработке регэкспа доля распознавания на этом образце упадёт — это
+# регрессия, см. tests/test_bank_sync.py:
+# test_account_number_extraction_against_statement_sample.
+_ACCOUNT_NUMBER_RE = re.compile(r"л\s*/?\s*с\s*и?\s*[:№]?\s*(\d+)", re.IGNORECASE)
+
+# Агрегированное зачисление по реестру платежей — банк одной проводкой
+# переводит сумму сразу за НЕСКОЛЬКО платежей физлиц, принятых через
+# реестр начислений (см. app/bank_api/registry_file.py), одной строкой
+# вида «ПО ПРИНЯТЫМ ПЛАТЕЖАМ С 12/02/2026 ПО 12/02/2026 НА ОБЩУЮ СУММУ
+# 5120.00,...,СОГЛАСНО ЭЛ.РЕЕСТРУ EPS..._051.txt» — узнаваема по этой
+# фразе независимо от банка/подключения (на реальной выписке — 22 из 81
+# зачисления, самая частая причина «не разнесено» из всех). Разносить
+# такую операцию на ОДИН лицевой счёт в принципе неверно — сумма
+# покрывает нескольких плательщиков сразу; реальное разнесение делается
+# через реестр платежей (см. bank_sync.py: payment_registry), не через
+# выписку. extract_account_number() и автоматическое погашение такие
+# строки не трогают вообще — is_aggregate_registry_payment() ниже
+# используется только для того, чтобы показать в UI понятную пометку
+# вместо «не разнесён», как будто это можно разнести вручную.
+_AGGREGATE_REGISTRY_PAYMENT_RE = re.compile(r"по\s+прин[ая]тым\s+платежам", re.IGNORECASE)
+
+
+def is_aggregate_registry_payment(text: str | None) -> bool:
+    return bool(text) and bool(_AGGREGATE_REGISTRY_PAYMENT_RE.search(text))
 
 # «Фамилия И.О.» — банк нередко указывает в назначении платежа не самого
 # плательщика, а того, за кого платят (типичный пример из реальных файлов
@@ -784,20 +948,104 @@ def _accounts_for_person(person: Person) -> list[tuple[str, object]]:
     return results
 
 
+# Служебные слова, не несущие смысла для сравнения вида взноса — не
+# участвуют в сопоставлении (предлоги в «Пеня ПО членскому взносу» и т.п.).
+_FEE_TYPE_STOP_WORDS = {"по", "на", "за", "и", "в", "к", "с", "от", "для"}
+
+
+def _word_stem(word: str) -> str:
+    """Грубый «стемминг» для сравнения вида взноса с текстом банка —
+    отбрасывает последние 1-2 буквы слова (обычно это и есть окончание —
+    падеж/число/род различаются именно ими: членскИЙ/членскИЕ,
+    взнос/взносЫ). Короткие слова (≤3 букв) не обрезаем — риск срезать
+    значащую часть короткого слова выше пользы."""
+    if len(word) <= 3:
+        return word
+    cut = 2 if len(word) >= 6 else 1
+    return word[:-cut]
+
+
+def _fee_type_matches_purpose(fee_type_name: str, purpose_upper: str) -> bool:
+    """Сравнение вида взноса с текстом назначения платежа устойчиво к
+    падежным/числовым окончаниям — банк почти всегда пишет во
+    множественном числе («ЧЛЕНСКИЕ ВЗНОСЫ»), а в справочнике вид взноса
+    обычно назван в единственном («Членский взнос»); точное совпадение
+    подстроки эту разницу не переживает. Реальный случай, найденный
+    Sne: «Земельный налог» совпадал всегда (это словосочетание в данном
+    контексте не меняется по числу), «Членский взнос» — никогда, из-за
+    чего членские взносы вообще переставали автоматически разноситься
+    для ВСЕХ членов, а не только для конкретного человека — расхождение
+    формы слова, не что-то специфичное для одного счёта. Требуем совпадения
+    ВСЕХ значащих слов вида взноса (без предлогов) — это и отличает
+    «Земельный налог» от «Пеня по земельному налогу» (слово «пеня»
+    обязано присутствовать), не позволяя пене случайно сойти за
+    основной налог."""
+    words = [w for w in re.findall(r"[А-ЯЁа-яё]+", fee_type_name.upper()) if w not in _FEE_TYPE_STOP_WORDS and len(w) > 2]
+    if not words:
+        return False
+    return all(_word_stem(w) in purpose_upper for w in words)
+
+
+def _fee_type_word_count(fee_type_name: str) -> int:
+    return len([w for w in re.findall(r"[А-ЯЁа-яё]+", fee_type_name.upper()) if w not in _FEE_TYPE_STOP_WORDS and len(w) > 2])
+
+
 def _narrow_by_fee_type(candidates: list[tuple[str, object]], purpose: str | None) -> list[tuple[str, object]]:
     """Если после поиска по имени осталось несколько лицевых счетов —
     сужаем по виду взноса, если он назван в назначении платежа текстом
     («ЧЛЕНСКИЕ ВЗНОСЫ» / «ЗЕМЕЛЬНЫЙ НАЛОГ» и т.п. — обычная практика
-    банковских выписок и реестров, см. FeeType.name). Если сужение
-    оставляет 0 — возвращаем исходный список (не уверены, что название
-    вида взноса в справочнике совпадает с тем, что написал банк), если
-    оставляет ровно 1 — used как окончательный ответ вызывающим кодом."""
+    банковских выписок и реестров, см. FeeType.name и
+    _fee_type_matches_purpose выше про устойчивость к окончаниям).
+
+    Среди подошедших видов взноса выбираем САМЫЙ КОНКРЕТНЫЙ — с
+    наибольшим числом совпавших значащих слов. Это важно для пары
+    «Земельный налог» / «Пеня по земельному налогу»: у пени слова
+    основного налога — подмножество (она содержит их же плюс «пеня»), то
+    есть текст пени формально подходит под оба вида взноса — без выбора
+    самого длинного совпадения оба оставались бы кандидатами и платёж
+    считался бы неоднозначным даже тогда, когда на самом деле понятно,
+    что это именно пеня. Если после этого сужение оставляет 0 — возвращаем
+    исходный список (не уверены, что название вида взноса в справочнике
+    совпадает с тем, что написал банк), если оставляет ровно 1 — used как
+    окончательный ответ вызывающим кодом."""
     if len(candidates) <= 1 or not purpose:
         return candidates
     purpose_upper = purpose.upper()
+    matched = [
+        (kind, obj) for kind, obj in candidates
+        if kind == "member" and _fee_type_matches_purpose(obj.fee_type.name, purpose_upper)
+    ]
+    if not matched:
+        return candidates
+    best_score = max(_fee_type_word_count(obj.fee_type.name) for _kind, obj in matched)
+    return [(kind, obj) for kind, obj in matched if _fee_type_word_count(obj.fee_type.name) == best_score]
+
+
+# Иногда банк (или сам плательщик через QR/шаблон) добавляет голый номер
+# лицевого счёта СРАЗУ после «(Фамилия И.О.)», без метки «ЛС»/«Л/С»/«ЛСИ»:
+# «ЗЕМЕЛЬНЫЙ НАЛОГ (Тишинов И.М.);20850». Отдельно от extract_account_number
+# (там — доверенная метка) этот голый номер сам по себе НЕ используется как
+# источник лицевого счёта — слишком легко перепутать с датой/номером
+# документа/периодом («;0126» — тоже 4 цифры в конце похожего места). Он
+# годится только для СУЖЕНИЯ уже найденных по имени кандидатов (см.
+# _resolve_account_by_name ниже) — то есть подтверждает выбор среди счетов
+# уже опознанного человека, а не может сам по себе привести к чужому
+# счёту: если совпадений с реальными счетами кандидатов нет — просто
+# ничего не сужаем, риска неверного разнесения это не создаёт.
+_TRAILING_ACCOUNT_NUMBER_RE = re.compile(r"\)\s*;?\s*(\d{3,8})\s*$")
+
+
+def _narrow_by_trailing_number(candidates: list[tuple[str, object]], purpose: str | None) -> list[tuple[str, object]]:
+    if len(candidates) <= 1 or not purpose:
+        return candidates
+    m = _TRAILING_ACCOUNT_NUMBER_RE.search(purpose)
+    if not m:
+        return candidates
+    number = m.group(1)
     narrowed = [
         (kind, obj) for kind, obj in candidates
-        if kind == "member" and obj.fee_type.name.upper() in purpose_upper
+        if (kind == "member" and obj.account_number == number)
+        or (kind == "garage" and obj.account and obj.account.account_number == number)
     ]
     return narrowed or candidates
 
@@ -805,10 +1053,12 @@ def _narrow_by_fee_type(candidates: list[tuple[str, object]], purpose: str | Non
 def _resolve_account_by_name(payer_name: str | None, purpose: str | None):
     """Возвращает (kind, target, номер_счёта) при ОДНОЗНАЧНОМ совпадении
     по имени, иначе (None, None, None) — в том числе если найдено
-    НЕСКОЛЬКО кандидатов даже после сужения по виду взноса. Разносить
-    платёж по имени, когда неоднозначно, чей это счёт (у человека
-    несколько гаражей/видов взносов, или совпало несколько людей с
-    похожим ФИО) — риск отнести чужой платёж не туда, поэтому в
+    НЕСКОЛЬКО кандидатов даже после сужения по виду взноса и голому номеру
+    в конце текста (см. _narrow_by_trailing_number — это подтверждение
+    среди уже найденных по имени счетов, не самостоятельный источник
+    номера). Разносить платёж по имени, когда неоднозначно, чей это счёт
+    (у человека несколько гаражей/видов взносов, или совпало несколько
+    людей с похожим ФИО) — риск отнести чужой платёж не туда, поэтому в
     неоднозначных случаях платёж остаётся неразнесённым для решения
     председателем вручную, как и при отсутствии совпадений вовсе."""
     persons = _find_persons_by_name(payer_name, purpose)
@@ -825,6 +1075,7 @@ def _resolve_account_by_name(payer_name: str | None, purpose: str | None):
                 candidates.append((kind, obj))
 
     candidates = _narrow_by_fee_type(candidates, purpose)
+    candidates = _narrow_by_trailing_number(candidates, purpose)
     if len(candidates) != 1:
         return None, None, None
 
@@ -995,51 +1246,98 @@ def upload_payment_registry_file(account_id):
     """
     Ручной путь для реестра платежей — на случай, если автоматический
     запрос через API недоступен для конкретного подключения (см.
-    комментарий в app/bank_api/sberbank.py). Председатель скачивает файл
-    реестра платежей в веб-интерфейсе СберБизнес Онлайн и загружает его
-    здесь. **Файл должен быть в кодировке Windows-1251 (cp1251)** — как
-    его и отдаёт банк для этого канала (см. app/bank_api/registry_file.py);
-    UTF-8-файл будет прочитан некорректно (кириллица превратится в «кракозябры»).
+    комментарий в app/bank_api/sberbank.py). Председатель скачивает файл(ы)
+    реестра платежей в веб-интерфейсе СберБизнес Онлайн и загружает их
+    здесь — можно выбрать сразу НЕСКОЛЬКО файлов (банк обычно отдаёт один
+    файл на реестр/день, а разнести хочется весь накопленный период за
+    один раз, не по одному файлу). **Файлы должны быть в кодировке
+    Windows-1251 (cp1251)** — как их и отдаёт банк для этого канала (см.
+    app/bank_api/registry_file.py); UTF-8-файл будет прочитан некорректно
+    (кириллица превратится в «кракозябры»).
+
+    Один плохой файл в пачке (пустой/не в том формате) не должен обрывать
+    загрузку остальных — обрабатываем каждый независимо и считаем итоги
+    по всем файлам сразу; `_match_registry_and_statement` запускается
+    один раз в конце по всем загруженным записям, а не отдельно на
+    каждый файл.
     """
     account = _get_account(account_id)
-    file_storage = request.files.get("registry_file")
-    if not file_storage or not file_storage.filename:
+    file_storages = [f for f in request.files.getlist("registry_file") if f and f.filename]
+    if not file_storages:
         flash(_("Файл реестра не выбран."), "danger")
         return redirect(url_for("bank_sync.payment_registry", account_id=account.id))
 
-    content = file_storage.read()
-    items = registry_file.parse_payment_registry_file(content, build_registry_format(account))
-    if not items:
-        flash(_("В файле не найдено ни одной корректной строки — проверьте, что файл в кодировке Windows-1251."), "warning")
+    fmt = build_registry_format(account)
+    added = 0
+    empty_files = []
+    for file_storage in file_storages:
+        content = file_storage.read()
+        items = registry_file.parse_payment_registry_file(content, fmt)
+        if not items:
+            empty_files.append(file_storage.filename)
+            continue
+        added += _store_payment_registry_items(account, items)
+
+    if added == 0:
+        flash(
+            _("Ни в одном из {n} файлов не найдено ни одной корректной строки — "
+              "проверьте, что файлы в кодировке Windows-1251.").format(n=len(file_storages)),
+            "warning",
+        )
         return redirect(url_for("bank_sync.payment_registry", account_id=account.id))
 
-    added = _store_payment_registry_items(account, items)
     database.db_session.flush()  # entry IDs нужны для сопоставления
     direct, parametric = _match_registry_and_statement(account.id)
     audit.record(
         "bank_api.payment_registry_upload", entity_type="bank_account", entity_id=account.id,
-        summary=f"Загружен файл реестра платежей вручную для счёта {account.bank_name} "
-                f"{account.checking_account}: {added} новых записей, "
+        summary=f"Загружено файлов реестра платежей вручную для счёта {account.bank_name} "
+                f"{account.checking_account}: {len(file_storages)} (успешно разобрано "
+                f"{len(file_storages) - len(empty_files)}), {added} новых записей, "
                 f"{direct + parametric} сопоставлено с выпиской ({direct} прямых, {parametric} параметрических)",
     )
     database.db_session.commit()
     extra = ""
     if direct or parametric:
         extra = f" Сопоставлено с выпиской: {direct} прямых + {parametric} параметрических совпадений."
-    flash(_("Реестр платежей обновлён из файла: {n} новых записей.").format(n=added) + extra, "success")
+    if empty_files:
+        extra += " " + _("Пропущено файлов без корректных строк: {n} ({files}).").format(
+            n=len(empty_files), files=", ".join(empty_files),
+        )
+    flash(
+        _("Реестр платежей обновлён из {n} файл(ов): {added} новых записей.")
+        .format(n=len(file_storages), added=added) + extra,
+        "success",
+    )
     return redirect(url_for("bank_sync.payment_registry", account_id=account.id))
 
 
 @bp.route("/registry/payments/<int:entry_id>/allocate", methods=["POST"])
 @roles_required(RoleEnum.CHAIRMAN)
 def allocate_payment_registry_entry(account_id, entry_id):
+    """
+    Вызывается через AJAX со страницы реестра платежей (см.
+    payment_registry.html) — тот же приём, что и на странице выписки
+    (allocate_statement_line): обычный POST+redirect возвращал бы на
+    верх страницы, а не туда, где была запись, — при длинном списке
+    записей председателю приходилось заново прокручивать страницу после
+    каждого разнесения. Роут отдаёт JSON при заголовке
+    X-Requested-With; обычная форма (JS отключён) по-прежнему работает
+    через redirect+flash.
+    """
+    is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
+
+    def respond(success: bool, message: str, **extra):
+        if is_ajax:
+            return {"success": success, "message": message, **extra}
+        flash(message, "success" if success else "danger")
+        return redirect(url_for("bank_sync.payment_registry", account_id=account_id))
+
     account = _get_account(account_id)
     entry = database.db_session.get(PaymentRegistryEntry, entry_id)
     if entry is None or entry.bank_account_id != account.id:
         abort(404)
     if entry.matched_payment_id is not None:
-        flash(_("Эта запись уже разнесена."), "warning")
-        return redirect(url_for("bank_sync.payment_registry", account_id=account.id))
+        return respond(False, _("Эта запись уже разнесена."))
 
     comment = _("Импорт из реестра платежей банка (id {id})").format(id=entry.external_id)
     payment, resolved_number = _allocate_payment_to_account(
@@ -1047,11 +1345,10 @@ def allocate_payment_registry_entry(account_id, entry_id):
         account_number=entry.account_number, payer_name=entry.payer_name, purpose=entry.payment_purpose,
     )
     if payment is None:
-        flash(
+        return respond(
+            False,
             _("Не удалось найти лицевой счёт ни по номеру, ни по имени плательщика для этой записи реестра."),
-            "danger",
         )
-        return redirect(url_for("bank_sync.payment_registry", account_id=account.id))
 
     entry.matched_payment_id = payment.id
     audit.record(
@@ -1059,8 +1356,7 @@ def allocate_payment_registry_entry(account_id, entry_id):
         summary=f"Запись реестра платежей ({resolved_number}, {entry.amount} ₽) разнесена платежом",
     )
     database.db_session.commit()
-    flash(_("Платёж разнесён."), "success")
-    return redirect(url_for("bank_sync.payment_registry", account_id=account.id))
+    return respond(True, _("Платёж разнесён."), account_number=resolved_number)
 
 
 @bp.route("/match-registry-statement", methods=["POST"])

@@ -30,7 +30,7 @@ from . import database
 from .models import (
     AccountNumberSettings, ElectricityTariff, ElectricitySettings, Cooperative, Garage, LandTaxYear,
     Charge, Payment, MemberAccount, FeeType, ChargeAllocation, KeyRate,
-    Counterparty, Expense, CounterpartyPayment, ExpenseAllocation, BankAccount,
+    Counterparty, Expense, CounterpartyPayment, ExpenseAllocation, BankAccount, GarageOwnership,
 )
 
 
@@ -65,6 +65,23 @@ def member_account_number(
     owner_part = str(owner_index % (10 ** settings.owner_digits)).zfill(settings.owner_digits)
     base = f"{fee_type_code}{_garage_digits(garage_id, settings.garage_digits)}{owner_part}"
     return f"{settings.penalty_prefix}{base}" if is_penalty else base
+
+
+def owner_index_for(garage_id: int, person_id: int) -> int:
+    """Порядковый номер человека среди собственников гаража (по порядку
+    добавления записи о владении — id GarageOwnership, не по алфавиту и
+    не по доле) — используется в формуле номера счёта члена
+    (member_account_number), чтобы у совладельцев одного гаража были
+    разные номера счетов. 0, если человек не входит в собственники этого
+    гаража (защитный случай — не должен происходить в норме, но лучше
+    вернуть детерминированное значение, чем упасть)."""
+    ownerships = (
+        database.db_session.query(GarageOwnership)
+        .filter_by(garage_id=garage_id)
+        .order_by(GarageOwnership.id)
+        .all()
+    )
+    return next((i for i, o in enumerate(ownerships) if o.person_id == person_id), 0)
 
 
 def balance(account) -> Decimal:

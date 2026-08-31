@@ -12,18 +12,22 @@
 {% if is_chairman() %}
 <form method="post" action="{{ url_for('bank_sync.upload_payment_registry_file', account_id=account.id) }}" enctype="multipart/form-data" class="d-flex align-items-end gap-2 mb-2 flex-wrap">
   <div>
-    <label class="form-label mb-0">{{ _("Или загрузить файл реестра вручную (CP1251)") }}</label>
-    <input class="form-control" type="file" name="registry_file" accept=".txt,.csv" required>
+    <label class="form-label mb-0">{{ _("Или загрузить файл(ы) реестра вручную (CP1251)") }}</label>
+    <input class="form-control" type="file" name="registry_file" accept=".txt,.csv" multiple required>
   </div>
-  <button class="btn btn-outline-primary">{{ _("Загрузить файл") }}</button>
-  <span class="text-muted small w-100">{{ _("на случай, если запрос через API недоступен — файл, как его отдаёт СберБизнес Онлайн (кодировка Windows-1251)") }}</span>
+  <button class="btn btn-outline-primary">{{ _("Загрузить файлы") }}</button>
+  <span class="text-muted small w-100">{{ _("на случай, если запрос через API недоступен — файлы, как их отдаёт СберБизнес Онлайн (кодировка Windows-1251); можно выбрать сразу несколько") }}</span>
 </form>
 <p class="mb-4">
   <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('bank_sync.registry_format_settings', account_id=account.id) }}">{{ _("Настроить формат файла") }}</a>
 </p>
 {% endif %}
 
-<table class="table table-bordered bg-body sortable">
+<div class="mb-3">
+  <input class="form-control" id="registryFilterInput" placeholder="{{ _('Поиск по счёту, плательщику, назначению...') }}">
+</div>
+
+<table class="table table-bordered bg-body sortable" id="registryTable">
   <thead>
     <tr>
       <th>{{ _("Дата") }}</th>
@@ -39,7 +43,7 @@
   </thead>
   <tbody>
     {% for entry in entries %}
-    <tr>
+    <tr id="registry-entry-{{ entry.id }}" data-filter-text="{{ (fmt_date(entry.operation_date) ~ ' ' ~ (entry.account_number or '') ~ ' ' ~ (entry.payer_name or '') ~ ' ' ~ fmt2(entry.amount) ~ ' ' ~ (entry.payment_purpose or '') ~ ' ' ~ (_('разнесён') if entry.matched_payment_id else _('не разнесён')))|lower }}">
       <td>{{ fmt_date(entry.operation_date) }}</td>
       <td class="text-end">{{ entry.account_number or "—" }}</td>
       <td>{{ entry.payer_name or "—" }}</td>
@@ -61,7 +65,7 @@
           —
         {% endif %}
       </td>
-      <td>
+      <td class="js-settlement-status">
         {% if entry.matched_payment_id %}
           <span class="badge bg-success">{{ _("разнесён") }}</span>
         {% else %}
@@ -69,10 +73,11 @@
         {% endif %}
       </td>
       {% if is_chairman() %}
-      <td>
+      <td class="js-allocate-cell">
         {% if not entry.matched_payment_id %}
-        <form method="post" action="{{ url_for('bank_sync.allocate_payment_registry_entry', account_id=account.id, entry_id=entry.id) }}">
+        <form method="post" action="{{ url_for('bank_sync.allocate_payment_registry_entry', account_id=account.id, entry_id=entry.id) }}" class="js-allocate-form d-flex flex-column gap-1">
           <button class="btn btn-sm btn-outline-primary">{{ _("Разнести") }}</button>
+          <div class="text-danger small js-allocate-error d-none"></div>
         </form>
         {% endif %}
       </td>
@@ -83,10 +88,171 @@
     {% endfor %}
   </tbody>
 </table>
+<nav id="registryPager" class="d-none mb-3">
+  <ul class="pagination pagination-sm mb-0" id="registryPagerLinks"></ul>
+</nav>
 
 {% if is_chairman() %}
 <form method="post" action="{{ url_for('bank_sync.match_registry_and_statement_manual', account_id=account.id) }}" class="d-inline">
   <button class="btn btn-sm btn-outline-secondary mt-2">{{ _("Сопоставить с выпиской") }}</button>
 </form>
 {% endif %}
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  // «Разнести» — AJAX, чтобы не терять положение прокрутки: обычный
+  // POST+redirect после нажатия внизу длинного списка возвращал бы
+  // наверх страницы. Роут отдаёт JSON при заголовке X-Requested-With,
+  // здесь просто обновляем ячейку статуса на месте. При отключённом JS
+  // форма работает как обычная (роут поддерживает оба варианта).
+  document.querySelectorAll(".js-allocate-form").forEach(function (form) {
+    form.addEventListener("submit", function (e) {
+      e.preventDefault();
+      var errorBox = form.querySelector(".js-allocate-error");
+      var button = form.querySelector("button");
+      errorBox.classList.add("d-none");
+      button.disabled = true;
+      fetch(form.action, {
+        method: "POST",
+        body: new FormData(form),
+        headers: { "X-Requested-With": "XMLHttpRequest" },
+      })
+        .then(function (resp) { return resp.json(); })
+        .then(function (data) {
+          if (data.success) {
+            var row = form.closest("tr");
+            row.querySelector(".js-settlement-status").innerHTML = '<span class="badge bg-success">{{ _("разнесён") }}</span>';
+            row.querySelector(".js-allocate-cell").innerHTML = "";
+            // держим data-filter-text в актуальном состоянии, чтобы поиск по статусу не показывал устаревшее значение
+            var filterText = row.getAttribute("data-filter-text") || "";
+            row.setAttribute("data-filter-text", filterText.replace("{{ _('не разнесён') }}", "{{ _('разнесён') }}"));
+          } else {
+            errorBox.textContent = data.message;
+            errorBox.classList.remove("d-none");
+            button.disabled = false;
+          }
+        })
+        .catch(function () {
+          errorBox.textContent = "{{ _("Не удалось выполнить запрос — проверьте соединение и попробуйте ещё раз.") }}";
+          errorBox.classList.remove("d-none");
+          button.disabled = false;
+        });
+    });
+  });
+});
+
+// Поиск + постраничный вывод по 20 записей — тот же приём, что на
+// странице «Пеня» (ключевая ставка ЦБ): фильтруем по data-filter-text,
+// делим отфильтрованное на страницы по ROWS_PER_PAGE, рисуем пейджер с
+// «…» при большом числе страниц. Отдельная самодостаточная функция, не
+// связана с AJAX-разнесением выше — обновление статуса строки после
+// «Разнести» не меняет её видимость/страницу, просто должно остаться
+// заметным глазами, если запись видна на текущей странице.
+(function () {
+  const input = document.getElementById("registryFilterInput");
+  const table = document.getElementById("registryTable");
+  const pager = document.getElementById("registryPager");
+  const pagerLinks = document.getElementById("registryPagerLinks");
+  if (!table) return;
+
+  const rows = Array.from(table.querySelectorAll("tbody tr[data-filter-text]"));
+  const ROWS_PER_PAGE = 20;
+  const PAGE_RADIUS = 3;
+  let currentPage = 1;
+
+  function renderPages(totalPages) {
+    pagerLinks.innerHTML = "";
+    if (totalPages <= 1) return;
+
+    const first = document.createElement("li");
+    first.className = "page-item" + (currentPage === 1 ? " disabled" : "");
+    first.innerHTML = '<a class="page-link" href="#">&laquo;</a>';
+    if (currentPage > 1) {
+      first.querySelector("a").addEventListener("click", function (e) { e.preventDefault(); currentPage = 1; updatePager(); });
+    }
+    pagerLinks.appendChild(first);
+
+    let start = Math.max(1, currentPage - PAGE_RADIUS);
+    let end = Math.min(totalPages, currentPage + PAGE_RADIUS);
+
+    if (start > 1) {
+      const li = document.createElement("li");
+      li.className = "page-item disabled";
+      li.innerHTML = "<span class=\"page-link\">…</span>";
+      pagerLinks.appendChild(li);
+    }
+
+    for (let p = start; p <= end; p++) {
+      const li = document.createElement("li");
+      li.className = "page-item" + (p === currentPage ? " active" : "");
+      const a = document.createElement("a");
+      a.className = "page-link";
+      a.href = "#";
+      a.textContent = p;
+      a.addEventListener("click", function (e) {
+        e.preventDefault();
+        currentPage = p;
+        updatePager();
+      });
+      li.appendChild(a);
+      pagerLinks.appendChild(li);
+    }
+
+    if (end < totalPages) {
+      const li = document.createElement("li");
+      li.className = "page-item disabled";
+      li.innerHTML = "<span class=\"page-link\">…</span>";
+      pagerLinks.appendChild(li);
+    }
+
+    const last = document.createElement("li");
+    last.className = "page-item" + (currentPage === totalPages ? " disabled" : "");
+    const lastA = document.createElement("a");
+    lastA.className = "page-link";
+    lastA.href = "#";
+    lastA.innerHTML = "&raquo;";
+    lastA.addEventListener("click", function (e) {
+      e.preventDefault();
+      currentPage = totalPages;
+      updatePager();
+    });
+    last.appendChild(lastA);
+    pagerLinks.appendChild(last);
+  }
+
+  function updatePager() {
+    const q = input ? input.value.trim().toLowerCase() : "";
+    let visibleRows = rows.filter(function (row) {
+      return !q || row.getAttribute("data-filter-text").includes(q);
+    });
+
+    if (visibleRows.length === 0) {
+      pager.classList.add("d-none");
+      rows.forEach(function (row) { row.classList.add("d-none"); });
+      return;
+    }
+
+    pager.classList.remove("d-none");
+    const totalPages = Math.ceil(visibleRows.length / ROWS_PER_PAGE);
+    if (currentPage > totalPages) currentPage = totalPages;
+
+    rows.forEach(function (row) { row.classList.add("d-none"); });
+    visibleRows.forEach(function (row, i) {
+      const page = Math.floor(i / ROWS_PER_PAGE) + 1;
+      row.classList.toggle("d-none", page !== currentPage);
+    });
+
+    renderPages(totalPages);
+  }
+
+  if (input) {
+    input.addEventListener("input", function () {
+      currentPage = 1;
+      updatePager();
+    });
+  }
+
+  updatePager();
+})();
+</script>
 {% endblock %}

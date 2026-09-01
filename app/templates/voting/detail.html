@@ -19,7 +19,12 @@
     </div>
     {% if vote.description %}<p class="mt-2">{{ vote.description }}</p>{% endif %}
   </div>
-  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('voting.list_votes') }}">{{ _("← ко всем голосованиям") }}</a>
+  <div class="d-flex gap-2">
+    {% if vote.status.value == 'draft' and is_chairman() %}
+    <a class="btn btn-outline-primary btn-sm" href="{{ url_for('voting.edit', vote_id=vote.id) }}">{{ _("Изменить") }}</a>
+    {% endif %}
+    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('voting.list_votes') }}">{{ _("← ко всем голосованиям") }}</a>
+  </div>
 </div>
 
 {% if is_board() and vote.voting_type.value != 'in_person' %}

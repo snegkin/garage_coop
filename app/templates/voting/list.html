@@ -23,6 +23,7 @@
       <th>{{ _("Статус") }}</th>
       <th>{{ _("Приём бюллетеней до") }}</th>
       <th class="no-sort">{{ _("Ваш голос") }}</th>
+      {% if is_chairman() %}<th class="no-sort"></th>{% endif %}
     </tr>
   </thead>
   <tbody>
@@ -47,9 +48,12 @@
           <span class="text-muted">{{ _("не голосовали") }}</span>
         {% else %}—{% endif %}
       </td>
+      {% if is_chairman() %}
+      <td>{% if v.status.value == 'draft' %}<a class="btn btn-sm btn-outline-primary" href="{{ url_for('voting.edit', vote_id=v.id) }}">{{ _("Изменить") }}</a>{% endif %}</td>
+      {% endif %}
     </tr>
     {% else %}
-    <tr><td colspan="5" class="text-muted">{{ _("Голосований пока нет.") }}</td></tr>
+    <tr><td colspan="{{ 6 if is_chairman() else 5 }}" class="text-muted">{{ _("Голосований пока нет.") }}</td></tr>
     {% endfor %}
   </tbody>
 </table>

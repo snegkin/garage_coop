@@ -58,3 +58,35 @@ def create():
 
     persons = database.db_session.query(Person).order_by(Person.full_name).all()
     return render_template("meetings/form.html", persons=persons)
+
+
+@bp.route("/<int:meeting_id>/edit", methods=["POST"])
+@roles_required(RoleEnum.BOARD)
+def edit(meeting_id):
+    meeting = database.db_session.get(GeneralMeeting, meeting_id)
+    if meeting is None:
+        flash(_("Собрание не найдено."), "warning")
+        return redirect(url_for("meetings.list_meetings"))
+
+    f = request.form
+    meeting.date = dt.date.fromisoformat(f["date"])
+    meeting.agenda = f.get("agenda") or None
+    meeting.is_annual_report_meeting = bool(f.get("is_annual_report_meeting"))
+    meeting.secretary_person_id = int(f["secretary_person_id"]) if f.get("secretary_person_id") else None
+    meeting.chairman_person_id = int(f["chairman_person_id"]) if f.get("chairman_person_id") else None
+
+    file_path = save_upload(request.files.get("protocol_file"), current_app.config["UPLOAD_FOLDER"])
+    if file_path:
+        protocol_doc = Document(
+            doc_type=DocumentType.PROTOCOL,
+            date=meeting.date,
+            title=_("Протокол собрания от {date}", date=meeting.date.isoformat()),
+            file_path=file_path,
+        )
+        database.db_session.add(protocol_doc)
+        database.db_session.flush()
+        meeting.protocol_document_id = protocol_doc.id
+
+    database.db_session.commit()
+    flash(_("Собрание обновлено."), "success")
+    return redirect(url_for("meetings.list_meetings"))

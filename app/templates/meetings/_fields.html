@@ -1,31 +1,35 @@
-{# Ожидает переменную persons. Только поля, без <form> и кнопок. #}
+{# Ожидает переменную persons и опционально m (GeneralMeeting или None — для редактирования). Только поля, без <form> и кнопок. #}
 <div class="mb-3">
   <label class="form-label">{{ _("Дата") }}</label>
-  <input class="form-control" type="date" name="date" required>
+  <input class="form-control" type="date" name="date" value="{{ (m.date or '') if m else '' }}" required>
 </div>
 <div class="mb-3">
   <label class="form-label">{{ _("Повестка") }}</label>
-  <textarea class="form-control" name="agenda"></textarea>
+  <textarea class="form-control" name="agenda">{{ (m.agenda or '') if m else '' }}</textarea>
 </div>
 <div class="form-check mb-3">
-  <input class="form-check-input" type="checkbox" name="is_annual_report_meeting" id="ar">
-  <label class="form-check-label" for="ar">{{ _("Это ежегодное отчётное собрание (отчёт председателя, смета)") }}</label>
+  <input class="form-check-input" type="checkbox" name="is_annual_report_meeting" id="ar{{ m.id if m else '' }}" {{ 'checked' if m and m.is_annual_report_meeting else '' }}>
+  <label class="form-check-label" for="ar{{ m.id if m else '' }}">{{ _("Это ежегодное отчётное собрание (отчёт председателя, смета)") }}</label>
 </div>
 <div class="mb-3">
   <label class="form-label">{{ _("Секретарь") }}</label>
   <select class="form-select" name="secretary_person_id" data-searchable>
     <option value="">—</option>
-    {% for p in persons %}<option value="{{ p.id }}">{{ p.full_name }}</option>{% endfor %}
+    {% for p in persons %}<option value="{{ p.id }}" {{ 'selected' if m and m.secretary_person_id == p.id else '' }}>{{ p.full_name }}</option>{% endfor %}
   </select>
 </div>
 <div class="mb-3">
   <label class="form-label">{{ _("Председатель на собрании") }}</label>
   <select class="form-select" name="chairman_person_id" data-searchable>
     <option value="">—</option>
-    {% for p in persons %}<option value="{{ p.id }}">{{ p.full_name }}</option>{% endfor %}
+    {% for p in persons %}<option value="{{ p.id }}" {{ 'selected' if m and m.chairman_person_id == p.id else '' }}>{{ p.full_name }}</option>{% endfor %}
   </select>
 </div>
 <div class="mb-3">
   <label class="form-label">{{ _("Файл протокола") }}</label>
+  {% if m and m.protocol_document_id %}
+  <div class="form-text mb-1">{{ _("Текущий файл:") }} <a href="{{ url_for('cooperative.download_document', doc_id=m.protocol_document_id) }}">{{ _("скачать") }}</a></div>
+  {% endif %}
   <input class="form-control" type="file" name="protocol_file">
+  {% if m %}<div class="form-text">{{ _("Оставьте пустым, чтобы не менять.") }}</div>{% endif %}
 </div>

@@ -10,11 +10,12 @@
 
 Логика:
   1. Взять единственную запись EWeLinkAccount; если подключение не
-     настроено (нет app_id/email) — тихо выйти с кодом 0 (это ожидаемое
-     состояние до того, как председатель настроит раздел «Мониторинг
-     фаз», не ошибка).
-  2. Если токена ещё нет — login(); если есть — попытаться list_devices(),
-     при EWeLinkAuthError один раз попробовать refresh() и повторить.
+     настроено (нет app_id/токена/family_id — авторизация и выбор дома
+     проходят только через браузер, см. app/electricity_monitor.py) —
+     тихо выйти с кодом 0 (это ожидаемое состояние до того, как
+     председатель настроит раздел «Мониторинг фаз», не ошибка).
+  2. Запросить list_devices(family_id); при EWeLinkAuthError один раз
+     попробовать refresh() и повторить.
   3. Для каждого активного PowerPhaseDevice разобрать снимок из уже
      полученного списка устройств (один HTTP-запрос на весь цикл, не по
      одному на фазу) и сохранить PowerPhaseReading.
@@ -43,29 +44,25 @@ def main() -> int:
     app = create_app()
     with app.app_context():
         account = database.db_session.query(EWeLinkAccount).first()
-        if account is None or not (account.app_id and account.email):
+        if account is None or not (account.app_id and account.access_token_encrypted and account.family_id):
             print(f"[{dt.datetime.now().isoformat(timespec='seconds')}] "
                   f"Подключение к eWeLink ещё не настроено — опрос пропущен.")
             return 0
 
         client = build_client(account)
-        if client is None:
+        if client is None or client.tokens is None:
             print(f"[{dt.datetime.now().isoformat(timespec='seconds')}] "
                   f"Не все данные подключения к eWeLink заполнены — опрос пропущен.")
             return 0
 
         try:
-            if client.tokens is None:
-                client.login()
-                persist_tokens(account, client)
-                database.db_session.commit()
             try:
-                devices = client.list_devices()
+                devices = client.list_devices(account.family_id)
             except EWeLinkAuthError:
                 client.refresh()
                 persist_tokens(account, client)
                 database.db_session.commit()
-                devices = client.list_devices()
+                devices = client.list_devices(account.family_id)
         except EWeLinkApiError as exc:
             account.last_error = str(exc)
             account.last_poll_at = dt.datetime.utcnow()
@@ -83,7 +80,7 @@ def main() -> int:
         saved, failed = 0, 0
         for phase_device in active_devices:
             try:
-                snapshot = client.get_phase_snapshot(phase_device.ewelink_device_id, devices=devices)
+                snapshot = client.get_phase_snapshot(phase_device.ewelink_device_id, account.family_id, devices=devices)
             except EWeLinkApiError as exc:
                 failed += 1
                 print(f"[{dt.datetime.now().isoformat(timespec='seconds')}] "

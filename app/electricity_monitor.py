@@ -11,10 +11,19 @@ scripts/update_key_rate.py для ставки ЦБ РФ).
 Права: просмотр — правление (BOARD, как и app/power.py), настройки
 подключения к eWeLink и привязка устройств к фазам — только председатель
 (CHAIRMAN), по аналогии с настройками API банка в app/bank_sync.py.
+
+Авторизация в eWeLink — официальный OAuth2 Open API (authorization code
+flow, приложение зарегистрировано на dev.ewelink.cc), см. app/ewelink/client.py.
+Председатель проходит три шага: 1) сохраняет App ID/App Secret приложения
+(save_settings), 2) жмёт «Войти через eWeLink» (start_oauth) — браузер
+уходит на страницу авторизации eWeLink и возвращается на oauth_callback с
+кодом, 3) выбирает дом (family) — без family_id список устройств не
+получить (save_family).
 """
 import datetime as dt
+import secrets
 
-from flask import Blueprint, render_template, request, redirect, url_for, flash
+from flask import Blueprint, render_template, request, redirect, url_for, flash, session
 
 from . import database
 from .i18n import translate as _
@@ -26,6 +35,7 @@ from .ewelink import EWeLinkClient, EWeLinkTokens, EWeLinkApiError, EWeLinkAuthE
 bp = Blueprint("electricity_monitor", __name__, url_prefix="/electricity")
 
 HISTORY_HOURS = 3  # глубина истории на графике/в таблице — намеренно небольшая: раздел для текущего мониторинга, не для архива
+OAUTH_STATE_SESSION_KEY = "ewelink_oauth_state"
 
 
 def _get_or_create_account() -> EWeLinkAccount:
@@ -38,10 +48,12 @@ def _get_or_create_account() -> EWeLinkAccount:
 
 
 def build_client(account: EWeLinkAccount) -> EWeLinkClient | None:
-    """None, если подключение ещё не настроено (нет app_id/секрета/логина/пароля) —
+    """None, если подключение ещё не настроено (нет app_id/секрета) —
     вызывающий код (view() ниже, scripts/poll_ewelink.py) должен показать
-    понятное сообщение вместо ошибки, как и bank_api.get_client()."""
-    if not (account.app_id and account.app_secret_encrypted and account.email and account.password_encrypted):
+    понятное сообщение вместо ошибки, как и bank_api.get_client(). Клиент
+    без токенов (до прохождения authorize_url/exchange_code) валиден —
+    им можно построить только authorize_url()."""
+    if not (account.app_id and account.app_secret_encrypted):
         return None
 
     tokens = None
@@ -56,8 +68,6 @@ def build_client(account: EWeLinkAccount) -> EWeLinkClient | None:
     return EWeLinkClient(
         app_id=account.app_id,
         app_secret=crypto.decrypt(account.app_secret_encrypted),
-        email=account.email,
-        password=crypto.decrypt(account.password_encrypted),
         tokens=tokens,
         region=account.region or "eu",
     )
@@ -65,7 +75,7 @@ def build_client(account: EWeLinkAccount) -> EWeLinkClient | None:
 
 def persist_tokens(account: EWeLinkAccount, client: EWeLinkClient) -> None:
     """Сохраняет токены клиента в account (без commit — вызывающий код коммитит сам).
-    Вызывать сразу после login()/refresh(), даже если следующий запрос упадёт —
+    Вызывать сразу после exchange_code()/refresh(), даже если следующий запрос упадёт —
     тот же принцип, что и для Sberbank (см. app/bank_sync.py:_persist_rotated_refresh_token).
     Без подчёркивания (в отличие от bank_sync.py) — эту функцию, в отличие от
     того аналога, использует не только сам модуль, но и внешний скрипт
@@ -76,6 +86,10 @@ def persist_tokens(account: EWeLinkAccount, client: EWeLinkClient) -> None:
     account.refresh_token_encrypted = crypto.encrypt(client.tokens.refresh_token)
     account.region = client.tokens.region
     account.token_obtained_at = dt.datetime.utcnow()
+
+
+def _callback_redirect_uri() -> str:
+    return url_for("electricity_monitor.oauth_callback", _external=True)
 
 
 @bp.route("/")
@@ -109,6 +123,28 @@ def view():
     power_values = [r.power_w for r in latest_by_device.values() if r and r.power_w is not None]
     total_power = sum(power_values) if power_values else None
 
+    # Дом (family) ещё не выбран, но токен уже есть — предложить выбор
+    # прямо на странице, не отдельным шагом мастера. Живой запрос только в
+    # этом переходном состоянии (между авторизацией и выбором family_id),
+    # не на каждый обычный визит на страницу.
+    families = []
+    families_error = None
+    if account.access_token_encrypted and not account.family_id:
+        client = build_client(account)
+        if client is not None:
+            try:
+                families = client.list_families()
+            except EWeLinkAuthError:
+                try:
+                    client.refresh()
+                    persist_tokens(account, client)
+                    database.db_session.commit()
+                    families = client.list_families()
+                except EWeLinkApiError as exc:
+                    families_error = str(exc)
+            except EWeLinkApiError as exc:
+                families_error = str(exc)
+
     return render_template(
         "electricity/monitor.html",
         account=account,
@@ -116,7 +152,11 @@ def view():
         latest_by_device=latest_by_device,
         history_by_device=history_by_device,
         total_power=total_power,
-        is_configured=bool(account.app_id and account.email),
+        is_configured=bool(account.app_id and account.family_id),
+        is_authorized=bool(account.access_token_encrypted),
+        families=families,
+        families_error=families_error,
+        callback_redirect_uri=_callback_redirect_uri(),
     )
 
 
@@ -124,43 +164,136 @@ def view():
 @roles_required(RoleEnum.CHAIRMAN)
 def save_settings():
     """
-    Пароль/appSecret шифруются перед сохранением. Пустое поле в форме
-    оставляет прежнее значение (чтобы не заставлять председателя заново
-    вводить пароль при каждой правке app_id, например) — как и в
+    App Secret шифруется перед сохранением. Пустое поле в форме оставляет
+    прежнее значение (чтобы не заставлять председателя заново вводить его
+    при каждой правке App ID, например) — как и в
     app/bank_sync.py:save_api_settings для client_secret.
-    Смена логина/пароля/appId сбрасывает сохранённые токены — со старыми
-    учётными данными они всё равно больше не действительны.
+    Смена App ID/App Secret сбрасывает сохранённые токены и family_id — со
+    старым приложением dev.ewelink.cc они всё равно больше не действительны.
     """
     account = _get_or_create_account()
     f = request.form
 
     app_id = f.get("app_id", "").strip()
     app_secret = f.get("app_secret", "").strip()
-    email = f.get("email", "").strip()
-    password = f.get("password", "").strip()
 
     credentials_changed = (
         app_id != (account.app_id or "")
-        or email != (account.email or "")
         or bool(app_secret)
-        or bool(password)
     )
 
     account.app_id = app_id or None
-    account.email = email or None
     if app_secret:
         account.app_secret_encrypted = crypto.encrypt(app_secret)
-    if password:
-        account.password_encrypted = crypto.encrypt(password)
 
     if credentials_changed:
         account.access_token_encrypted = None
         account.refresh_token_encrypted = None
         account.token_obtained_at = None
+        account.family_id = None
         account.last_error = None
 
     database.db_session.commit()
     flash(_("Настройки подключения к eWeLink сохранены."), "success")
+    return redirect(url_for("electricity_monitor.view"))
+
+
+@bp.route("/ewelink/authorize")
+@roles_required(RoleEnum.CHAIRMAN)
+def start_oauth():
+    """Перенаправляет председателя на страницу авторизации eWeLink. State —
+    случайная строка в сессии, сверяется в oauth_callback — защита от
+    CSRF/подмены чужого кода авторизации сторонним сайтом."""
+    account = _get_or_create_account()
+    client = build_client(account)
+    if client is None:
+        flash(_("Сначала укажите App ID и App Secret приложения eWeLink."), "warning")
+        return redirect(url_for("electricity_monitor.view"))
+
+    state = secrets.token_urlsafe(24)
+    session[OAUTH_STATE_SESSION_KEY] = state
+    return redirect(client.authorize_url(_callback_redirect_uri(), state))
+
+
+@bp.route("/ewelink/callback")
+@roles_required(RoleEnum.CHAIRMAN)
+def oauth_callback():
+    """Точка возврата из браузерной авторизации eWeLink — см. предупреждение
+    в app/ewelink/client.py о том, что точный формат этой страницы/её
+    редиректа не подтверждён живым тестом. Этот URL (полностью, со схемой
+    и доменом) нужно прописать как redirect URI в настройках приложения на
+    dev.ewelink.cc — он выводится на странице мониторинга."""
+    expected_state = session.pop(OAUTH_STATE_SESSION_KEY, None)
+    state = request.args.get("state")
+    code = request.args.get("code")
+    region = request.args.get("region")
+
+    if not code:
+        flash(_("eWeLink не вернул код авторизации: {error}", error=request.args.get("error") or "—"), "danger")
+        return redirect(url_for("electricity_monitor.view"))
+    if not expected_state or state != expected_state:
+        flash(_("Не удалось подтвердить запрос авторизации (state не совпадает) — попробуйте ещё раз."), "danger")
+        return redirect(url_for("electricity_monitor.view"))
+
+    account = _get_or_create_account()
+    client = build_client(account)
+    if client is None:
+        flash(_("Сначала укажите App ID и App Secret приложения eWeLink."), "warning")
+        return redirect(url_for("electricity_monitor.view"))
+    if region:
+        client.region = region
+
+    try:
+        client.exchange_code(code, _callback_redirect_uri())
+        persist_tokens(account, client)
+        account.family_id = None  # новая авторизация — попросим выбрать дом заново
+        account.last_error = None
+        database.db_session.commit()
+        flash(_("Авторизация в eWeLink прошла успешно. Осталось выбрать дом (family) ниже."), "success")
+    except EWeLinkApiError as exc:
+        account.last_error = str(exc)
+        database.db_session.commit()
+        flash(_("Ошибка авторизации в eWeLink: {error}", error=str(exc)), "danger")
+
+    return redirect(url_for("electricity_monitor.view"))
+
+
+@bp.route("/ewelink/family", methods=["POST"])
+@roles_required(RoleEnum.CHAIRMAN)
+def save_family():
+    account = _get_or_create_account()
+    family_id = request.form.get("family_id", "").strip()
+    if not family_id:
+        flash(_("Выберите дом (family) из списка."), "warning")
+        return redirect(url_for("electricity_monitor.view"))
+    account.family_id = family_id
+    database.db_session.commit()
+    flash(_("Дом выбран. Теперь привяжите устройства к фазам ниже."), "success")
+    return redirect(url_for("electricity_monitor.view"))
+
+
+@bp.route("/ewelink/unbind", methods=["POST"])
+@roles_required(RoleEnum.CHAIRMAN)
+def unbind():
+    """Полный сброс подключения — отвязывает приложение от аккаунта eWeLink
+    (DELETE /v2/user/oauth/token) и очищает токены/family_id локально.
+    App ID/App Secret не трогает — обычно их менять не нужно, если
+    председатель просто хочет переавторизоваться на том же приложении."""
+    account = _get_or_create_account()
+    client = build_client(account)
+    if client is not None and client.tokens is not None:
+        try:
+            client.unbind()
+        except EWeLinkApiError as exc:
+            flash(_("Не удалось отвязать приложение на стороне eWeLink: {error}", error=str(exc)), "warning")
+
+    account.access_token_encrypted = None
+    account.refresh_token_encrypted = None
+    account.token_obtained_at = None
+    account.family_id = None
+    account.last_error = None
+    database.db_session.commit()
+    flash(_("Подключение к eWeLink сброшено."), "success")
     return redirect(url_for("electricity_monitor.view"))
 
 
@@ -200,24 +333,28 @@ def save_devices():
 @bp.route("/test-connection", methods=["POST"])
 @roles_required(RoleEnum.CHAIRMAN)
 def test_connection():
-    """Ручная проверка подключения прямо со страницы — логинится (или
-    обновляет токен, если он уже есть) и один раз запрашивает список
-    устройств, не дожидаясь следующего запуска cron-поллера."""
+    """Ручная проверка подключения прямо со страницы — обновляет токен, если
+    нужно, и один раз запрашивает список устройств выбранного дома, не
+    дожидаясь следующего запуска cron-поллера."""
     account = _get_or_create_account()
     client = build_client(account)
     if client is None:
-        flash(_("Сначала заполните все поля подключения к eWeLink."), "warning")
+        flash(_("Сначала укажите App ID и App Secret приложения eWeLink."), "warning")
+        return redirect(url_for("electricity_monitor.view"))
+    if client.tokens is None:
+        flash(_("Сначала пройдите авторизацию — кнопка «Войти через eWeLink»."), "warning")
+        return redirect(url_for("electricity_monitor.view"))
+    if not account.family_id:
+        flash(_("Сначала выберите дом (family) ниже."), "warning")
         return redirect(url_for("electricity_monitor.view"))
 
     try:
-        if client.tokens is None:
-            client.login()
-        else:
-            try:
-                client.list_devices()
-            except EWeLinkAuthError:
-                client.refresh()
-                client.list_devices()
+        try:
+            client.list_devices(account.family_id)
+        except EWeLinkAuthError:
+            client.refresh()
+            persist_tokens(account, client)
+            client.list_devices(account.family_id)
         persist_tokens(account, client)
         account.last_error = None
         account.last_poll_at = dt.datetime.utcnow()

@@ -1,24 +1,43 @@
 """
-Неофициальный клиент облака eWeLink для опроса устройств Sonoff POWCT.
+Клиент официального eWeLink Open API (OAuth2, dev.ewelink.cc) для опроса
+устройств Sonoff POWCT.
 
 Общий интерфейс для app/electricity_monitor.py и scripts/poll_ewelink.py, по
 аналогии с app/bank_api/base.py — та же идея: маршруты/скрипт не должны
 знать деталей HTTP-протокола конкретного облака.
 
-**Важно, в отличие от app/bank_api/sberbank.py: это НЕ официальный API.**
-На этапе постановки задачи сознательно выбран неофициальный вход по
-email/паролю (как в клиентах Home Assistant SonoffLAN / ewelink-api) вместо
-официального OAuth2 Open API (dev.ewelink.cc) — модерация заявки там может
-занимать до нескольких дней. Логика ниже основана на публично известном
-поведении сторонних клиентов, а НЕ на официальной документации, и поэтому
-помечена как неподтверждённая живым тестом до первого реального запроса к
-устройствам заказчика. После первого успешного запроса зафиксировать в
+История: на этапе постановки задачи сознательно был выбран неофициальный
+вход по email/паролю (как в клиентах Home Assistant SonoffLAN / ewelink-api)
+вместо официального OAuth2 Open API — модерация заявки на dev.ewelink.cc
+могла занять до нескольких дней. Приложение на dev.ewelink.cc одобрено,
+поэтому модуль переписан на официальный authorization code flow — см.
+EWeLinkAccount в app/models.py (email/password там больше нет, вместо них
+app_id/app_secret — client id/secret из личного кабинета dev.ewelink.cc — и
+family_id, выбранный после авторизации).
+
+**Важно**: набор эндпоинтов (пути, POST@/v2/user/oauth/token и т.д.) задан
+официальной документацией dev.ewelink.cc, но несколько деталей не покрыты
+присланной таблицей эндпоинтов и взяты по памяти/косвенным источникам —
+ПРОВЕРИТЬ живым тестом на первом реальном запуске и зафиксировать в
 context.md/README.md:
+  - точный формат подписи и параметров страницы авторизации в браузере
+    (см. _authorize_signature/authorize_url) — это НЕ то же самое, что
+    подпись тела JSON-запроса (см. _sign), у eWeLink это отдельная схема
+    для HTML-страницы https://c2ccdn.coolkit.cc/oauth/index.html;
+  - имя параметра family id в GET /v2/device/thing (сейчас "familyid");
   - реальный host региона (REGION_HOSTS ниже может быть устаревшим);
-  - путь и формат запроса обновления токена (_refresh: путь эндпоинта не
-    подтверждён, есть минимум два варианта в разных клиентах);
   - точные имена полей params для POWCT (см. PARAM_KEY_CANDIDATES ниже) —
-    у разных прошивок отличаются.
+    у разных прошивок отличаются;
+  - имена полей токенов в ответах /v2/user/oauth/token и /v2/user/refresh —
+    _extract_token_pair() принимает оба варианта написания (accessToken/at,
+    refreshToken/rt), чтобы не упасть, какой бы ни оказался фактический.
+
+Модуль реализует только чтение (список семей/устройств, снимок показаний) —
+эндпоинты управления устройством (POST /v2/device/thing/status и
+batch-status) в документации есть, но в этом приложении не нужны: раздел
+«Мониторинг фаз» показывает показания, не переключает реле, поэтому клиент
+их не реализует, чтобы не добавлять непроверенный код управления реальным
+оборудованием без надобности.
 """
 from __future__ import annotations
 
@@ -27,8 +46,10 @@ import dataclasses
 import hashlib
 import hmac
 import json
+import secrets
 import time
 from decimal import Decimal, InvalidOperation
+from urllib.parse import urlencode
 
 import requests
 
@@ -42,6 +63,11 @@ REGION_HOSTS = {
     "cn": "https://cn-apia.coolkit.cn",
 }
 DEFAULT_REGION = "eu"
+
+# Страница авторизации в браузере (redirect туда, eWeLink возвращает
+# пользователя обратно на redirect_uri с ?code=...&region=...&state=...).
+# ПРОВЕРИТЬ — см. предупреждение в начале файла.
+AUTHORIZE_PAGE_URL = "https://c2ccdn.coolkit.cc/oauth/index.html"
 
 # POWCT в разных прошивках отдаёт мощность/напряжение/ток либо без суффикса
 # (однофазная логика на одно устройство — наш случай, т.к. на фазу по
@@ -63,8 +89,8 @@ class EWeLinkApiError(Exception):
 
 class EWeLinkAuthError(EWeLinkApiError):
     """Отдельный подкласс для протухшего/невалидного токена — чтобы вызывающий
-    код мог отличить 'нужен login()/refresh()' от 'устройство офлайн' или
-    временной сетевой ошибки."""
+    код мог отличить 'нужен refresh()/повторная авторизация' от 'устройство
+    офлайн' или временной сетевой ошибки."""
 
 
 @dataclasses.dataclass
@@ -101,6 +127,18 @@ def _first_present(params: dict, keys: tuple[str, ...]) -> Decimal | None:
     return None
 
 
+def _extract_token_pair(payload: dict) -> tuple[str, str]:
+    """Официальная документация даёт camelCase (accessToken/refreshToken);
+    старые запросы к тому же backend иногда отвечали короткими at/rt —
+    принимаем оба варианта, чтобы не гадать заранее, какой окажется на
+    практике (см. предупреждение в начале файла)."""
+    access_token = payload.get("accessToken") or payload.get("at")
+    refresh_token = payload.get("refreshToken") or payload.get("rt")
+    if not access_token or not refresh_token:
+        raise EWeLinkApiError(f"eWeLink: не удалось разобрать токены в ответе: {payload!r}")
+    return access_token, refresh_token
+
+
 def parse_phase_snapshot(device: dict) -> PhaseSnapshot:
     """Разбирает один элемент из thingList (ответ /v2/device/thing) в снимок
     показаний. params с числами часто приходят домноженными на 100 у eWeLink
@@ -121,21 +159,24 @@ def parse_phase_snapshot(device: dict) -> PhaseSnapshot:
 
 class EWeLinkClient:
     """
-    Использование:
+    Использование (authorization code flow):
 
-        client = EWeLinkClient(app_id, app_secret, email=..., password=...)
-        tokens = client.login()                 # один раз, сохранить в БД
+        client = EWeLinkClient(app_id, app_secret)
+        url = client.authorize_url(redirect_uri, state)   # редирект браузера сюда
+        # ... eWeLink возвращает пользователя на redirect_uri?code=...&region=...
+        tokens = client.exchange_code(code, redirect_uri)  # сохранить в БД
+        families = client.list_families()                  # выбрать family_id, сохранить в БД
         ...
         client = EWeLinkClient(app_id, app_secret, tokens=tokens)
         try:
-            devices = client.list_devices()
+            devices = client.list_devices(family_id)
         except EWeLinkAuthError:
             tokens = client.refresh()            # сохранить новые токены в БД!
-            devices = client.list_devices()
+            devices = client.list_devices(family_id)
 
     Вызывающий код обязан сохранять новые токены сразу после успешного
-    refresh()/login(), даже если последующий запрос устройства упадёт — тот
-    же принцип, что и для Sberbank (см. app/bank_sync.py:
+    exchange_code()/refresh(), даже если последующий запрос устройства
+    упадёт — тот же принцип, что и для Sberbank (см. app/bank_sync.py:
     _persist_rotated_refresh_token).
     """
 
@@ -143,16 +184,12 @@ class EWeLinkClient:
         self,
         app_id: str,
         app_secret: str,
-        email: str | None = None,
-        password: str | None = None,
         tokens: EWeLinkTokens | None = None,
         region: str = DEFAULT_REGION,
         timeout: float = 10.0,
     ):
         self.app_id = app_id
         self.app_secret = app_secret
-        self.email = email
-        self.password = password
         self.tokens = tokens
         self.region = tokens.region if tokens else region
         self.timeout = timeout
@@ -167,6 +204,14 @@ class EWeLinkClient:
         digest = hmac.new(self.app_secret.encode(), payload, hashlib.sha256).digest()
         return base64.b64encode(digest).decode()
 
+    def _authorize_signature(self, seq: str) -> str:
+        """Подпись для страницы авторизации в браузере — ОТДЕЛЬНАЯ схема от
+        _sign() (там подписывается JSON тела запроса). ПРОВЕРИТЬ по факту
+        первой живой авторизации — см. предупреждение в начале файла."""
+        payload = f"{self.app_id}_{seq}".encode()
+        digest = hmac.new(self.app_secret.encode(), payload, hashlib.sha256).digest()
+        return base64.b64encode(digest).decode()
+
     def _host(self) -> str:
         return REGION_HOSTS.get(self.region, REGION_HOSTS[DEFAULT_REGION])
 
@@ -177,20 +222,23 @@ class EWeLinkClient:
         }
         if authorized:
             if not self.tokens:
-                raise EWeLinkAuthError("Нет токена доступа — сначала login()")
+                raise EWeLinkAuthError("Нет токена доступа — сначала пройдите авторизацию (authorize_url/exchange_code)")
             headers["Authorization"] = f"Bearer {self.tokens.access_token}"
         else:
             headers["Authorization"] = f"Sign {self._sign(body)}"
         return headers
 
-    def _request(self, method: str, path: str, body: dict, authorized: bool) -> dict:
+    def _request(
+        self, method: str, path: str, *,
+        params: dict | None = None, json_body: dict | None = None, authorized: bool = True,
+    ) -> dict:
         url = f"{self._host()}{path}"
         try:
             resp = requests.request(
                 method, url,
-                json=body if method != "GET" else None,
-                params=body if method == "GET" else None,
-                headers=self._headers(body, authorized=authorized),
+                params=params,
+                json=json_body if method != "GET" else None,
+                headers=self._headers(json_body or {}, authorized=authorized),
                 timeout=self.timeout,
             )
         except requests.RequestException as exc:
@@ -204,70 +252,100 @@ class EWeLinkClient:
         error = data.get("error", 0)
         if error != 0:
             msg = data.get("msg", "unknown error")
-            # 401/402 — коды невалидного/протухшего токена в других open-source
+            # 401/402 — коды невалидного/протухшего токена в открытых
             # клиентах eWeLink; НЕ ПОДТВЕРЖДЕНО живым тестом с этим приложением.
             if error in (401, 402):
                 raise EWeLinkAuthError(f"eWeLink: токен недействителен (код {error}): {msg}")
             raise EWeLinkApiError(f"eWeLink error {error}: {msg}")
         return data
 
-    # ---------- аутентификация ----------
+    # ---------- авторизация (OAuth2 authorization code) ----------
 
-    def login(self) -> EWeLinkTokens:
-        if not self.email or not self.password:
-            raise ValueError("email и password обязательны для login()")
+    def authorize_url(self, redirect_uri: str, state: str) -> str:
+        """Строит адрес страницы авторизации eWeLink — председатель кооператива
+        переходит по нему в браузере, логинится в приложении eWeLink и даёт
+        доступ; eWeLink возвращает браузер на redirect_uri с ?code=&region=&state=.
+        state должен быть проверен на стороне callback (см.
+        app/electricity_monitor.py:oauth_callback) — защита от CSRF/подмены
+        чужого кода авторизации."""
+        seq = str(int(time.time() * 1000))
+        nonce = secrets.token_hex(4)
+        params = {
+            "state": state,
+            "clientId": self.app_id,
+            "authorization": self._authorize_signature(seq),
+            "nonce": nonce,
+            "seq": seq,
+            "redirectUrl": redirect_uri,
+            "grantType": "authorization_code",
+            "showQRCode": "false",
+        }
+        return f"{AUTHORIZE_PAGE_URL}?{urlencode(params)}"
 
-        body = {"email": self.email, "password": self.password, "countryCode": "+7"}
-        data = self._request("POST", "/v2/user/login", body, authorized=False)
-
-        new_region = data.get("data", {}).get("region")
-        if new_region and new_region != self.region:
-            self.region = new_region
-            data = self._request("POST", "/v2/user/login", body, authorized=False)
-
+    def exchange_code(self, code: str, redirect_uri: str) -> EWeLinkTokens:
+        """Меняет code, полученный на redirect_uri после авторизации, на пару
+        токенов — POST /v2/user/oauth/token. self.region должен быть уже
+        выставлен вызывающим кодом из ?region= в query string callback'а
+        (eWeLink обслуживает пользователя не всегда на DEFAULT_REGION)."""
+        body = {"code": code, "redirectUrl": redirect_uri, "grantType": "authorization_code"}
+        data = self._request("POST", "/v2/user/oauth/token", json_body=body, authorized=False)
         payload = data["data"]
+        access_token, refresh_token = _extract_token_pair(payload)
+        new_region = payload.get("region")
+        if new_region:
+            self.region = new_region
         self.tokens = EWeLinkTokens(
-            access_token=payload["at"],
-            refresh_token=payload["rt"],
-            region=self.region,
-            obtained_at=time.time(),
+            access_token=access_token, refresh_token=refresh_token,
+            region=self.region, obtained_at=time.time(),
         )
         return self.tokens
 
     def refresh(self) -> EWeLinkTokens:
-        """ПРОВЕРИТЬ живым запросом: путь эндпоинта и формат тела. Если после
-        первого реального теста окажется, что путь другой (например,
-        /v2/user/refresh/token) — поправить здесь и зафиксировать в
-        context.md, как это уже делалось для Sberbank."""
         if not self.tokens:
             raise EWeLinkAuthError("Нет текущих токенов для refresh()")
         body = {"rt": self.tokens.refresh_token}
-        data = self._request("POST", "/v2/user/refresh", body, authorized=False)
+        data = self._request("POST", "/v2/user/refresh", json_body=body, authorized=False)
         payload = data["data"]
-        new_refresh = payload.get("rt")
-        if new_refresh and new_refresh != self.tokens.refresh_token:
-            self.rotated_refresh_token = new_refresh
+        access_token, refresh_token = _extract_token_pair(payload)
+        if refresh_token != self.tokens.refresh_token:
+            self.rotated_refresh_token = refresh_token
         self.tokens = EWeLinkTokens(
-            access_token=payload["at"],
-            refresh_token=new_refresh or self.tokens.refresh_token,
-            region=self.region,
-            obtained_at=time.time(),
+            access_token=access_token, refresh_token=refresh_token,
+            region=self.region, obtained_at=time.time(),
         )
         return self.tokens
 
-    # ---------- устройства ----------
+    def unbind(self) -> None:
+        """Отвязывает это приложение от аккаунта eWeLink (DELETE
+        /v2/user/oauth/token) — используется, если председатель хочет
+        полностью сбросить подключение, а не просто ввести другие данные."""
+        self._request("DELETE", "/v2/user/oauth/token", json_body={}, authorized=True)
 
-    def list_devices(self) -> list[dict]:
-        data = self._request("GET", "/v2/device/thing", {}, authorized=True)
+    # ---------- дом/устройства ----------
+
+    def list_families(self) -> list[dict]:
+        """GET /v2/family — список домов пользователя (у аккаунта минимум один,
+        см. официальную документацию). Нужен для выбора family_id, без
+        которого не работает list_devices()."""
+        data = self._request("GET", "/v2/family", params={"lang": "en"}, authorized=True)
+        return data.get("data", {}).get("familyList", [])
+
+    def list_devices(self, family_id: str) -> list[dict]:
+        """GET /v2/device/thing — все группы и устройства указанного дома.
+        Имя query-параметра family id ("familyid") НЕ ПОДТВЕРЖДЕНО — см.
+        предупреждение в начале файла."""
+        if not family_id:
+            raise EWeLinkApiError("Не выбран дом (family) — сначала выберите его в настройках подключения к eWeLink")
+        data = self._request("GET", "/v2/device/thing", params={"lang": "en", "familyid": family_id}, authorized=True)
         return data.get("data", {}).get("thingList", [])
 
-    def get_phase_snapshot(self, ewelink_device_id: str, devices: list[dict] | None = None) -> PhaseSnapshot:
+    def get_phase_snapshot(self, ewelink_device_id: str, family_id: str, devices: list[dict] | None = None) -> PhaseSnapshot:
         """devices можно передать заранее полученным списком (list_devices()),
         чтобы не делать отдельный запрос на каждую из 3 фаз — см.
         scripts/poll_ewelink.py, который запрашивает список один раз на
         весь цикл опроса."""
         if devices is None:
-            devices = self.list_devices()
+            devices = self.list_devices(family_id)
         for d in devices:
             item = d.get("itemData", d)
             if item.get("deviceid") == ewelink_device_id:

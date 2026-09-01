@@ -1590,19 +1590,32 @@ class AuditLog(Base):
 
 class EWeLinkAccount(Base):
     """
-    Учётные данные для входа в облако eWeLink — одна запись (singleton, как
+    Данные подключения к облаку eWeLink — одна запись (singleton, как
     ElectricitySettings выше). Хранится в БД, редактируется председателем
     через страницу мониторинга (см. app/electricity_monitor.py), а не в
     .env — чтобы можно было сменить без деплоя.
 
-    Вход выполняется неофициальным методом (email/пароль напрямую), как в
-    сторонних клиентах (Home Assistant SonoffLAN, ewelink-api) — НЕ через
-    официальный OAuth2 Open API eWeLink (тот требует модерацию заявки на
-    dev.ewelink.cc, до нескольких дней, и был сознательно отклонён на
-    этапе постановки задачи). appSecret и пароль хранятся зашифрованными
-    (Fernet, см. app.bank_api.crypto — модуль назван по банку исторически,
-    но шифрование в нём общего назначения, ключ из SECRET_KEY/
-    BANK_API_ENCRYPTION_KEY; переиспользуем, а не заводим копию).
+    Авторизация — официальный OAuth2 Open API eWeLink (authorization code
+    flow, приложение зарегистрировано и одобрено на dev.ewelink.cc). До
+    этого использовался неофициальный вход по email/паролю (как в сторонних
+    клиентах Home Assistant SonoffLAN, ewelink-api) — модерация заявки на
+    dev.ewelink.cc могла занять до нескольких дней, и на этапе постановки
+    задачи это было сознательно отклонено; после одобрения заявки модуль
+    переписан на официальный флоу (см. app/ewelink/client.py). app_id/
+    app_secret теперь — client id/secret приложения на dev.ewelink.cc, а не
+    учётные данные пользователя: пароль от аккаунта eWeLink в это
+    приложение вообще не попадает, председатель логинится напрямую на
+    странице авторизации eWeLink в браузере.
+
+    app_secret хранится зашифрованным (Fernet, см. app.bank_api.crypto —
+    модуль назван по банку исторически, но шифрование в нём общего
+    назначения, ключ из SECRET_KEY/BANK_API_ENCRYPTION_KEY; переиспользуем,
+    а не заводим копию).
+
+    family_id — выбранный «дом» (family) в терминах eWeLink Open API,
+    обязателен для GET /v2/device/thing (без него не получить список
+    устройств) — заполняется отдельным шагом после первой авторизации, см.
+    electricity_monitor.py:save_family.
 
     access_token/refresh_token — тоже шифруются; access_token живёт
     ограниченное время (у eWeLink — обычно порядка 30 дней, ТОЧНО НЕ
@@ -1616,9 +1629,8 @@ class EWeLinkAccount(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     app_id: Mapped[str | None] = mapped_column(String(255))
     app_secret_encrypted: Mapped[str | None] = mapped_column(Text)
-    email: Mapped[str | None] = mapped_column(String(255))
-    password_encrypted: Mapped[str | None] = mapped_column(Text)
-    region: Mapped[str | None] = mapped_column(String(4))  # eu/us/as/cn — уточняется при первом логине
+    family_id: Mapped[str | None] = mapped_column(String(64))
+    region: Mapped[str | None] = mapped_column(String(4))  # eu/us/as/cn — уточняется при авторизации
 
     access_token_encrypted: Mapped[str | None] = mapped_column(Text)
     refresh_token_encrypted: Mapped[str | None] = mapped_column(Text)

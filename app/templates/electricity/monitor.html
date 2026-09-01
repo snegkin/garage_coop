@@ -20,7 +20,31 @@
   {{ _("Обратитесь к председателю.") }}
   {% endif %}
 </div>
-{% elif account.last_error %}
+{% endif %}
+
+{% if is_chairman() and account.access_token_encrypted and not account.family_id %}
+<div class="alert alert-info">
+  <p class="mb-2">{{ _("Авторизация в eWeLink пройдена. Осталось выбрать дом (family):") }}</p>
+  {% if families_error %}
+  <p class="text-danger small mb-2">{{ _("Не удалось получить список домов:") }} {{ families_error }}</p>
+  {% elif families %}
+  <form method="post" action="{{ url_for('electricity_monitor.save_family') }}" class="row g-2 align-items-end">
+    <div class="col-auto">
+      <select class="form-select form-select-sm" name="family_id" required>
+        {% for fam in families %}
+        <option value="{{ fam.id }}">{{ fam.name or fam.id }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-auto"><button class="btn btn-sm btn-primary">{{ _("Выбрать") }}</button></div>
+  </form>
+  {% else %}
+  <p class="text-muted small mb-0">{{ _("Список домов пуст — проверьте, что в аккаунте eWeLink есть хотя бы один дом.") }}</p>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if account.last_error %}
 <div class="alert alert-danger">
   {{ _("Последняя попытка опроса устройств завершилась ошибкой:") }} {{ account.last_error }}
   {% if account.last_poll_at %}<div class="small text-muted">{{ _("Последний опрос:") }} {{ fmt_date(account.last_poll_at) }} {{ account.last_poll_at.strftime('%H:%M') }}</div>{% endif %}
@@ -151,7 +175,7 @@
         </div>
         <div class="modal-body">
           <p class="text-muted small">
-            {{ _("Вход выполняется по email и паролю от аккаунта eWeLink (не официальный OAuth2 Open API). App ID/App Secret — идентификатор клиентского приложения, которым вошли; для собственного тестового приложения их можно получить на dev.ewelink.cc.") }}
+            {{ _("Официальный OAuth2 Open API eWeLink. App ID/App Secret — client id/secret приложения из личного кабинета dev.ewelink.cc.") }}
           </p>
           <div class="mb-3">
             <label class="form-label">App ID</label>
@@ -162,12 +186,9 @@
             <input class="form-control" type="password" name="app_secret" placeholder="{{ _('оставьте пустым, чтобы не менять') if account.app_secret_encrypted else '' }}">
           </div>
           <div class="mb-3">
-            <label class="form-label">Email</label>
-            <input class="form-control" type="email" name="email" value="{{ account.email or '' }}">
-          </div>
-          <div class="mb-3">
-            <label class="form-label">{{ _("Пароль") }}</label>
-            <input class="form-control" type="password" name="password" placeholder="{{ _('оставьте пустым, чтобы не менять') if account.password_encrypted else '' }}">
+            <label class="form-label">Redirect URI</label>
+            <input class="form-control" value="{{ callback_redirect_uri }}" readonly onclick="this.select()">
+            <div class="form-text">{{ _("Впишите этот адрес как redirect URI в настройках приложения на dev.ewelink.cc — иначе eWeLink откажется возвращать пользователя обратно после авторизации.") }}</div>
           </div>
         </div>
         <div class="modal-footer">
@@ -179,8 +200,20 @@
   </div>
 </div>
 
-<form method="post" action="{{ url_for('electricity_monitor.test_connection') }}" class="mt-2">
-  <button class="btn btn-sm btn-outline-primary">{{ _("Проверить подключение") }}</button>
-</form>
+<div class="d-flex gap-2 mt-2">
+  {% if account.app_id and account.app_secret_encrypted %}
+  <a class="btn btn-sm btn-primary" href="{{ url_for('electricity_monitor.start_oauth') }}">
+    {{ _("Переавторизоваться в eWeLink") if is_authorized else _("Войти через eWeLink") }}
+  </a>
+  {% endif %}
+  {% if is_authorized %}
+  <form method="post" action="{{ url_for('electricity_monitor.test_connection') }}">
+    <button class="btn btn-sm btn-outline-primary">{{ _("Проверить подключение") }}</button>
+  </form>
+  <form method="post" action="{{ url_for('electricity_monitor.unbind') }}" onsubmit="return confirm('{{ _('Сбросить подключение к eWeLink?') }}')">
+    <button class="btn btn-sm btn-outline-danger">{{ _("Отвязать") }}</button>
+  </form>
+  {% endif %}
+</div>
 {% endif %}
 {% endblock %}

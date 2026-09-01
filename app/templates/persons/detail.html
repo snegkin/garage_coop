@@ -97,21 +97,28 @@
 
 {% if is_board() and member_accounts %}
 <h5 class="mt-4">{{ _("Лицевые счета") }}</h5>
-<table class="table table-sm bg-body sortable">
+<div class="form-check mb-2">
+  <input class="form-check-input" type="checkbox" id="personAccountsActiveOnly" checked
+         data-active-accounts-toggle="#personAccountsTable tbody tr[data-account-row]">
+  <label class="form-check-label" for="personAccountsActiveOnly">{{ _("Актуальные") }}</label>
+</div>
+<table class="table table-sm bg-body sortable" id="personAccountsTable">
   <thead><tr><th>{{ _("Гараж") }}</th><th>{{ _("Вид взноса") }}</th><th class="text-end">{{ _("Счёт") }}</th><th class="text-end">{{ _("Баланс") }}</th><th class="no-sort"></th></tr></thead>
   <tbody>
     {% for acc in member_accounts %}
     {% set bal = balance(acc) %}
-    <tr data-account-row="{{ acc.id }}">
-      <td onclick="window.location='{{ url_for('finance.member_account_detail', account_id=acc.id) }}'" style="cursor:pointer" data-sort-value="{{ acc.garage.number }}">№{{ acc.garage.number }}</td>
+    <tr data-account-row="{{ acc.id }}" data-archived="{{ 1 if acc.is_archived else 0 }}" data-zero-penalty="{{ 1 if acc.fee_type.is_penalty and bal == 0 else 0 }}">
+      <td onclick="window.location='{{ url_for('finance.member_account_detail', account_id=acc.id) }}'" style="cursor:pointer" data-sort-value="{{ acc.garage.number }}">№{{ acc.garage.number }}{% if acc.is_archived %} <span class="badge bg-secondary">{{ _("архив") }}</span>{% endif %}</td>
       <td onclick="window.location='{{ url_for('finance.member_account_detail', account_id=acc.id) }}'" style="cursor:pointer">{{ acc.fee_type.name }}</td>
       <td onclick="window.location='{{ url_for('finance.member_account_detail', account_id=acc.id) }}'" style="cursor:pointer" class="text-end">{{ acc.account_number }}</td>
       <td onclick="window.location='{{ url_for('finance.member_account_detail', account_id=acc.id) }}'" style="cursor:pointer" class="js-account-balance text-end {{ 'text-danger' if bal < 0 else 'text-success' }}" data-sort-value="{{ bal if bal else '0' }}">
         {{ (fmt2(bal) ~ " ₽") }}
       </td>
       <td class="text-nowrap">
+        {% if not acc.is_archived %}
         <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#quickCharge-{{ acc.id }}" title="{{ _('Начислить') }}">+{{ _("счёт") }}</button>
         <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#quickPayment-{{ acc.id }}" title="{{ _('Зарегистрировать платёж') }}">+{{ _("платёж") }}</button>
+        {% endif %}
       </td>
     </tr>
     {% endfor %}

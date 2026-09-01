@@ -12,15 +12,20 @@
   </div>
 </div>
 <p class="text-muted small">{{ _("Земельный налог, членские взносы и пени по ним — отдельный счёт на каждого собственника по каждому гаражу.") }}</p>
-<div class="mb-3">
-  <input class="form-control" id="memberAccountsFilterInput" placeholder="{{ _('Поиск по ФИО, гаражу или счёту...') }}">
+<div class="d-flex align-items-center gap-3 mb-3 flex-wrap">
+  <input class="form-control" style="max-width:400px" id="memberAccountsFilterInput" placeholder="{{ _('Поиск по ФИО, гаражу или счёту...') }}">
+  <div class="form-check mb-0">
+    <input class="form-check-input" type="checkbox" id="memberAccountsActiveOnly" checked>
+    <label class="form-check-label" for="memberAccountsActiveOnly">{{ _("Актуальные") }}</label>
+  </div>
 </div>
 <table class="table table-hover bg-body sortable" id="memberAccountsTable">
   <thead><tr><th>{{ _("ФИО") }}</th><th>{{ _("Гараж") }}</th><th>{{ _("Вид взноса") }}</th><th class="text-end">{{ _("Счёт") }}</th><th class="text-end">{{ _("Баланс") }}</th></tr></thead>
   <tbody>
     {% for account, balance in rows %}
     <tr onclick="window.location='{{ url_for('finance.member_account_detail', account_id=account.id) }}'" style="cursor:pointer"
-        data-filter-text="{{ (account.person.full_name ~ ' ' ~ account.garage.number ~ ' ' ~ account.fee_type.name ~ ' ' ~ account.account_number)|lower }}">
+        data-filter-text="{{ (account.person.full_name ~ ' ' ~ account.garage.number ~ ' ' ~ account.fee_type.name ~ ' ' ~ account.account_number)|lower }}"
+        data-archived="{{ 1 if account.is_archived else 0 }}" data-zero-penalty="{{ 1 if account.fee_type.is_penalty and balance == 0 else 0 }}">
       <td>{{ account.person.full_name }}{% if account.is_archived %} <span class="badge bg-secondary">{{ _("архив") }}</span>{% endif %}</td>
       <td data-sort-value="{{ account.garage.number }}">№{{ account.garage.number }}</td>
       <td>{{ account.fee_type.name }}</td>
@@ -84,6 +89,7 @@
 // ROWS_PER_PAGE, рисуем пейджер с «…» при большом числе страниц.
 (function () {
   const input = document.getElementById("memberAccountsFilterInput");
+  const activeOnly = document.getElementById("memberAccountsActiveOnly");
   const table = document.getElementById("memberAccountsTable");
   const pager = document.getElementById("memberAccountsPager");
   const pagerLinks = document.getElementById("memberAccountsPagerLinks");
@@ -156,8 +162,11 @@
 
   function updatePager() {
     const q = input ? input.value.trim().toLowerCase() : "";
+    const onlyActive = activeOnly ? activeOnly.checked : false;
     let visibleRows = rows.filter(function (row) {
-      return !q || row.getAttribute("data-filter-text").includes(q);
+      const matchesQuery = !q || row.getAttribute("data-filter-text").includes(q);
+      const isNoise = onlyActive && (row.getAttribute("data-archived") === "1" || row.getAttribute("data-zero-penalty") === "1");
+      return matchesQuery && !isNoise;
     });
 
     if (visibleRows.length === 0) {
@@ -181,6 +190,12 @@
 
   if (input) {
     input.addEventListener("input", function () {
+      currentPage = 1;
+      updatePager();
+    });
+  }
+  if (activeOnly) {
+    activeOnly.addEventListener("change", function () {
       currentPage = 1;
       updatePager();
     });

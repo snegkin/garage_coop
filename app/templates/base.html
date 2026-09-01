@@ -330,6 +330,28 @@ document.addEventListener("DOMContentLoaded", function () {
   }
 });
 
+// Чекбокс «Актуальные» у таблицы лицевых счетов (страницы гаража/человека,
+// см. data-active-accounts-toggle на самом чекбоксе — CSS-селектор его
+// строк) — скрывает архивные счета (data-archived="1", см.
+// MemberAccount.is_archived) и полностью погашенные пени (data-zero-penalty="1"
+// — вид взноса пеня и текущий баланс ровно 0, см. account_summary_rows/
+// persons.detail): исторический шум, который не нужен для повседневной
+// работы, но должен быть доступен по снятой галочке. Общий разметочный
+// приём для нескольких шаблонов, а не копия скрипта в каждом.
+document.addEventListener("DOMContentLoaded", function () {
+  document.querySelectorAll("[data-active-accounts-toggle]").forEach(function (checkbox) {
+    var rows = document.querySelectorAll(checkbox.getAttribute("data-active-accounts-toggle"));
+    function apply() {
+      rows.forEach(function (row) {
+        var isNoise = row.getAttribute("data-archived") === "1" || row.getAttribute("data-zero-penalty") === "1";
+        row.classList.toggle("d-none", checkbox.checked && isNoise);
+      });
+    }
+    checkbox.addEventListener("change", apply);
+    apply();
+  });
+});
+
 // CSRF: подставляем скрытое поле csrf_token в каждую POST-форму на странице.
 // Централизованно здесь, а не руками в 40+ шаблонах — новые формы получают
 // защиту автоматически, без риска забыть добавить поле в конкретном шаблоне.

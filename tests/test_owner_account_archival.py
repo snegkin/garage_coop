@@ -114,3 +114,43 @@ def test_new_owner_gets_fresh_number_when_garage_never_lost_all_owners(app, db, 
     refreshed_a = database.db_session.get(MemberAccount, account_a.id)
     assert refreshed_a.is_archived is False
     assert refreshed_a.account_number == "12010"
+
+
+def test_removing_and_readding_the_same_sole_owner_does_not_duplicate_accounts(app, db, client):
+    """Регрессия: собственника по ошибке удалили и тут же вернули обратно
+    (тот же человек, гараж побывал без собственника мгновение) — его счета
+    всё это время оставались активными (см. _remove_owner_and_redistribute),
+    архивировать/дублировать нечего. Раньше это падало с UNIQUE constraint
+    failed по (person_id, garage_id, fee_type_id) — код пытался завести
+    ему «новый» счёт с тем же номером поверх его же активного."""
+    person = make_person(db, full_name="Тот Же Собственник")
+    garage = make_garage(db, number="202")
+    ownership = make_ownership(db, garage, person)
+    fee_type = _setup_fee_type(db)
+    account = MemberAccount(
+        person_id=person.id, garage_id=garage.id, fee_type_id=fee_type.id, account_number="12020",
+    )
+    db.add(account)
+    db.flush()
+    db.add(Charge(account_id=account.id, year=2026, amount=Decimal("300.00")))
+    make_user(db, "board_readd", "pass12345", role=RoleEnum.BOARD)
+    db.commit()
+    login(client, "board_readd", "pass12345")
+
+    resp = client.post(f"/garages/{garage.id}/owners/{ownership.id}/remove", data={"comment": "ошибка"})
+    assert resp.status_code == 302
+
+    resp = client.post(f"/garages/{garage.id}/owners/add", data={"person_id": person.id, "share": "1"})
+    assert resp.status_code == 302
+    db.expire_all()
+
+    accounts = (
+        database.db_session.query(MemberAccount)
+        .filter_by(garage_id=garage.id, fee_type_id=fee_type.id)
+        .all()
+    )
+    assert len(accounts) == 1                      # не задублировался
+    assert accounts[0].id == account.id
+    assert accounts[0].is_archived is False
+    assert accounts[0].account_number == "12020"
+    assert balance(accounts[0]) == Decimal("-300.00")  # долг никуда не делся, не обнулился

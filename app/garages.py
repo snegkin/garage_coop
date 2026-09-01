@@ -87,6 +87,16 @@ def _archive_owner_accounts_and_reuse(garage: Garage, new_person_id: int) -> Non
     должно случаться в норме — у единственного собственника счета
     заводятся на все fee_types сразу, см. _ensure_member_accounts), на
     всякий случай заводятся как обычно, новым номером.
+
+    Отдельный случай — ТОТ ЖЕ человек, что и выбыл, возвращается в
+    собственники (например, ошибочно удалили и тут же добавили обратно):
+    его счета всё это время оставались активными (см.
+    _remove_owner_and_redistribute — единственному собственнику при
+    выбытии ничего не трогаем), архивировать и дублировать их нечем —
+    пропускаем, оставляем как есть. Раньше (баг) код всё равно пытался
+    завести ему «новый» счёт с тем же номером — UNIQUE constraint failed
+    по (person_id, garage_id, fee_type_id), т.к. это буквально его же
+    активная запись.
     """
     old_accounts = (
         database.db_session.query(MemberAccount)
@@ -95,6 +105,9 @@ def _archive_owner_accounts_and_reuse(garage: Garage, new_person_id: int) -> Non
     )
     handled_fee_type_ids = set()
     for old_account in old_accounts:
+        handled_fee_type_ids.add(old_account.fee_type_id)
+        if old_account.person_id == new_person_id:
+            continue
         old_account.is_archived = True
         new_account = MemberAccount(
             person_id=new_person_id, garage_id=garage.id, fee_type_id=old_account.fee_type_id,
@@ -103,7 +116,6 @@ def _archive_owner_accounts_and_reuse(garage: Garage, new_person_id: int) -> Non
         database.db_session.add(new_account)
         database.db_session.flush()
         transfer_member_account_balance(old_account, new_account)
-        handled_fee_type_ids.add(old_account.fee_type_id)
 
     fee_types = (
         database.db_session.query(FeeType)

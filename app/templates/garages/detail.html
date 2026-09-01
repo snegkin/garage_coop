@@ -212,7 +212,12 @@
 </div>
 
 <h5 class="mt-4">{{ _("Лицевые счета") }}</h5>
-<table class="table table-sm bg-body sortable">
+<div class="form-check mb-2">
+  <input class="form-check-input" type="checkbox" id="garageAccountsActiveOnly" checked
+         data-active-accounts-toggle="#garageAccountsTable tbody tr[data-account-row]">
+  <label class="form-check-label" for="garageAccountsActiveOnly">{{ _("Актуальные") }}</label>
+</div>
+<table class="table table-sm bg-body sortable" id="garageAccountsTable">
   <thead><tr><th>{{ _("ФИО") }}</th><th>{{ _("Вид взноса") }}</th><th class="text-end">{{ _("Номер счёта") }}</th><th class="text-end">{{ _("Баланс") }}</th>{% if is_board() %}<th class="no-sort"></th>{% endif %}</tr></thead>
   <tbody>
     {% if account %}
@@ -225,7 +230,7 @@
     </tr>
     {% endif %}
     {% for row in account_summary_rows %}
-    <tr data-account-row="{{ row.id }}">
+    <tr data-account-row="{{ row.id }}" data-archived="{{ 1 if row.is_archived else 0 }}" data-zero-penalty="{{ 1 if row.fee_type.is_penalty and row.balance == 0 else 0 }}">
       <td>{% if is_board() %}<a href="{{ url_for('persons.detail', person_id=row.person.id) }}">{{ row.person.full_name }}</a>{% else %}{{ row.person.full_name }}{% endif %}{% if row.is_archived %} <span class="badge bg-secondary">{{ _("архив") }}</span>{% endif %}</td>
       <td>{{ row.fee_type.name }}</td>
       <td class="text-end">{{ row.account_number }}</td>

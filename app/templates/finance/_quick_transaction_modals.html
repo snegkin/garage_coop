@@ -9,7 +9,7 @@
 <div class="modal fade" id="quickCharge-{{ acc.id }}" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog">
     <div class="modal-content">
-      <form class="js-quick-charge-form" data-account-id="{{ acc.id }}" data-url="{{ url_for('finance.add_member_charge', account_id=acc.id) }}">
+      <form method="post" class="js-quick-charge-form" data-account-id="{{ acc.id }}" data-url="{{ url_for('finance.add_member_charge', account_id=acc.id) }}">
         <div class="modal-header">
           <h5 class="modal-title">{{ _("Начислить") }} — {{ acc.account_number }}</h5>
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
@@ -43,7 +43,7 @@
 <div class="modal fade" id="quickPayment-{{ acc.id }}" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog">
     <div class="modal-content">
-      <form class="js-quick-payment-form" data-account-id="{{ acc.id }}" data-url="{{ url_for('finance.add_member_payment', account_id=acc.id) }}">
+      <form method="post" class="js-quick-payment-form" data-account-id="{{ acc.id }}" data-url="{{ url_for('finance.add_member_payment', account_id=acc.id) }}">
         <div class="modal-header">
           <h5 class="modal-title">{{ _("Зарегистрировать платёж") }} — {{ acc.account_number }}</h5>
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>

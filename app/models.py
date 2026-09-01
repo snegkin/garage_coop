@@ -812,6 +812,23 @@ class Person(Base):
 
     comment: Mapped[str | None] = mapped_column(Text)
 
+    # Архив — человек скрыт из общих списков (умер, продал гараж и выбыл
+    # и т.п.), но данные остаются доступны по прямой ссылке (карточка,
+    # печатная выписка) — см. persons.py: archive_person/unarchive_person.
+    # Синхронизировано с выбытием из собственников гаражей — при архивации
+    # для каждого гаража, где человек СОвладелец, он автоматически убирается
+    # из собственников (см. garages._remove_owner_and_redistribute) с этой
+    # же причиной, доли оставшихся пересчитываются, остаток его лицевых
+    # счетов по этому гаражу распределяется между ними пропорционально
+    # новым долям. Если он был ЕДИНСТВЕННЫМ собственником — ничего не
+    # трогается (ни GarageOwnership, ни лицевые счета) — гараж и счета
+    # остаются как есть до появления нового собственника, автоматика
+    # намеренно не решает, что делать в этом случае за председателя.
+    is_archived: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    archived_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
+    archived_reason: Mapped[str | None] = mapped_column(Text)  # «умер», «продал гараж» и т.п.
+    archived_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("user.id", ondelete="SET NULL"))
+
     # членство в кооперативе (не у каждого Person обязательно есть — может быть просто контактным лицом)
     membership_start_date: Mapped[dt.date | None] = mapped_column(Date)
     membership_end_date: Mapped[dt.date | None] = mapped_column(Date)
@@ -826,6 +843,7 @@ class Person(Base):
 
     phones: Mapped[list["Phone"]] = relationship(back_populates="person", cascade="all, delete-orphan")
     revisions: Mapped[list["PersonDataRevision"]] = relationship(back_populates="person", cascade="all, delete-orphan")
+    archived_by: Mapped["User | None"] = relationship(foreign_keys=[archived_by_user_id])
 
     __table_args__ = (
         Index("uq_single_chairman", "is_chairman", unique=True, sqlite_where=text("is_chairman = 1")),
@@ -865,7 +883,7 @@ class User(Base):
     person_id: Mapped[int | None] = mapped_column(ForeignKey("person.id", ondelete="SET NULL"), unique=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
-    person: Mapped["Person | None"] = relationship()
+    person: Mapped["Person | None"] = relationship(foreign_keys=[person_id])
 
 
 class News(Base):
@@ -1098,6 +1116,43 @@ class GarageOwnership(Base):
         UniqueConstraint("garage_id", "person_id", name="uq_ownership_garage_person"),
         CheckConstraint("share > 0 AND share <= 1", name="ck_share_range"),
     )
+
+
+class GarageOwnershipEventType(str, enum.Enum):
+    ADDED = "added"
+    SHARE_CHANGED = "share_changed"
+    REMOVED = "removed"
+
+
+class GarageOwnershipEvent(Base):
+    """
+    Журнал изменений состава собственников гаража — добавление, изменение
+    доли, выбытие (продал, умер, унаследовал и т.п.). Append-only, ничего
+    не редактируется и не удаляется после записи.
+
+    Это НЕ источник истины о текущих собственниках — для этого по-прежнему
+    служит GarageOwnership, её семантика не меняется (там только
+    актуальные владельцы, как и было раньше; весь остальной код —
+    MemberAccount, доли начислений, страница гаража и т.д. — продолжает
+    работать через неё без изменений). Здесь — только история: что
+    произошло, когда, с какой долей и по какой причине (свободный
+    комментарий), для печати и справки правлению. См.
+    app/templates/garages/ownership_history.html.
+    """
+    __tablename__ = "garage_ownership_event"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    garage_id: Mapped[int] = mapped_column(ForeignKey("garage.id", ondelete="CASCADE"), index=True)
+    person_id: Mapped[int] = mapped_column(ForeignKey("person.id", ondelete="CASCADE"), index=True)
+    event_type: Mapped[GarageOwnershipEventType] = mapped_column(Enum(GarageOwnershipEventType))
+    share: Mapped[Decimal | None] = mapped_column(Numeric(6, 5))  # доля ПОСЛЕ события; пусто для REMOVED
+    comment: Mapped[str | None] = mapped_column(Text)  # причина: «продал», «умер», «унаследовал» и т.п.
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.utcnow, index=True)
+    created_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("user.id", ondelete="SET NULL"))
+
+    garage: Mapped["Garage"] = relationship()
+    person: Mapped["Person"] = relationship()
+    created_by: Mapped["User | None"] = relationship()
 
 
 class GarageContact(Base):

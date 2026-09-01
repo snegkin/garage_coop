@@ -98,7 +98,7 @@
     <form method="post" action="{{ url_for('finance.add_member_payment', account_id=account.id) }}" class="border rounded p-3 bg-body">
       <div class="row g-2">
         <div class="col-4">
-          <input class="form-control form-control-sm" type="date" name="date" required>
+          <input class="form-control form-control-sm" type="date" name="date" value="{{ today.isoformat() }}" required>
         </div>
         <div class="col-4">
           <input class="form-control form-control-sm" name="amount" placeholder="{{ _('сумма') }}" required>

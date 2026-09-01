@@ -359,6 +359,55 @@ def test_extract_account_number_variants():
     assert bank_sync.extract_account_number(None) is None
 
 
+def test_extract_account_number_slash_and_three_letter_variants():
+    """Найдено на реальной выписке (структура и форматы сохранены как есть
+    в tests/fixtures/statement_sample.csv, но все ФИО/ИНН/адреса/номера
+    счетов в самом файле — вымышленные, заменены при подготовке фикстуры,
+    см. context.md): один и тот же банк/подключение вперемешку присылает
+    «ЛС», «Л/С» (слэш между буквами) и «ЛСИ» (третья буква, иногда с
+    пробелом перед двоеточием) — без «ЛСИ» регэксп ловил заметно меньше в
+    реальных данных (10 из 81 против 29 из 81 с ним)."""
+    assert bank_sync.extract_account_number("Л/С:20700;ПРД:01.2026") == "20700"
+    assert bank_sync.extract_account_number("QR5/Л/С 10550/Период опл 0126") == "10550"
+    assert bank_sync.extract_account_number("ЧЛЕНСКИЕ ВЗНОСЫ Л/С 10760") == "10760"
+    assert bank_sync.extract_account_number("ЛСИ:20780;ПРД:0126") == "20780"
+    assert bank_sync.extract_account_number("ЛСИ :20780;ПРД:0126") == "20780"  # пробел перед двоеточием
+    # Полные строки назначения платежа (не только сам фрагмент с меткой) —
+    # чтобы наличие «(ФАМИЛИЯ И.О.)» и «;ПРД:...» после номера не мешало
+    # найти сам номер счёта в начале/середине строки.
+    assert bank_sync.extract_account_number("ЧЛЕНСКИЕ ВЗНОСЫ (ЕРШОВА Н.Ю.);ЛСИ:10180;ПРД:0126") == "10180"
+    assert bank_sync.extract_account_number("ЗЕМЕЛЬНЫЙ НАЛОГ (ЕРШОВА Н.Ю.);ЛСИ:20180;ПРД:0126") == "20180"
+
+
+def test_is_aggregate_registry_payment():
+    aggregate = (
+        "ПО ПРИНЯТЫМ ПЛАТЕЖАМ С 12/02/2026 ПО 12/02/2026 НА ОБЩУЮ СУММУ 5120.00,"
+        "В Т.Ч.УСЛ.БАНКА:0.00,В КОЛ-ВЕ 4,СОГЛАСНО ЭЛ.РЕЕСТРУ EPS..._051.txt"
+    )
+    assert bank_sync.is_aggregate_registry_payment(aggregate) is True
+    assert bank_sync.is_aggregate_registry_payment("ЛС 10640; ЧЛЕНСКИЕ ВЗНОСЫ") is False
+    assert bank_sync.is_aggregate_registry_payment(None) is False
+
+
+def test_account_number_extraction_against_statement_sample():
+    """Регрессия на образце реального экспорта выписки (ФИО/ИНН/адреса и
+    номера счетов в файле — вымышленные, структура и форматы записи —
+    подлинные, см. docstring выше) — доля зачислений, для которых
+    извлекается номер лицевого счёта из текста, не должна упасть ниже уже
+    достигнутой (29 из 81) при будущих правках регэкспа."""
+    import csv
+    fixture_path = os.path.join(os.path.dirname(__file__), "fixtures", "statement_sample.csv")
+    with open(fixture_path, encoding="utf-8") as f:
+        rows = list(csv.reader(f, delimiter=";"))
+    credits = [r for r in rows if len(r) >= 8 and r[1] == "зачисление"]
+    assert len(credits) == 81  # сам фикстур не должен незаметно измениться
+
+    with_number = sum(1 for r in credits if bank_sync.extract_account_number(r[5]))
+    aggregate = sum(1 for r in credits if bank_sync.is_aggregate_registry_payment(r[5]))
+    assert with_number >= 29
+    assert aggregate == 22  # агрегированные проводки по реестру — не пытаемся разносить как обычное зачисление
+
+
 def test_sync_statement_auto_allocates_credit_with_account_number(app, db, client, monkeypatch):
     person = make_person(db)
     garage = make_garage(db)
@@ -481,6 +530,57 @@ def test_allocate_statement_line_manually(app, db, client):
     db.expire_all()
     updated_line = database.db_session.get(BankStatementLine, line.id)
     assert updated_line.account_number == "60077"
+    assert updated_line.matched_payment_id is not None
+    assert balance(member_account) == Decimal("0.00")
+
+
+def test_allocate_statement_line_empty_field_falls_back_to_purpose_text(app, db, client):
+    """Регрессия: номер счёта явно указан в тексте назначения платежа
+    («ЛСИ:10180»), но line.account_number в БД пуст (например, строка
+    синхронизировалась до того, как этот вариант метки стали распознавать)
+    — нажатие «Разнести» с ПУСТЫМ полем ввода должно само найти номер в
+    тексте, а не требовать ручного ввода того, что и так есть в назначении
+    платежа. Раньше здесь был баг: подсказка «Предполагаемый счёт» (см.
+    статью statement()) вызывает extract_account_number и находит номер,
+    а сама кнопка «Разнести» — нет, из-за чего с виду «подсказанный»
+    платёж не разносился."""
+    person = make_person(db, full_name="Ершова Надежда Юрьевна")
+    garage = make_garage(db, number="18")
+    make_ownership(db, garage, person)
+    fee_type = FeeType(code="10", name="Членский взнос")
+    db.add(fee_type)
+    db.flush()
+    member_account = MemberAccount(
+        person_id=person.id, garage_id=garage.id, fee_type_id=fee_type.id, account_number="10180",
+    )
+    db.add(member_account)
+    db.flush()
+    db.add(Charge(account_id=member_account.id, year=2026, amount=Decimal("1710.00")))
+
+    bank_account = make_bank_account(db)
+    line = BankStatementLine(
+        bank_account_id=bank_account.id, external_uid="op-ershova", operation_date=dt.date(2026, 8, 20),
+        direction="credit", amount=Decimal("1710.00"),
+        payment_purpose="ЧЛЕНСКИЕ ВЗНОСЫ (ЕРШОВА Н.Ю.);ЛСИ:10180;ПРД:0126",
+        counterparty_name="Ершова Надежда Юрьевна",
+        account_number=None,  # намеренно пусто — как в реальном баг-репорте
+    )
+    db.add(line)
+    make_user(db, "chair19", "pass12345", role=RoleEnum.CHAIRMAN)
+    db.commit()
+    login(client, "chair19", "pass12345")
+
+    resp = client.post(
+        f"/cooperative/bank-accounts/{bank_account.id}/statement/{line.id}/allocate",
+        data={"account_number": ""},
+        headers={"X-Requested-With": "XMLHttpRequest"},
+    )
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["success"] is True
+    assert data["account_number"] == "10180"
+    db.expire_all()
+    updated_line = database.db_session.get(BankStatementLine, line.id)
     assert updated_line.matched_payment_id is not None
     assert balance(member_account) == Decimal("0.00")
 

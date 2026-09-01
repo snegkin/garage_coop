@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Выписка") }} — {{ person.full_name }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3 no-print">
+  <h3 class="mb-0">{{ _("Выписка по лицевым счетам") }} — {{ person.full_name }}</h3>
+  <div class="d-flex gap-2">
+    <button class="btn btn-primary" onclick="window.print()">{{ _("Печать") }}</button>
+    <a class="btn btn-outline-secondary" href="{{ url_for('persons.detail', person_id=person.id) }}">{{ _("Назад") }}</a>
+  </div>
+</div>
+
+<style>
+@media print {
+  .no-print, nav, footer { display: none !important; }
+  html, body { margin: 0 !important; padding: 0 !important; }
+  body div, body main, body section {
+    width: auto !important;
+    max-width: none !important;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+  }
+  .statement-section { page-break-inside: avoid; break-inside: avoid; }
+}
+.statement-header { display: none; }
+@media print { .statement-header { display: block; } }
+</style>
+
+<div class="statement-header mb-3">
+  <h4 class="mb-0">{{ _("Выписка по лицевым счетам") }}</h4>
+  <p class="text-muted mb-0">{{ person.full_name }} · {{ _("по состоянию на") }} {{ fmt_date(today) }}</p>
+</div>
+
+{% if not sections %}
+<p class="text-muted">{{ _("У этого человека пока нет лицевых счетов.") }}</p>
+{% endif %}
+
+{% for section in sections %}
+<div class="statement-section mb-4 pb-3 border-bottom">
+  <div class="d-flex justify-content-between align-items-baseline flex-wrap">
+    <h5 class="mb-1">{{ section.title }} <span class="text-muted small">№{{ section.account_number }}</span></h5>
+    <span class="fs-6 {{ 'text-danger' if section.balance < 0 else 'text-success' }}">
+      {{ _("Баланс") }}: {{ fmt2(section.balance) }} ₽
+    </span>
+  </div>
+
+  <div class="row g-3">
+    <div class="col-md-6">
+      <table class="table table-sm bg-body">
+        <thead><tr><th>{{ _("Год") }}</th><th>{{ _("Начислено") }}</th><th>{{ _("Оплачено") }}</th><th>{{ _("Статус") }}</th><th>{{ _("Комментарий") }}</th></tr></thead>
+        <tbody>
+          {% for row in section.charges %}
+          <tr>
+            <td>{{ row.charge.year }}</td>
+            <td>{{ fmt2(row.charge.amount) }} ₽</td>
+            <td>{{ fmt2(row.paid) }} ₽</td>
+            <td>
+              {% if row.status == "paid" %}<span class="badge bg-success">{{ _("оплачено") }}</span>
+              {% elif row.status == "partial" %}<span class="badge bg-warning text-dark">{{ _("частично") }}</span>
+              {% else %}<span class="badge bg-danger">{{ _("не оплачено") }}</span>{% endif %}
+            </td>
+            <td>{{ row.charge.comment or "—" }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="5" class="text-muted">{{ _("Начислений нет.") }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="col-md-6">
+      <table class="table table-sm bg-body">
+        <thead><tr><th>{{ _("Дата") }}</th><th>{{ _("Сумма") }}</th><th>{{ _("Комментарий") }}</th></tr></thead>
+        <tbody>
+          {% for payment in section.payments %}
+          <tr>
+            <td>{{ fmt_date(payment.date) }}</td>
+            <td>{{ fmt2(payment.amount) }} ₽</td>
+            <td>{{ payment.comment or "—" }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="3" class="text-muted">{{ _("Платежей нет.") }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endfor %}
+{% endblock %}

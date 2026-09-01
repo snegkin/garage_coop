@@ -14,12 +14,15 @@ from .i18n import translate as _
 from .auth import login_required, roles_required
 from .permissions import is_board, is_owner_or_board, is_chairman, is_privileged, can_view_member_account
 from .models import (
-    Garage, Person, GarageOwnership, GarageContact, GaragePhoto, PersonalAccount,
-    MemberAccount, FeeType, RoleEnum, ElectricityMeter, ElectricityReading,
+    Garage, Person, GarageOwnership, GarageOwnershipEvent, GarageOwnershipEventType, GarageContact, GaragePhoto,
+    PersonalAccount, MemberAccount, FeeType, RoleEnum, ElectricityMeter, ElectricityReading,
     Charge, Payment, User,
 )
 from sqlalchemy.orm import joinedload
-from .accounting import electricity_account_number, member_account_number, balance, current_tariff, reallocate_garage_charges, charge_paid_amount
+from .accounting import (
+    electricity_account_number, member_account_number, balance, current_tariff, reallocate_garage_charges,
+    charge_paid_amount, split_amount_by_shares, redistribute_member_account_balance,
+)
 
 bp = Blueprint("garages", __name__, url_prefix="/garages")
 
@@ -219,7 +222,7 @@ def detail(garage_id):
     )
     member_accounts.sort(key=lambda ma: (ma.person.full_name, ma.fee_type.name))
     account_summary_rows = [
-        {"person": ma.person, "fee_type": ma.fee_type, "account_number": ma.account_number, "balance": balance(ma)}
+        {"id": ma.id, "person": ma.person, "fee_type": ma.fee_type, "account_number": ma.account_number, "balance": balance(ma)}
         for ma in member_accounts
         if can_view_member_account(ma)
         and (not ma.fee_type.is_penalty or ma.charges)
@@ -311,6 +314,18 @@ def detail(garage_id):
         title = f"{title} ({owner_names})"
     title = _truncate(title, 70)
 
+    # история собственников — только board видит (та же видимость, что у
+    # самой таблицы текущих собственников/её редактирования), см.
+    # models.GarageOwnershipEvent: append-only журнал, не источник истины
+    # о ТЕКУЩИХ собственниках (для этого по-прежнему garage.ownerships).
+    ownership_events = (
+        database.db_session.query(GarageOwnershipEvent)
+        .filter_by(garage_id=garage.id)
+        .options(joinedload(GarageOwnershipEvent.person), joinedload(GarageOwnershipEvent.created_by))
+        .order_by(GarageOwnershipEvent.created_at.desc(), GarageOwnershipEvent.id.desc())
+        .all()
+    ) if is_board() else []
+
     return render_template(
         "garages/detail.html",
         garage=garage,
@@ -335,6 +350,7 @@ def detail(garage_id):
         prev_garage=prev_garage,
         next_garage=next_garage,
         page_title=title,
+        ownership_events=ownership_events,
     )
 
 
@@ -368,6 +384,7 @@ def edit(garage_id):
 def add_owner(garage_id):
     garage = database.db_session.get(Garage, garage_id)
     person_id = int(request.form["person_id"])
+    comment = (request.form.get("comment") or "").strip() or None
     try:
         share = Decimal(request.form["share"] or "1")
     except InvalidOperation:
@@ -385,11 +402,19 @@ def add_owner(garage_id):
     )
     if existing:
         existing.share = share
+        database.db_session.add(GarageOwnershipEvent(
+            garage_id=garage.id, person_id=person_id, event_type=GarageOwnershipEventType.SHARE_CHANGED,
+            share=share, comment=comment, created_by_user_id=g.user.id,
+        ))
     else:
         owner_index = database.db_session.query(GarageOwnership).filter_by(garage_id=garage.id).count()
         database.db_session.add(GarageOwnership(garage_id=garage.id, person_id=person_id, share=share))
         database.db_session.flush()
         _ensure_member_accounts(garage, person_id, owner_index)
+        database.db_session.add(GarageOwnershipEvent(
+            garage_id=garage.id, person_id=person_id, event_type=GarageOwnershipEventType.ADDED,
+            share=share, comment=comment, created_by_user_id=g.user.id,
+        ))
     database.db_session.commit()
     flash(_("Собственник добавлен/обновлён."), "success")
     return redirect(url_for("garages.detail", garage_id=garage_id))
@@ -412,10 +437,76 @@ def update_owner_share(garage_id, ownership_id):
         flash(_("Доля должна быть в диапазоне от 0 (не включая) до 1."), "danger")
         return redirect(url_for("garages.detail", garage_id=garage_id))
 
+    comment = (request.form.get("comment") or "").strip() or None
     ownership.share = share
+    database.db_session.add(GarageOwnershipEvent(
+        garage_id=garage_id, person_id=ownership.person_id, event_type=GarageOwnershipEventType.SHARE_CHANGED,
+        share=share, comment=comment, created_by_user_id=g.user.id,
+    ))
     database.db_session.commit()
     flash(_("Доля обновлена."), "success")
     return redirect(url_for("garages.detail", garage_id=garage_id))
+
+
+def _remove_owner_and_redistribute(garage: Garage, ownership: GarageOwnership, reason: str | None, user_id: int) -> None:
+    """
+    Общее ядро удаления собственника — используется и при ручном удалении
+    с карточки гаража (remove_owner), и при архивации человека
+    (persons.archive_person), чтобы поведение не расходилось в двух
+    местах (см. явный запрос — синхронизация архивации с выбытием из
+    собственников).
+
+    Раньше (до этой правки) удаление собственника сразу же УДАЛЯЛО его
+    лицевые счета по этому гаражу — вместе с историей начислений/платежей.
+    Теперь счета не удаляются никогда — только обнуляются переносом
+    остатка (если были другие собственники, см. ниже) — история остаётся
+    доступной для справки («мало ли какие вопросы»), а при повторном
+    появлении этого же человека как собственника _ensure_member_accounts
+    сам найдёт и переиспользует существующий счёт, не заведёт дубль.
+
+    Если были ДРУГИЕ собственники: их доли пересчитываются пропорционально
+    друг другу (чтобы снова суммировались в 1 — «доля оставшихся»), и
+    остаток лицевых счетов выбывшего по этому гаражу распределяется между
+    ними в этой же пропорции (см. accounting.redistribute_member_account_balance).
+    Если собственник был ЕДИНСТВЕННЫМ: ничего, кроме самой записи
+    GarageOwnership, не трогаем — лицевые счета остаются на нём со всем,
+    что на них есть, до появления нового собственника; that's намеренно,
+    решать, что делать с гаражом без единого собственника — дело
+    председателя, не автоматики.
+    """
+    database.db_session.add(GarageOwnershipEvent(
+        garage_id=garage.id, person_id=ownership.person_id, event_type=GarageOwnershipEventType.REMOVED,
+        share=None, comment=reason, created_by_user_id=user_id,
+    ))
+
+    remaining = [o for o in garage.ownerships if o.id != ownership.id]
+    if remaining:
+        total_remaining_share = sum((o.share for o in remaining), Decimal("0"))
+        if total_remaining_share > 0:
+            new_shares = split_amount_by_shares(
+                Decimal("1"), {o.person_id: (o.share / total_remaining_share) for o in remaining},
+                precision=Decimal("0.00001"),
+            )
+            for o in remaining:
+                new_share = new_shares[o.person_id]
+                if new_share != o.share:
+                    database.db_session.add(GarageOwnershipEvent(
+                        garage_id=garage.id, person_id=o.person_id, event_type=GarageOwnershipEventType.SHARE_CHANGED,
+                        share=new_share, created_by_user_id=user_id,
+                        comment=_("Автоматический пересчёт доли при выбытии {name}").format(name=ownership.person.full_name),
+                    ))
+                    o.share = new_share
+
+            departing_accounts = (
+                database.db_session.query(MemberAccount)
+                .filter_by(garage_id=garage.id, person_id=ownership.person_id)
+                .all()
+            )
+            for acc in departing_accounts:
+                redistribute_member_account_balance(acc, new_shares)
+    # else: единственный собственник — лицевые счета не трогаем вовсе.
+
+    database.db_session.delete(ownership)
 
 
 @bp.route("/<int:garage_id>/owners/<int:ownership_id>/remove", methods=["POST"])
@@ -423,18 +514,32 @@ def update_owner_share(garage_id, ownership_id):
 def remove_owner(garage_id, ownership_id):
     ownership = database.db_session.get(GarageOwnership, ownership_id)
     if ownership and ownership.garage_id == garage_id:
-        # Удаляем все лицевые счета этого собственника по этому гаражу
-        member_accounts = (
-            database.db_session.query(MemberAccount)
-            .filter_by(person_id=ownership.person_id, garage_id=garage_id)
-            .all()
-        )
-        for account in member_accounts:
-            database.db_session.delete(account)
-        database.db_session.delete(ownership)
+        comment = (request.form.get("comment") or "").strip() or None
+        _remove_owner_and_redistribute(ownership.garage, ownership, comment, g.user.id)
         database.db_session.commit()
         flash(_("Собственник удалён."), "success")
     return redirect(url_for("garages.detail", garage_id=garage_id))
+
+
+@bp.route("/<int:garage_id>/ownership-history")
+@roles_required(RoleEnum.BOARD)
+def ownership_history(garage_id):
+    """Полная история изменений собственников гаража — append-only журнал
+    (см. models.GarageOwnershipEvent), отдельная страница, а не вкладка на
+    самой карточке гаража, чтобы не перегружать и без того длинную
+    страницу; печатная (кнопка «Печать», как на pd4/persons.statement)."""
+    garage = database.db_session.get(Garage, garage_id)
+    if garage is None:
+        flash(_("Гараж не найден."), "danger")
+        return redirect(url_for("garages.list_garages"))
+    events = (
+        database.db_session.query(GarageOwnershipEvent)
+        .filter_by(garage_id=garage.id)
+        .options(joinedload(GarageOwnershipEvent.person), joinedload(GarageOwnershipEvent.created_by))
+        .order_by(GarageOwnershipEvent.created_at.desc(), GarageOwnershipEvent.id.desc())
+        .all()
+    )
+    return render_template("garages/ownership_history.html", garage=garage, events=events, today=dt.date.today())
 
 
 @bp.route("/<int:garage_id>/contacts/add", methods=["POST"])

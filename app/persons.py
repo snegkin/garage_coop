@@ -11,9 +11,12 @@ from . import audit
 from .i18n import translate as _
 from .auth import login_required, roles_required, is_safe_next_url
 from .permissions import is_board, sync_user_role
-from .models import Person, Phone, User, RoleEnum, MemberAccount, PersonDataRevision, PersonDataRevisionStatus
+from .models import (
+    Person, Phone, User, RoleEnum, MemberAccount, PersonDataRevision, PersonDataRevisionStatus,
+    GarageOwnership, PersonalAccount,
+)
 from sqlalchemy.orm import joinedload
-from .accounting import balance
+from .accounting import balance, charge_sort_date
 
 bp = Blueprint("persons", __name__, url_prefix="/persons")
 
@@ -23,8 +26,17 @@ bp = Blueprint("persons", __name__, url_prefix="/persons")
 def list_persons():
     q = request.args.get("q", "").strip()
     show_pending_only = request.args.get("pending") == "1"
+    show_archived = request.args.get("archived") == "1"
 
-    persons = database.db_session.query(Person).order_by(Person.full_name).all()
+    # Архивные (умер/продал гараж и т.п. — см. archive_person) скрыты из
+    # общего реестра по умолчанию, но не удалены — доступны по прямой
+    # ссылке на карточку/выписку и отдельной вкладкой здесь же.
+    persons = (
+        database.db_session.query(Person)
+        .filter(Person.is_archived.is_(show_archived))
+        .order_by(Person.full_name)
+        .all()
+    )
 
     # Находим всех, у кого есть pending-ревизии
     all_revisions = (
@@ -49,9 +61,13 @@ def list_persons():
         for person in persons
     }
 
-    # Если фильтр — только pending
+    # Если фильтр — только pending (не применяется вместе с «архивные» —
+    # архивный человек pending-ревизий не подаёт)
     if show_pending_only:
         persons = [p for p in persons if p.id in pending_by_person]
+
+    archived_count = database.db_session.query(Person).filter(Person.is_archived.is_(True)).count()
+    active_count = database.db_session.query(Person).filter(Person.is_archived.is_(False)).count()
 
     return render_template(
         "persons/list.html",
@@ -59,6 +75,9 @@ def list_persons():
         balances=balances,
         pending_by_person=pending_by_person,
         show_pending_only=show_pending_only,
+        show_archived=show_archived,
+        archived_count=archived_count,
+        active_count=active_count,
         q=q,
     )
 
@@ -148,7 +167,164 @@ def detail(person_id):
         ma for ma in member_accounts
         if not ma.fee_type.is_penalty or ma.charges
     ]
-    return render_template("persons/detail.html", person=person, account=account, member_accounts=member_accounts)
+    return render_template(
+        "persons/detail.html", person=person, account=account, member_accounts=member_accounts,
+        today=dt.date.today(),
+    )
+
+
+def _charge_status_rows(charges) -> list[dict]:
+    """Для каждого начисления — сколько из него реально погашено (через
+    ChargeAllocation, см. accounting.reallocate_*_charges — FIFO,
+    пересчитывается при каждом новом начислении/платеже, здесь только
+    читаем уже посчитанное) и статус для печати: оплачено полностью,
+    частично или не оплачено вовсе. Сортировка — тем же ключом, что и в
+    FIFO-разнесении (accounting.charge_sort_date), чтобы порядок в
+    распечатке совпадал с тем, в каком долги реально гасились."""
+    rows = []
+    for charge in sorted(charges, key=charge_sort_date):
+        paid = sum((a.amount for a in charge.allocations), Decimal("0"))
+        if paid <= 0:
+            status = "unpaid"
+        elif paid >= charge.amount:
+            status = "paid"
+        else:
+            status = "partial"
+        rows.append({"charge": charge, "date": charge_sort_date(charge), "paid": paid, "status": status})
+    return rows
+
+
+@bp.route("/<int:person_id>/statement")
+@login_required
+def statement(person_id):
+    """
+    Сводная печатная выписка по ВСЕМ лицевым счетам человека сразу —
+    взносы/налог/пеня (MemberAccount) и, если он собственник гаража(ей),
+    электричество (PersonalAccount, счёт общий на гараж, не персональный,
+    но раз человек им пользуется — включаем и его тоже) — чтобы не
+    собирать распечатку по каждому счёту отдельно со страницы member_account_detail.
+    Для каждого счёта — начисления с их статусом оплаты (см.
+    _charge_status_rows) и платежи, хронологически.
+    """
+    person = database.db_session.get(Person, person_id)
+    if person is None:
+        flash(_("Человек не найден."), "danger")
+        return redirect(url_for("persons.list_persons") if is_board() else url_for("cabinet.profile"))
+    if not is_board() and g.user.person_id != person_id:
+        abort(403)
+
+    member_accounts = (
+        database.db_session.query(MemberAccount)
+        .filter_by(person_id=person.id)
+        .options(joinedload(MemberAccount.charges), joinedload(MemberAccount.payments))
+        .all()
+    )
+    member_accounts = [ma for ma in member_accounts if not ma.fee_type.is_penalty or ma.charges]
+    member_accounts.sort(key=lambda ma: (ma.garage.number, ma.fee_type.name))
+
+    owned_garage_ids = [
+        o.garage_id for o in
+        database.db_session.query(GarageOwnership).filter_by(person_id=person.id).order_by(GarageOwnership.id).all()
+    ]
+    personal_accounts = []
+    if owned_garage_ids:
+        personal_accounts = (
+            database.db_session.query(PersonalAccount)
+            .filter(PersonalAccount.garage_id.in_(owned_garage_ids))
+            .options(joinedload(PersonalAccount.garage))
+            .all()
+        )
+        personal_accounts.sort(key=lambda pa: pa.garage.number)
+
+    sections = []
+    for ma in member_accounts:
+        sections.append({
+            "title": f"{ma.fee_type.name}, {_('гараж')} №{ma.garage.number}",
+            "account_number": ma.account_number,
+            "charges": _charge_status_rows(ma.charges),
+            "payments": sorted(ma.payments, key=lambda p: p.date),
+            "balance": balance(ma),
+        })
+    for pa in personal_accounts:
+        sections.append({
+            "title": f"{_('Электричество')}, {_('гараж')} №{pa.garage.number}",
+            "account_number": pa.account_number,
+            "charges": _charge_status_rows(pa.garage.charges),
+            "payments": sorted(pa.garage.payments, key=lambda p: p.date),
+            "balance": balance(pa.garage),
+        })
+
+    return render_template("persons/statement.html", person=person, sections=sections, today=dt.date.today())
+
+
+@bp.route("/<int:person_id>/archive", methods=["POST"])
+@roles_required(RoleEnum.BOARD)
+def archive_person(person_id):
+    """
+    Отправляет человека в архив — скрывается из общего реестра (см.
+    list_persons), но карточка/выписка остаются доступны по прямой ссылке
+    («мало ли какие вопросы»). Синхронизировано с выбытием из
+    собственников: для каждого гаража, где человек СОвладелец, он
+    автоматически убирается из собственников (см.
+    garages._remove_owner_and_redistribute) той же причиной — доли
+    оставшихся пересчитываются, остаток его лицевых счетов по этому
+    гаражу распределяется между ними пропорционально новым долям.
+    Если он был ЕДИНСТВЕННЫМ собственником — гараж и его лицевые счета не
+    трогаются вовсе (см. docstring _remove_owner_and_redistribute) —
+    остаются как есть до появления нового собственника.
+    """
+    from .garages import _remove_owner_and_redistribute  # локальный импорт: избегаем цикла persons<->garages
+
+    person = database.db_session.get(Person, person_id)
+    if person is None:
+        abort(404)
+    if person.is_archived:
+        flash(_("Этот человек уже в архиве."), "warning")
+        return redirect(url_for("persons.detail", person_id=person.id))
+
+    reason = (request.form.get("reason") or "").strip() or None
+
+    ownerships = database.db_session.query(GarageOwnership).filter_by(person_id=person.id).all()
+    for ownership in ownerships:
+        _remove_owner_and_redistribute(ownership.garage, ownership, reason, g.user.id)
+
+    person.is_archived = True
+    person.archived_at = dt.datetime.utcnow()
+    person.archived_reason = reason
+    person.archived_by_user_id = g.user.id
+    audit.record(
+        "person.archive", entity_type="person", entity_id=person.id,
+        summary=f"Человек «{person.full_name}» отправлен в архив" + (f": {reason}" if reason else ""),
+    )
+    database.db_session.commit()
+    flash(_("Человек отправлен в архив."), "success")
+    return redirect(url_for("persons.detail", person_id=person.id))
+
+
+@bp.route("/<int:person_id>/unarchive", methods=["POST"])
+@roles_required(RoleEnum.BOARD)
+def unarchive_person(person_id):
+    """
+    Возврат из архива — только снимает пометку, НЕ восстанавливает
+    собственников гаражей автоматически (решить, с какой долей и на каких
+    условиях — дело председателя, автоматика тут гадать не должна;
+    добавить обратно можно обычной формой «Добавить собственника» на
+    странице гаража).
+    """
+    person = database.db_session.get(Person, person_id)
+    if person is None:
+        abort(404)
+    person.is_archived = False
+    person.archived_at = None
+    person.archived_reason = None
+    person.archived_by_user_id = None
+    audit.record(
+        "person.unarchive", entity_type="person", entity_id=person.id,
+        summary=f"Человек «{person.full_name}» возвращён из архива",
+    )
+    database.db_session.commit()
+    flash(_("Человек возвращён из архива."), "success")
+    return redirect(url_for("persons.detail", person_id=person.id))
 
 
 @bp.route("/<int:person_id>/edit", methods=["GET", "POST"])

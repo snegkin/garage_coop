@@ -1,0 +1,75 @@
+{# Ожидает переменные: acc (объект с .id, .account_number), today (date, datetime.date.today()).
+   Используется через {% include %} внутри цикла по строкам таблицы лицевых
+   счетов (garages/detail.html, persons/detail.html) — «+» рядом со строкой,
+   чтобы не заходить на отдельную страницу счёта ради одного платежа/начисления.
+   Обработка отправки — общий делегированный JS-обработчик в base.html
+   (слушает submit по классам js-quick-charge-form/js-quick-payment-form),
+   не здесь — чтобы не дублировать скрипт в каждом месте, где встречается
+   этот partial. #}
+<div class="modal fade" id="quickCharge-{{ acc.id }}" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form class="js-quick-charge-form" data-account-id="{{ acc.id }}" data-url="{{ url_for('finance.add_member_charge', account_id=acc.id) }}">
+        <div class="modal-header">
+          <h5 class="modal-title">{{ _("Начислить") }} — {{ acc.account_number }}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="row g-2">
+            <div class="col-4">
+              <label class="form-label">{{ _("Год") }}</label>
+              <input class="form-control form-control-sm" type="number" name="year" value="{{ today.year }}" required>
+            </div>
+            <div class="col-4">
+              <label class="form-label">{{ _("Сумма") }}</label>
+              <input class="form-control form-control-sm" name="amount" required>
+            </div>
+            <div class="col-4">
+              <label class="form-label">{{ _("Комментарий") }}</label>
+              <input class="form-control form-control-sm" name="comment">
+            </div>
+          </div>
+          <div class="text-danger small mt-2 d-none js-quick-error"></div>
+        </div>
+        <div class="modal-footer d-flex justify-content-end">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+          <button class="btn btn-primary">{{ _("Начислить") }}</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="quickPayment-{{ acc.id }}" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form class="js-quick-payment-form" data-account-id="{{ acc.id }}" data-url="{{ url_for('finance.add_member_payment', account_id=acc.id) }}">
+        <div class="modal-header">
+          <h5 class="modal-title">{{ _("Зарегистрировать платёж") }} — {{ acc.account_number }}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="row g-2">
+            <div class="col-4">
+              <label class="form-label">{{ _("Дата") }}</label>
+              <input class="form-control form-control-sm" type="date" name="date" value="{{ today.isoformat() }}" required>
+            </div>
+            <div class="col-4">
+              <label class="form-label">{{ _("Сумма") }}</label>
+              <input class="form-control form-control-sm" name="amount" required>
+            </div>
+            <div class="col-4">
+              <label class="form-label">{{ _("Комментарий") }}</label>
+              <input class="form-control form-control-sm" name="comment">
+            </div>
+          </div>
+          <div class="text-danger small mt-2 d-none js-quick-error"></div>
+        </div>
+        <div class="modal-footer d-flex justify-content-end">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+          <button class="btn btn-primary">{{ _("Зарегистрировать") }}</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>

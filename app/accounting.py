@@ -27,6 +27,7 @@ from decimal import Decimal
 from sqlalchemy import func
 
 from . import database
+from .i18n import translate as _
 from .models import (
     AccountNumberSettings, ElectricityTariff, ElectricitySettings, Cooperative, Garage, LandTaxYear,
     Charge, Payment, MemberAccount, FeeType, ChargeAllocation, KeyRate,
@@ -160,6 +161,117 @@ def reallocate_member_charges(account: MemberAccount) -> None:
     charges = sorted(account.charges, key=charge_sort_date)
     payments = sorted(account.payments, key=lambda p: p.date)
     _reallocate_fifo(charges, payments)
+
+
+def split_amount_by_shares(
+    total: Decimal, shares: dict[int, Decimal], precision: Decimal = Decimal("0.01"),
+) -> dict[int, Decimal]:
+    """
+    Делит total между получателями пропорционально их долям (доли должны
+    суммироваться в 1) — с точностью до precision и БЕЗ потери на
+    округлении: последнему получателю (по порядку ключей словаря)
+    достаётся не отдельно посчитанная доля, а весь остаток (total минус
+    то, что уже роздано) — так сумма частей всегда равна total день в
+    день, вплоть до последнего знака, даже когда total не делится ровно
+    (например, 100.00 на троих поровну).
+
+    precision по умолчанию — копейка (для денежных сумм); для деления
+    ДОЛЕЙ владения (Numeric(6,5), не деньги) вызывающий код передаёт
+    Decimal("0.00001") — иначе доли ошибочно округлились бы до копеечной
+    точности, как деньги (см. garages._remove_owner_and_redistribute).
+    """
+    ids = list(shares.keys())
+    result: dict[int, Decimal] = {}
+    distributed = Decimal("0")
+    for i, pid in enumerate(ids):
+        if i == len(ids) - 1:
+            portion = (total - distributed).quantize(precision)
+        else:
+            portion = (total * shares[pid]).quantize(precision)
+            distributed += portion
+        result[pid] = portion
+    return result
+
+
+def redistribute_member_account_balance(
+    departing_account: MemberAccount, remaining_shares: dict[int, Decimal],
+) -> None:
+    """
+    Переносит остаток (сальдо) ОДНОГО лицевого счёта на счета того же вида
+    взноса у оставшихся собственников гаража — при выбытии одного из
+    совладельцев (см. garages._remove_owner_and_redistribute,
+    persons.archive_person). remaining_shares — {person_id: доля} для
+    оставшихся собственников, уже пересчитанные так, чтобы суммироваться
+    в 1 (см. split_amount_by_shares выше).
+
+    Баланс — не хранимое поле, а вычисляется от начислений/платежей (см.
+    balance()), поэтому «перенос» делается через компенсирующие
+    Charge/Payment, а не прямым изменением какого-то числа:
+    - если у выбывающего был ДОЛГ — заводим ему Payment на эту сумму
+      (условный, не реальные деньги — компенсация для баланса), чтобы
+      счёт обнулился, и Charge той же суммарной величины на счетах
+      оставшихся (пропорционально remaining_shares) — теперь этот долг
+      висит на них;
+    - если была ПЕРЕПЛАТА — наоборот: Charge выбывающему (гасит переплату
+      до нуля) и Payment оставшимся (у них теперь эта переплата).
+    Сумма по кооперативу в целом не меняется, меняется только то, на ком
+    именно она числится. Если сиблинг-счёта того же вида взноса у кого-то
+    из оставшихся ещё нет (не должно происходить в норме — см.
+    _ensure_member_accounts, но на всякий случай) — на него ничего не
+    заводится, эта часть остатка просто не переносится (не теряется
+    молча — сумма меньше total, что будет видно при сверке).
+    """
+    remaining_balance = balance(departing_account)
+    if remaining_balance == 0 or not remaining_shares:
+        return
+
+    today = dt.date.today()
+    departing_name = departing_account.person.full_name
+    sibling_accounts = {
+        acc.person_id: acc
+        for acc in database.db_session.query(MemberAccount)
+        .filter(
+            MemberAccount.garage_id == departing_account.garage_id,
+            MemberAccount.fee_type_id == departing_account.fee_type_id,
+            MemberAccount.person_id.in_(remaining_shares.keys()),
+        )
+        .all()
+    }
+    portions = split_amount_by_shares(abs(remaining_balance), remaining_shares)
+
+    touched_accounts = [departing_account]
+    if remaining_balance < 0:
+        database.db_session.add(Payment(
+            account_id=departing_account.id, date=today, amount=-remaining_balance,
+            comment=_("Долг передан остальным собственникам при выбытии из числа собственников"),
+        ))
+        for person_id, portion in portions.items():
+            sibling = sibling_accounts.get(person_id)
+            if sibling is None or portion <= 0:
+                continue
+            database.db_session.add(Charge(
+                account_id=sibling.id, year=today.year, amount=portion,
+                comment=_("Доля долга выбывшего собственника ({name})").format(name=departing_name),
+            ))
+            touched_accounts.append(sibling)
+    else:
+        database.db_session.add(Charge(
+            account_id=departing_account.id, year=today.year, amount=remaining_balance,
+            comment=_("Переплата передана остальным собственникам при выбытии из числа собственников"),
+        ))
+        for person_id, portion in portions.items():
+            sibling = sibling_accounts.get(person_id)
+            if sibling is None or portion <= 0:
+                continue
+            database.db_session.add(Payment(
+                account_id=sibling.id, date=today, amount=portion,
+                comment=_("Доля переплаты выбывшего собственника ({name})").format(name=departing_name),
+            ))
+            touched_accounts.append(sibling)
+
+    database.db_session.flush()
+    for acc in touched_accounts:
+        reallocate_member_charges(acc)
 
 
 def charge_paid_amount(charge: Charge) -> Decimal:

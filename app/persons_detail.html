@@ -1,21 +1,6 @@
 {% extends "base.html" %}
 {% block title %}{{ person.full_name }}{% endblock %}
 {% block content %}
-{% if person.is_archived %}
-<div class="alert alert-secondary d-flex justify-content-between align-items-center">
-  <div>
-    <strong>{{ _("В архиве") }}</strong>
-    {% if person.archived_at %} · {{ fmt_date(person.archived_at.date()) }}{% endif %}
-    {% if person.archived_reason %} · {{ person.archived_reason }}{% endif %}
-    {% if person.archived_by %} · {{ _("отметил") }} {{ person.archived_by.username }}{% endif %}
-  </div>
-  {% if is_board() %}
-  <form method="post" action="{{ url_for('persons.unarchive_person', person_id=person.id) }}">
-    <button class="btn btn-sm btn-outline-secondary">{{ _("Вернуть из архива") }}</button>
-  </form>
-  {% endif %}
-</div>
-{% endif %}
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h3>
     {{ person.full_name }}
@@ -27,9 +12,6 @@
     <a class="btn btn-outline-secondary" href="{{ url_for('persons.statement', person_id=person.id) }}">{{ _("Выписка по счетам") }}</a>
     {% if is_board() %}
     <a class="btn btn-primary" href="{{ url_for('persons.edit', person_id=person.id) }}">{{ _("Редактировать") }}</a>
-    {% if not person.is_archived %}
-    <button type="button" class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#archivePersonModal">{{ _("В архив") }}</button>
-    {% endif %}
     {% endif %}
   </div>
 </div>
@@ -97,29 +79,22 @@
 
 {% if is_board() and member_accounts %}
 <h5 class="mt-4">{{ _("Лицевые счета") }}</h5>
-<table class="table table-sm bg-body sortable" style="max-width:900px">
-  <thead><tr><th>{{ _("Гараж") }}</th><th>{{ _("Вид взноса") }}</th><th class="text-end">{{ _("Счёт") }}</th><th>{{ _("Баланс") }}</th><th class="no-sort"></th></tr></thead>
+<table class="table table-sm bg-body sortable" style="max-width:700px">
+  <thead><tr><th>{{ _("Гараж") }}</th><th>{{ _("Вид взноса") }}</th><th class="text-end">{{ _("Счёт") }}</th><th>{{ _("Баланс") }}</th></tr></thead>
   <tbody>
     {% for acc in member_accounts %}
     {% set bal = balance(acc) %}
-    <tr data-account-row="{{ acc.id }}">
-      <td onclick="window.location='{{ url_for('finance.member_account_detail', account_id=acc.id) }}'" style="cursor:pointer" data-sort-value="{{ acc.garage.number }}">№{{ acc.garage.number }}</td>
-      <td onclick="window.location='{{ url_for('finance.member_account_detail', account_id=acc.id) }}'" style="cursor:pointer">{{ acc.fee_type.name }}</td>
-      <td onclick="window.location='{{ url_for('finance.member_account_detail', account_id=acc.id) }}'" style="cursor:pointer" class="text-end">{{ acc.account_number }}</td>
-      <td onclick="window.location='{{ url_for('finance.member_account_detail', account_id=acc.id) }}'" style="cursor:pointer" class="js-account-balance {{ 'text-danger' if bal < 0 else 'text-success' }}" data-sort-value="{{ bal if bal else '0' }}">
+    <tr onclick="window.location='{{ url_for('finance.member_account_detail', account_id=acc.id) }}'" style="cursor:pointer">
+      <td data-sort-value="{{ acc.garage.number }}">№{{ acc.garage.number }}</td>
+      <td>{{ acc.fee_type.name }}</td>
+      <td class="text-end">{{ acc.account_number }}</td>
+      <td class="{{ 'text-danger' if bal < 0 else 'text-success' }}" data-sort-value="{{ bal if bal else '0' }}">
         {{ (fmt2(bal) ~ " ₽") }}
-      </td>
-      <td class="text-nowrap">
-        <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#quickCharge-{{ acc.id }}" title="{{ _('Начислить') }}">+{{ _("счёт") }}</button>
-        <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#quickPayment-{{ acc.id }}" title="{{ _('Зарегистрировать платёж') }}">+{{ _("платёж") }}</button>
       </td>
     </tr>
     {% endfor %}
   </tbody>
 </table>
-{% for acc in member_accounts %}
-{% include "finance/_quick_transaction_modals.html" %}
-{% endfor %}
 {% endif %}
 
 {% if is_chairman() %}
@@ -170,33 +145,5 @@
 {% else %}
 <p class="text-muted small">Предложенных изменений пока нет.</p>
 {% endif %}
-{% endif %}
-
-{% if is_board() and not person.is_archived %}
-<div class="modal fade" id="archivePersonModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog">
-    <div class="modal-content">
-      <form method="post" action="{{ url_for('persons.archive_person', person_id=person.id) }}">
-        <div class="modal-header">
-          <h5 class="modal-title">{{ _("Отправить в архив: {name}", name=person.full_name) }}</h5>
-          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-        </div>
-        <div class="modal-body">
-          <p class="text-muted small">
-            {{ _("Скрывается из общего реестра людей, карточка и выписка остаются доступны по прямой ссылке. Если этот человек — совладелец гаража (не единственный), он автоматически убирается из собственников с этой же причиной, доли оставшихся пересчитываются, остаток его лицевых счетов по этому гаражу переходит к ним пропорционально новым долям. Если он единственный собственник — гараж и его счета не трогаются, остаются как есть до появления нового собственника.") }}
-          </p>
-          <div class="mb-3">
-            <label class="form-label">{{ _("Причина") }}</label>
-            <input class="form-control form-control-sm" name="reason" placeholder="{{ _('например: умер, продал гараж и выбыл') }}" autofocus>
-          </div>
-        </div>
-        <div class="modal-footer d-flex justify-content-end">
-          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
-          <button class="btn btn-danger">{{ _("Отправить в архив") }}</button>
-        </div>
-      </form>
-    </div>
-  </div>
-</div>
 {% endif %}
 {% endblock %}

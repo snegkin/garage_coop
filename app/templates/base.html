@@ -331,6 +331,62 @@ document.addEventListener("DOMContentLoaded", function () {
     form.appendChild(input);
   });
 });
+
+// Быстрое начисление/платёж прямо из таблицы «Лицевые счета» на странице
+// гаража/человека (см. finance/_quick_transaction_modals.html) — заходить
+// на отдельную страницу счёта ради одной операции неудобно. Один
+// делегированный обработчик на весь документ, а не по одному на каждую
+// форму — модалок может быть много (по одной на каждый счёт в таблице), и
+// они рендерятся сразу все при загрузке страницы, а не по требованию.
+// Роут отвечает JSON (X-Requested-With) — тот же приём, что и в
+// bank_sync.py; на успехе закрываем модалку и обновляем баланс в строке
+// таблицы на месте, без перезагрузки страницы.
+document.addEventListener("submit", function (e) {
+  var form = e.target;
+  var isCharge = form.classList.contains("js-quick-charge-form");
+  var isPayment = form.classList.contains("js-quick-payment-form");
+  if (!isCharge && !isPayment) return;
+  e.preventDefault();
+
+  var errorBox = form.querySelector(".js-quick-error");
+  var button = form.querySelector(".modal-footer button.btn-primary");
+  errorBox.classList.add("d-none");
+  if (button) button.disabled = true;
+
+  fetch(form.dataset.url, {
+    method: "POST",
+    body: new FormData(form),
+    headers: { "X-Requested-With": "XMLHttpRequest" },
+  })
+    .then(function (resp) { return resp.json(); })
+    .then(function (data) {
+      if (button) button.disabled = false;
+      if (!data.success) {
+        errorBox.textContent = data.message;
+        errorBox.classList.remove("d-none");
+        return;
+      }
+      var modalEl = form.closest(".modal");
+      var modal = window.bootstrap ? window.bootstrap.Modal.getInstance(modalEl) : null;
+      if (modal) modal.hide();
+      form.reset();
+
+      var row = document.querySelector('[data-account-row="' + form.dataset.accountId + '"]');
+      if (row && data.balance !== undefined) {
+        var balCell = row.querySelector(".js-account-balance");
+        if (balCell) {
+          balCell.textContent = data.balance + " ₽";
+          balCell.classList.toggle("text-danger", !!data.balance_negative);
+          balCell.classList.toggle("text-success", !data.balance_negative);
+        }
+      }
+    })
+    .catch(function () {
+      if (button) button.disabled = false;
+      errorBox.textContent = "{{ _("Не удалось выполнить запрос — проверьте соединение и попробуйте ещё раз.") }}";
+      errorBox.classList.remove("d-none");
+    });
+});
 </script>
 </body>
 </html>

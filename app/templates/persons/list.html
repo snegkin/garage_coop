@@ -8,8 +8,11 @@
     <a class="btn btn-outline-warning btn-sm{{ ' active' if show_pending_only }}" href="{{ url_for('persons.list_persons', q=q, pending=1) }}">
       <span class="badge bg-warning text-dark">⚠</span> {{ _("Ожидают изменения") }} ({{ pending_by_person|length }})
     </a>
-    <a class="btn btn-primary btn-sm{{ ' active' if not show_pending_only }}" href="{{ url_for('persons.list_persons', q=q) }}">
-      {{ _("Все") }} ({{ persons|length }})
+    <a class="btn btn-primary btn-sm{{ ' active' if not show_pending_only and not show_archived }}" href="{{ url_for('persons.list_persons', q=q) }}">
+      {{ _("Все") }} ({{ active_count }})
+    </a>
+    <a class="btn btn-outline-secondary btn-sm{{ ' active' if show_archived }}" href="{{ url_for('persons.list_persons', q=q, archived=1) }}">
+      {{ _("Архив") }} ({{ archived_count }})
     </a>
   </div>
   <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#createPersonModal">+ {{ _("Добавить") }}</button>

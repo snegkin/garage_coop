@@ -1,11 +1,11 @@
 import datetime as dt
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from flask import Blueprint, render_template, request, redirect, url_for, flash, g, abort
 
 from . import database
 from . import audit
-from .i18n import translate as _
+from .i18n import translate as _, fmt2
 from .auth import login_required, roles_required
 from .permissions import can_view_member_account, is_board
 from .models import (
@@ -99,7 +99,7 @@ def member_account_detail(account_id):
 
     return render_template(
         "finance/member_account_detail.html", account=account, balance=_balance(account),
-        prev_account=prev_account, next_account=next_account,
+        prev_account=prev_account, next_account=next_account, today=dt.date.today(),
     )
 
 
@@ -153,48 +153,94 @@ def suggest_member_account_number(account_id):
 @bp.route("/member-accounts/<int:account_id>/charges/add", methods=["POST"])
 @roles_required(RoleEnum.BOARD)
 def add_member_charge(account_id):
+    """
+    Тоже вызывается через AJAX — с кнопки прямо в сводной таблице «Лицевые
+    счета» на странице гаража/человека (см. garages/detail.html,
+    persons/detail.html), не только с полноценной страницы счёта: заходить
+    на отдельную страницу счёта ради одного начисления неудобно. Роут
+    отдаёт JSON при заголовке X-Requested-With — тот же приём, что и в
+    bank_sync.py (allocate_statement_line и т.п.); обычная форма (JS
+    отключён, либо форма на самой странице счёта) по-прежнему работает
+    через redirect+flash.
+    """
+    is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
+
+    def respond(success: bool, message: str, **extra):
+        if is_ajax:
+            return {"success": success, "message": message, **extra}
+        flash(message, "success" if success else "danger")
+        return redirect(url_for("finance.member_account_detail", account_id=account_id))
+
     account = database.db_session.get(MemberAccount, account_id)
     if account is None:
         abort(404)
     f = request.form
+    try:
+        year = int(f["year"])
+        amount = Decimal(f["amount"])
+    except (KeyError, ValueError, InvalidOperation):
+        return respond(False, _("Проверьте год и сумму начисления."))
+    if amount <= 0:
+        return respond(False, _("Сумма начисления должна быть больше нуля."))
+
     database.db_session.add(Charge(
-        account_id=account.id, year=int(f["year"]), amount=Decimal(f["amount"]), comment=f.get("comment") or None,
+        account_id=account.id, year=year, amount=amount, comment=f.get("comment") or None,
     ))
     database.db_session.flush()
     reallocate_member_charges(account)
     audit.record(
         "charge.create", entity_type="member_account", entity_id=account.id,
-        summary=f"Начисление {f['amount']} на счёт {account.account_number} ({account.person.full_name}), {f['year']} год",
+        summary=f"Начисление {amount} на счёт {account.account_number} ({account.person.full_name}), {year} год",
     )
     database.db_session.commit()
-    flash(_("Начисление добавлено."), "success")
-    return redirect(url_for("finance.member_account_detail", account_id=account.id))
+    new_balance = _balance(account)
+    return respond(
+        True, _("Начисление добавлено."),
+        balance=fmt2(new_balance), balance_negative=new_balance < 0,
+    )
 
 
 @bp.route("/member-accounts/<int:account_id>/payments/add", methods=["POST"])
 @login_required
 def add_member_payment(account_id):
+    """Та же AJAX-поддержка, что и у add_member_charge выше — см. её докстринг."""
+    is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
+
+    def respond(success: bool, message: str, **extra):
+        if is_ajax:
+            return {"success": success, "message": message, **extra}
+        flash(message, "success" if success else "danger")
+        return redirect(url_for("finance.member_account_detail", account_id=account_id))
+
     account = database.db_session.get(MemberAccount, account_id)
     if account is None:
         abort(404)
     if not is_board():
         abort(403)
     f = request.form
+    try:
+        date = dt.date.fromisoformat(f["date"])
+        amount = Decimal(f["amount"])
+    except (KeyError, ValueError, InvalidOperation):
+        return respond(False, _("Проверьте дату и сумму платежа."))
+    if amount <= 0:
+        return respond(False, _("Сумма платежа должна быть больше нуля."))
+
     database.db_session.add(Payment(
-        account_id=account.id,
-        date=dt.date.fromisoformat(f["date"]),
-        amount=Decimal(f["amount"]),
-        comment=f.get("comment") or None,
+        account_id=account.id, date=date, amount=amount, comment=f.get("comment") or None,
     ))
     database.db_session.flush()
     reallocate_member_charges(account)
     audit.record(
         "payment.create", entity_type="member_account", entity_id=account.id,
-        summary=f"Платёж {f['amount']} на счёт {account.account_number} ({account.person.full_name}) от {f['date']}",
+        summary=f"Платёж {amount} на счёт {account.account_number} ({account.person.full_name}) от {date}",
     )
     database.db_session.commit()
-    flash(_("Платёж зарегистрирован."), "success")
-    return redirect(url_for("finance.member_account_detail", account_id=account.id))
+    new_balance = _balance(account)
+    return respond(
+        True, _("Платёж зарегистрирован."),
+        balance=fmt2(new_balance), balance_negative=new_balance < 0,
+    )
 
 
 @bp.route("/member-accounts/new", methods=["POST"])

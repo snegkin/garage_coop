@@ -217,11 +217,20 @@ class EWeLinkClient:
 
     def _headers(self, body: dict, authorized: bool) -> dict:
         headers = {
-            "Content-Type": "application/json;charset=UTF-8",
+            # eWeLink валидирует значение заголовка точным совпадением строки
+            # (Joi на бэкенде: "content-type" must be one of [application/json,
+            # application/json; charset=utf-8]) — не MIME-парсингом, поэтому
+            # пробел после ";" и регистр "utf-8" важны буквально.
+            "Content-Type": "application/json; charset=utf-8",
             "X-CK-Appid": self.app_id,
         }
         if authorized:
-            if not self.tokens:
+            # Проверяем именно access_token, а не только наличие self.tokens:
+            # self.tokens — датаклас, он truthy даже если поля внутри пустые
+            # (например, вызывающий код расшифровал токен из БД неудачно и
+            # положил None) — без этой проверки получился бы буквально
+            # заголовок "Bearer None" вместо понятной ошибки.
+            if not self.tokens or not self.tokens.access_token:
                 raise EWeLinkAuthError("Нет токена доступа — сначала пройдите авторизацию (authorize_url/exchange_code)")
             headers["Authorization"] = f"Bearer {self.tokens.access_token}"
         else:
@@ -233,11 +242,23 @@ class EWeLinkClient:
         params: dict | None = None, json_body: dict | None = None, authorized: bool = True,
     ) -> dict:
         url = f"{self._host()}{path}"
+        # Подпись (см. _sign) считается для тела, сериализованного компактно
+        # (без пробелов после "," и ":"). Если отдать requests.request(json=...),
+        # оно сериализует тело заново своими сепараторами (с пробелами) — байты
+        # запроса разойдутся с байтами, которые были подписаны, и eWeLink
+        # ответит "sign verification failed". Поэтому сериализуем тело сами и
+        # передаём готовые байты через data=, используя ту же строку для подписи
+        # (см. _headers/_sign) и для отправки.
+        body_bytes = (
+            json.dumps(json_body, separators=(",", ":")).encode()
+            if method != "GET" and json_body is not None
+            else None
+        )
         try:
             resp = requests.request(
                 method, url,
                 params=params,
-                json=json_body if method != "GET" else None,
+                data=body_bytes,
                 headers=self._headers(json_body or {}, authorized=authorized),
                 timeout=self.timeout,
             )

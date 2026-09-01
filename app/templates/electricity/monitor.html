@@ -47,7 +47,7 @@
 {% if account.last_error %}
 <div class="alert alert-danger">
   {{ _("Последняя попытка опроса устройств завершилась ошибкой:") }} {{ account.last_error }}
-  {% if account.last_poll_at %}<div class="small text-muted">{{ _("Последний опрос:") }} {{ fmt_date(account.last_poll_at) }} {{ account.last_poll_at.strftime('%H:%M') }}</div>{% endif %}
+  {% if account.last_poll_at %}<div class="small text-muted">{{ _("Последний опрос:") }} <span data-utc-datetime="{{ account.last_poll_at.isoformat() }}Z">{{ fmt_date(account.last_poll_at) }} {{ account.last_poll_at.strftime('%H:%M') }} UTC</span></div>{% endif %}
 </div>
 {% endif %}
 

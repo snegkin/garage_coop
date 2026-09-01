@@ -56,18 +56,35 @@ def build_client(account: EWeLinkAccount) -> EWeLinkClient | None:
     if not (account.app_id and account.app_secret_encrypted):
         return None
 
+    app_secret = crypto.decrypt(account.app_secret_encrypted)
+    if not app_secret:
+        # decrypt() вернул None — расшифровать не удалось (например,
+        # SECRET_KEY/BANK_API_ENCRYPTION_KEY с тех пор сменился). Без секрета
+        # клиент неработоспособен (authorize_url/_sign используют его сразу,
+        # без токена) — тот же случай, что и «не настроено».
+        return None
+
     tokens = None
     if account.access_token_encrypted and account.refresh_token_encrypted:
-        tokens = EWeLinkTokens(
-            access_token=crypto.decrypt(account.access_token_encrypted),
-            refresh_token=crypto.decrypt(account.refresh_token_encrypted),
-            region=account.region or "eu",
-            obtained_at=account.token_obtained_at.timestamp() if account.token_obtained_at else 0.0,
-        )
+        access_token = crypto.decrypt(account.access_token_encrypted)
+        refresh_token = crypto.decrypt(account.refresh_token_encrypted)
+        # decrypt() возвращает None, если расшифровать не удалось (например,
+        # SECRET_KEY/BANK_API_ENCRYPTION_KEY отличается между веб-процессом и
+        # cron-скриптом poll_ewelink.py) — в этом случае считаем, что токенов
+        # нет, а не строим EWeLinkTokens с access_token=None: иначе клиент
+        # молча отправит в eWeLink заголовок "Bearer None" вместо понятной
+        # ошибки "нужна повторная авторизация".
+        if access_token and refresh_token:
+            tokens = EWeLinkTokens(
+                access_token=access_token,
+                refresh_token=refresh_token,
+                region=account.region or "eu",
+                obtained_at=account.token_obtained_at.timestamp() if account.token_obtained_at else 0.0,
+            )
 
     return EWeLinkClient(
         app_id=account.app_id,
-        app_secret=crypto.decrypt(account.app_secret_encrypted),
+        app_secret=app_secret,
         tokens=tokens,
         region=account.region or "eu",
     )

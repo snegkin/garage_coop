@@ -15,6 +15,18 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 cd "$PROJECT_DIR"
 
+# .env НЕ подхватывается python-dotenv (см. .env.example) — приложение читает
+# os.environ напрямую. Веб-процесс обычно получает SECRET_KEY/
+# BANK_API_ENCRYPTION_KEY через окружение сервиса (systemd EnvironmentFile=
+# и т.п.), а этот скрипт из-под cron — нет, поэтому подгружаем .env сами:
+# без совпадающего ключа расшифровка сохранённых токенов eWeLink здесь не
+# сойдётся с тем, чем они были зашифрованы в веб-процессе.
+if [ -f "$PROJECT_DIR/.env" ]; then
+    set -a
+    . "$PROJECT_DIR/.env"
+    set +a
+fi
+
 LOG_DIR="$PROJECT_DIR/instance/logs"
 LOG_FILE="$LOG_DIR/poll_ewelink.log"
 LOCK_FILE="$PROJECT_DIR/instance/poll_ewelink.lock"

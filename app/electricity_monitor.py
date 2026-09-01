@@ -23,7 +23,7 @@ flow, приложение зарегистрировано на dev.ewelink.cc)
 import datetime as dt
 import secrets
 
-from flask import Blueprint, render_template, request, redirect, url_for, flash, session
+from flask import Blueprint, render_template, request, redirect, url_for, flash, session, jsonify
 
 from . import database
 from .i18n import translate as _
@@ -34,8 +34,21 @@ from .ewelink import EWeLinkClient, EWeLinkTokens, EWeLinkApiError, EWeLinkAuthE
 
 bp = Blueprint("electricity_monitor", __name__, url_prefix="/electricity")
 
-HISTORY_HOURS = 3  # глубина истории на графике/в таблице — намеренно небольшая: раздел для текущего мониторинга, не для архива
+HISTORY_HOURS = 3  # период по умолчанию для графика (см. history_data()) — открывающийся вид страницы
+MAX_HISTORY_HOURS = 24 * 90  # защита от случайного ?hours=999999 — не ограничение бизнес-смысла, просто разумный потолок
+MAX_CHART_POINTS = 1500  # точек на устройство в ответе history_data() — при 30 днях с опросом раз в минуту сырых точек ~43000, столько на графике не нужно и будет тормозить
 OAUTH_STATE_SESSION_KEY = "ewelink_oauth_state"
+
+
+def _downsample(rows: list, max_points: int) -> list:
+    """Прореживает ряд точек до max_points элементов равномерным шагом по
+    индексу (не усреднением) — для визуального графика мониторинга этого
+    достаточно, а усреднение по интервалам добавило бы отдельную логику
+    ради вспомогательного эндпоинта, который не участвует в биллинге."""
+    if len(rows) <= max_points:
+        return rows
+    step = len(rows) / max_points
+    return [rows[int(i * step)] for i in range(max_points)]
 
 
 def _get_or_create_account() -> EWeLinkAccount:
@@ -119,22 +132,13 @@ def view():
         .all()
     )
 
-    since = dt.datetime.utcnow() - dt.timedelta(hours=HISTORY_HOURS)
     latest_by_device = {}
-    history_by_device = {}
     for device in devices:
         latest_by_device[device.id] = (
             database.db_session.query(PowerPhaseReading)
             .filter_by(device_id=device.id)
             .order_by(PowerPhaseReading.ts.desc())
             .first()
-        )
-        history_by_device[device.id] = (
-            database.db_session.query(PowerPhaseReading)
-            .filter(PowerPhaseReading.device_id == device.id, PowerPhaseReading.ts >= since)
-            .order_by(PowerPhaseReading.ts.desc())
-            .limit(50)
-            .all()
         )
 
     power_values = [r.power_w for r in latest_by_device.values() if r and r.power_w is not None]
@@ -162,19 +166,67 @@ def view():
             except EWeLinkApiError as exc:
                 families_error = str(exc)
 
+    devices_json = [{"id": d.id, "label": d.label} for d in devices]
+
     return render_template(
         "electricity/monitor.html",
         account=account,
         devices=devices,
+        devices_json=devices_json,
         latest_by_device=latest_by_device,
-        history_by_device=history_by_device,
         total_power=total_power,
+        history_hours_default=HISTORY_HOURS,
         is_configured=bool(account.app_id and account.family_id),
         is_authorized=bool(account.access_token_encrypted),
         families=families,
         families_error=families_error,
         callback_redirect_uri=_callback_redirect_uri(),
     )
+
+
+@bp.route("/history-data")
+@roles_required(RoleEnum.BOARD)
+def history_data():
+    """JSON для графика истории на странице (см. monitor.html): период —
+    параметром ?hours= (по умолчанию HISTORY_HOURS). Отдаёт мощность в Вт,
+    как она хранится в БД, — перевод в кВт и выбор видимых фаз/масштаб/
+    прокрутка по времени делает JS на клиенте, без повторных запросов к
+    серверу (кроме смены периода)."""
+    try:
+        hours = float(request.args.get("hours", HISTORY_HOURS))
+    except (TypeError, ValueError):
+        hours = HISTORY_HOURS
+    hours = min(max(hours, 1.0), MAX_HISTORY_HOURS)
+
+    since = dt.datetime.utcnow() - dt.timedelta(hours=hours)
+    devices = (
+        database.db_session.query(PowerPhaseDevice)
+        .order_by(PowerPhaseDevice.sort_order, PowerPhaseDevice.id)
+        .all()
+    )
+
+    result = []
+    for device in devices:
+        rows = (
+            database.db_session.query(PowerPhaseReading.ts, PowerPhaseReading.power_w)
+            .filter(
+                PowerPhaseReading.device_id == device.id,
+                PowerPhaseReading.ts >= since,
+                PowerPhaseReading.power_w.isnot(None),
+            )
+            .order_by(PowerPhaseReading.ts.asc())
+            .all()
+        )
+        rows = _downsample(rows, MAX_CHART_POINTS)
+        result.append({
+            "id": device.id,
+            "label": device.label,
+            # "Z" — ts в БД наивный UTC (см. models.py); суффикс делает JS-Date() на
+            # клиенте однозначным (иначе браузер трактует его как локальное время).
+            "points": [{"t": ts.isoformat() + "Z", "w": float(w)} for ts, w in rows],
+        })
+
+    return jsonify(devices=result)
 
 
 @bp.route("/settings", methods=["POST"])

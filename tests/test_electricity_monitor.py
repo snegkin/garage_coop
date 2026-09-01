@@ -43,8 +43,11 @@ def make_phase_device(db_session, label="Фаза A", ewelink_device_id="1002334
 # ---------------------------------------------------------------------------
 
 def test_parse_phase_snapshot_reads_unsuffixed_keys():
+    """params приходят домноженными на 100 (центиВатты/центиВольты/
+    центиАмперы) — подтверждено 2026-09-01 сверкой с показаниями в
+    приложении eWeLink на живых устройствах, см. parse_phase_snapshot()."""
     device = {"itemData": {"deviceid": "10023349b3", "online": True, "params": {
-        "power": "612.3", "voltage": "231.5", "current": "2.65",
+        "power": "61230", "voltage": "23150", "current": "265",
     }}}
     snap = parse_phase_snapshot(device)
     assert snap.power_w == Decimal("612.3")
@@ -55,10 +58,11 @@ def test_parse_phase_snapshot_reads_unsuffixed_keys():
 
 def test_parse_phase_snapshot_reads_suffixed_keys():
     """Некоторые прошивки POWCT отдают параметры с суффиксом _00 (см.
-    докстринг app/ewelink/client.py:POWER_KEYS) — не подтверждено живым
-    тестом, но клиент должен разобрать оба варианта."""
+    докстринг app/ewelink/client.py:POWER_KEYS) — сам суффикс не подтверждён
+    живым тестом (подтверждён только вариант без суффикса), но масштаб ×100
+    — общая для POWCT единица измерения, применяется к обоим вариантам."""
     device = {"itemData": {"deviceid": "x", "online": True, "params": {
-        "power_00": "100", "voltage_00": "220", "current_00": "0.45",
+        "power_00": "10000", "voltage_00": "22000", "current_00": "45",
     }}}
     snap = parse_phase_snapshot(device)
     assert snap.power_w == Decimal("100")
@@ -417,6 +421,73 @@ def test_view_shows_latest_reading_per_device(app, db, client):
     # — см. .desc() в electricity_monitor.view; мощность отображается в кВт (612.3 / 1000),
     # разделитель дробной части — запятая (локаль ru по умолчанию, см. fmt2()).
     assert "0,61" in resp.get_data(as_text=True)
+
+
+# ---------------------------------------------------------------------------
+# /electricity/history-data — JSON для графика (см. monitor.html)
+# ---------------------------------------------------------------------------
+
+def test_history_data_returns_points_in_watts_per_device(app, db, client):
+    device_a = make_phase_device(db, label="Фаза A", ewelink_device_id="dev-a", sort_order=0)
+    device_b = make_phase_device(db, label="Фаза B", ewelink_device_id="dev-b", sort_order=1)
+    now = dt.datetime.utcnow()
+    db.add(PowerPhaseReading(device_id=device_a.id, ts=now - dt.timedelta(minutes=10), power_w=Decimal("300.5")))
+    db.add(PowerPhaseReading(device_id=device_a.id, ts=now, power_w=Decimal("310.25")))
+    db.add(PowerPhaseReading(device_id=device_b.id, ts=now, power_w=Decimal("50")))
+    make_user(db, "board4", "pass12345", role=RoleEnum.BOARD)
+    db.commit()
+    login(client, "board4", "pass12345")
+
+    resp = client.get("/electricity/history-data?hours=24")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    by_id = {d["id"]: d for d in data["devices"]}
+    # отдаёт Вт как хранится в БД (не кВт) — перевод единиц делает JS на клиенте
+    assert [p["w"] for p in by_id[device_a.id]["points"]] == [300.5, 310.25]
+    assert by_id[device_a.id]["label"] == "Фаза A"
+    assert [p["w"] for p in by_id[device_b.id]["points"]] == [50.0]
+    # ts сериализован с суффиксом "Z" — иначе JS Date() на клиенте трактует
+    # naive-строку как локальное время, а не UTC (см. models.py)
+    assert by_id[device_a.id]["points"][0]["t"].endswith("Z")
+
+
+def test_history_data_ignores_readings_outside_period(app, db, client):
+    device = make_phase_device(db)
+    now = dt.datetime.utcnow()
+    db.add(PowerPhaseReading(device_id=device.id, ts=now - dt.timedelta(hours=10), power_w=Decimal("999")))
+    db.add(PowerPhaseReading(device_id=device.id, ts=now, power_w=Decimal("42")))
+    make_user(db, "board5", "pass12345", role=RoleEnum.BOARD)
+    db.commit()
+    login(client, "board5", "pass12345")
+
+    resp = client.get("/electricity/history-data?hours=3")
+    data = resp.get_json()
+    points = data["devices"][0]["points"]
+    assert [p["w"] for p in points] == [42.0]
+
+
+def test_history_data_requires_board_role(app, db, client):
+    make_phase_device(db)
+    make_user(db, "member1", "pass12345", role=RoleEnum.MEMBER)
+    db.commit()
+    login(client, "member1", "pass12345")
+
+    resp = client.get("/electricity/history-data")
+    assert resp.status_code == 302  # roles_required редиректит на dashboard, а не 403
+
+
+def test_downsample_keeps_max_points_and_endpoints():
+    from app.electricity_monitor import _downsample
+
+    rows = list(range(1000))
+    result = _downsample(rows, 100)
+    assert len(result) == 100
+    assert result[0] == 0
+    # шаг равномерный по индексу, не усреднение — см. докстринг _downsample
+    assert result == sorted(result)
+
+    small = list(range(10))
+    assert _downsample(small, 100) == small
 
 
 # ---------------------------------------------------------------------------

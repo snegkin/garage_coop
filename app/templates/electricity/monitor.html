@@ -102,30 +102,32 @@
   </div>
 </div>
 
-<h5 class="mb-2">{{ _("История за последние {n} ч.", n=3) }}</h5>
-<div class="row g-3">
-  {% for device in devices %}
-  <div class="col-md-4">
-    <div class="text-muted small mb-1">{{ device.label }}</div>
-    {% set history = history_by_device.get(device.id) %}
-    {% if history %}
-    <table class="table table-sm bg-body">
-      <thead><tr><th>{{ _("Время") }}</th><th>{{ _("кВт") }}</th><th>{{ _("В") }}</th></tr></thead>
-      <tbody>
-        {% for r in history %}
-        <tr>
-          <td>{{ r.ts.strftime('%H:%M:%S') }}</td>
-          <td>{{ fmt2(r.power_w / 1000) if r.power_w is not none else "—" }}</td>
-          <td>{{ fmt2(r.voltage_v) if r.voltage_v is not none else "—" }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    {% else %}
-    <p class="text-muted small">{{ _("Пока нет истории.") }}</p>
-    {% endif %}
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2 mt-4">
+  <h5 class="mb-0">{{ _("История") }}</h5>
+  <div class="d-flex flex-wrap align-items-center gap-3">
+    <div class="d-flex flex-wrap align-items-center gap-2">
+      {% for device in devices %}
+      <div class="form-check form-check-inline mb-0">
+        <input class="form-check-input js-phase-toggle" type="checkbox" value="{{ device.id }}" id="phaseToggle{{ device.id }}" checked>
+        <label class="form-check-label" for="phaseToggle{{ device.id }}">{{ device.label }}</label>
+      </div>
+      {% endfor %}
+    </div>
+    <select id="historyPeriod" class="form-select form-select-sm" style="width: auto;">
+      <option value="3" {{ "selected" if history_hours_default == 3 }}>{{ _("3 часа") }}</option>
+      <option value="24" {{ "selected" if history_hours_default == 24 }}>{{ _("24 часа") }}</option>
+      <option value="168" {{ "selected" if history_hours_default == 168 }}>{{ _("7 дней") }}</option>
+      <option value="720" {{ "selected" if history_hours_default == 720 }}>{{ _("30 дней") }}</option>
+    </select>
+    <button type="button" id="resetZoomBtn" class="btn btn-sm btn-outline-secondary">{{ _("Сбросить масштаб") }}</button>
   </div>
-  {% endfor %}
+</div>
+<div class="card">
+  <div class="card-body">
+    <div class="text-muted small mb-2">{{ _("Прокрутка колеса мыши — масштаб, перетаскивание — сдвиг по времени.") }}</div>
+    <canvas id="powerHistoryChart" height="90"></canvas>
+    <p id="historyChartEmpty" class="text-muted small mb-0 d-none">{{ _("Нет данных за выбранный период.") }}</p>
+  </div>
 </div>
 {% endif %}
 
@@ -216,4 +218,107 @@
   {% endif %}
 </div>
 {% endif %}
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
+<script>
+(function () {
+  const canvas = document.getElementById("powerHistoryChart");
+  if (!canvas) return;  // устройства ещё не привязаны к фазам — секции истории на странице нет
+
+  const devices = {{ devices_json | tojson }};
+  const colors = ["#0d6efd", "#fd7e14", "#20c997", "#dc3545", "#6f42c1"];
+  const historyUrl = {{ url_for("electricity_monitor.history_data") | tojson }};
+  const emptyMsg = document.getElementById("historyChartEmpty");
+
+  const chart = new Chart(canvas.getContext("2d"), {
+    type: "line",
+    data: { datasets: [] },
+    options: {
+      animation: false,
+      normalized: true,
+      interaction: { mode: "nearest", axis: "x", intersect: false },
+      scales: {
+        x: {
+          type: "time",
+          time: { tooltipFormat: "dd.MM.yyyy HH:mm" },
+          ticks: { maxRotation: 0 },
+        },
+        y: {
+          title: { display: true, text: "{{ _('кВт') }}" },
+          beginAtZero: true,
+        },
+      },
+      plugins: {
+        legend: { position: "bottom" },
+        // Колесо мыши — масштаб по оси времени, перетаскивание — сдвиг (pan);
+        // pinch — то же самое жестами на тачскрине (нужен hammer.js, см. script выше).
+        zoom: {
+          zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: "x" },
+          pan: { enabled: true, mode: "x" },
+          limits: { x: { minRange: 5 * 60 * 1000 } },
+        },
+      },
+    },
+  });
+
+  // Данные за выбранный период запрашиваются один раз и кэшируются в
+  // lastData — переключение галочек фаз просто перестраивает datasets из
+  // уже загруженного ответа, без обращения к серверу; новый запрос нужен
+  // только при смене периода (select #historyPeriod).
+  let lastData = null;
+
+  function selectedDeviceIds() {
+    return Array.from(document.querySelectorAll(".js-phase-toggle:checked")).map(function (el) {
+      return parseInt(el.value, 10);
+    });
+  }
+
+  function render() {
+    if (!lastData) return;
+    const selected = selectedDeviceIds();
+    let anyPoints = false;
+    chart.data.datasets = lastData.devices
+      .filter(function (d) { return selected.indexOf(d.id) !== -1; })
+      .map(function (d, i) {
+        if (d.points.length) anyPoints = true;
+        return {
+          label: d.label,
+          data: d.points.map(function (p) { return { x: p.t, y: p.w / 1000 }; }),
+          borderColor: colors[i % colors.length],
+          backgroundColor: colors[i % colors.length],
+          borderWidth: 1.5,
+          pointRadius: 0,
+          tension: 0.15,
+        };
+      });
+    chart.resetZoom();
+    chart.update();
+    emptyMsg.classList.toggle("d-none", anyPoints);
+    canvas.classList.toggle("d-none", !anyPoints);
+  }
+
+  function fetchAndRender() {
+    const hours = document.getElementById("historyPeriod").value;
+    fetch(historyUrl + "?hours=" + encodeURIComponent(hours))
+      .then(function (r) { return r.json(); })
+      .then(function (data) { lastData = data; render(); })
+      .catch(function () {
+        emptyMsg.textContent = "{{ _('Не удалось загрузить историю — проверьте соединение и попробуйте ещё раз.') }}";
+        emptyMsg.classList.remove("d-none");
+        canvas.classList.add("d-none");
+      });
+  }
+
+  document.querySelectorAll(".js-phase-toggle").forEach(function (el) {
+    el.addEventListener("change", render);
+  });
+  document.getElementById("historyPeriod").addEventListener("change", fetchAndRender);
+  document.getElementById("resetZoomBtn").addEventListener("click", function () { chart.resetZoom(); });
+
+  fetchAndRender();
+})();
+</script>
 {% endblock %}

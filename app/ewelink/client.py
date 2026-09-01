@@ -127,6 +127,17 @@ def _first_present(params: dict, keys: tuple[str, ...]) -> Decimal | None:
     return None
 
 
+_READING_SCALE = Decimal(100)  # см. parse_phase_snapshot() — подтверждено живым устройством
+
+
+def _scaled(params: dict, keys: tuple[str, ...]) -> Decimal | None:
+    """Как _first_present(), но делит на 100 — POWCT отдаёт power/voltage/current
+    в сотых долях единицы (центиВатты/центиВольты/центиАмперы), см.
+    parse_phase_snapshot()."""
+    value = _first_present(params, keys)
+    return value / _READING_SCALE if value is not None else None
+
+
 def _extract_token_pair(payload: dict) -> tuple[str, str]:
     """Официальная документация даёт camelCase (accessToken/refreshToken);
     старые запросы к тому же backend иногда отвечали короткими at/rt —
@@ -141,17 +152,17 @@ def _extract_token_pair(payload: dict) -> tuple[str, str]:
 
 def parse_phase_snapshot(device: dict) -> PhaseSnapshot:
     """Разбирает один элемент из thingList (ответ /v2/device/thing) в снимок
-    показаний. params с числами часто приходят домноженными на 100 у eWeLink
-    (например, voltage=22050 значит 220.50 В) — ПРОВЕРИТЬ на реальном
-    устройстве: если после первого живого теста окажется, что значения
-    домножены, поделить здесь на 100, а не в вызывающем коде."""
+    показаний. params с числами приходят домноженными на 100 (центиВатты/
+    центиВольты/центиАмперы) — подтверждено 2026-09-01 сверкой с показаниями
+    в приложении eWeLink на живых устройствах (voltage уже был похож на
+    В×100, power/current — тот же коэффициент)."""
     item = device.get("itemData", device)
     params = item.get("params", {}) or {}
     online = bool(item.get("online", params.get("online", True)))
     return PhaseSnapshot(
-        power_w=_first_present(params, POWER_KEYS),
-        voltage_v=_first_present(params, VOLTAGE_KEYS),
-        current_a=_first_present(params, CURRENT_KEYS),
+        power_w=_scaled(params, POWER_KEYS),
+        voltage_v=_scaled(params, VOLTAGE_KEYS),
+        current_a=_scaled(params, CURRENT_KEYS),
         is_online=online,
         raw_params=params,
     )

@@ -1,21 +1,42 @@
 {% extends "base.html" %}
 {% block title %}{{ _("Лицевой счёт") }} {{ account.account_number }}{% endblock %}
 {% block content %}
+{# Навигация: предыдущий / следующий счёт (как на странице гаража) #}
+{% if prev_account or next_account %}
+<nav class="d-flex justify-content-between mb-3" aria-label="Навигация по лицевым счетам">
+  {% if prev_account %}
+  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('finance.member_account_detail', account_id=prev_account.id) }}">
+    &larr; {{ prev_account.account_number }}
+  </a>
+  {% else %}
+  <span></span>
+  {% endif %}
+  {% if next_account %}
+  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('finance.member_account_detail', account_id=next_account.id) }}">
+    {{ next_account.account_number }} &rarr;
+  </a>
+  {% else %}
+  <span></span>
+  {% endif %}
+</nav>
+{% endif %}
 <h3 class="mb-1">
   <a href="{{ url_for('garages.detail', garage_id=account.garage.id) }}" class="link-body-emphasis text-decoration-none">&larr; {{ account.fee_type.name }} — {{ account.person.full_name }} — {{ _("гараж") }} №{{ account.garage.number }}</a>
 </h3>
 
 {% if is_board() %}
 <div class="d-flex align-items-center gap-2 mb-2">
-  <form method="post" action="{{ url_for('finance.update_member_account_number', account_id=account.id) }}" class="d-flex align-items-center gap-2">
+  <form method="post" action="{{ url_for('finance.update_member_account_number', account_id=account.id) }}" class="d-flex align-items-center gap-2" id="accountNumberForm">
     <label class="form-label mb-0">{{ _("Номер счёта") }}:</label>
-    <input class="form-control form-control-sm" style="max-width:160px" name="account_number" value="{{ account.account_number }}">
+    <input class="form-control form-control-sm" style="max-width:160px" name="account_number" id="accountNumberInput" value="{{ account.account_number }}">
+    <button type="button" class="btn btn-sm btn-outline-secondary" id="defaultAccountNumberBtn">{{ _("По умолчанию") }}</button>
     <button class="btn btn-sm btn-primary">{{ _("Сохранить") }}</button>
   </form>
   <form method="post" action="{{ url_for('finance.delete_member_account', account_id=account.id) }}" onsubmit="return confirm('{{ _("Удалить счёт вместе со всей историей начислений и платежей по нему?") }}')" class="ms-auto">
     <button class="btn btn-sm btn-outline-danger">{{ _("Удалить счёт") }}</button>
   </form>
 </div>
+<div class="text-danger small mb-2 d-none" id="defaultAccountNumberError"></div>
 {% else %}
 <p class="mb-2"><strong>{{ _("Номер счёта") }}:</strong> {{ account.account_number }}</p>
 {% endif %}
@@ -77,7 +98,7 @@
     <form method="post" action="{{ url_for('finance.add_member_payment', account_id=account.id) }}" class="border rounded p-3 bg-body">
       <div class="row g-2">
         <div class="col-4">
-          <input class="form-control form-control-sm" type="date" name="date" required>
+          <input class="form-control form-control-sm" type="date" name="date" value="{{ today.isoformat() }}" required>
         </div>
         <div class="col-4">
           <input class="form-control form-control-sm" name="amount" placeholder="{{ _('сумма') }}" required>
@@ -90,4 +111,41 @@
     </form>
   </div>
 </div>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  // «По умолчанию» — только СЧИТАЕТ номер по формуле (см.
+  // finance.suggest_member_account_number) и подставляет его в поле, не
+  // сохраняя сразу: председатель успевает посмотреть/поправить перед тем,
+  // как нажать обычную кнопку «Сохранить» — та же форма, тот же роут и та
+  // же проверка на занятый номер, что и при ручном вводе.
+  var btn = document.getElementById("defaultAccountNumberBtn");
+  if (!btn) return;
+  var input = document.getElementById("accountNumberInput");
+  var errorBox = document.getElementById("defaultAccountNumberError");
+  btn.addEventListener("click", function () {
+    errorBox.classList.add("d-none");
+    btn.disabled = true;
+    fetch("{{ url_for('finance.suggest_member_account_number', account_id=account.id) }}", {
+      headers: { "X-Requested-With": "XMLHttpRequest" },
+    })
+      .then(function (resp) { return resp.json(); })
+      .then(function (data) {
+        btn.disabled = false;
+        if (data.account_number) {
+          input.value = data.account_number;
+          input.focus();
+        } else {
+          errorBox.textContent = data.error || "{{ _("Не удалось вычислить номер по умолчанию.") }}";
+          errorBox.classList.remove("d-none");
+        }
+      })
+      .catch(function () {
+        btn.disabled = false;
+        errorBox.textContent = "{{ _("Не удалось выполнить запрос — проверьте соединение и попробуйте ещё раз.") }}";
+        errorBox.classList.remove("d-none");
+      });
+  });
+});
+</script>
 {% endblock %}

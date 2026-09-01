@@ -1,11 +1,11 @@
 import datetime as dt
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from flask import Blueprint, render_template, request, redirect, url_for, flash, g, abort
 
 from . import database
 from . import audit
-from .i18n import translate as _
+from .i18n import translate as _, fmt2
 from .auth import login_required, roles_required
 from .permissions import can_view_member_account, is_board
 from .models import (
@@ -14,7 +14,7 @@ from .models import (
     Cooperative,
 )
 from .accounting import (
-    get_settings, electricity_account_number, member_account_number, balance as _balance,
+    get_settings, electricity_account_number, member_account_number, owner_index_for, balance as _balance,
     compute_land_tax, reallocate_member_charges,
 )
 
@@ -84,7 +84,23 @@ def member_account_detail(account_id):
         return redirect(url_for("finance.member_accounts"))
     if not can_view_member_account(account):
         abort(403)
-    return render_template("finance/member_account_detail.html", account=account, balance=_balance(account))
+
+    # предыдущий/следующий счёт (по ID, как на странице гаража) —
+    # рядовому члену показываем только его собственные счета (иначе
+    # «Вперёд» почти наверняка выведет на чужой счёт и упрётся в 403 —
+    # у member'а обычно 1-2 счёта на весь список, ID глобальный по всей
+    # таблице); правлению/бухгалтеру/председателю — по всем счетам сразу,
+    # как и на самой странице списка счетов, которую они видят целиком.
+    nav_query = database.db_session.query(MemberAccount)
+    if not is_board():
+        nav_query = nav_query.filter(MemberAccount.person_id == g.user.person_id)
+    prev_account = nav_query.filter(MemberAccount.id < account.id).order_by(MemberAccount.id.desc()).first()
+    next_account = nav_query.filter(MemberAccount.id > account.id).order_by(MemberAccount.id).first()
+
+    return render_template(
+        "finance/member_account_detail.html", account=account, balance=_balance(account),
+        prev_account=prev_account, next_account=next_account, today=dt.date.today(),
+    )
 
 
 @bp.route("/member-accounts/<int:account_id>/number", methods=["POST"])
@@ -104,51 +120,127 @@ def update_member_account_number(account_id):
     return redirect(url_for("finance.member_account_detail", account_id=account.id))
 
 
+@bp.route("/member-accounts/<int:account_id>/number/default")
+@roles_required(RoleEnum.BOARD)
+def suggest_member_account_number(account_id):
+    """
+    Считает номер счёта «по умолчанию» — по той же формуле и с теми же
+    настройками (AccountNumberSettings), что при автосоздании счёта и при
+    массовом пересчёте (см. accounting.member_account_number/owner_index_for,
+    finance._regenerate_account_numbers) — не выдумывает отдельное правило.
+    Только СЧИТАЕТ и отдаёт JSON, ничего не сохраняет — кнопка «По
+    умолчанию» на странице счёта просто подставляет результат в поле
+    ввода, реальное сохранение по-прежнему идёт через обычную форму/роут
+    update_member_account_number (там же и проверка на занятый номер) —
+    председатель успевает посмотреть и поправить перед сохранением, а не
+    сохраняет вслепую одним кликом.
+    """
+    account = database.db_session.get(MemberAccount, account_id)
+    if account is None:
+        abort(404)
+    if not account.fee_type.type_code:
+        return {
+            "error": _("У вида взноса «{name}» нет кода для формулы номера — задайте номер вручную.")
+            .format(name=account.fee_type.name),
+        }
+    owner_index = owner_index_for(account.garage_id, account.person_id)
+    account_number = member_account_number(
+        account.fee_type.type_code, account.garage_id, owner_index, account.fee_type.is_penalty,
+    )
+    return {"account_number": account_number}
+
+
 @bp.route("/member-accounts/<int:account_id>/charges/add", methods=["POST"])
 @roles_required(RoleEnum.BOARD)
 def add_member_charge(account_id):
+    """
+    Тоже вызывается через AJAX — с кнопки прямо в сводной таблице «Лицевые
+    счета» на странице гаража/человека (см. garages/detail.html,
+    persons/detail.html), не только с полноценной страницы счёта: заходить
+    на отдельную страницу счёта ради одного начисления неудобно. Роут
+    отдаёт JSON при заголовке X-Requested-With — тот же приём, что и в
+    bank_sync.py (allocate_statement_line и т.п.); обычная форма (JS
+    отключён, либо форма на самой странице счёта) по-прежнему работает
+    через redirect+flash.
+    """
+    is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
+
+    def respond(success: bool, message: str, **extra):
+        if is_ajax:
+            return {"success": success, "message": message, **extra}
+        flash(message, "success" if success else "danger")
+        return redirect(url_for("finance.member_account_detail", account_id=account_id))
+
     account = database.db_session.get(MemberAccount, account_id)
     if account is None:
         abort(404)
     f = request.form
+    try:
+        year = int(f["year"])
+        amount = Decimal(f["amount"])
+    except (KeyError, ValueError, InvalidOperation):
+        return respond(False, _("Проверьте год и сумму начисления."))
+    if amount <= 0:
+        return respond(False, _("Сумма начисления должна быть больше нуля."))
+
     database.db_session.add(Charge(
-        account_id=account.id, year=int(f["year"]), amount=Decimal(f["amount"]), comment=f.get("comment") or None,
+        account_id=account.id, year=year, amount=amount, comment=f.get("comment") or None,
     ))
     database.db_session.flush()
     reallocate_member_charges(account)
     audit.record(
         "charge.create", entity_type="member_account", entity_id=account.id,
-        summary=f"Начисление {f['amount']} на счёт {account.account_number} ({account.person.full_name}), {f['year']} год",
+        summary=f"Начисление {amount} на счёт {account.account_number} ({account.person.full_name}), {year} год",
     )
     database.db_session.commit()
-    flash(_("Начисление добавлено."), "success")
-    return redirect(url_for("finance.member_account_detail", account_id=account.id))
+    new_balance = _balance(account)
+    return respond(
+        True, _("Начисление добавлено."),
+        balance=fmt2(new_balance), balance_negative=new_balance < 0,
+    )
 
 
 @bp.route("/member-accounts/<int:account_id>/payments/add", methods=["POST"])
 @login_required
 def add_member_payment(account_id):
+    """Та же AJAX-поддержка, что и у add_member_charge выше — см. её докстринг."""
+    is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
+
+    def respond(success: bool, message: str, **extra):
+        if is_ajax:
+            return {"success": success, "message": message, **extra}
+        flash(message, "success" if success else "danger")
+        return redirect(url_for("finance.member_account_detail", account_id=account_id))
+
     account = database.db_session.get(MemberAccount, account_id)
     if account is None:
         abort(404)
     if not is_board():
         abort(403)
     f = request.form
+    try:
+        date = dt.date.fromisoformat(f["date"])
+        amount = Decimal(f["amount"])
+    except (KeyError, ValueError, InvalidOperation):
+        return respond(False, _("Проверьте дату и сумму платежа."))
+    if amount <= 0:
+        return respond(False, _("Сумма платежа должна быть больше нуля."))
+
     database.db_session.add(Payment(
-        account_id=account.id,
-        date=dt.date.fromisoformat(f["date"]),
-        amount=Decimal(f["amount"]),
-        comment=f.get("comment") or None,
+        account_id=account.id, date=date, amount=amount, comment=f.get("comment") or None,
     ))
     database.db_session.flush()
     reallocate_member_charges(account)
     audit.record(
         "payment.create", entity_type="member_account", entity_id=account.id,
-        summary=f"Платёж {f['amount']} на счёт {account.account_number} ({account.person.full_name}) от {f['date']}",
+        summary=f"Платёж {amount} на счёт {account.account_number} ({account.person.full_name}) от {date}",
     )
     database.db_session.commit()
-    flash(_("Платёж зарегистрирован."), "success")
-    return redirect(url_for("finance.member_account_detail", account_id=account.id))
+    new_balance = _balance(account)
+    return respond(
+        True, _("Платёж зарегистрирован."),
+        balance=fmt2(new_balance), balance_negative=new_balance < 0,
+    )
 
 
 @bp.route("/member-accounts/new", methods=["POST"])
@@ -173,13 +265,7 @@ def create_member_account():
         if not fee_type.type_code:
             flash(_("У этого вида взноса нет кода счёта — укажите номер счёта вручную."), "danger")
             return redirect(url_for("finance.member_accounts"))
-        ownerships = (
-            database.db_session.query(GarageOwnership)
-            .filter_by(garage_id=garage_id)
-            .order_by(GarageOwnership.id)
-            .all()
-        )
-        owner_index = next((i for i, o in enumerate(ownerships) if o.person_id == person_id), 0)
+        owner_index = owner_index_for(garage_id, person_id)
         account_number = member_account_number(fee_type.type_code, garage.id, owner_index, fee_type.is_penalty)
 
     account = MemberAccount(

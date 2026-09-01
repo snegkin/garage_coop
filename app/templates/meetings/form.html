@@ -3,6 +3,7 @@
 {% block content %}
 <h3 class="mb-3">{{ _("Новое собрание") }}</h3>
 <form method="post" enctype="multipart/form-data" class="bg-body p-4 rounded border" style="max-width:600px">
+  {% set m = None %}
   {% include "meetings/_fields.html" %}
   <div class="d-flex justify-content-end gap-2">
     <button class="btn btn-primary">{{ _("Сохранить") }}</button>

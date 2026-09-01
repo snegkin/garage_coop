@@ -86,9 +86,9 @@
               <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#editShareModal-{{ o.id }}" title="{{ _('Изменить долю') }}">
                 ✎
               </button>
-              <form method="post" action="{{ url_for('garages.remove_owner', garage_id=garage.id, ownership_id=o.id) }}" onsubmit="return confirm('{{ _("Удалить собственника?") }}')">
-                <button class="btn btn-sm btn-outline-danger">✕</button>
-              </form>
+              <button type="button" class="btn btn-sm btn-outline-danger" data-bs-toggle="modal" data-bs-target="#removeOwnerModal-{{ o.id }}" title="{{ _('Удалить собственника') }}">
+                ✕
+              </button>
             </div>
           </td>
           {% endif %}
@@ -99,6 +99,9 @@
       </tbody>
     </table>
     {% if is_board() %}
+    <p class="mb-3">
+      <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('garages.ownership_history', garage_id=garage.id) }}">{{ _("История собственников") }}</a>
+    </p>
     {% for o in garage.ownerships %}
     <div class="modal fade" id="editShareModal-{{ o.id }}" tabindex="-1" aria-hidden="true">
       <div class="modal-dialog">
@@ -113,6 +116,10 @@
                 <label class="form-label">{{ _("Доля (0...1, например 0.5 для 50%)") }}</label>
                 <input class="form-control form-control-sm" name="share" value="{{ o.share }}" step="0.01" min="0" max="1" required>
               </div>
+              <div class="mb-3">
+                <label class="form-label">{{ _("Комментарий") }}</label>
+                <input class="form-control form-control-sm" name="comment" placeholder="{{ _('например: перераспределение долей между супругами') }}">
+              </div>
             </form>
           </div>
           <div class="modal-footer d-flex justify-content-end">
@@ -123,13 +130,38 @@
       </div>
     </div>
     <form method="post" action="{{ url_for('garages.update_owner_share', garage_id=garage.id, ownership_id=o.id) }}" id="editShareForm-{{ o.id }}" style="display:none"></form>
+
+    <div class="modal fade" id="removeOwnerModal-{{ o.id }}" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <form method="post" action="{{ url_for('garages.remove_owner', garage_id=garage.id, ownership_id=o.id) }}">
+            <div class="modal-header">
+              <h5 class="modal-title">{{ _("Удалить собственника: {name}", name=o.person.full_name) }}</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+              <p class="text-muted small">{{ _("Вместе с собственником будут удалены его лицевые счета по этому гаражу (взносы, налог, пеня). Причина сохранится в истории собственников.") }}</p>
+              <div class="mb-3">
+                <label class="form-label">{{ _("Причина") }}</label>
+                <input class="form-control form-control-sm" name="comment" placeholder="{{ _('например: продал, умер, унаследовал') }}" autofocus>
+              </div>
+            </div>
+            <div class="modal-footer d-flex justify-content-end">
+              <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+              <button class="btn btn-danger">{{ _("Удалить") }}</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
     {% endfor %}
 
-    <form method="post" action="{{ url_for('garages.add_owner', garage_id=garage.id) }}" class="d-flex gap-2 mb-4">
-      <select name="person_id" class="form-select form-select-sm" data-searchable required>
+    <form method="post" action="{{ url_for('garages.add_owner', garage_id=garage.id) }}" class="d-flex gap-2 mb-4 flex-wrap">
+      <select name="person_id" class="form-select form-select-sm" style="max-width:220px" data-searchable required>
         {% for p in all_persons %}<option value="{{ p.id }}">{{ p.full_name }}</option>{% endfor %}
       </select>
       <input class="form-control form-control-sm" style="max-width:120px" name="share" placeholder="{{ _('доля, по умолчанию 1 (100%)') }}">
+      <input class="form-control form-control-sm" style="max-width:220px" name="comment" placeholder="{{ _('комментарий, например: купил, унаследовал') }}">
       <button class="btn btn-sm btn-primary">{{ _("Добавить") }}</button>
     </form>
     {% endif %}
@@ -181,7 +213,7 @@
 
 <h5 class="mt-4">{{ _("Лицевые счета") }}</h5>
 <table class="table table-sm bg-body sortable">
-  <thead><tr><th>{{ _("ФИО") }}</th><th>{{ _("Вид взноса") }}</th><th class="text-end">{{ _("Номер счёта") }}</th><th>{{ _("Баланс") }}</th></tr></thead>
+  <thead><tr><th>{{ _("ФИО") }}</th><th>{{ _("Вид взноса") }}</th><th class="text-end">{{ _("Номер счёта") }}</th><th>{{ _("Баланс") }}</th>{% if is_board() %}<th class="no-sort"></th>{% endif %}</tr></thead>
   <tbody>
     {% if account %}
     <tr>
@@ -189,22 +221,36 @@
       <td>{{ _("Электричество") }}</td>
       <td class="text-end">{{ account.account_number }}</td>
       <td data-sort-value="{{ account_balance }}" class="{{ 'text-danger' if account_balance < 0 else 'text-success' }}">{{ fmt2(account_balance) }} ₽</td>
+      {% if is_board() %}<td></td>{% endif %}
     </tr>
     {% endif %}
     {% for row in account_summary_rows %}
-    <tr>
+    <tr data-account-row="{{ row.id }}">
       <td>{% if is_board() %}<a href="{{ url_for('persons.detail', person_id=row.person.id) }}">{{ row.person.full_name }}</a>{% else %}{{ row.person.full_name }}{% endif %}</td>
       <td>{{ row.fee_type.name }}</td>
       <td class="text-end">{{ row.account_number }}</td>
-      <td data-sort-value="{{ row.balance }}" class="{{ 'text-danger' if row.balance < 0 else 'text-success' }}">{{ fmt2(row.balance) }} ₽</td>
+      <td data-sort-value="{{ row.balance }}" class="js-account-balance {{ 'text-danger' if row.balance < 0 else 'text-success' }}">{{ fmt2(row.balance) }} ₽</td>
+      {% if is_board() %}
+      <td class="text-nowrap">
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#quickCharge-{{ row.id }}" title="{{ _('Начислить') }}">+{{ _("счёт") }}</button>
+        <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#quickPayment-{{ row.id }}" title="{{ _('Зарегистрировать платёж') }}">+{{ _("платёж") }}</button>
+      </td>
+      {% endif %}
     </tr>
     {% else %}
     {% if not account %}
-    <tr><td colspan="4" class="text-muted">{{ _("Лицевых счетов пока нет.") }}</td></tr>
+    <tr><td colspan="5" class="text-muted">{{ _("Лицевых счетов пока нет.") }}</td></tr>
     {% endif %}
     {% endfor %}
   </tbody>
 </table>
+{% if is_board() %}
+{% for row in account_summary_rows %}
+{% with acc = row %}
+{% include "finance/_quick_transaction_modals.html" %}
+{% endwith %}
+{% endfor %}
+{% endif %}
 
 <h5 class="mt-4">{{ _("Фото гаража") }}</h5>
 <div class="row g-3 mb-3">

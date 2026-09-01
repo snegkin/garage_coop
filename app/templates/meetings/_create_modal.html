@@ -8,6 +8,7 @@
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body">
+          {% set m = None %}
           {% include "meetings/_fields.html" %}
           <input type="hidden" name="next" value="{{ next_url }}">
         </div>

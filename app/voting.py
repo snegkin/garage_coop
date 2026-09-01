@@ -287,7 +287,54 @@ def create():
 
     meetings = database.db_session.query(GeneralMeeting).order_by(GeneralMeeting.date.desc()).all()
     now_local = dt.datetime.now().strftime("%Y-%m-%dT%H:%M")
-    return render_template("voting/form.html", meetings=meetings, now_local=now_local)
+    return render_template("voting/form.html", meetings=meetings, now_local=now_local, vote=None)
+
+
+@bp.route("/<int:vote_id>/edit", methods=["GET", "POST"])
+@roles_required(RoleEnum.CHAIRMAN)
+def edit(vote_id):
+    """
+    Правка голосования доступна, только пока оно черновик (status ==
+    DRAFT) — после открытия менять тип/сроки нельзя, т.к. это исказило бы
+    уже поданные бюллетени и веса кворума. Очные (IN_PERSON) голосования
+    создаются сразу закрытыми (см. create()) и в черновик никогда не
+    попадают, так что сюда не доходят — тип голосования тут можно менять
+    только между «заочное» и «очно-заочное».
+    """
+    vote = database.db_session.get(Vote, vote_id)
+    if vote is None:
+        flash(_("Голосование не найдено."), "warning")
+        return redirect(url_for("voting.list_votes"))
+    if vote.status != VoteStatus.DRAFT:
+        flash(_("Редактировать можно только голосование-черновик."), "danger")
+        return redirect(url_for("voting.detail", vote_id=vote_id))
+
+    if request.method == "POST":
+        f = request.form
+        voting_type = VoteType(f.get("voting_type") or VoteType.ABSENTEE.value)
+        if voting_type == VoteType.IN_PERSON:
+            flash(_("Нельзя изменить тип на очный для уже созданного голосования."), "danger")
+            return redirect(url_for("voting.edit", vote_id=vote_id))
+
+        opens_at = dt.datetime.fromisoformat(f["opens_at"])
+        closes_at = dt.datetime.fromisoformat(f["closes_at"])
+        if closes_at <= opens_at:
+            flash(_("Дата окончания должна быть позже даты начала."), "danger")
+            return redirect(url_for("voting.edit", vote_id=vote_id))
+
+        vote.title = f["title"]
+        vote.description = f.get("description") or None
+        vote.voting_type = voting_type
+        vote.meeting_id = int(f["meeting_id"]) if f.get("meeting_id") else None
+        vote.opens_at = opens_at
+        vote.closes_at = closes_at
+        database.db_session.commit()
+        flash(_("Голосование обновлено."), "success")
+        return redirect(url_for("voting.detail", vote_id=vote_id))
+
+    meetings = database.db_session.query(GeneralMeeting).order_by(GeneralMeeting.date.desc()).all()
+    now_local = dt.datetime.now().strftime("%Y-%m-%dT%H:%M")
+    return render_template("voting/form.html", meetings=meetings, now_local=now_local, vote=vote)
 
 
 @bp.route("/<int:vote_id>")

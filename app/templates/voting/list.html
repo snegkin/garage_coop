@@ -12,7 +12,10 @@
 <p class="text-muted small">{{ _("Голосовать могут собственники гаражей — у вас нет доли ни в одном гараже, доступен только просмотр.") }}</p>
 {% endif %}
 
-<table class="table bg-body sortable">
+<div class="mb-3">
+  <input class="form-control" id="votingFilterInput" placeholder="{{ _('Поиск по названию, типу или статусу...') }}">
+</div>
+<table class="table bg-body sortable" id="votingTable">
   <thead>
     <tr>
       <th>{{ _("Название") }}</th>
@@ -20,11 +23,13 @@
       <th>{{ _("Статус") }}</th>
       <th>{{ _("Приём бюллетеней до") }}</th>
       <th class="no-sort">{{ _("Ваш голос") }}</th>
+      {% if is_chairman() %}<th class="no-sort"></th>{% endif %}
     </tr>
   </thead>
   <tbody>
     {% for v in votes %}
-    <tr>
+    {% set status_text = _("черновик") if v.status.value == 'draft' else (_("идёт приём голосов") if v.status.value == 'open' else _("закрыто")) %}
+    <tr data-filter-text="{{ (v.title ~ ' ' ~ vote_type_label(v.voting_type.value) ~ ' ' ~ status_text)|lower }}">
       <td><a href="{{ url_for('voting.detail', vote_id=v.id) }}">{{ v.title }}</a></td>
       <td>{{ vote_type_label(v.voting_type.value) }}</td>
       <td>
@@ -43,10 +48,127 @@
           <span class="text-muted">{{ _("не голосовали") }}</span>
         {% else %}—{% endif %}
       </td>
+      {% if is_chairman() %}
+      <td>{% if v.status.value == 'draft' %}<a class="btn btn-sm btn-outline-primary" href="{{ url_for('voting.edit', vote_id=v.id) }}">{{ _("Изменить") }}</a>{% endif %}</td>
+      {% endif %}
     </tr>
     {% else %}
-    <tr><td colspan="5" class="text-muted">{{ _("Голосований пока нет.") }}</td></tr>
+    <tr><td colspan="{{ 6 if is_chairman() else 5 }}" class="text-muted">{{ _("Голосований пока нет.") }}</td></tr>
     {% endfor %}
   </tbody>
 </table>
+<nav id="votingPager" class="d-none mb-3">
+  <ul class="pagination pagination-sm mb-0" id="votingPagerLinks"></ul>
+</nav>
+
+<script>
+// Поиск + постраничный вывод по 20 записей — тот же приём, что на
+// странице «Счета членов кооператива».
+(function () {
+  const input = document.getElementById("votingFilterInput");
+  const table = document.getElementById("votingTable");
+  const pager = document.getElementById("votingPager");
+  const pagerLinks = document.getElementById("votingPagerLinks");
+  if (!table) return;
+
+  const rows = Array.from(table.querySelectorAll("tbody tr[data-filter-text]"));
+  const ROWS_PER_PAGE = 20;
+  const PAGE_RADIUS = 3;
+  let currentPage = 1;
+
+  function renderPages(totalPages) {
+    pagerLinks.innerHTML = "";
+    if (totalPages <= 1) return;
+
+    const first = document.createElement("li");
+    first.className = "page-item" + (currentPage === 1 ? " disabled" : "");
+    first.innerHTML = '<a class="page-link" href="#">&laquo;</a>';
+    if (currentPage > 1) {
+      first.querySelector("a").addEventListener("click", function (e) { e.preventDefault(); currentPage = 1; updatePager(); });
+    }
+    pagerLinks.appendChild(first);
+
+    let start = Math.max(1, currentPage - PAGE_RADIUS);
+    let end = Math.min(totalPages, currentPage + PAGE_RADIUS);
+
+    if (start > 1) {
+      const li = document.createElement("li");
+      li.className = "page-item disabled";
+      li.innerHTML = "<span class=\"page-link\">…</span>";
+      pagerLinks.appendChild(li);
+    }
+
+    for (let p = start; p <= end; p++) {
+      const li = document.createElement("li");
+      li.className = "page-item" + (p === currentPage ? " active" : "");
+      const a = document.createElement("a");
+      a.className = "page-link";
+      a.href = "#";
+      a.textContent = p;
+      a.addEventListener("click", function (e) {
+        e.preventDefault();
+        currentPage = p;
+        updatePager();
+      });
+      li.appendChild(a);
+      pagerLinks.appendChild(li);
+    }
+
+    if (end < totalPages) {
+      const li = document.createElement("li");
+      li.className = "page-item disabled";
+      li.innerHTML = "<span class=\"page-link\">…</span>";
+      pagerLinks.appendChild(li);
+    }
+
+    const last = document.createElement("li");
+    last.className = "page-item" + (currentPage === totalPages ? " disabled" : "");
+    const lastA = document.createElement("a");
+    lastA.className = "page-link";
+    lastA.href = "#";
+    lastA.innerHTML = "&raquo;";
+    lastA.addEventListener("click", function (e) {
+      e.preventDefault();
+      currentPage = totalPages;
+      updatePager();
+    });
+    last.appendChild(lastA);
+    pagerLinks.appendChild(last);
+  }
+
+  function updatePager() {
+    const q = input ? input.value.trim().toLowerCase() : "";
+    let visibleRows = rows.filter(function (row) {
+      return !q || row.getAttribute("data-filter-text").includes(q);
+    });
+
+    if (visibleRows.length === 0) {
+      pager.classList.add("d-none");
+      rows.forEach(function (row) { row.classList.add("d-none"); });
+      return;
+    }
+
+    pager.classList.remove("d-none");
+    const totalPages = Math.ceil(visibleRows.length / ROWS_PER_PAGE);
+    if (currentPage > totalPages) currentPage = totalPages;
+
+    rows.forEach(function (row) { row.classList.add("d-none"); });
+    visibleRows.forEach(function (row, i) {
+      const page = Math.floor(i / ROWS_PER_PAGE) + 1;
+      row.classList.toggle("d-none", page !== currentPage);
+    });
+
+    renderPages(totalPages);
+  }
+
+  if (input) {
+    input.addEventListener("input", function () {
+      currentPage = 1;
+      updatePager();
+    });
+  }
+
+  updatePager();
+})();
+</script>
 {% endblock %}

@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}{{ _("История собственников") }} — {{ _("гараж") }} №{{ garage.number }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3 no-print">
+  <h3 class="mb-0">{{ _("История собственников") }} — {{ _("гараж") }} №{{ garage.number }}</h3>
+  <div class="d-flex gap-2">
+    <button class="btn btn-primary" onclick="window.print()">{{ _("Печать") }}</button>
+    <a class="btn btn-outline-secondary" href="{{ url_for('garages.detail', garage_id=garage.id) }}">{{ _("Назад") }}</a>
+  </div>
+</div>
+
+<style>
+@media print {
+  .no-print, nav, footer { display: none !important; }
+  html, body { margin: 0 !important; padding: 0 !important; }
+  body div, body main, body section {
+    width: auto !important;
+    max-width: none !important;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+  }
+}
+.statement-header { display: none; }
+@media print { .statement-header { display: block; } }
+</style>
+
+<div class="statement-header mb-3">
+  <h4 class="mb-0">{{ _("История собственников") }}</h4>
+  <p class="text-muted mb-0">{{ _("Гараж") }} №{{ garage.number }} · {{ _("по состоянию на") }} {{ fmt_date(today) }}</p>
+</div>
+
+<table class="table table-sm bg-body">
+  <thead>
+    <tr>
+      <th>{{ _("Дата") }}</th>
+      <th>{{ _("Событие") }}</th>
+      <th>{{ _("ФИО") }}</th>
+      <th>{{ _("Доля") }}</th>
+      <th>{{ _("Причина/комментарий") }}</th>
+      <th class="no-print">{{ _("Кто внёс") }}</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for e in events %}
+    <tr>
+      <td>{{ e.created_at.strftime('%d.%m.%Y %H:%M') }}</td>
+      <td>
+        {% if e.event_type.value == "added" %}<span class="badge bg-success">{{ _("добавлен") }}</span>
+        {% elif e.event_type.value == "share_changed" %}<span class="badge bg-info text-dark">{{ _("доля изменена") }}</span>
+        {% else %}<span class="badge bg-danger">{{ _("Выбыл") }}</span>{% endif %}
+      </td>
+      <td>{{ e.person.full_name }}</td>
+      <td>{{ fmt2(e.share) if e.share is not none else "—" }}</td>
+      <td>{{ e.comment or "—" }}</td>
+      <td class="no-print text-muted small">{{ e.created_by.username if e.created_by else "—" }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="6" class="text-muted">{{ _("История изменений собственников пока пуста.") }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

@@ -648,7 +648,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Сначала добавьте счётчик.": "Add a meter first.",
 
         # electricity phase monitoring (eWeLink POWCT)
-        "Мониторинг фаз": "Phase monitoring",
+        "Мониторинг электропитания": "Power supply monitoring",
         "Мониторинг электроэнергии по фазам": "Electricity monitoring by phase",
         "Устройства": "Devices",
         "Подключение к eWeLink": "eWeLink connection",

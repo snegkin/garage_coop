@@ -252,7 +252,7 @@ def create_member_account():
     fee_type_id = int(f["fee_type_id"])
 
     existing = database.db_session.query(MemberAccount).filter_by(
-        person_id=person_id, garage_id=garage_id, fee_type_id=fee_type_id
+        person_id=person_id, garage_id=garage_id, fee_type_id=fee_type_id, is_archived=False,
     ).first()
     if existing:
         flash(_("Такой счёт уже существует."), "warning")

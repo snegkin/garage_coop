@@ -22,6 +22,7 @@ from sqlalchemy.orm import joinedload
 from .accounting import (
     electricity_account_number, member_account_number, balance, current_tariff, reallocate_garage_charges,
     charge_paid_amount, split_amount_by_shares, redistribute_member_account_balance, next_owner_index,
+    transfer_member_account_balance,
 )
 
 bp = Blueprint("garages", __name__, url_prefix="/garages")
@@ -53,7 +54,7 @@ def _ensure_member_accounts(garage: Garage, person_id: int, owner_index: int):
     for fee_type in fee_types:
         exists = (
             database.db_session.query(MemberAccount)
-            .filter_by(person_id=person_id, garage_id=garage.id, fee_type_id=fee_type.id)
+            .filter_by(person_id=person_id, garage_id=garage.id, fee_type_id=fee_type.id, is_archived=False)
             .first()
         )
         if exists:
@@ -62,6 +63,61 @@ def _ensure_member_accounts(garage: Garage, person_id: int, owner_index: int):
         database.db_session.add(MemberAccount(
             person_id=person_id, garage_id=garage.id, fee_type_id=fee_type.id, account_number=number,
         ))
+
+
+def _archive_owner_accounts_and_reuse(garage: Garage, new_person_id: int) -> None:
+    """
+    Гараж перед этим остался вовсе без собственников (последний выбыл —
+    см. _remove_owner_and_redistribute, где для этого случая лицевые счета
+    сознательно не трогаются), а теперь у него появился новый собственник.
+
+    Вместо того чтобы завести ему счета с новыми номерами
+    (next_owner_index — так было бы для «просто нового» совладельца),
+    переиспользуем номера прежних счетов: старые счета помечаются
+    is_archived=True (остаются привязаны к прежнему person_id — история
+    начислений/платежей никуда не девается), новому собственнику заводятся
+    свежие счета С ТЕМИ ЖЕ номерами (см. частичный уникальный индекс на
+    MemberAccount.account_number — совпадение номера у активного и
+    архивного счёта не конфликт, у двух активных — конфликт), а остаток
+    (долг/переплата) переносится на новый счёт (accounting.
+    transfer_member_account_balance) — не откладывается до отдельного
+    решения правления, как было при выбытии без замены.
+
+    Виды взносов, на которые у гаража почему-то ещё не было счёта (не
+    должно случаться в норме — у единственного собственника счета
+    заводятся на все fee_types сразу, см. _ensure_member_accounts), на
+    всякий случай заводятся как обычно, новым номером.
+    """
+    old_accounts = (
+        database.db_session.query(MemberAccount)
+        .filter_by(garage_id=garage.id, is_archived=False)
+        .all()
+    )
+    handled_fee_type_ids = set()
+    for old_account in old_accounts:
+        old_account.is_archived = True
+        new_account = MemberAccount(
+            person_id=new_person_id, garage_id=garage.id, fee_type_id=old_account.fee_type_id,
+            account_number=old_account.account_number,
+        )
+        database.db_session.add(new_account)
+        database.db_session.flush()
+        transfer_member_account_balance(old_account, new_account)
+        handled_fee_type_ids.add(old_account.fee_type_id)
+
+    fee_types = (
+        database.db_session.query(FeeType)
+        .filter(FeeType.type_code.isnot(None))
+        .all()
+    )
+    missing_fee_types = [ft for ft in fee_types if ft.id not in handled_fee_type_ids]
+    if missing_fee_types:
+        owner_index = next_owner_index(garage.id)
+        for fee_type in missing_fee_types:
+            number = member_account_number(fee_type.type_code, garage.id, owner_index, fee_type.is_penalty)
+            database.db_session.add(MemberAccount(
+                person_id=new_person_id, garage_id=garage.id, fee_type_id=fee_type.id, account_number=number,
+            ))
 
 
 @bp.route("/")
@@ -222,7 +278,10 @@ def detail(garage_id):
     )
     member_accounts.sort(key=lambda ma: (ma.person.full_name, ma.fee_type.name))
     account_summary_rows = [
-        {"id": ma.id, "person": ma.person, "fee_type": ma.fee_type, "account_number": ma.account_number, "balance": balance(ma)}
+        {
+            "id": ma.id, "person": ma.person, "fee_type": ma.fee_type, "account_number": ma.account_number,
+            "balance": balance(ma), "is_archived": ma.is_archived,
+        }
         for ma in member_accounts
         if can_view_member_account(ma)
         and (not ma.fee_type.is_penalty or ma.charges)
@@ -407,10 +466,16 @@ def add_owner(garage_id):
             share=share, comment=comment, created_by_user_id=g.user.id,
         ))
     else:
-        owner_index = next_owner_index(garage.id)
+        # До добавления! После — count() уже включает эту новую запись,
+        # проверка утратит смысл (см. _archive_owner_accounts_and_reuse).
+        had_no_owners = database.db_session.query(GarageOwnership).filter_by(garage_id=garage.id).count() == 0
         database.db_session.add(GarageOwnership(garage_id=garage.id, person_id=person_id, share=share))
         database.db_session.flush()
-        _ensure_member_accounts(garage, person_id, owner_index)
+        if had_no_owners:
+            _archive_owner_accounts_and_reuse(garage, person_id)
+        else:
+            owner_index = next_owner_index(garage.id)
+            _ensure_member_accounts(garage, person_id, owner_index)
         database.db_session.add(GarageOwnershipEvent(
             garage_id=garage.id, person_id=person_id, event_type=GarageOwnershipEventType.ADDED,
             share=share, comment=comment, created_by_user_id=g.user.id,
@@ -469,10 +534,13 @@ def _remove_owner_and_redistribute(garage: Garage, ownership: GarageOwnership, r
     остаток лицевых счетов выбывшего по этому гаражу распределяется между
     ними в этой же пропорции (см. accounting.redistribute_member_account_balance).
     Если собственник был ЕДИНСТВЕННЫМ: ничего, кроме самой записи
-    GarageOwnership, не трогаем — лицевые счета остаются на нём со всем,
-    что на них есть, до появления нового собственника; that's намеренно,
-    решать, что делать с гаражом без единого собственника — дело
-    председателя, не автоматики.
+    GarageOwnership, не трогаем — лицевые счета остаются на нём (активными)
+    со всем, что на них есть — например, пока решается вопрос с
+    наследством. Как только у гаража появится новый собственник, add_owner
+    сам заархивирует эти счета и перенесёт остаток на новые — см.
+    _archive_owner_accounts_and_reuse. До этого момента — гараж без
+    собственника, это нормальное переходное состояние, автоматика ничего
+    не решает за председателя.
     """
     database.db_session.add(GarageOwnershipEvent(
         garage_id=garage.id, person_id=ownership.person_id, event_type=GarageOwnershipEventType.REMOVED,

@@ -303,6 +303,51 @@ def redistribute_member_account_balance(
         reallocate_member_charges(acc)
 
 
+def transfer_member_account_balance(old_account: MemberAccount, new_account: MemberAccount) -> None:
+    """
+    Переносит остаток (сальдо) АРХИВИРУЕМОГО лицевого счёта целиком на
+    новый счёт того же вида взноса — при повторном заселении гаража,
+    оставшегося вовсе без собственников (см.
+    garages._archive_owner_accounts). В отличие от
+    redistribute_member_account_balance (делит остаток МЕЖДУ НЕСКОЛЬКИМИ
+    оставшимися содольщиками пропорционально долям), здесь ровно один
+    получатель и делить нечего — вся сумма уходит ему.
+
+    Механика та же: не прямая правка баланса (он не хранимое поле, а
+    вычисляется из начислений/платежей — см. balance()), а компенсирующие
+    Charge/Payment, чтобы сумма по кооперативу в целом не менялась.
+    """
+    remaining_balance = balance(old_account)
+    if remaining_balance == 0:
+        return
+
+    today = dt.date.today()
+    amount = abs(remaining_balance)
+    old_name = old_account.person.full_name
+    if remaining_balance < 0:
+        database.db_session.add(Payment(
+            account_id=old_account.id, date=today, amount=amount,
+            comment=_("Долг передан новому собственнику при архивации счёта"),
+        ))
+        database.db_session.add(Charge(
+            account_id=new_account.id, year=today.year, amount=amount,
+            comment=_("Долг, унаследованный от прежнего собственника ({name})").format(name=old_name),
+        ))
+    else:
+        database.db_session.add(Charge(
+            account_id=old_account.id, year=today.year, amount=amount,
+            comment=_("Переплата передана новому собственнику при архивации счёта"),
+        ))
+        database.db_session.add(Payment(
+            account_id=new_account.id, date=today, amount=amount,
+            comment=_("Переплата, унаследованная от прежнего собственника ({name})").format(name=old_name),
+        ))
+
+    database.db_session.flush()
+    reallocate_member_charges(old_account)
+    reallocate_member_charges(new_account)
+
+
 def charge_paid_amount(charge: Charge) -> Decimal:
     return sum((a.amount for a in charge.allocations), Decimal("0"))
 

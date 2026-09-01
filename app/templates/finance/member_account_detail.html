@@ -22,7 +22,11 @@
 {% endif %}
 <h3 class="mb-1">
   <a href="{{ url_for('garages.detail', garage_id=account.garage.id) }}" class="link-body-emphasis text-decoration-none">&larr; {{ account.fee_type.name }} — {{ account.person.full_name }} — {{ _("гараж") }} №{{ account.garage.number }}</a>
+  {% if account.is_archived %}<span class="badge bg-secondary">{{ _("архив") }}</span>{% endif %}
 </h3>
+{% if account.is_archived %}
+<p class="text-muted small">{{ _("Счёт архивный — прежний собственник выбыл, новых начислений по нему больше не будет. Оставлен для истории.") }}</p>
+{% endif %}
 
 {% if is_board() %}
 <div class="d-flex align-items-center gap-2 mb-2">

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{{ _("Мониторинг фаз") }}{% endblock %}
+{% block title %}{{ _("Мониторинг электропитания") }}{% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h3 class="mb-0">{{ _("Мониторинг электроэнергии по фазам") }}</h3>
@@ -113,12 +113,12 @@
       </div>
       {% endfor %}
     </div>
-    <div class="d-flex flex-wrap align-items-end gap-2">
-      <div>
+    <div class="d-flex flex-wrap align-items-center gap-2">
+      <div class="d-flex align-items-center gap-1">
         <label class="form-label small mb-0" for="historyFrom">{{ _("С") }}</label>
         <input type="datetime-local" id="historyFrom" class="form-control form-control-sm">
       </div>
-      <div>
+      <div class="d-flex align-items-center gap-1">
         <label class="form-label small mb-0" for="historyTo">{{ _("По") }}</label>
         <input type="datetime-local" id="historyTo" class="form-control form-control-sm">
       </div>
@@ -207,7 +207,7 @@
   </div>
 </div>
 
-<div class="d-flex justify-content-en gap-2 mt-2 ">
+<div class="d-flex justify-content-end gap-2 mt-2 ">
   {% if account.app_id and account.app_secret_encrypted %}
   <a class="btn btn-sm btn-primary" href="{{ url_for('electricity_monitor.start_oauth') }}">
     {{ _("Переавторизоваться в eWeLink") if is_authorized else _("Войти через eWeLink") }}
@@ -280,7 +280,14 @@
       scales: {
         x: {
           type: "time",
-          time: { tooltipFormat: "dd.MM.yyyy HH:mm" },
+          time: {
+            displayFormats: {
+                hour: 'HH:mm',
+                day: 'MM dd',
+                month: 'MM yyyy'
+          },
+              tooltipFormat: "dd.MM.yyyy HH:mm"
+          },
           ticks: { maxRotation: 0 },
         },
         y: {

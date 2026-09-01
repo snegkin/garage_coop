@@ -370,16 +370,25 @@ def account_format():
         settings.penalty_prefix = f.get("penalty_prefix", "П")
         database.db_session.flush()
 
-        changed, failed = _regenerate_account_numbers(settings)
-        database.db_session.commit()
-
-        if failed:
-            flash(_(
-                "Формат обновлён. Приведено к новому формату: {changed}. Не удалось из-за конфликта номеров: {failed} — поправьте их вручную на страницах счетов.",
-                changed=changed, failed=failed,
-            ), "warning")
+        if f.get("regenerate_existing"):
+            changed, failed = _regenerate_account_numbers(settings)
+            database.db_session.commit()
+            if failed:
+                flash(_(
+                    "Формат обновлён. Приведено к новому формату: {changed}. Не удалось из-за конфликта номеров: {failed} — поправьте их вручную на страницах счетов.",
+                    changed=changed, failed=failed,
+                ), "warning")
+            else:
+                flash(_("Формат обновлён, все существующие номера приведены к нему. Изменено: {changed}.", changed=changed), "success")
         else:
-            flash(_("Формат обновлён, все существующие номера приведены к нему. Изменено: {changed}.", changed=changed), "success")
+            # Уже выданные номера намеренно не трогаем — например, при
+            # расширении ширины номера собственника (owner_digits), чтобы
+            # не упереться в лимит по гаражу с частой сменой собственников
+            # (см. accounting.next_owner_index), но без переоформления уже
+            # розданных людям счетов. Новый формат применяется только к
+            # счетам, которые будут созданы впредь.
+            database.db_session.commit()
+            flash(_("Формат обновлён. Уже существующие номера оставлены как есть — новый формат применяется только к новым счетам."), "success")
         return redirect(url_for("finance.account_format"))
 
     return render_template(

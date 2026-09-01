@@ -2,7 +2,7 @@
 {% block title %}{{ _("Формат лицевых счетов") }}{% endblock %}
 {% block content %}
 <h3 class="mb-3">{{ _("Формат лицевых счетов") }}</h3>
-<p class="text-muted small">{{ _("При сохранении все уже существующие номера будут пересчитаны под новый формат, где это возможно без конфликтов.") }}</p>
+<p class="text-muted small">{{ _("Новый формат применяется ко всем счетам, которые будут созданы впредь. Уже существующие номера можно либо оставить как есть, либо пересчитать под новый формат прямо сейчас (см. флажок ниже).") }}</p>
 
 <form method="post" class="bg-body p-4 rounded border" style="max-width:500px">
   <div class="row g-3">
@@ -30,6 +30,14 @@
     <div><strong>{{ _("Пример — пеня по нему") }}:</strong> <code>{{ example_penalty }}</code></div>
   </div>
 
-  <button class="btn btn-primary">{{ _("Сохранить и пересчитать существующие номера") }}</button>
+  <div class="form-check mb-3">
+    <input class="form-check-input" type="checkbox" name="regenerate_existing" id="regenerate_existing">
+    <label class="form-check-label" for="regenerate_existing">
+      {{ _("Пересчитать уже существующие номера под новый формат (где это возможно без конфликтов)") }}
+    </label>
+    <div class="form-text">{{ _("Если не отмечено — уже выданные людям номера не меняются, новый формат затронет только счета, заведённые впредь.") }}</div>
+  </div>
+
+  <button class="btn btn-primary">{{ _("Сохранить") }}</button>
 </form>
 {% endblock %}

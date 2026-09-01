@@ -21,7 +21,7 @@ from .models import (
 from sqlalchemy.orm import joinedload
 from .accounting import (
     electricity_account_number, member_account_number, balance, current_tariff, reallocate_garage_charges,
-    charge_paid_amount, split_amount_by_shares, redistribute_member_account_balance,
+    charge_paid_amount, split_amount_by_shares, redistribute_member_account_balance, next_owner_index,
 )
 
 bp = Blueprint("garages", __name__, url_prefix="/garages")
@@ -407,7 +407,7 @@ def add_owner(garage_id):
             share=share, comment=comment, created_by_user_id=g.user.id,
         ))
     else:
-        owner_index = database.db_session.query(GarageOwnership).filter_by(garage_id=garage.id).count()
+        owner_index = next_owner_index(garage.id)
         database.db_session.add(GarageOwnership(garage_id=garage.id, person_id=person_id, share=share))
         database.db_session.flush()
         _ensure_member_accounts(garage, person_id, owner_index)

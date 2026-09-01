@@ -1470,6 +1470,15 @@ class MemberAccount(Base):
     конкретному гаражу (сумма зависит от доли владения этим гаражом).
     У одного человека может быть несколько таких счетов — по числу гаражей
     и видов взносов. Номер счёта формируется в accounting.py.
+
+    is_archived — счёт больше не актуален (прежний собственник выбыл, а
+    гараж затем обзавёлся новым — см. garages._archive_owner_accounts):
+    счёт остаётся привязанным к прежнему person_id для истории начислений
+    и платежей, но по нему больше ничего не начисляется, а его номер
+    (account_number) переходит новому, свежесозданному счёту нового
+    собственника — отсюда частичный уникальный индекс ниже вместо
+    обычного UNIQUE на account_number: одинаковый номер у активного и
+    архивного счёта — норма, у двух АКТИВНЫХ — нет.
     """
     __tablename__ = "member_account"
 
@@ -1477,8 +1486,9 @@ class MemberAccount(Base):
     person_id: Mapped[int] = mapped_column(ForeignKey("person.id"), index=True)
     garage_id: Mapped[int] = mapped_column(ForeignKey("garage.id", ondelete="CASCADE"), index=True)
     fee_type_id: Mapped[int] = mapped_column(ForeignKey("fee_type.id"), index=True)
-    account_number: Mapped[str] = mapped_column(String(20), unique=True)
+    account_number: Mapped[str] = mapped_column(String(20))
     opened_date: Mapped[dt.date] = mapped_column(Date, default=dt.date.today)
+    is_archived: Mapped[bool] = mapped_column(Boolean, default=False)
 
     person: Mapped["Person"] = relationship()
     garage: Mapped["Garage"] = relationship()
@@ -1487,7 +1497,20 @@ class MemberAccount(Base):
     payments: Mapped[list["Payment"]] = relationship(back_populates="account", cascade="all, delete-orphan")
 
     __table_args__ = (
-        UniqueConstraint("person_id", "garage_id", "fee_type_id", name="uq_member_account"),
+        # Обычный UniqueConstraint здесь не годится: после архивации счёта
+        # (см. is_archived выше) у того же человека по тому же гаражу и
+        # виду взноса может позже появиться НОВЫЙ активный счёт (например,
+        # он вновь стал собственником спустя годы) — старый архивный не
+        # должен этому мешать. Поэтому обе уникальности — и по человеку/
+        # гаражу/виду взноса, и по номеру счёта — только среди активных.
+        Index(
+            "uq_member_account_active", "person_id", "garage_id", "fee_type_id", unique=True,
+            sqlite_where=text("NOT is_archived"), postgresql_where=text("NOT is_archived"),
+        ),
+        Index(
+            "uq_member_account_number_active", "account_number", unique=True,
+            sqlite_where=text("NOT is_archived"), postgresql_where=text("NOT is_archived"),
+        ),
     )
 
 

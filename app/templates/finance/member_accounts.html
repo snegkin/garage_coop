@@ -21,7 +21,7 @@
     {% for account, balance in rows %}
     <tr onclick="window.location='{{ url_for('finance.member_account_detail', account_id=account.id) }}'" style="cursor:pointer"
         data-filter-text="{{ (account.person.full_name ~ ' ' ~ account.garage.number ~ ' ' ~ account.fee_type.name ~ ' ' ~ account.account_number)|lower }}">
-      <td>{{ account.person.full_name }}</td>
+      <td>{{ account.person.full_name }}{% if account.is_archived %} <span class="badge bg-secondary">{{ _("архив") }}</span>{% endif %}</td>
       <td data-sort-value="{{ account.garage.number }}">№{{ account.garage.number }}</td>
       <td>{{ account.fee_type.name }}</td>
       <td class="text-end">{{ account.account_number }}</td>

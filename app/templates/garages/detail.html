@@ -226,14 +226,16 @@
     {% endif %}
     {% for row in account_summary_rows %}
     <tr data-account-row="{{ row.id }}">
-      <td>{% if is_board() %}<a href="{{ url_for('persons.detail', person_id=row.person.id) }}">{{ row.person.full_name }}</a>{% else %}{{ row.person.full_name }}{% endif %}</td>
+      <td>{% if is_board() %}<a href="{{ url_for('persons.detail', person_id=row.person.id) }}">{{ row.person.full_name }}</a>{% else %}{{ row.person.full_name }}{% endif %}{% if row.is_archived %} <span class="badge bg-secondary">{{ _("архив") }}</span>{% endif %}</td>
       <td>{{ row.fee_type.name }}</td>
       <td class="text-end">{{ row.account_number }}</td>
       <td data-sort-value="{{ row.balance }}" class="js-account-balance text-end {{ 'text-danger' if row.balance < 0 else 'text-success' }}">{{ fmt2(row.balance) }} ₽</td>
       {% if is_board() %}
       <td class="text-nowrap">
+        {% if not row.is_archived %}
         <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#quickCharge-{{ row.id }}" title="{{ _('Начислить') }}">+{{ _("счёт") }}</button>
         <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#quickPayment-{{ row.id }}" title="{{ _('Зарегистрировать платёж') }}">+{{ _("платёж") }}</button>
+        {% endif %}
       </td>
       {% endif %}
     </tr>

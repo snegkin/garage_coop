@@ -24,6 +24,7 @@ import datetime as dt
 import secrets
 
 from flask import Blueprint, render_template, request, redirect, url_for, flash, session, jsonify
+from sqlalchemy import func
 
 from . import database
 from .i18n import translate as _
@@ -34,10 +35,25 @@ from .ewelink import EWeLinkClient, EWeLinkTokens, EWeLinkApiError, EWeLinkAuthE
 
 bp = Blueprint("electricity_monitor", __name__, url_prefix="/electricity")
 
-HISTORY_HOURS = 3  # период по умолчанию для графика (см. history_data()) — открывающийся вид страницы
-MAX_HISTORY_HOURS = 24 * 90  # защита от случайного ?hours=999999 — не ограничение бизнес-смысла, просто разумный потолок
-MAX_CHART_POINTS = 1500  # точек на устройство в ответе history_data() — при 30 днях с опросом раз в минуту сырых точек ~43000, столько на графике не нужно и будет тормозить
+HISTORY_HOURS = 3  # период по умолчанию для графика при первом открытии страницы (см. view())
+MAX_CHART_POINTS = 1500  # точек на устройство в ответе history_data() — при 30 днях с опросом раз в 5 минут сырых точек ~8600, а за более старую историю (raw_params накопится) может быть больше; без ограничения график будет тормозить
 OAUTH_STATE_SESSION_KEY = "ewelink_oauth_state"
+
+
+def _parse_iso_utc(value: str | None) -> dt.datetime | None:
+    """Разбирает ISO-таймстамп от JS (Date#toISOString(), всегда UTC с суффиксом
+    "Z") в наивный UTC datetime — тот же формат, что хранится в PowerPhaseReading.ts
+    (см. models.py). None при отсутствии/некорректном значении — вызывающий код
+    сам решает, что подставить по умолчанию."""
+    if not value:
+        return None
+    try:
+        parsed = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(dt.timezone.utc).replace(tzinfo=None)
+    return parsed
 
 
 def _downsample(rows: list, max_points: int) -> list:
@@ -168,6 +184,14 @@ def view():
 
     devices_json = [{"id": d.id, "label": d.label} for d in devices]
 
+    # Границы для датапикеров «с/по» на графике истории (см. monitor.html) —
+    # самая ранняя и самая поздняя запись по всем устройствам сразу, не по
+    # каждому отдельно: один общий диапазон на весь график проще для
+    # пользователя, чем разные пределы на разных фазах.
+    history_min, history_max = database.db_session.query(
+        func.min(PowerPhaseReading.ts), func.max(PowerPhaseReading.ts)
+    ).one()
+
     return render_template(
         "electricity/monitor.html",
         account=account,
@@ -176,6 +200,8 @@ def view():
         latest_by_device=latest_by_device,
         total_power=total_power,
         history_hours_default=HISTORY_HOURS,
+        history_min=history_min,
+        history_max=history_max,
         is_configured=bool(account.app_id and account.family_id),
         is_authorized=bool(account.access_token_encrypted),
         families=families,
@@ -187,18 +213,19 @@ def view():
 @bp.route("/history-data")
 @roles_required(RoleEnum.BOARD)
 def history_data():
-    """JSON для графика истории на странице (см. monitor.html): период —
-    параметром ?hours= (по умолчанию HISTORY_HOURS). Отдаёт мощность в Вт,
-    как она хранится в БД, — перевод в кВт и выбор видимых фаз/масштаб/
-    прокрутка по времени делает JS на клиенте, без повторных запросов к
-    серверу (кроме смены периода)."""
-    try:
-        hours = float(request.args.get("hours", HISTORY_HOURS))
-    except (TypeError, ValueError):
-        hours = HISTORY_HOURS
-    hours = min(max(hours, 1.0), MAX_HISTORY_HOURS)
+    """JSON для графика истории на странице (см. monitor.html): произвольный
+    период — параметрами ?since=&until= (ISO UTC, см. _parse_iso_utc), задаётся
+    пользователем через два datetime-local в браузере, ограниченные реальными
+    границами данных (см. view():history_min/history_max). Без параметров —
+    последние HISTORY_HOURS часов, тот же диапазон, что при первом открытии
+    страницы. Отдаёт мощность в Вт, как она хранится в БД, — перевод в кВт и
+    выбор видимых фаз/масштаб/прокрутка по времени делает JS на клиенте, без
+    повторных запросов к серверу (кроме смены диапазона дат)."""
+    until = _parse_iso_utc(request.args.get("until")) or dt.datetime.utcnow()
+    since = _parse_iso_utc(request.args.get("since")) or (until - dt.timedelta(hours=HISTORY_HOURS))
+    if since > until:
+        since, until = until, since
 
-    since = dt.datetime.utcnow() - dt.timedelta(hours=hours)
     devices = (
         database.db_session.query(PowerPhaseDevice)
         .order_by(PowerPhaseDevice.sort_order, PowerPhaseDevice.id)
@@ -212,6 +239,7 @@ def history_data():
             .filter(
                 PowerPhaseReading.device_id == device.id,
                 PowerPhaseReading.ts >= since,
+                PowerPhaseReading.ts <= until,
                 PowerPhaseReading.power_w.isnot(None),
             )
             .order_by(PowerPhaseReading.ts.asc())

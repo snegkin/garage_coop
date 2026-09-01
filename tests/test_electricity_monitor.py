@@ -438,7 +438,8 @@ def test_history_data_returns_points_in_watts_per_device(app, db, client):
     db.commit()
     login(client, "board4", "pass12345")
 
-    resp = client.get("/electricity/history-data?hours=24")
+    # без since/until — последние HISTORY_HOURS часов по умолчанию (данные свежие, попадают)
+    resp = client.get("/electricity/history-data")
     assert resp.status_code == 200
     data = resp.get_json()
     by_id = {d["id"]: d for d in data["devices"]}
@@ -451,7 +452,8 @@ def test_history_data_returns_points_in_watts_per_device(app, db, client):
     assert by_id[device_a.id]["points"][0]["t"].endswith("Z")
 
 
-def test_history_data_ignores_readings_outside_period(app, db, client):
+def test_history_data_defaults_to_last_history_hours(app, db, client):
+    """Без since/until — окно в HISTORY_HOURS часов от текущего момента."""
     device = make_phase_device(db)
     now = dt.datetime.utcnow()
     db.add(PowerPhaseReading(device_id=device.id, ts=now - dt.timedelta(hours=10), power_w=Decimal("999")))
@@ -460,10 +462,30 @@ def test_history_data_ignores_readings_outside_period(app, db, client):
     db.commit()
     login(client, "board5", "pass12345")
 
-    resp = client.get("/electricity/history-data?hours=3")
+    resp = client.get("/electricity/history-data")
     data = resp.get_json()
     points = data["devices"][0]["points"]
     assert [p["w"] for p in points] == [42.0]
+
+
+def test_history_data_respects_explicit_since_until(app, db, client):
+    """since/until — ISO UTC с суффиксом "Z", как их шлёт JS (Date#toISOString());
+    см. _parse_iso_utc в electricity_monitor.py."""
+    device = make_phase_device(db)
+    base = dt.datetime(2026, 1, 1, 12, 0, 0)
+    db.add(PowerPhaseReading(device_id=device.id, ts=base, power_w=Decimal("10")))
+    db.add(PowerPhaseReading(device_id=device.id, ts=base + dt.timedelta(hours=1), power_w=Decimal("20")))
+    db.add(PowerPhaseReading(device_id=device.id, ts=base + dt.timedelta(hours=2), power_w=Decimal("30")))
+    make_user(db, "board6", "pass12345", role=RoleEnum.BOARD)
+    db.commit()
+    login(client, "board6", "pass12345")
+
+    since = (base + dt.timedelta(minutes=30)).isoformat() + "Z"
+    until = (base + dt.timedelta(hours=1, minutes=30)).isoformat() + "Z"
+    resp = client.get(f"/electricity/history-data?since={since}&until={until}")
+    data = resp.get_json()
+    points = data["devices"][0]["points"]
+    assert [p["w"] for p in points] == [20.0]
 
 
 def test_history_data_requires_board_role(app, db, client):

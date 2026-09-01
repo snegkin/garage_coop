@@ -113,12 +113,17 @@
       </div>
       {% endfor %}
     </div>
-    <select id="historyPeriod" class="form-select form-select-sm" style="width: auto;">
-      <option value="3" {{ "selected" if history_hours_default == 3 }}>{{ _("3 часа") }}</option>
-      <option value="24" {{ "selected" if history_hours_default == 24 }}>{{ _("24 часа") }}</option>
-      <option value="168" {{ "selected" if history_hours_default == 168 }}>{{ _("7 дней") }}</option>
-      <option value="720" {{ "selected" if history_hours_default == 720 }}>{{ _("30 дней") }}</option>
-    </select>
+    <div class="d-flex flex-wrap align-items-end gap-2">
+      <div>
+        <label class="form-label small mb-0" for="historyFrom">{{ _("С") }}</label>
+        <input type="datetime-local" id="historyFrom" class="form-control form-control-sm">
+      </div>
+      <div>
+        <label class="form-label small mb-0" for="historyTo">{{ _("По") }}</label>
+        <input type="datetime-local" id="historyTo" class="form-control form-control-sm">
+      </div>
+      <button type="button" id="historyApplyBtn" class="btn btn-sm btn-primary">{{ _("Показать") }}</button>
+    </div>
     <button type="button" id="resetZoomBtn" class="btn btn-sm btn-outline-secondary">{{ _("Сбросить масштаб") }}</button>
   </div>
 </div>
@@ -232,6 +237,38 @@
   const colors = ["#0d6efd", "#fd7e14", "#20c997", "#dc3545", "#6f42c1"];
   const historyUrl = {{ url_for("electricity_monitor.history_data") | tojson }};
   const emptyMsg = document.getElementById("historyChartEmpty");
+  const emptyMsgDefaultText = emptyMsg.textContent;
+  const fromInput = document.getElementById("historyFrom");
+  const toInput = document.getElementById("historyTo");
+  const applyBtn = document.getElementById("historyApplyBtn");
+  // Границы датапикеров — самая ранняя/поздняя запись в БД по всем устройствам
+  // (см. view():history_min/history_max); null, если показаний ещё нет вовсе.
+  const boundsMinIso = {{ (history_min.isoformat() ~ "Z") | tojson if history_min else "null" }};
+  const boundsMaxIso = {{ (history_max.isoformat() ~ "Z") | tojson if history_max else "null" }};
+
+  // <input type="datetime-local"> хранит и отображает locale-время браузера без
+  // указания зоны — конвертируем UTC-границы из БД в локальные "YYYY-MM-DDTHH:mm"
+  // через геттеры Date (getFullYear/getHours и т.п. уже в зоне браузера).
+  function toLocalInputValue(date) {
+    const pad = function (n) { return String(n).padStart(2, "0"); };
+    return date.getFullYear() + "-" + pad(date.getMonth() + 1) + "-" + pad(date.getDate())
+      + "T" + pad(date.getHours()) + ":" + pad(date.getMinutes());
+  }
+
+  if (boundsMinIso && boundsMaxIso) {
+    const minDate = new Date(boundsMinIso);
+    const maxDate = new Date(boundsMaxIso);
+    const minLocal = toLocalInputValue(minDate);
+    const maxLocal = toLocalInputValue(maxDate);
+    fromInput.min = toInput.min = minLocal;
+    fromInput.max = toInput.max = maxLocal;
+    // по умолчанию — последние HISTORY_HOURS часов данных (или весь диапазон, если он короче)
+    const defaultFromMs = Math.max(minDate.getTime(), maxDate.getTime() - {{ history_hours_default }} * 60 * 60 * 1000);
+    fromInput.value = toLocalInputValue(new Date(defaultFromMs));
+    toInput.value = maxLocal;
+  } else {
+    fromInput.disabled = toInput.disabled = applyBtn.disabled = true;
+  }
 
   const chart = new Chart(canvas.getContext("2d"), {
     type: "line",
@@ -264,10 +301,10 @@
     },
   });
 
-  // Данные за выбранный период запрашиваются один раз и кэшируются в
+  // Данные за выбранный диапазон дат запрашиваются один раз и кэшируются в
   // lastData — переключение галочек фаз просто перестраивает datasets из
   // уже загруженного ответа, без обращения к серверу; новый запрос нужен
-  // только при смене периода (select #historyPeriod).
+  // только по кнопке «Показать» (смена дат «с»/«по»).
   let lastData = null;
 
   function selectedDeviceIds() {
@@ -301,8 +338,13 @@
   }
 
   function fetchAndRender() {
-    const hours = document.getElementById("historyPeriod").value;
-    fetch(historyUrl + "?hours=" + encodeURIComponent(hours))
+    if (!fromInput.value || !toInput.value) return;
+    // datetime-local не несёт часовой пояс — new Date(value) трактует такую
+    // строку как локальное время браузера (по спецификации), поэтому
+    // toISOString() корректно даёт UTC независимо от зоны пользователя.
+    const since = new Date(fromInput.value).toISOString();
+    const until = new Date(toInput.value).toISOString();
+    fetch(historyUrl + "?since=" + encodeURIComponent(since) + "&until=" + encodeURIComponent(until))
       .then(function (r) { return r.json(); })
       .then(function (data) { lastData = data; render(); })
       .catch(function () {
@@ -315,10 +357,18 @@
   document.querySelectorAll(".js-phase-toggle").forEach(function (el) {
     el.addEventListener("change", render);
   });
-  document.getElementById("historyPeriod").addEventListener("change", fetchAndRender);
+  applyBtn.addEventListener("click", function () {
+    emptyMsg.textContent = emptyMsgDefaultText;
+    fetchAndRender();
+  });
   document.getElementById("resetZoomBtn").addEventListener("click", function () { chart.resetZoom(); });
 
-  fetchAndRender();
+  if (boundsMinIso && boundsMaxIso) {
+    fetchAndRender();
+  } else {
+    emptyMsg.classList.remove("d-none");
+    canvas.classList.add("d-none");
+  }
 })();
 </script>
 {% endblock %}

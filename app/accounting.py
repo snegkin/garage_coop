@@ -68,6 +68,35 @@ def member_account_number(
     return f"{settings.penalty_prefix}{base}" if is_penalty else base
 
 
+def next_owner_index(garage_id: int, settings: AccountNumberSettings | None = None) -> int:
+    """
+    Следующий свободный порядковый номер собственника для формулы номера
+    счёта (member_account_number) — считается по максимальному индексу
+    среди ВСЕХ лицевых счетов гаража, когда-либо заведённых (в т.ч.
+    исторических, уже выбывших собственников), а не по количеству ТЕКУЩИХ
+    записей GarageOwnership.
+
+    Иначе после выбытия единственного собственника (его запись
+    GarageOwnership удаляется, см. garages._remove_owner_and_redistribute)
+    новый собственник получил бы тот же индекс 0, что и выбывший — и
+    упёрся бы в UNIQUE constraint на account_number, поскольку старый счёт
+    не удаляется (сохраняется ради истории начислений/платежей).
+    """
+    settings = settings or get_settings()
+    numbers = (
+        database.db_session.query(MemberAccount.account_number)
+        .filter_by(garage_id=garage_id)
+        .all()
+    )
+    used = [
+        int(suffix)
+        for (number,) in numbers
+        for suffix in [number[-settings.owner_digits:]]
+        if suffix.isdigit()
+    ]
+    return (max(used) + 1) if used else 0
+
+
 def owner_index_for(garage_id: int, person_id: int) -> int:
     """Порядковый номер человека среди собственников гаража (по порядку
     добавления записи о владении — id GarageOwnership, не по алфавиту и

@@ -51,7 +51,9 @@
         <li class="nav-item dropdown">
           <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">{{ _("Кооператив") }}</a>
           <ul class="dropdown-menu">
-            <li><a class="dropdown-item" href="{{ url_for('electricity_monitor.view') }}">{{ _("Мониторинг фаз") }}</a></li>
+            <li><h6 class="dropdown-header">{{ _("Электроэнергия") }}</h6></li>
+            <li><a class="dropdown-item" href="{{ url_for('electricity_monitor.view') }}">{{ _("Мониторинг электропитания") }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('power.view') }}">{{ _("Счётчик") }}</a></li>
             <li><hr class="dropdown-divider"></li>
             <li><h6 class="dropdown-header">{{ _("Реестры") }}</h6></li>
             <li><a class="dropdown-item" href="{{ url_for('garages.list_garages') }}">{{ _("Гаражи") }}</a></li>
@@ -60,7 +62,6 @@
 
             <li><hr class="dropdown-divider"></li>
             <li><h6 class="dropdown-header">{{ _("Финансы") }}</h6></li>
-            <li><a class="dropdown-item" href="{{ url_for('power.view') }}">{{ _("Электроэнергия") }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('penalty.view') }}">{{ _("Пеня") }}</a></li>
             {% if is_privileged() %}
             <li><a class="dropdown-item" href="{{ url_for('finance.member_accounts') }}">{{ _("Счета членов кооператива") }}</a></li>

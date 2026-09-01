@@ -10,7 +10,7 @@ from . import database
 from . import audit
 from .i18n import translate as _
 from .auth import login_required, roles_required, is_safe_next_url
-from .permissions import is_board, sync_user_role
+from .permissions import is_board, is_chairman, sync_user_role
 from .models import (
     Person, Phone, User, RoleEnum, MemberAccount, PersonDataRevision, PersonDataRevisionStatus,
     GarageOwnership, PersonalAccount,
@@ -147,6 +147,78 @@ def create():
     return render_template("persons/form.html", person=None)
 
 
+# Поля, которые член кооператива может предложить изменить через ЛК (см.
+# cabinet.profile) — те же ключи, что и в fields_snapshot ревизии. Порядок
+# и подписи — как в форме редактирования персональных данных, чтобы
+# сравнение в detail.html выглядело как та же форма, но с подсветкой того,
+# что изменилось.
+_REVISION_FIELDS = [
+    ("email", "Email"),
+    ("telegram", "Telegram"),
+    ("registration_address", "Адрес регистрации"),
+    ("residence_address", "Адрес проживания"),
+    ("phones", "Телефоны"),
+    ("passport_series", "Серия паспорта"),
+    ("passport_number", "Номер паспорта"),
+    ("passport_issued_by", "Кем выдан"),
+    ("passport_issue_date", "Дата выдачи"),
+    ("passport_department_code", "Код подразделения"),
+]
+
+
+def _revision_diff_rows(revision, person):
+    """Построчное сравнение snapshot-а ревизии с данными person ДО неё —
+    чтобы председатель видел не сырой JSON, а понятную таблицу «было/стало»
+    с подсветкой изменившихся полей. «Было» берём из revision.previous_snapshot
+    (снимок карточки на момент отправки, см. cabinet.profile) — НЕ из текущих
+    данных person: после одобрения карточка уже содержит те же значения, что
+    и fields_snapshot, поэтому сравнение с live-данными для уже одобренной
+    ревизии показало бы «было == стало». Фолбэк на текущие данные person —
+    только для ревизий, созданных до появления previous_snapshot."""
+    try:
+        snap = json.loads(revision.fields_snapshot)
+    except Exception:
+        snap = {}
+
+    if revision.previous_snapshot:
+        try:
+            current = json.loads(revision.previous_snapshot)
+        except Exception:
+            current = {}
+    else:
+        current = {
+            "email": person.email,
+            "telegram": person.telegram,
+            "registration_address": person.registration_address,
+            "residence_address": person.residence_address,
+            "phones": sorted(p.number for p in person.phones),
+            "passport_series": person.passport_series,
+            "passport_number": person.passport_number,
+            "passport_issued_by": person.passport_issued_by,
+            "passport_issue_date": person.passport_issue_date.isoformat() if person.passport_issue_date else None,
+            "passport_department_code": person.passport_department_code,
+        }
+
+    def fmt(key, value):
+        if key == "phones":
+            return ", ".join(value) if value else "—"
+        if key == "passport_issue_date" and value:
+            return dt.date.fromisoformat(value).strftime("%d.%m.%Y")
+        return value or "—"
+
+    rows = []
+    for key, label in _REVISION_FIELDS:
+        old_value = current.get(key)
+        new_value = snap.get(key)
+        rows.append({
+            "label": label,
+            "old": fmt(key, old_value),
+            "new": fmt(key, new_value),
+            "changed": old_value != new_value,
+        })
+    return rows
+
+
 @bp.route("/<int:person_id>")
 @login_required
 def detail(person_id):
@@ -167,9 +239,12 @@ def detail(person_id):
         ma for ma in member_accounts
         if not ma.fee_type.is_penalty or ma.charges
     ]
+    revision_rows = {}
+    if is_chairman():
+        revision_rows = {rev.id: _revision_diff_rows(rev, person) for rev in person.revisions}
     return render_template(
         "persons/detail.html", person=person, account=account, member_accounts=member_accounts,
-        today=dt.date.today(),
+        revision_rows=revision_rows, today=dt.date.today(),
     )
 
 

@@ -97,8 +97,8 @@
 
 {% if is_board() and member_accounts %}
 <h5 class="mt-4">{{ _("Лицевые счета") }}</h5>
-<table class="table table-sm bg-body sortable" style="max-width:900px">
-  <thead><tr><th>{{ _("Гараж") }}</th><th>{{ _("Вид взноса") }}</th><th class="text-end">{{ _("Счёт") }}</th><th>{{ _("Баланс") }}</th><th class="no-sort"></th></tr></thead>
+<table class="table table-sm bg-body sortable">
+  <thead><tr><th>{{ _("Гараж") }}</th><th>{{ _("Вид взноса") }}</th><th class="text-end">{{ _("Счёт") }}</th><th class="text-end">{{ _("Баланс") }}</th><th class="no-sort"></th></tr></thead>
   <tbody>
     {% for acc in member_accounts %}
     {% set bal = balance(acc) %}
@@ -106,7 +106,7 @@
       <td onclick="window.location='{{ url_for('finance.member_account_detail', account_id=acc.id) }}'" style="cursor:pointer" data-sort-value="{{ acc.garage.number }}">№{{ acc.garage.number }}</td>
       <td onclick="window.location='{{ url_for('finance.member_account_detail', account_id=acc.id) }}'" style="cursor:pointer">{{ acc.fee_type.name }}</td>
       <td onclick="window.location='{{ url_for('finance.member_account_detail', account_id=acc.id) }}'" style="cursor:pointer" class="text-end">{{ acc.account_number }}</td>
-      <td onclick="window.location='{{ url_for('finance.member_account_detail', account_id=acc.id) }}'" style="cursor:pointer" class="js-account-balance {{ 'text-danger' if bal < 0 else 'text-success' }}" data-sort-value="{{ bal if bal else '0' }}">
+      <td onclick="window.location='{{ url_for('finance.member_account_detail', account_id=acc.id) }}'" style="cursor:pointer" class="js-account-balance text-end {{ 'text-danger' if bal < 0 else 'text-success' }}" data-sort-value="{{ bal if bal else '0' }}">
         {{ (fmt2(bal) ~ " ₽") }}
       </td>
       <td class="text-nowrap">
@@ -123,12 +123,18 @@
 {% endif %}
 
 {% if is_chairman() %}
-<h5 class="mt-4">{{ _("История изменений персональных данных") }}</h5>
+<h5 class="mt-4">
+  <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse"
+          data-bs-target="#personRevisionsHistory" aria-expanded="false" aria-controls="personRevisionsHistory">
+    {{ _("История изменений персональных данных") }}
+  </button>
+</h5>
 {% set revisions = person.revisions %}
+<div class="collapse" id="personRevisionsHistory">
 {% if revisions %}
-<div class="bg-body p-3 rounded border" style="max-width:700px">
+<div class="bg-body p-3 rounded border">
   {% for rev in revisions|sort(attribute='submitted_at', reverse=true) %}
-  <div class="border-bottom pb-2 mb-2 {% if rev.status.value == 'pending' %}table-warning{% endif %}">
+  <div class="border-bottom pb-2 mb-2 {% if rev.status.value == 'pending' %}bg-warning-subtle rounded p-2{% endif %}">
     <div class="d-flex justify-content-between align-items-start">
       <div>
         <strong>{{ rev.submitted_at.strftime('%d.%m.%Y %H:%M') }}</strong>
@@ -142,17 +148,26 @@
         {% endif %}
       </div>
     </div>
-    {% if rev.status.value == 'pending' %}
+    {% set rows = revision_rows.get(rev.id, []) %}
+    {% set changed_rows = rows|selectattr('changed')|list %}
     <div class="mt-2">
-      <small class="text-muted">
-        {% if rev.fields_snapshot %}
-        <details>
-          <summary>{{ _("Посмотреть предлагаемые данные") }}</summary>
-          <pre class="bg-body p-2 mt-2 small text-break" style="white-space: pre-wrap;">{{ rev.fields_snapshot|escape }}</pre>
-        </details>
-        {% endif %}
-      </small>
+      <table class="table table-sm mb-2">
+        <thead><tr><th>{{ _("Поле") }}</th><th>{{ _("Было") }}</th><th>{{ _("Станет") }}</th></tr></thead>
+        <tbody>
+          {% for row in rows %}
+          <tr class="{{ 'table-warning' if row.changed }}">
+            <td class="{{ 'fw-bold' if row.changed }}">{{ row.label }}</td>
+            <td class="{{ 'text-decoration-line-through text-muted' if row.changed }}">{{ row.old }}</td>
+            <td class="{{ 'fw-bold' if row.changed }}">{{ row.new if row.changed else row.old }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% if not changed_rows %}
+      <p class="text-muted small">{{ _("Изменений по сравнению с текущими данными не найдено.") }}</p>
+      {% endif %}
     </div>
+    {% if rev.status.value == 'pending' %}
     <div class="mt-2">
       <form method="post" action="{{ url_for('persons.approve_revision', person_id=person.id, revision_id=rev.id) }}" class="d-inline">
         <button class="btn btn-sm btn-success">{{ _("Одобрить") }}</button>
@@ -170,6 +185,7 @@
 {% else %}
 <p class="text-muted small">Предложенных изменений пока нет.</p>
 {% endif %}
+</div>
 {% endif %}
 
 {% if is_board() and not person.is_archived %}

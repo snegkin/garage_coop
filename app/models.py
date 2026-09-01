@@ -1512,6 +1512,14 @@ class PersonDataRevision(Base):
     submitted_by_user_id: Mapped[int] = mapped_column(ForeignKey("user.id"), index=True)
     status: Mapped[PersonDataRevisionStatus] = mapped_column(Enum(PersonDataRevisionStatus), default=PersonDataRevisionStatus.PENDING)
     fields_snapshot: Mapped[str] = mapped_column(Text)  # JSON: полные значения изменяемых полей на момент отправки
+    # JSON: те же поля со значениями ДО отправки — снимок текущей карточки Person
+    # на момент создания ревизии. Нужен, чтобы «Было/Стало» в истории (см.
+    # persons._revision_diff_rows) не «съезжало»: после одобрения карточка
+    # Person уже содержит те же данные, что и fields_snapshot, поэтому сравнивать
+    # с ЖИВЫМИ данными person для уже рассмотренных ревизий нельзя — nullable,
+    # т.к. у ревизий, созданных до этого поля, снимка «было» нет (см. fallback
+    # на текущие данные person в _revision_diff_rows).
+    previous_snapshot: Mapped[str | None] = mapped_column(Text, nullable=True)
     submitted_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.utcnow)
     reviewed_at: Mapped[dt.datetime | None] = mapped_column(DateTime, nullable=True)
     reviewer_user_id: Mapped[int | None] = mapped_column(ForeignKey("user.id"), index=True)

@@ -40,6 +40,11 @@ from app.ewelink import EWeLinkApiError, EWeLinkAuthError
 from app.electricity_monitor import build_client, persist_tokens
 
 
+def _utcnow() -> dt.datetime:
+    # Returns a naive datetime representing UTC, matching legacy behavior exactly
+    return dt.datetime.now(dt.UTC).replace(tzinfo=None)
+
+
 def main() -> int:
     app = create_app()
     with app.app_context():
@@ -65,7 +70,7 @@ def main() -> int:
                 devices = client.list_devices(account.family_id)
         except EWeLinkApiError as exc:
             account.last_error = str(exc)
-            account.last_poll_at = dt.datetime.utcnow()
+            account.last_poll_at = _utcnow()
             database.db_session.commit()
             print(f"[{dt.datetime.now().isoformat(timespec='seconds')}] "
                   f"Ошибка подключения к eWeLink: {exc}", file=sys.stderr)
@@ -89,7 +94,7 @@ def main() -> int:
 
             database.db_session.add(PowerPhaseReading(
                 device_id=phase_device.id,
-                ts=dt.datetime.utcnow(),
+                ts=_utcnow(),
                 power_w=snapshot.power_w,
                 voltage_v=snapshot.voltage_v,
                 current_a=snapshot.current_a,
@@ -98,7 +103,7 @@ def main() -> int:
             ))
             saved += 1
 
-        account.last_poll_at = dt.datetime.utcnow()
+        account.last_poll_at = _utcnow()
         account.last_error = None if failed == 0 else f"{failed} из {len(active_devices)} устройств не опрошены — см. лог"
         database.db_session.commit()
 

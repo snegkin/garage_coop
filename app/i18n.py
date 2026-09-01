@@ -662,6 +662,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "офлайн": "offline",
         "нет данных": "no data",
         "Вт": "W",
+        "кВт": "kW",
         "В": "V",
         "А": "A",
         "Суммарная мощность": "Total power",

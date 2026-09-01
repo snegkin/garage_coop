@@ -413,8 +413,10 @@ def test_view_shows_latest_reading_per_device(app, db, client):
 
     resp = client.get("/electricity/")
     assert resp.status_code == 200
-    # последний по времени снимок (612.3), не первый (500) — см. .desc() в electricity_monitor.view
-    assert "612" in resp.get_data(as_text=True)
+    # последний по времени снимок (612.3 Вт = 0.61 кВт), не первый (500 Вт = 0.50 кВт)
+    # — см. .desc() в electricity_monitor.view; мощность отображается в кВт (612.3 / 1000),
+    # разделитель дробной части — запятая (локаль ru по умолчанию, см. fmt2()).
+    assert "0,61" in resp.get_data(as_text=True)
 
 
 # ---------------------------------------------------------------------------

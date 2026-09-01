@@ -76,6 +76,7 @@ def profile():
             person_id=person.id,
             submitted_by_user_id=g.user.id,
             fields_snapshot=json.dumps(new_data, ensure_ascii=False),
+            previous_snapshot=json.dumps(current, ensure_ascii=False),
             status=PersonDataRevisionStatus.PENDING,
         )
         database.db_session.add(revision)

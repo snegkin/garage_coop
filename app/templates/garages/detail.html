@@ -213,14 +213,14 @@
 
 <h5 class="mt-4">{{ _("Лицевые счета") }}</h5>
 <table class="table table-sm bg-body sortable">
-  <thead><tr><th>{{ _("ФИО") }}</th><th>{{ _("Вид взноса") }}</th><th class="text-end">{{ _("Номер счёта") }}</th><th>{{ _("Баланс") }}</th>{% if is_board() %}<th class="no-sort"></th>{% endif %}</tr></thead>
+  <thead><tr><th>{{ _("ФИО") }}</th><th>{{ _("Вид взноса") }}</th><th class="text-end">{{ _("Номер счёта") }}</th><th class="text-end">{{ _("Баланс") }}</th>{% if is_board() %}<th class="no-sort"></th>{% endif %}</tr></thead>
   <tbody>
     {% if account %}
     <tr>
       <td class="text-muted">{{ _("Гараж (все собственники)") }}</td>
       <td>{{ _("Электричество") }}</td>
       <td class="text-end">{{ account.account_number }}</td>
-      <td data-sort-value="{{ account_balance }}" class="{{ 'text-danger' if account_balance < 0 else 'text-success' }}">{{ fmt2(account_balance) }} ₽</td>
+      <td data-sort-value="{{ account_balance }}" class="text-end {{ 'text-danger' if account_balance < 0 else 'text-success' }}">{{ fmt2(account_balance) }} ₽</td>
       {% if is_board() %}<td></td>{% endif %}
     </tr>
     {% endif %}
@@ -229,7 +229,7 @@
       <td>{% if is_board() %}<a href="{{ url_for('persons.detail', person_id=row.person.id) }}">{{ row.person.full_name }}</a>{% else %}{{ row.person.full_name }}{% endif %}</td>
       <td>{{ row.fee_type.name }}</td>
       <td class="text-end">{{ row.account_number }}</td>
-      <td data-sort-value="{{ row.balance }}" class="js-account-balance {{ 'text-danger' if row.balance < 0 else 'text-success' }}">{{ fmt2(row.balance) }} ₽</td>
+      <td data-sort-value="{{ row.balance }}" class="js-account-balance text-end {{ 'text-danger' if row.balance < 0 else 'text-success' }}">{{ fmt2(row.balance) }} ₽</td>
       {% if is_board() %}
       <td class="text-nowrap">
         <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#quickCharge-{{ row.id }}" title="{{ _('Начислить') }}">+{{ _("счёт") }}</button>

@@ -78,6 +78,13 @@ AUTHORIZE_PAGE_URL = "https://c2ccdn.coolkit.cc/oauth/index.html"
 POWER_KEYS = ("power", "power_00", "actPow_00")
 VOLTAGE_KEYS = ("voltage", "voltage_00")
 CURRENT_KEYS = ("current", "current_00")
+# Накопленный расход за сегодня/за месяц — POWCT считает их сам на устройстве
+# (сбрасываются в начале суток/месяца), не производные от power_w на нашей
+# стороне. НЕ ПОДТВЕРЖДЕНО живым устройством (см. предупреждение в начале
+# файла) — тот же коэффициент ×100, что у power/voltage/current, взят по
+# аналогии, а не проверен отдельно; уточнить при первом реальном опросе.
+DAY_KWH_KEYS = ("dayKwh",)
+MONTH_KWH_KEYS = ("monthKwh",)
 
 
 class EWeLinkApiError(Exception):
@@ -107,6 +114,8 @@ class PhaseSnapshot:
     power_w: Decimal | None
     voltage_v: Decimal | None
     current_a: Decimal | None
+    day_kwh: Decimal | None
+    month_kwh: Decimal | None
     is_online: bool
     raw_params: dict
 
@@ -163,6 +172,8 @@ def parse_phase_snapshot(device: dict) -> PhaseSnapshot:
         power_w=_scaled(params, POWER_KEYS),
         voltage_v=_scaled(params, VOLTAGE_KEYS),
         current_a=_scaled(params, CURRENT_KEYS),
+        day_kwh=_scaled(params, DAY_KWH_KEYS),
+        month_kwh=_scaled(params, MONTH_KWH_KEYS),
         is_online=online,
         raw_params=params,
     )

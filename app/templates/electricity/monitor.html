@@ -83,17 +83,48 @@
         {% else %}
         <p class="text-muted mb-0">{{ _("Показаний пока нет.") }}</p>
         {% endif %}
+        {% set kwh = kwh_by_device.get(device.id) %}
+        {% if kwh and (kwh.day_kwh is not none or kwh.month_kwh is not none) %}
+        <div class="text-muted small mt-1">
+          {% if kwh.day_kwh is not none %}{{ _("сегодня") }} {{ fmt2(kwh.day_kwh) }} {{ _("кВт·ч") }}{% endif %}
+          {% if kwh.month_kwh is not none %} · {{ _("месяц") }} {{ fmt2(kwh.month_kwh) }} {{ _("кВт·ч") }}{% endif %}
+        </div>
+        {% endif %}
       </div>
     </div>
   </div>
   {% endfor %}
 
-  <div class="col-md-12 text-center">
-    <div class="card bg-body-secondary">
+  <div class="col-md-4">
+    <div class="card bg-body-secondary text-center">
       <div class="card-body">
         <div class="text-muted">{{ _("Суммарная мощность") }}</div>
         {% if total_power is not none %}
         <div class="fs-2">{{ fmt2(total_power / 1000) }} {{ _("кВт") }}</div>
+        {% else %}
+        <p class="text-muted mb-0">{{ _("Недостаточно данных.") }}</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card bg-body-secondary text-center">
+      <div class="card-body">
+        <div class="text-muted">{{ _("Расход за сегодня") }}</div>
+        {% if total_day_kwh is not none %}
+        <div class="fs-2">{{ fmt2(total_day_kwh) }} {{ _("кВт·ч") }}</div>
+        {% else %}
+        <p class="text-muted mb-0">{{ _("Недостаточно данных.") }}</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card bg-body-secondary text-center">
+      <div class="card-body">
+        <div class="text-muted">{{ _("Расход за месяц") }}</div>
+        {% if total_month_kwh is not none %}
+        <div class="fs-2">{{ fmt2(total_month_kwh) }} {{ _("кВт·ч") }}</div>
         {% else %}
         <p class="text-muted mb-0">{{ _("Недостаточно данных.") }}</p>
         {% endif %}
@@ -123,6 +154,12 @@
         <input type="datetime-local" id="historyTo" class="form-control form-control-sm">
       </div>
       <button type="button" id="historyApplyBtn" class="btn btn-sm btn-primary">{{ _("Показать") }}</button>
+    </div>
+    <div class="btn-group btn-group-sm" role="group" aria-label="{{ _('Тип графика') }}">
+      <input type="radio" class="btn-check" name="chartType" id="chartTypeLine" autocomplete="off" checked>
+      <label class="btn btn-outline-secondary" for="chartTypeLine">{{ _("Линии") }}</label>
+      <input type="radio" class="btn-check" name="chartType" id="chartTypeBar" autocomplete="off">
+      <label class="btn btn-outline-secondary" for="chartTypeBar">{{ _("Столбцы") }}</label>
     </div>
     <button type="button" id="resetZoomBtn" class="btn btn-sm btn-outline-secondary">{{ _("Сбросить масштаб") }}</button>
   </div>
@@ -312,15 +349,28 @@
   });
 
   // Данные за выбранный диапазон дат запрашиваются один раз и кэшируются в
-  // lastData — переключение галочек фаз просто перестраивает datasets из
-  // уже загруженного ответа, без обращения к серверу; новый запрос нужен
-  // только по кнопке «Показать» (смена дат «с»/«по»).
+  // lastData — переключение галочек фаз (и типа графика, см. ниже) просто
+  // перестраивает datasets из уже загруженного ответа, без обращения к
+  // серверу; новый запрос нужен только по кнопке «Показать» (смена дат
+  // «с»/«по»).
   let lastData = null;
+  // Тип графика — переключатель «Линии»/«Столбцы» ниже; хранится отдельно
+  // от chart.config.type, чтобы render() мог решить, какие свойства датасета
+  // (tension/pointRadius у линии против заливки у столбцов) применить,
+  // прежде чем передать тип в сам Chart.js.
+  let chartType = "line";
 
   function selectedDeviceIds() {
     return Array.from(document.querySelectorAll(".js-phase-toggle:checked")).map(function (el) {
       return parseInt(el.value, 10);
     });
+  }
+
+  function datasetStyle(color) {
+    if (chartType === "bar") {
+      return { backgroundColor: color, borderColor: color, borderWidth: 0 };
+    }
+    return { borderColor: color, backgroundColor: color, borderWidth: 1.5, pointRadius: 0, tension: 0.15 };
   }
 
   function render() {
@@ -331,16 +381,12 @@
       .filter(function (d) { return selected.indexOf(d.id) !== -1; })
       .map(function (d, i) {
         if (d.points.length) anyPoints = true;
-        return {
+        return Object.assign({
           label: d.label,
           data: d.points.map(function (p) { return { x: p.t, y: p.w / 1000 }; }),
-          borderColor: colors[i % colors.length],
-          backgroundColor: colors[i % colors.length],
-          borderWidth: 1.5,
-          pointRadius: 0,
-          tension: 0.15,
-        };
+        }, datasetStyle(colors[i % colors.length]));
       });
+    chart.config.type = chartType;
     chart.resetZoom();
     chart.update();
     emptyMsg.classList.toggle("d-none", anyPoints);
@@ -367,6 +413,8 @@
   document.querySelectorAll(".js-phase-toggle").forEach(function (el) {
     el.addEventListener("change", render);
   });
+  document.getElementById("chartTypeLine").addEventListener("change", function () { chartType = "line"; render(); });
+  document.getElementById("chartTypeBar").addEventListener("change", function () { chartType = "bar"; render(); });
   applyBtn.addEventListener("click", function () {
     emptyMsg.textContent = emptyMsgDefaultText;
     fetchAndRender();

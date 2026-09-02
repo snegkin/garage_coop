@@ -216,3 +216,29 @@ def test_board_vote_comment_is_stored_and_publicly_visible(app, db, client):
     html = resp.get_data(as_text=True)
     assert "Не согласован бюджет" in html
     assert chair_person.full_name in html
+
+
+def test_board_can_abstain_and_it_does_not_tip_the_decision(app, db, client):
+    """«Воздержался» — валидный выбор правления (не только за/против), но не засчитывается ни в чью пользу."""
+    owner = _make_owner_member(db)
+    board = _make_board(db, size=2)
+
+    proposal = VoteProposal(title="Спорная тема", proposed_by_person_id=owner.id, created_at=dt.datetime.now())
+    db.add(proposal)
+    db.commit()
+    proposal_id = proposal.id
+
+    for _, username in board:
+        login(client, username, "pass1234")
+        resp = client.post(f"/proposals/{proposal_id}/board-vote", data={"choice": "abstain"})
+        assert resp.status_code == 302
+        client.get("/auth/logout")
+
+    db.expire_all()
+    proposal = db.get(VoteProposal, proposal_id)
+    # оба воздержались -> "за" не больше "против" (0:0) -> отклонено, Vote не создан
+    assert proposal.status == ProposalStatus.REJECTED
+    assert proposal.resulting_vote_id is None
+
+    ballots = db.query(VoteProposalBoardBallot).filter_by(proposal_id=proposal_id).all()
+    assert all(b.choice == VoteChoice.ABSTAIN for b in ballots)

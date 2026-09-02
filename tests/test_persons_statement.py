@@ -3,8 +3,8 @@
 просьбе пользователя: одна строка на счёт (сумма начислений/платежей за
 всё время), без построчной разбивки по годам/статусам оплаты каждого
 начисления. Пеня — отдельным блоком под основной таблицей (другая природа
-баланса), с итоговой строкой «Баланс без пени» + «Пеня» = «Итого/
-Задолженность». Номер счёта в каждой строке — ссылка на карточку счёта
+баланса), с итоговой строкой «Баланс без пени» + «Пеня» = «Итого».
+Номер счёта в каждой строке — ссылка на карточку счёта
 (finance.member_account_detail для взносов/налога, garages.detail для
 электричества — своей страницы у него нет).
 
@@ -20,9 +20,10 @@ import datetime as dt
 from decimal import Decimal
 
 from app.models import (
-    RoleEnum, FeeType, MemberAccount, Charge, Payment, PersonalAccount, Cooperative,
+    RoleEnum, FeeType, MemberAccount, Charge, Payment, PersonalAccount, Cooperative, KeyRate,
 )
 from app.i18n import fmt2
+from app.accounting import reallocate_member_charges
 
 from tests.conftest import make_person, make_garage, make_ownership, make_user, login
 
@@ -88,7 +89,7 @@ def test_statement_shows_one_row_per_account_with_totals_and_links(app, db, clie
     assert fmt2(Decimal("-85.00")) in body
     # итого = -485
     assert fmt2(Decimal("-485.00")) in body
-    assert "Задолженность" in body
+    assert "Итого" in body
 
     # старой построчной разбивки по годам/статусам оплаты больше нет
     assert "не оплачено" not in body
@@ -118,7 +119,7 @@ def test_statement_without_penalty_has_no_penalty_block(app, db, client):
     # "Пеня" в меню навигации есть всегда (ссылка на /finance/penalty) —
     # проверяем специфичные для блока пени в самой выписке признаки
     assert "Пеня по взносу" not in body
-    assert "Задолженность" not in body
+    assert "Итого" not in body  # блок пени/итога целиком не рендерится без пени
     assert "за 2026 г." in body  # год_from == год_to — единственный год
 
 
@@ -232,3 +233,117 @@ def test_statement_print_form_without_coop_or_officers_does_not_crash(app, db, c
     body = resp.get_data(as_text=True)
     assert 'class="print-letterhead"' in body
     assert 'class="print-signatures"' in body
+
+
+# ---------------------------------------------------------------------------
+# Расчёт пени (приложение для суда) — /persons/<id>/penalty-calculation.
+# Пересчитывает пеню заново по дням, от начала просрочки до сегодня, с
+# раскладкой по периодам действия ставки ЦБ РФ и знаменателя (1/300 первые
+# 30 дней, 1/150 далее) — независимо от того, что и когда формально
+# начислила бухгалтерия (accrue_penalties). Ссылка на страницу видна на
+# выписке только правлению и только если по человеку УЖЕ есть начисленная
+# пеня (penalty_rows) — расчёт готовится для суда, не информационная штука
+# для рядового члена.
+# ---------------------------------------------------------------------------
+
+def _setup_coop_with_due_date_and_rate(db, day=1, month=6, rate="16.00"):
+    coop = Cooperative(full_name='Гаражный кооператив "Заря"', inn="7701234567", kpp="770101001", ogrn="1027700123456", dues_due_day=day, dues_due_month=month)
+    db.add(coop)
+    db.add(KeyRate(effective_date=dt.date(2020, 1, 1), rate_percent=Decimal(rate)))
+    return coop
+
+
+def test_penalty_calculation_shows_breakdown_by_rate_period(app, db, client):
+    _setup_coop_with_due_date_and_rate(db)
+    chairman = make_person(db, full_name="Председателев Пётр Петрович", is_chairman=True)
+    person = make_person(db, full_name="Должников Должник Должникович")
+    garage = make_garage(db, number="60")
+    make_ownership(db, garage, person)
+    membership, _land_tax, _penalty = _setup_fee_types(db)
+
+    account = MemberAccount(person_id=person.id, garage_id=garage.id, fee_type_id=membership.id, account_number="16001")
+    db.add(account)
+    db.flush()
+    db.add(Charge(account_id=account.id, year=2025, amount=Decimal("1000.00")))  # не оплачено вовсе
+
+    make_user(db, "board8", "pass12345", role=RoleEnum.CHAIRMAN)
+    db.commit()
+    login(client, "board8", "pass12345")
+
+    resp = client.get(f"/persons/{person.id}/penalty-calculation")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+
+    assert "Должников Должник Должникович" in body
+    assert "Членский взнос" in body
+    # первые 30 дней просрочки — 1/300, дальше — 1/150 (ставка не менялась,
+    # долг не гасился — ровно два периода)
+    assert "1/300" in body
+    assert "1/150" in body
+    assert "Итого по начислению" in body
+    assert "Итого пени" in body
+    # официальная шапка и подпись председателя (сокращённо)
+    assert 'class="print-letterhead"' in body
+    assert "Заря" in body
+    assert "Председателев П.П." in body
+
+
+def test_penalty_calculation_empty_when_nothing_overdue(app, db, client):
+    _setup_coop_with_due_date_and_rate(db)
+    person = make_person(db, full_name="Без Долгов")
+    garage = make_garage(db, number="61")
+    make_ownership(db, garage, person)
+    membership, _land_tax, _penalty = _setup_fee_types(db)
+
+    account = MemberAccount(person_id=person.id, garage_id=garage.id, fee_type_id=membership.id, account_number="16100")
+    db.add(account)
+    db.flush()
+    db.add(Charge(account_id=account.id, year=2025, amount=Decimal("500.00")))
+    db.add(Payment(account_id=account.id, date=dt.date(2025, 5, 1), amount=Decimal("500.00")))  # оплачено до срока
+    db.flush()
+    reallocate_member_charges(account)  # без этого ChargeAllocation не появится — платёж «не увидят»
+
+    make_user(db, "board9", "pass12345", role=RoleEnum.CHAIRMAN)
+    db.commit()
+    login(client, "board9", "pass12345")
+
+    resp = client.get(f"/persons/{person.id}/penalty-calculation")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert "Просроченных начислений с непогашенным остатком не найдено." in body
+
+
+def test_penalty_calculation_only_for_board(db, client):
+    _setup_coop_with_due_date_and_rate(db)
+    person = make_person(db, full_name="Рядовой Член")
+    make_user(db, "member_pc", "pass12345", role=RoleEnum.MEMBER)
+    db.commit()
+    login(client, "member_pc", "pass12345")
+
+    resp = client.get(f"/persons/{person.id}/penalty-calculation")
+    assert resp.status_code == 302
+
+
+def test_statement_link_to_penalty_calculation_shown_only_with_accrued_penalty(app, db, client):
+    _setup_coop_with_due_date_and_rate(db)
+    person = make_person(db, full_name="С Пеней")
+    garage = make_garage(db, number="62")
+    make_ownership(db, garage, person)
+    membership, _land_tax, penalty = _setup_fee_types(db)
+
+    account = MemberAccount(person_id=person.id, garage_id=garage.id, fee_type_id=membership.id, account_number="16200")
+    penalty_account = MemberAccount(person_id=person.id, garage_id=garage.id, fee_type_id=penalty.id, account_number="П16200")
+    db.add_all([account, penalty_account])
+    db.flush()
+    db.add(Charge(account_id=account.id, year=2025, amount=Decimal("1000.00")))
+    db.add(Charge(account_id=penalty_account.id, year=2026, amount=Decimal("50.00")))  # уже начисленная пеня
+
+    make_user(db, "board10", "pass12345", role=RoleEnum.CHAIRMAN)
+    db.commit()
+    login(client, "board10", "pass12345")
+
+    resp = client.get(f"/persons/{person.id}/statement")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert "Расчёт пени (приложение)" in body
+    assert f'href="/persons/{person.id}/penalty-calculation"' in body

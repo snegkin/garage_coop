@@ -13,10 +13,11 @@ from .auth import login_required, roles_required, is_safe_next_url
 from .permissions import is_board, is_chairman, sync_user_role
 from .models import (
     Person, Phone, User, RoleEnum, MemberAccount, PersonDataRevision, PersonDataRevisionStatus,
-    GarageOwnership, PersonalAccount, Cooperative,
+    GarageOwnership, PersonalAccount, Cooperative, Charge, FeeType, KeyRate,
 )
 from sqlalchemy.orm import joinedload
 from .accounting import balance
+from . import penalty
 
 bp = Blueprint("persons", __name__, url_prefix="/persons")
 
@@ -341,6 +342,59 @@ def statement(person_id):
         coop=database.db_session.query(Cooperative).first(),
         chairman=database.db_session.query(Person).filter(Person.is_chairman.is_(True)).first(),
         accountant=database.db_session.query(Person).filter(Person.is_accountant.is_(True)).first(),
+    )
+
+
+@bp.route("/<int:person_id>/penalty-calculation")
+@roles_required(RoleEnum.BOARD)
+def penalty_calculation(person_id):
+    """
+    Официальный расчёт пени — отдельным приложением к выписке, для подачи
+    в суд (истец — кооператив — обязан сам приложить такой расчёт к
+    исковому заявлению, не может сослаться на факт начисления без него).
+    День за днём, с раскладкой по периодам действия ставки ЦБ РФ и
+    знаменателя (1/300 первые 30 дней просрочки, 1/150 далее) — см.
+    penalty.compute_charge_penalty_breakdown. Считает заново от самого
+    начала просрочки по сегодня, НЕ то же самое, что уже начисленная пеня
+    (accrue_penalties, привязана к тому, что и когда формально проводила
+    бухгалтерия — может отставать, если начисление давно не запускали).
+    Только правление — расчёт готовится для суда, не для самого члена
+    кооператива.
+    """
+    person = database.db_session.get(Person, person_id)
+    if person is None:
+        abort(404)
+
+    coop = database.db_session.query(Cooperative).first()
+    target_date = dt.date.today()
+
+    key_rows = database.db_session.query(KeyRate).order_by(KeyRate.effective_date).all()
+    key_dates = [r.effective_date for r in key_rows]
+    key_rates = [r.rate_percent for r in key_rows]
+
+    charges = (
+        database.db_session.query(Charge)
+        .join(MemberAccount, Charge.account_id == MemberAccount.id)
+        .join(FeeType, MemberAccount.fee_type_id == FeeType.id)
+        .filter(FeeType.is_penalty.is_(False), MemberAccount.person_id == person.id)
+        .all()
+    )
+
+    entries = []
+    grand_total = Decimal("0")
+    for charge in charges:
+        periods = penalty.compute_charge_penalty_breakdown(charge, coop, target_date, key_dates, key_rates)
+        if not periods:
+            continue
+        subtotal = sum((p["amount"] for p in periods), Decimal("0"))
+        entries.append({"charge": charge, "account": charge.account, "periods": periods, "subtotal": subtotal})
+        grand_total += subtotal
+    entries.sort(key=lambda e: (e["account"].fee_type.name, e["charge"].year))
+
+    return render_template(
+        "persons/penalty_calculation.html", person=person, coop=coop,
+        entries=entries, grand_total=grand_total, target_date=target_date,
+        chairman=database.db_session.query(Person).filter(Person.is_chairman.is_(True)).first(),
     )
 
 

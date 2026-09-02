@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Расчёт пени") }} — {{ person.full_name }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3 no-print">
+  <h3 class="mb-0">{{ _("Расчёт пени") }} — {{ person.full_name }}</h3>
+  <div class="d-flex gap-2">
+    <button class="btn btn-primary" onclick="window.print()">{{ _("Печать") }}</button>
+    <a class="btn btn-outline-secondary" href="{{ url_for('persons.statement', person_id=person.id) }}">{{ _("Назад к выписке") }}</a>
+  </div>
+</div>
+
+<style>
+/* Официальный расчёт — истец (кооператив) обязан приложить его к
+   исковому заявлению, поэтому вся страница оформлена как печатный
+   документ сразу (не отдельная screen/print-пара, как у статьи выписки —
+   здесь нет «обычного», информационного варианта просмотра). */
+@media print {
+  @page { size: auto; margin: 15mm; }
+  .no-print, nav, footer { display: none !important; }
+  html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; }
+  body div, body main, body section {
+    width: auto !important;
+    max-width: none !important;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+  }
+}
+.penalty-doc {
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 10px;
+  color: #000;
+  background: #fff;
+  max-width: 210mm;
+  margin: 0 auto;
+  padding: 4mm;
+}
+.penalty-doc .print-letterhead {
+  display: flex; align-items: center; gap: 5mm;
+  border-bottom: 1px solid #000; padding-bottom: 3mm; margin-bottom: 6mm;
+}
+.penalty-doc .print-logo { height: 16mm; width: auto; flex: none; }
+.penalty-doc .print-org-name { font-size: 10px; font-weight: bold; }
+.penalty-doc .print-org-requisites, .penalty-doc .print-org-address { font-size: 8px; color: #333; }
+.penalty-doc .doc-title { font-size: 13px; font-weight: bold; text-align: center; margin: 0 0 2mm; }
+.penalty-doc .doc-meta { text-align: center; color: #333; font-size: 9px; margin: 0 0 6mm; }
+.penalty-doc .doc-debtor { margin: 0 0 6mm; }
+.penalty-doc h4 { font-size: 10px; font-weight: bold; margin: 5mm 0 2mm; }
+.penalty-doc table { width: 100%; border-collapse: collapse; margin: 0 0 4mm; font-size: 9px; }
+.penalty-doc th, .penalty-doc td { border: 1px solid #000; padding: 1mm 2mm; }
+.penalty-doc th { background: #eee; text-align: left; font-weight: bold; }
+.penalty-doc td.num, .penalty-doc th.num { text-align: right; }
+.penalty-doc tfoot td { font-weight: bold; }
+.penalty-doc .grand-total { text-align: right; font-size: 12px; font-weight: bold; margin: 6mm 0; }
+.penalty-doc .print-signatures { display: flex; justify-content: flex-end; margin-top: 12mm; }
+.penalty-doc .signature-rows { text-align: left; }
+.penalty-doc .signature-line { margin-bottom: 7mm; white-space: nowrap; }
+.penalty-doc .sig-role { display: inline-block; width: 28mm; }
+.penalty-doc .sig-blank { display: inline-block; width: 45mm; border-bottom: 1px solid #000; margin: 0 2mm; }
+.penalty-doc .sig-name { font-size: 9px; }
+.penalty-doc .stamp-place {
+  width: 24mm; height: 24mm; border: 1px dashed #666; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 8px; color: #666; text-align: center; margin-left: 8mm;
+}
+</style>
+
+<div class="penalty-doc">
+  <div class="print-letterhead">
+    <img class="print-logo" src="{{ url_for('static', filename='logo.png') }}" alt="">
+    <div>
+      {% if coop %}
+      <div class="print-org-name">{{ coop.full_name }}</div>
+      <div class="print-org-requisites">{{ _("ИНН") }} {{ coop.inn }}{% if coop.kpp %}, {{ _("КПП") }} {{ coop.kpp }}{% endif %}{% if coop.ogrn %}, {{ _("ОГРН") }} {{ coop.ogrn }}{% endif %}</div>
+      {% if coop.legal_address %}<div class="print-org-address">{{ coop.legal_address }}</div>{% endif %}
+      {% endif %}
+    </div>
+  </div>
+
+  <p class="doc-title">{{ _("Расчёт пени") }}</p>
+  <p class="doc-meta">{{ _("по состоянию на") }} {{ fmt_date(target_date) }}</p>
+  <p class="doc-debtor">{{ _("Должник") }}: <strong>{{ person.full_name }}</strong></p>
+
+  {% if not entries %}
+  <p>{{ _("Просроченных начислений с непогашенным остатком не найдено.") }}</p>
+  {% else %}
+  <p class="text-muted small no-print">{{ _("Формула: сумма непогашенного остатка × ключевая ставка ЦБ РФ × 1/300 (первые 30 дней просрочки) или 1/150 (с 31-го дня), по дням.") }}</p>
+
+  {% for entry in entries %}
+  <h4>{{ entry.account.fee_type.name }}, {{ _("гараж") }} №{{ entry.account.garage.number }} — {{ _("начисление за {year} г. на {amount} ₽ (счёт {number})", year=entry.charge.year, amount=fmt2(entry.charge.amount), number=entry.account.account_number) }}</h4>
+  <table>
+    <thead>
+      <tr>
+        <th>{{ _("Период просрочки") }}</th>
+        <th class="num">{{ _("Дней") }}</th>
+        <th class="num">{{ _("Остаток долга, ₽") }}</th>
+        <th class="num">{{ _("Ставка ЦБ РФ, %") }}</th>
+        <th class="num">{{ _("Формула") }}</th>
+        <th class="num">{{ _("Пеня, ₽") }}</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for p in entry.periods %}
+      <tr>
+        <td>{{ fmt_date(p.start) }} — {{ fmt_date(p.end) }}</td>
+        <td class="num">{{ p.days }}</td>
+        <td class="num">{{ fmt2(p.unpaid) }}</td>
+        <td class="num">{{ fmt2(p.rate) }}</td>
+        <td class="num">1/{{ p.divisor|int }}</td>
+        <td class="num">{{ fmt2(p.amount) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+    <tfoot>
+      <tr><td colspan="5">{{ _("Итого по начислению") }}</td><td class="num">{{ fmt2(entry.subtotal) }}</td></tr>
+    </tfoot>
+  </table>
+  {% endfor %}
+
+  <p class="grand-total">{{ _("Итого пени") }}: {{ fmt2(grand_total) }} ₽</p>
+  {% endif %}
+
+  <div class="print-signatures">
+    <div class="signature-rows">
+      <div class="signature-line">
+        <span class="sig-role">{{ _("Председатель") }}</span><span class="sig-blank"></span>
+        {% if chairman %}<span class="sig-name">/{{ chairman.short_name }}/</span>{% endif %}
+      </div>
+    </div>
+    <div class="stamp-place">{{ _("М.П.") }}</div>
+  </div>
+</div>
+{% endblock %}

@@ -6,18 +6,6 @@
   {{ _("Выписка по счёту") }} — {{ account.bank_name }} {{ account.checking_account }}
 </h3>
 
-<form method="get" class="d-flex align-items-end gap-2 mb-3 flex-wrap">
-  <div>
-    <label class="form-label mb-0">{{ _("Дата с") }}</label>
-    <input class="form-control" type="date" name="date_from" value="{{ date_from.isoformat() }}">
-  </div>
-  <div>
-    <label class="form-label mb-0">{{ _("Дата по") }}</label>
-    <input class="form-control" type="date" name="date_to" value="{{ date_to.isoformat() }}">
-  </div>
-  <button class="btn btn-outline-secondary">{{ _("Показать") }}</button>
-</form>
-
 {% if is_chairman() %}
 <form method="post" action="{{ url_for('bank_sync.sync_statement', account_id=account.id) }}" class="d-flex align-items-end gap-2 mb-3 flex-wrap">
   <div>
@@ -33,7 +21,21 @@
 <p class="text-muted small">
   {{ _("Зачисления гасят задолженность на лицевом счёте автоматически при загрузке — по номеру счёта, распознанному в назначении платежа («ЛС <номер>»), а если его нет — по совпадению ФИО плательщика или того, за кого платят, включая лиц для связи по гаражу. Полной поступившей суммой, без вычета возможной комиссии банка. Автоматически — только когда совпадение однозначно; в остальных случаях — кнопка «Разнести» ниже.") }}
 </p>
-{% if pending_credits %}
+{% endif %}
+
+<form method="get" class="d-flex align-items-end gap-2 mb-3 flex-wrap">
+  <div>
+    <label class="form-label mb-0">{{ _("Дата с") }}</label>
+    <input class="form-control" type="date" name="date_from" value="{{ date_from.isoformat() }}">
+  </div>
+  <div>
+    <label class="form-label mb-0">{{ _("Дата по") }}</label>
+    <input class="form-control" type="date" name="date_to" value="{{ date_to.isoformat() }}">
+  </div>
+  <button class="btn btn-outline-secondary">{{ _("Показать") }}</button>
+</form>
+
+{% if is_chairman() and pending_credits %}
 <form method="post" action="{{ url_for('bank_sync.allocate_all_statement_lines', account_id=account.id) }}" class="mb-3">
   <input type="hidden" name="date_from" value="{{ date_from.isoformat() }}">
   <input type="hidden" name="date_to" value="{{ date_to.isoformat() }}">
@@ -41,9 +43,12 @@
   <span class="text-muted small">{{ _("повторяет автоматическое распознавание для всех ещё не разнесённых зачислений разом — удобно после добавления нового лицевого счёта") }}</span>
 </form>
 {% endif %}
-{% endif %}
 
-<table class="table table-bordered bg-body sortable">
+<div class="mb-3">
+  <input class="form-control" data-table-filter-for="statementTable" placeholder="{{ _('Поиск по счёту, контрагенту, назначению...') }}">
+</div>
+
+<table class="table table-bordered bg-body sortable" id="statementTable" data-page-size="20">
   <thead>
     <tr>
       <th>{{ _("Дата") }}</th>
@@ -66,7 +71,7 @@
        строке — тогда её подхватывают все ячейки, и светлая/тёмная тема
        остаются рабочими "из коробки" через var(--bs-success)/var(--bs-danger). #}
     {% for line in lines %}
-    <tr id="stmt-line-{{ line.id }}" style="--bs-table-color: var({{ '--bs-success' if line.direction == 'credit' else '--bs-danger' }});">
+    <tr id="stmt-line-{{ line.id }}" data-filter-text="{{ (fmt_date(line.operation_date) ~ ' ' ~ fmt2(line.amount) ~ ' ' ~ (line.account_number or '') ~ ' ' ~ (line.counterparty_name or '') ~ ' ' ~ (line.payment_purpose or '') ~ ' ' ~ (line.document_number or ''))|lower }}" style="--bs-table-color: var({{ '--bs-success' if line.direction == 'credit' else '--bs-danger' }});">
       <td data-sort-value="{{ line.operation_date.isoformat() }}">{{ fmt_date(line.operation_date) }}</td>
       <td data-sort-value="{{ line.amount }}">{{ fmt2(line.amount) }} ₽</td>
       <td class="text-end js-account-number">{{ line.account_number or "—" }}</td>
@@ -118,6 +123,10 @@
     {% endfor %}
   </tbody>
 </table>
+<p class="text-muted d-none" data-no-results-for="statementTable">{{ _("Ничего не найдено.") }}</p>
+<nav class="d-none" data-pager-for="statementTable">
+  <ul class="pagination pagination-sm mb-0"></ul>
+</nav>
 
 <script>
 document.addEventListener("DOMContentLoaded", function () {

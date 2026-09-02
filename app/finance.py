@@ -11,7 +11,7 @@ from .permissions import can_view_member_account, is_board
 from .models import (
     GarageOwnership, Charge, Payment, Garage, PersonalAccount,
     FeeType, MemberAccount, Person, RoleEnum,
-    Cooperative,
+    Cooperative, BankAccount,
 )
 from .accounting import (
     get_settings, electricity_account_number, member_account_number, owner_index_for, balance as _balance,
@@ -19,6 +19,23 @@ from .accounting import (
 )
 
 bp = Blueprint("finance", __name__, url_prefix="/finance")
+
+
+# ---------------------------------------------------------------------------
+# Расчётные счета кооператива (реквизиты, баланс, интеграция с банком —
+# сами счета создаются/редактируются на этой странице, роуты создания
+# остались в cooperative.py вместе с остальными реквизитами кооператива)
+# ---------------------------------------------------------------------------
+
+@bp.route("/bank-accounts")
+@roles_required(RoleEnum.BOARD)
+def bank_accounts():
+    accounts = (
+        database.db_session.query(BankAccount)
+        .order_by(BankAccount.is_primary.desc(), BankAccount.bank_name)
+        .all()
+    )
+    return render_template("finance/bank_accounts.html", bank_accounts=accounts)
 
 
 # ---------------------------------------------------------------------------

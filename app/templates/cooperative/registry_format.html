@@ -2,7 +2,7 @@
 {% block title %}{{ _("Формат файлов реестров") }} — {{ account.bank_name }}{% endblock %}
 {% block content %}
 <h3 class="mb-3">
-  <a href="{{ url_for('cooperative.view') }}" class="link-body-emphasis text-decoration-none">&larr;</a>
+  <a href="{{ url_for('finance.bank_accounts') }}" class="link-body-emphasis text-decoration-none">&larr;</a>
   {{ _("Формат файлов реестров") }} — {{ account.bank_name }} {{ account.checking_account }}
 </h3>
 <p class="text-muted">

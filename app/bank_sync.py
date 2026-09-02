@@ -235,7 +235,7 @@ def save_api_settings(account_id):
     if account.api_provider == BankApiProvider.NONE:
         database.db_session.commit()
         flash(_("API банка отключён для этого счёта."), "success")
-        return redirect(url_for("cooperative.view"))
+        return redirect(url_for("finance.bank_accounts"))
 
     cred = _get_or_create_credential(account)
     cred.sandbox = bool(f.get("sandbox"))
@@ -259,7 +259,7 @@ def save_api_settings(account_id):
         except ValueError as e:
             database.db_session.rollback()
             flash(str(e), "danger")
-            return redirect(url_for("cooperative.view"))
+            return redirect(url_for("finance.bank_accounts"))
 
     cred.last_error = None
 
@@ -270,7 +270,7 @@ def save_api_settings(account_id):
     )
     database.db_session.commit()
     flash(_("Настройки API банка сохранены."), "success")
-    return redirect(url_for("cooperative.view"))
+    return redirect(url_for("finance.bank_accounts"))
 
 
 # ---------------------------------------------------------------------------
@@ -284,7 +284,7 @@ def sync_balance(account_id):
     client = get_client(account)
     if client is None:
         flash(_("Для этого счёта не настроено или не поддерживается автоматическое обновление баланса."), "warning")
-        return redirect(url_for("cooperative.view"))
+        return redirect(url_for("finance.bank_accounts"))
 
     cred = _get_or_create_credential(account)
     try:
@@ -294,7 +294,7 @@ def sync_balance(account_id):
         cred.last_error = str(e)
         database.db_session.commit()
         flash(_("Не удалось получить баланс из банка: {error}").format(error=str(e)), "danger")
-        return redirect(url_for("cooperative.view"))
+        return redirect(url_for("finance.bank_accounts"))
 
     account.balance = info.amount
     account.balance_updated_at = info.as_of
@@ -307,7 +307,7 @@ def sync_balance(account_id):
     )
     database.db_session.commit()
     flash(_("Баланс обновлён из банка."), "success")
-    return redirect(url_for("cooperative.view"))
+    return redirect(url_for("finance.bank_accounts"))
 
 
 # ---------------------------------------------------------------------------
@@ -375,7 +375,7 @@ def sync_statement(account_id):
     client = get_client(account)
     if client is None:
         flash(_("Для этого счёта не настроено или не поддерживается автоматическая выписка."), "warning")
-        return redirect(url_for("cooperative.view"))
+        return redirect(url_for("finance.bank_accounts"))
 
     f = request.form
     date_from = dt.date.fromisoformat(f["date_from"])
@@ -701,7 +701,7 @@ def send_charge_registry(account_id):
     client = get_client(account)
     if client is None:
         flash(_("Для этого счёта не настроен или не поддерживается реестр начислений."), "warning")
-        return redirect(url_for("cooperative.view"))
+        return redirect(url_for("finance.bank_accounts"))
 
     period = (request.form.get("period") or "").strip()
     if not period:

@@ -28,6 +28,17 @@ def _current_term():
     )
 
 
+def current_board_member_ids() -> set[int]:
+    """
+    ID людей — членов текущего (не закрытого) созыва правления, включая
+    председателя. Публичная обёртка над _current_term() для использования
+    вне этого модуля — см. proposals.py: кто голосует за одобрение
+    предложенных членами кооператива голосований.
+    """
+    term = _current_term()
+    return {m.person_id for m in term.members} if term else set()
+
+
 def _current_commission():
     return (
         database.db_session.query(RevisionCommission)

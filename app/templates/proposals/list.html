@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Предложения голосований") }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h3 class="mb-0">{{ _("Предложения голосований") }}</h3>
+  {% if can_propose %}
+  <a class="btn btn-primary" href="{{ url_for('proposals.create') }}">+ {{ _("Предложить голосование") }}</a>
+  {% endif %}
+</div>
+<p class="text-muted small">{{ _("Любой член кооператива может предложить тему для общего голосования. Правление рассматривает предложение в течение недели — если голосов «за» вынесение на общее голосование наберётся больше, чем «против», по нему заводится официальное голосование.") }}</p>
+
+<table class="table table-bordered bg-body sortable">
+  <thead>
+    <tr>
+      <th>{{ _("Тема") }}</th>
+      <th>{{ _("Предложил") }}</th>
+      <th>{{ _("Подано") }}</th>
+      <th>{{ _("Статус") }}</th>
+      <th class="no-sort">{{ _("Правление") }}</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for p in proposals %}
+    <tr>
+      <td><a href="{{ url_for('proposals.detail', proposal_id=p.id) }}">{{ p.title }}</a></td>
+      <td>{{ p.proposed_by.full_name }}</td>
+      <td data-sort-value="{{ p.created_at }}">{{ p.created_at.strftime('%d.%m.%Y %H:%M') }}</td>
+      <td>
+        {% if p.status.value == 'pending' %}<span class="badge text-bg-secondary">{{ _("на рассмотрении") }}</span>
+        {% elif p.status.value == 'approved' %}<span class="badge text-bg-success">{{ _("одобрено") }}</span>
+        {% else %}<span class="badge text-bg-danger">{{ _("отклонено") }}</span>{% endif %}
+      </td>
+      <td>
+        {% if p.id in my_ballots %}
+          {% set c = my_ballots[p.id].choice.value %}
+          <span class="badge text-bg-light border">{{ _("ваш голос") }}: {{ _("за") if c == 'for' else _("против") }}</span>
+        {% elif p.status.value != 'pending' %}—
+        {% else %}<span class="text-muted small">{{ _("не голосовали") }}</span>{% endif %}
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="5" class="text-muted">{{ _("Предложений пока нет.") }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

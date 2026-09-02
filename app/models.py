@@ -785,6 +785,79 @@ class VoteBallot(Base):
     )
 
 
+class ProposalStatus(str, enum.Enum):
+    PENDING = "pending"    # ждёт решения правления
+    APPROVED = "approved"  # правление одобрило — создан Vote-черновик (см. resulting_vote)
+    REJECTED = "rejected"  # правление отклонило
+
+
+# Срок, в течение которого правление должно рассмотреть предложенное членом
+# кооператива голосование — см. proposals.resolve_if_due: решение подводится,
+# как только проголосовали все члены текущего созыва правления, либо, если
+# кто-то не проголосовал, по истечении этого срока с момента подачи.
+PROPOSAL_REVIEW_PERIOD = dt.timedelta(days=7)
+
+
+class VoteProposal(Base):
+    """
+    Предложение голосования от члена кооператива — формальный канал вынести
+    вопрос на общее голосование, не будучи лично в правлении. Прежде чем
+    стать официальным Vote с повесткой, предложение должно быть одобрено
+    правлением (см. VoteProposalBoardBallot и proposals.resolve_if_due) —
+    большинством ГОЛОСОВ ЧЛЕНОВ ПРАВЛЕНИЯ (по головам, а не по долям
+    владения, в отличие от самого Vote). При одобрении автоматически
+    создаётся Vote в статусе DRAFT с тем же названием/описанием —
+    председателю остаётся сформировать повестку (вопросы) и открыть его
+    обычным порядком (см. voting.py).
+
+    Пока статус PENDING, председатель может поправить title/description
+    (см. proposals.edit) — например, уточнить формулировку до решения
+    правления.
+    """
+    __tablename__ = "vote_proposal"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    title: Mapped[str] = mapped_column(String(255))
+    description: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[ProposalStatus] = mapped_column(Enum(ProposalStatus), default=ProposalStatus.PENDING, index=True)
+
+    proposed_by_person_id: Mapped[int] = mapped_column(ForeignKey("person.id", ondelete="CASCADE"), index=True)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.now)
+    decided_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
+
+    resulting_vote_id: Mapped[int | None] = mapped_column(ForeignKey("vote.id", ondelete="SET NULL"), index=True)
+
+    proposed_by: Mapped["Person"] = relationship(foreign_keys=[proposed_by_person_id])
+    resulting_vote: Mapped["Vote | None"] = relationship()
+    board_ballots: Mapped[list["VoteProposalBoardBallot"]] = relationship(
+        back_populates="proposal", cascade="all, delete-orphan",
+    )
+
+
+class VoteProposalBoardBallot(Base):
+    """
+    Голос одного члена правления «за/против» вынесения предложения на общее
+    голосование кооператива. choice — VoteChoice.FOR/AGAINST (ABSTAIN здесь
+    не используется — правление голосует именно за/против, без варианта
+    воздержаться, см. proposals.board_vote). Переголосование, пока
+    предложение PENDING, разрешено — upsert по (proposal_id, person_id).
+    """
+    __tablename__ = "vote_proposal_board_ballot"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    proposal_id: Mapped[int] = mapped_column(ForeignKey("vote_proposal.id", ondelete="CASCADE"), index=True)
+    person_id: Mapped[int] = mapped_column(ForeignKey("person.id", ondelete="CASCADE"), index=True)
+    choice: Mapped[VoteChoice] = mapped_column(Enum(VoteChoice))
+    voted_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.now)
+
+    proposal: Mapped["VoteProposal"] = relationship(back_populates="board_ballots")
+    person: Mapped["Person"] = relationship()
+
+    __table_args__ = (
+        UniqueConstraint("proposal_id", "person_id", name="uq_vote_proposal_ballot_proposal_person"),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Люди
 # ---------------------------------------------------------------------------

@@ -28,6 +28,7 @@
         <li class="nav-item"><a class="nav-link" href="{{ url_for('wiki.list_pages') }}">{{ _("Вики") }}</a></li>
         <li class="nav-item"><a class="nav-link" href="{{ url_for('meetings.list_meetings') }}">{{ _("Собрания") }}</a></li>
         <li class="nav-item"><a class="nav-link" href="{{ url_for('voting.list_votes') }}">{{ _("Голосования") }}</a></li>
+        <li class="nav-item"><a class="nav-link" href="{{ url_for('proposals.list_proposals') }}">{{ _("Предложения") }}</a></li>
         <li class="nav-item"><a class="nav-link" href="{{ url_for('governance.view') }}">{{ _("Состав правления") }}</a></li>
         <li class="nav-item"><a class="nav-link" href="{{ url_for('cooperative.view') }}">{{ _("О кооперативе") }}</a></li>
       </ul>
@@ -94,6 +95,9 @@
               {% if is_chairman() and pending_pd_count > 0 %}
               <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" style="font-size:0.55em; margin-left: 1.2em;">{{ pending_pd_count }}</span>
               {% endif %}
+              {% if pending_proposals_count > 0 %}
+              <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-warning text-dark" style="font-size:0.55em; margin-left: 1.2em;">{{ pending_proposals_count }}</span>
+              {% endif %}
             </span>
           </a>
           <ul class="dropdown-menu dropdown-menu-end">
@@ -103,6 +107,9 @@
             {% endif %}
             {% if pending_votes_count > 0 %}
             <li><a class="dropdown-item" href="{{ url_for('voting.list_votes') }}"><span class="dropdown-icon">⚠</span>{{ _("Не проголосовано") }} {{ pending_votes_count }}</a></li>
+            {% endif %}
+            {% if pending_proposals_count > 0 %}
+            <li><a class="dropdown-item" href="{{ url_for('proposals.list_proposals') }}"><span class="dropdown-icon">⚠</span>{{ _("Предложения ждут решения") }} {{ pending_proposals_count }}</a></li>
             {% endif %}
             <li><a class="dropdown-item" href="{{ url_for('cabinet.garages') }}"><span class="dropdown-icon"></span>{{ _("Мой гараж") }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('pd4.select') }}"><span class="dropdown-icon"></span>{{ _("Печать ПД-4") }}</a></li>

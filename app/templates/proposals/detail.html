@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}{{ proposal.title }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-start mb-3">
+  <div>
+    <h3 class="mb-1">{{ proposal.title }}</h3>
+    <div class="text-muted small">
+      {{ _("предложил") }} {{ proposal.proposed_by.full_name }} · {{ proposal.created_at.strftime('%d.%m.%Y %H:%M') }}
+      ·
+      {% if proposal.status.value == 'pending' %}<span class="badge text-bg-secondary">{{ _("на рассмотрении правления") }}</span>
+      {% elif proposal.status.value == 'approved' %}<span class="badge text-bg-success">{{ _("одобрено правлением") }}</span>
+      {% else %}<span class="badge text-bg-danger">{{ _("отклонено правлением") }}</span>{% endif %}
+    </div>
+    {% if proposal.description %}<p class="mt-2">{{ proposal.description }}</p>{% endif %}
+  </div>
+  <div class="d-flex gap-2">
+    {% if proposal.status.value == 'pending' and is_chairman() %}
+    <a class="btn btn-outline-primary btn-sm" href="{{ url_for('proposals.edit', proposal_id=proposal.id) }}">{{ _("Изменить") }}</a>
+    {% endif %}
+    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('proposals.list_proposals') }}">{{ _("← ко всем предложениям") }}</a>
+  </div>
+</div>
+
+{% if proposal.status.value == 'pending' %}
+<p class="text-muted small">{{ _("Правление рассматривает предложение до {deadline} — раньше, если проголосуют все члены текущего созыва.", deadline=deadline.strftime('%d.%m.%Y %H:%M')) }}</p>
+{% endif %}
+
+{% if proposal.status.value == 'approved' and proposal.resulting_vote %}
+<div class="alert alert-success">
+  {{ _("Предложение одобрено — заведено голосование") }}
+  «<a href="{{ url_for('voting.detail', vote_id=proposal.resulting_vote_id) }}">{{ proposal.resulting_vote.title }}</a>»
+  {{ _("(черновик, повестку и сроки нужно донастроить председателю).") }}
+</div>
+{% endif %}
+
+{% if is_board() or proposal.status.value != 'pending' %}
+<div class="card bg-body mb-3">
+  <div class="card-body">
+    <h6 class="card-title">{{ _("Решение правления") }}</h6>
+    <p class="mb-1">{{ _("За") }}: <strong>{{ tally['for'] }}</strong> · {{ _("Против") }}: <strong>{{ tally['against'] }}</strong>
+      · {{ _("проголосовало") }} {{ tally['voted_ids']|length }} {{ _("из") }} {{ tally['board_ids']|length }} {{ _("членов правления") }}</p>
+  </div>
+</div>
+{% endif %}
+
+{% if can_vote %}
+<div class="card bg-body mb-3">
+  <div class="card-body">
+    <h6 class="card-title">{{ _("Ваш голос") }}</h6>
+    {% if my_ballot %}
+    <p class="text-muted small">{{ _("Вы уже проголосовали") }} «{{ _("за") if my_ballot.choice.value == 'for' else _("против") }}» — {{ _("можно переголосовать, пока предложение на рассмотрении.") }}</p>
+    {% endif %}
+    <form method="post" action="{{ url_for('proposals.board_vote', proposal_id=proposal.id) }}" class="d-flex gap-2">
+      <button class="btn btn-success" name="choice" value="for">{{ _("Одобрить (за)") }}</button>
+      <button class="btn btn-outline-danger" name="choice" value="against">{{ _("Отклонить (против)") }}</button>
+    </form>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

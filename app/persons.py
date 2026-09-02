@@ -347,9 +347,14 @@ def archive_person(person_id):
     person = database.db_session.get(Person, person_id)
     if person is None:
         abort(404)
+
+    next_url = request.form.get("next")
+    fallback_url = url_for("persons.detail", person_id=person.id)
+    redirect_url = next_url if is_safe_next_url(next_url) else fallback_url
+
     if person.is_archived:
         flash(_("Этот человек уже в архиве."), "warning")
-        return redirect(url_for("persons.detail", person_id=person.id))
+        return redirect(redirect_url)
 
     reason = (request.form.get("reason") or "").strip() or None
 
@@ -367,7 +372,7 @@ def archive_person(person_id):
     )
     database.db_session.commit()
     flash(_("Человек отправлен в архив."), "success")
-    return redirect(url_for("persons.detail", person_id=person.id))
+    return redirect(redirect_url)
 
 
 @bp.route("/<int:person_id>/unarchive", methods=["POST"])

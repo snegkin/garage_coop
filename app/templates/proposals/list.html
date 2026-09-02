@@ -3,9 +3,12 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h3 class="mb-0">{{ _("Предложения голосований") }}</h3>
-  {% if can_propose %}
-  <a class="btn btn-primary" href="{{ url_for('proposals.create') }}">+ {{ _("Предложить голосование") }}</a>
-  {% endif %}
+  <div class="d-flex gap-2">
+    <a class="btn btn-outline-secondary" href="{{ url_for('voting.list_votes') }}">{{ _("← к голосованиям") }}</a>
+    {% if can_propose %}
+    <a class="btn btn-primary" href="{{ url_for('proposals.create') }}">+ {{ _("Предложить голосование") }}</a>
+    {% endif %}
+  </div>
 </div>
 <p class="text-muted small">{{ _("Любой член кооператива может предложить тему для общего голосования. Правление рассматривает предложение в течение недели — если голосов «за» вынесение на общее голосование наберётся больше, чем «против», по нему заводится официальное голосование.") }}</p>
 

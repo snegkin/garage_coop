@@ -76,6 +76,19 @@
       {% else %}<span class="text-danger">{{ _("решение не принято") }}</span>{% endif %}
     </p>
     {% endif %}
+
+    {% set commented = q.ballots|selectattr('comment')|list %}
+    {% if commented %}
+    <hr class="my-2">
+    <p class="small text-muted mb-1">{{ _("Комментарии") }}</p>
+    {% for b in commented %}
+    <div class="small mb-1">
+      <strong>{{ b.person.full_name }}</strong>
+      <span class="badge text-bg-light border">{{ _("за") if b.choice.value == 'for' else (_("против") if b.choice.value == 'against' else _("воздержался")) }}</span>
+      — {{ b.comment }}
+    </div>
+    {% endfor %}
+    {% endif %}
   </div>
 </div>
 {% else %}

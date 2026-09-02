@@ -89,6 +89,11 @@
               <button type="button" class="btn btn-sm btn-outline-danger" data-bs-toggle="modal" data-bs-target="#removeOwnerModal-{{ o.id }}" title="{{ _('Удалить собственника') }}">
                 ✕
               </button>
+              {% if not o.person.is_archived %}
+              <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#archiveOwnerModal-{{ o.id }}" title="{{ _('Отправить человека в архив') }}">
+                {{ _("В архив") }}
+              </button>
+              {% endif %}
             </div>
           </td>
           {% endif %}
@@ -154,6 +159,35 @@
         </div>
       </div>
     </div>
+
+    {% if not o.person.is_archived %}
+    <div class="modal fade" id="archiveOwnerModal-{{ o.id }}" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <form method="post" action="{{ url_for('persons.archive_person', person_id=o.person.id) }}">
+            <input type="hidden" name="next" value="{{ url_for('garages.detail', garage_id=garage.id) }}">
+            <div class="modal-header">
+              <h5 class="modal-title">{{ _("Отправить в архив: {name}", name=o.person.full_name) }}</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+              <p class="text-muted small">
+                {{ _("Скрывается из общего реестра людей, карточка и выписка остаются доступны по прямой ссылке. Если этот человек — совладелец гаража (не единственный), он автоматически убирается из собственников с этой же причиной, доли оставшихся пересчитываются, остаток его лицевых счетов по этому гаражу переходит к ним пропорционально новым долям. Если он единственный собственник — гараж и его счета не трогаются, остаются как есть до появления нового собственника.") }}
+              </p>
+              <div class="mb-3">
+                <label class="form-label">{{ _("Причина") }}</label>
+                <input class="form-control form-control-sm" name="reason" placeholder="{{ _('например: умер, продал гараж и выбыл') }}" autofocus>
+              </div>
+            </div>
+            <div class="modal-footer d-flex justify-content-end">
+              <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+              <button class="btn btn-danger">{{ _("Отправить в архив") }}</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+    {% endif %}
     {% endfor %}
 
     <form method="post" action="{{ url_for('garages.add_owner', garage_id=garage.id) }}" class="d-flex gap-2 mb-4 flex-wrap">

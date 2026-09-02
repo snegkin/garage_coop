@@ -285,3 +285,89 @@ def test_archiving_multiple_garages_at_once(app, db, client):
     remaining2 = database.db_session.query(GarageOwnership).filter_by(garage_id=garage2.id).all()
     assert len(remaining1) == 1 and remaining1[0].person_id == co_owner_1.id
     assert len(remaining2) == 1 and remaining2[0].person_id == co_owner_2.id
+
+
+# ---------------------------------------------------------------------------
+# Архивация прямо с карточки гаража (не только с карточки человека) — см.
+# app/templates/garages/detail.html: кнопка «В архив» у каждого
+# собственника (кроме уже архивных), рядом с «Изменить долю»/«Удалить
+# собственника», делает то же самое, что и archive_person с карточки
+# человека, но после сохранения возвращает на страницу гаража (hidden
+# поле next, тот же приём, что у persons.create).
+# ---------------------------------------------------------------------------
+
+def test_garage_page_shows_archive_button_for_each_active_owner(app, db, client):
+    garage = make_garage(db, number="36")
+    owner1 = make_person(db, full_name="Иванов Иван Иванович")
+    owner2 = make_person(db, full_name="Петров Пётр Петрович")
+    make_ownership(db, garage, owner1, share="0.5")
+    make_ownership(db, garage, owner2, share="0.5")
+    make_user(db, "chair10", "pass12345", role=RoleEnum.CHAIRMAN)
+    db.commit()
+    login(client, "chair10", "pass12345")
+
+    resp = client.get(f"/garages/{garage.id}")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert f'action="/persons/{owner1.id}/archive"' in body
+    assert f'action="/persons/{owner2.id}/archive"' in body
+    assert f'value="/garages/{garage.id}"' in body
+
+
+def test_archiving_owner_from_garage_page_redirects_back_to_garage(app, db, client):
+    garage = make_garage(db, number="36")
+    owner1 = make_person(db, full_name="Иванов Иван Иванович")
+    owner2 = make_person(db, full_name="Петров Пётр Петрович")
+    make_ownership(db, garage, owner1, share="0.5")
+    make_ownership(db, garage, owner2, share="0.5")
+    make_user(db, "chair11", "pass12345", role=RoleEnum.CHAIRMAN)
+    db.commit()
+    login(client, "chair11", "pass12345")
+
+    resp = client.post(f"/persons/{owner1.id}/archive", data={
+        "reason": "умер",
+        "next": f"/garages/{garage.id}",
+    })
+    assert resp.status_code == 302
+    assert resp.headers["Location"] == f"/garages/{garage.id}"
+
+    db.expire_all()
+    p = database.db_session.get(Person, owner1.id)
+    assert p.is_archived is True
+    remaining = database.db_session.query(GarageOwnership).filter_by(garage_id=garage.id).all()
+    assert len(remaining) == 1 and remaining[0].person_id == owner2.id
+
+
+def test_archive_ignores_unsafe_next_url(app, db, client):
+    """next — обычная защита от open redirect (см. auth.is_safe_next_url):
+    внешний домен игнорируется, откатываемся на карточку человека."""
+    person = make_person(db, full_name="Проверка Редиректа")
+    make_user(db, "chair12", "pass12345", role=RoleEnum.CHAIRMAN)
+    db.commit()
+    login(client, "chair12", "pass12345")
+
+    resp = client.post(f"/persons/{person.id}/archive", data={
+        "reason": "выбыл",
+        "next": "https://evil.example.com/",
+    })
+    assert resp.status_code == 302
+    assert resp.headers["Location"] == f"/persons/{person.id}"
+
+
+def test_archive_button_hidden_for_already_archived_owner(app, db, client):
+    garage = make_garage(db, number="36")
+    owner = make_person(db, full_name="Уже В Архиве")
+    make_ownership(db, garage, owner, share="1")
+    make_user(db, "chair13", "pass12345", role=RoleEnum.CHAIRMAN)
+    db.commit()
+    login(client, "chair13", "pass12345")
+
+    client.post(f"/persons/{owner.id}/archive", data={"reason": "умер"})
+    # Единственный собственник — GarageOwnership не тронут (см. docstring
+    # _remove_owner_and_redistribute), поэтому архивный человек всё ещё
+    # виден в таблице собственников гаража, но кнопку «В архив» ему
+    # предлагать больше не нужно.
+    resp = client.get(f"/garages/{garage.id}")
+    body = resp.get_data(as_text=True)
+    assert owner.full_name in body
+    assert f'action="/persons/{owner.id}/archive"' not in body

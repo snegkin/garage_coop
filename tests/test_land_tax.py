@@ -231,6 +231,57 @@ def test_quantization_to_two_decimals(app, db):
     assert result[garage.id] == quantized
 
 
+def test_privatized_garage_with_excess_area_deducts_cost(app, db):
+    """Приватизированная площадь больше стандартной (30) — стоимость
+    превышения вычитается из доли в общей территории, а не суммируется
+    поверх (в отличие от неприватизированного гаража)."""
+    _make_coop(db)
+    garage = make_garage(db, number="1", area_sqm="18.00", land_privatized=True, privatized_land_area=Decimal("40"))
+
+    result = compute_land_tax(2026)
+    assert result is not None
+
+    # common_area_tax = 93.75 × (500/1) = 46875
+    # excess_area = 40 - 30 = 10; excess_cost = 10 × 93.75 = 937.50
+    # garage_tax = 46875 - 937.50 = 45937.50
+    expected = Decimal("46875.00") - Decimal("937.50")
+    assert result[garage.id] == expected
+
+
+def test_privatized_garage_excess_area_clamped_to_zero(app, db):
+    """Если стоимость превышения площади больше самой доли в общей
+    территории — начисление обнуляется, а не уходит в минус."""
+    _make_coop(db)
+    garage = make_garage(db, number="1", area_sqm="18.00", land_privatized=True, privatized_land_area=Decimal("1000"))
+
+    result = compute_land_tax(2026)
+    assert result is not None
+    # excess_cost = (1000-30) × 93.75 = 90937.50 >> common_area_tax 46875 — обнуляется
+    assert result[garage.id] == Decimal("0.00")
+
+
+def test_privatized_garage_area_equal_to_standard_no_deduction(app, db):
+    """Приватизированная площадь РОВНО стандартная — превышения нет,
+    вычитать нечего (граничный случай, не строгое >)."""
+    _make_coop(db)
+    garage = make_garage(db, number="1", area_sqm="18.00", land_privatized=True, privatized_land_area=Decimal("30"))
+
+    result = compute_land_tax(2026)
+    assert result is not None
+    assert result[garage.id] == Decimal("46875.00")
+
+
+def test_privatized_garage_without_area_set_no_deduction(app, db):
+    """privatized_land_area не заполнено (None) — поведение как раньше,
+    без вычета (не с чем сравнивать стандартную площадь)."""
+    _make_coop(db)
+    garage = make_garage(db, number="1", area_sqm="18.00", land_privatized=True)
+
+    result = compute_land_tax(2026)
+    assert result is not None
+    assert result[garage.id] == Decimal("46875.00")
+
+
 def test_no_ownerships_still_calculates(app, db):
     """Расчёт работает даже если у гаража нет собственников."""
     _make_coop(db)

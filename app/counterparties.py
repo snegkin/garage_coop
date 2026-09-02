@@ -2,6 +2,7 @@ import datetime as dt
 from decimal import Decimal, InvalidOperation
 
 from flask import Blueprint, render_template, request, redirect, url_for, flash, abort, current_app
+from werkzeug.utils import secure_filename
 
 from . import database
 from . import audit
@@ -149,6 +150,7 @@ def detail(counterparty_id):
         payments=payments,
         acts=acts,
         documents=documents,
+        doc_types=DocumentType,
         bank_accounts=bank_accounts,
         expense_paid=expense_paid,
         last_payment_id=last_payment_id,
@@ -329,4 +331,38 @@ def add_reconciliation_act(counterparty_id):
     ))
     database.db_session.commit()
     flash(_("Акт сверки добавлен."), "success")
+    return redirect(url_for("counterparties.detail", counterparty_id=counterparty.id))
+
+
+# ---------------------------------------------------------------------------
+# Документы контрагента (не связанные с конкретным расходом/платежом/актом
+# сверки — те получают документ через _save_document выше). Форма — тот же
+# набор полей, что в общем списке документов (cooperative/_document_fields.html,
+# без поля «Контрагент» — он и так фиксирован страницей).
+# ---------------------------------------------------------------------------
+
+@bp.route("/<int:counterparty_id>/documents/new", methods=["POST"])
+@roles_required(RoleEnum.BOARD)
+def add_document(counterparty_id):
+    counterparty = database.db_session.get(Counterparty, counterparty_id)
+    if counterparty is None:
+        abort(404)
+
+    f = request.form
+    file_storage = request.files.get("file")
+    file_path = save_upload(file_storage, current_app.config["UPLOAD_FOLDER"])
+
+    database.db_session.add(Document(
+        doc_type=DocumentType(f["doc_type"]),
+        number=f.get("number") or None,
+        date=dt.date.fromisoformat(f["date"]),
+        title=f["title"],
+        file_path=file_path,
+        file_name=secure_filename(file_storage.filename) if file_storage and file_storage.filename else None,
+        comment=f.get("comment") or None,
+        is_internal=bool(f.get("is_internal")),
+        counterparty_id=counterparty.id,
+    ))
+    database.db_session.commit()
+    flash(_("Документ сохранён."), "success")
     return redirect(url_for("counterparties.detail", counterparty_id=counterparty.id))

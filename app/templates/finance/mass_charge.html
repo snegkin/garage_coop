@@ -223,7 +223,7 @@ function updatePreview() {
 
       description = "<strong>Методика:</strong> кадастровая стоимость × ставка / кадастровая площадь = цена м².<br>";
       description += "Неприватизированные: (цена м² × стандартная площадь + доля в общей территории) × % банка × коэффициент.<br>";
-      description += "Приватизированные: доля в общей территории минус стоимость превышения фактической приватизированной площади над стандартной (если больше; отрицательное — 0), × коэффициент.<br><br>";
+      description += "Приватизированные: (доля в общей территории минус стоимость превышения фактической приватизированной площади над стандартной, если больше; отрицательное — 0) × % банка × коэффициент.<br><br>";
       description += "<em>Кадастровая стоимость: " + coopData.cadastral_value + " ₽, кадастровая площадь: " + coopData.cadastral_area + " м², ставка: " + coopData.land_tax_rate + "%</em><br><br>";
       rows += "<thead><tr><th>Гараж</th><th>Приватиз.</th><th>Коэфф.</th><th>Сумма</th></tr></thead><tbody>";
       selectedGarages.forEach(function(g) {
@@ -234,6 +234,7 @@ function updatePreview() {
             var excessArea = g.privatizedLandArea - standardArea;
             garageTax = Math.max(garageTax - excessArea * pricePerSqm, 0);
           }
+          garageTax = garageTax * bankMultiplier;
         } else {
           garageTax = (standardArea * pricePerSqm + commonAreaTax) * bankMultiplier;
         }

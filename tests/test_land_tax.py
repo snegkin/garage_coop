@@ -7,7 +7,8 @@
 - price_per_sqm = total_tax / common_area
 - common_area_tax = price_per_sqm × (common_area / кол-во_гаражей)
 - неприватизированный: (standard_garage_land_area × price_per_sqm + common_area_tax) × (1 + bank_fee_percent/100)
-- приватизированный: только common_area_tax
+- приватизированный: (common_area_tax минус стоимость превышения фактической
+  приватизированной площади над стандартной, если больше; иначе 0) × (1 + bank_fee_percent/100)
 """
 from decimal import Decimal
 
@@ -119,7 +120,9 @@ def test_land_tax_with_coefficient_less_than_one(app, db):
 
 
 def test_single_privatized_garage(app, db):
-    """Один гараж, приватизирован — только common_area_tax, без комиссии банка."""
+    """Один гараж, приватизирован — common_area_tax с комиссией банка (тем
+    же % за зачисление платежа, что и у неприватизированных — не зависит
+    от приватизации участка)."""
     _make_coop(db)
     garage = make_garage(db, number="1", area_sqm="18.00", land_privatized=True, privatized_land_area=Decimal("30"))
 
@@ -129,7 +132,8 @@ def test_single_privatized_garage(app, db):
     # total_tax = 5000000 × 1.5% = 75000
     # price_per_sqm = 75000 / 800 = 93.75
     # common_area_tax = 93.75 × (500 / 1) = 46875
-    expected = Decimal("46875.00")
+    # × 1.016 (% банка) = 47625
+    expected = (Decimal("46875") * Decimal("1.016")).quantize(Decimal("0.01"))
     assert result[garage.id] == expected
 
 
@@ -159,9 +163,10 @@ def test_mixed_privatized_and_not(app, db):
     result = compute_land_tax(2026)
     assert result is not None
 
-    # g1 (приватизирован): только common_area_tax = 93.75 × (500/2) = 23437.50
+    # g1 (приватизирован): common_area_tax × 1.016 = 93.75 × (500/2) × 1.016 = 23812.50
     # g2 (не приватизирован): (2812.50 + 23437.50) × 1.016 = 26670
-    assert result[g1.id] == Decimal("23437.50")
+    expected_g1 = (Decimal("23437.50") * Decimal("1.016")).quantize(Decimal("0.01"))
+    assert result[g1.id] == expected_g1
     expected_g2 = (Decimal("2812.50") + Decimal("23437.50")) * Decimal("1.016")
     assert result[g2.id] == expected_g2.quantize(Decimal("0.01"))
 
@@ -243,8 +248,8 @@ def test_privatized_garage_with_excess_area_deducts_cost(app, db):
 
     # common_area_tax = 93.75 × (500/1) = 46875
     # excess_area = 40 - 30 = 10; excess_cost = 10 × 93.75 = 937.50
-    # garage_tax = 46875 - 937.50 = 45937.50
-    expected = Decimal("46875.00") - Decimal("937.50")
+    # (46875 - 937.50) × 1.016 (% банка) = 45937.50 × 1.016 = 46672.50
+    expected = ((Decimal("46875") - Decimal("937.50")) * Decimal("1.016")).quantize(Decimal("0.01"))
     assert result[garage.id] == expected
 
 
@@ -257,6 +262,7 @@ def test_privatized_garage_excess_area_clamped_to_zero(app, db):
     result = compute_land_tax(2026)
     assert result is not None
     # excess_cost = (1000-30) × 93.75 = 90937.50 >> common_area_tax 46875 — обнуляется
+    # (0 × 1.016 (% банка) всё равно 0)
     assert result[garage.id] == Decimal("0.00")
 
 
@@ -268,7 +274,8 @@ def test_privatized_garage_area_equal_to_standard_no_deduction(app, db):
 
     result = compute_land_tax(2026)
     assert result is not None
-    assert result[garage.id] == Decimal("46875.00")
+    expected = (Decimal("46875") * Decimal("1.016")).quantize(Decimal("0.01"))
+    assert result[garage.id] == expected
 
 
 def test_privatized_garage_without_area_set_no_deduction(app, db):
@@ -279,7 +286,8 @@ def test_privatized_garage_without_area_set_no_deduction(app, db):
 
     result = compute_land_tax(2026)
     assert result is not None
-    assert result[garage.id] == Decimal("46875.00")
+    expected = (Decimal("46875") * Decimal("1.016")).quantize(Decimal("0.01"))
+    assert result[garage.id] == expected
 
 
 def test_no_ownerships_still_calculates(app, db):

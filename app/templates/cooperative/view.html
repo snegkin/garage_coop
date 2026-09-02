@@ -76,19 +76,38 @@
 </div>
 {% endif %}
 
-<div class="mb-3">
-  <input class="form-control" id="documentFilterInput" placeholder="{{ _('Поиск по названию, номеру или типу...') }}">
+<div class="row g-2 mb-3">
+  <div class="{% if is_board() and all_counterparties %}col-md-8{% else %}col-12{% endif %}">
+    <input class="form-control" id="documentFilterInput" placeholder="{{ _('Поиск по названию, номеру или типу...') }}">
+  </div>
+  {% if is_board() and all_counterparties %}
+  <div class="col-md-4">
+    <select class="form-select" id="documentCounterpartyFilter">
+      <option value="">{{ _("Все контрагенты") }}</option>
+      {% for c in all_counterparties %}
+      <option value="{{ c.id }}">{{ c.name }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  {% endif %}
 </div>
 
 <table class="table table-hover bg-body sortable" id="documentsTable">
-  <thead><tr><th>{{ _("Дата") }}</th><th>{{ _("Тип") }}</th><th>{{ _("№") }}</th><th>{{ _("Название") }}</th><th class="no-sort">{{ _("Файл") }}</th>{% if is_board() %}<th class="no-sort">{{ _("Доступ") }}</th>{% endif %}</tr></thead>
+  <thead><tr><th>{{ _("Дата") }}</th><th>{{ _("Тип") }}</th><th>{{ _("№") }}</th><th>{{ _("Название") }}</th>{% if is_board() %}<th>{{ _("Контрагент") }}</th>{% endif %}<th class="no-sort">{{ _("Файл") }}</th>{% if is_board() %}<th class="no-sort">{{ _("Доступ") }}</th>{% endif %}</tr></thead>
   <tbody>
     {% for d in docs %}
-    <tr data-filter-text="{{ ((d.number or '') ~ ' ' ~ d.title ~ ' ' ~ doc_type_label(d.doc_type.value)|lower) }}">
+    <tr data-filter-text="{{ ((d.number or '') ~ ' ' ~ d.title ~ ' ' ~ doc_type_label(d.doc_type.value)|lower) }}" data-counterparty-id="{{ d.counterparty_id or '' }}">
       <td data-sort-value="{{ d.date }}">{{ fmt_date(d.date) }}</td>
       <td>{{ doc_type_label(d.doc_type.value) }}</td>
       <td>{{ d.number or "—" }}</td>
       <td>{{ d.title }}</td>
+      {% if is_board() %}
+      <td>
+        {% if d.counterparty %}
+        <a href="{{ url_for('counterparties.detail', counterparty_id=d.counterparty.id) }}">{{ d.counterparty.name }}</a>
+        {% else %}—{% endif %}
+      </td>
+      {% endif %}
       <td class="no-sort">
         {% if d.file_path %}
           <div class="btn-group" role="group">
@@ -121,7 +140,7 @@
       {% endif %}
     </tr>
     {% else %}
-    <tr><td colspan="{% if is_board() %}6{% else %}5{% endif %}" class="text-muted">{{ _("Документов пока нет.") }}</td></tr>
+    <tr><td colspan="{% if is_board() %}7{% else %}5{% endif %}" class="text-muted">{{ _("Документов пока нет.") }}</td></tr>
     {% endfor %}
   </tbody>
 </table>
@@ -181,6 +200,7 @@
 <script>
 (function () {
   const input = document.getElementById("documentFilterInput");
+  const counterpartyFilter = document.getElementById("documentCounterpartyFilter");
   const table = document.getElementById("documentsTable");
   const noResults = document.getElementById("documentNoResults");
   const pager = document.getElementById("documentPager");
@@ -254,9 +274,15 @@
 
   function updatePager() {
     const q = input ? input.value.trim().toLowerCase() : "";
+    const counterpartyId = counterpartyFilter ? counterpartyFilter.value : "";
     let visibleRows = rows.filter(function (row) {
-      return !q || row.getAttribute("data-filter-text").includes(q);
+      const textMatch = !q || row.getAttribute("data-filter-text").includes(q);
+      const counterpartyMatch = !counterpartyId || row.getAttribute("data-counterparty-id") === counterpartyId;
+      return textMatch && counterpartyMatch;
     });
+
+    rows.forEach(function (row) { row.classList.add("d-none"); });
+    if (noResults) noResults.classList.toggle("d-none", visibleRows.length > 0);
 
     if (visibleRows.length === 0) {
       pager.classList.add("d-none");
@@ -269,7 +295,7 @@
 
     visibleRows.forEach(function (row, i) {
       const page = Math.floor(i / ROWS_PER_PAGE) + 1;
-      row.classList.toggle("d-none", page !== currentPage);
+      if (page === currentPage) row.classList.remove("d-none");
     });
 
     renderPages(totalPages);
@@ -277,6 +303,13 @@
 
   if (input) {
     input.addEventListener("input", function () {
+      currentPage = 1;
+      updatePager();
+    });
+  }
+
+  if (counterpartyFilter) {
+    counterpartyFilter.addEventListener("change", function () {
       currentPage = 1;
       updatePager();
     });

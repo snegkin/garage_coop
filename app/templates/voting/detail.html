@@ -51,7 +51,7 @@
       <p class="mb-2">{{ loop.index }}. {{ q.text }}</p>
       {% if vote.status.value == 'draft' and is_chairman() %}
       <form method="post" action="{{ url_for('voting.delete_question', vote_id=vote.id, question_id=q.id) }}" onsubmit="return confirm('{{ _('Удалить вопрос?') }}')">
-        <button class="btn btn-sm btn-outline-danger">✕</button>
+        <button class="btn btn-sm btn-outline-danger btn-icon-square" title="{{ _('Удалить') }}">✕</button>
       </form>
       {% endif %}
     </div>

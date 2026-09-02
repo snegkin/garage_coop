@@ -83,12 +83,8 @@
           {% if is_board() %}
           <td>
             <div class="d-flex gap-1">
-              <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#editShareModal-{{ o.id }}" title="{{ _('Изменить долю') }}">
-                ✎
-              </button>
-              <button type="button" class="btn btn-sm btn-outline-danger" data-bs-toggle="modal" data-bs-target="#removeOwnerModal-{{ o.id }}" title="{{ _('Удалить собственника') }}">
-                ✕
-              </button>
+              <button type="button" class="btn btn-sm btn-outline-primary btn-icon-square" data-bs-toggle="modal" data-bs-target="#editShareModal-{{ o.id }}" title="{{ _('Изменить долю') }}">✎</button>
+              <button type="button" class="btn btn-sm btn-outline-danger btn-icon-square" data-bs-toggle="modal" data-bs-target="#removeOwnerModal-{{ o.id }}" title="{{ _('Удалить собственника') }}">✕</button>
               {% if not o.person.is_archived %}
               <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#archiveOwnerModal-{{ o.id }}" title="{{ _('Отправить человека в архив') }}">
                 {{ _("В архив") }}
@@ -214,7 +210,7 @@
           {% if is_board() or is_owner %}
           <td>
             <form method="post" action="{{ url_for('garages.remove_contact', garage_id=garage.id, contact_id=c.id) }}" onsubmit="return confirm('{{ _("Удалить контакт?") }}')">
-              <button class="btn btn-sm btn-outline-danger">✕</button>
+              <button class="btn btn-sm btn-outline-danger btn-icon-square" title="{{ _('Удалить') }}">✕</button>
             </form>
           </td>
           {% endif %}

@@ -55,7 +55,7 @@
           <td>{{ _("вручную") if r.is_manual else "cbr.ru" }}</td>
           <td>
             <form method="post" action="{{ url_for('penalty.delete_key_rate', rate_id=r.id) }}" onsubmit="return confirm('{{ _("Удалить эту запись ставки?") }}')">
-              <button class="btn btn-sm btn-outline-danger">×</button>
+              <button class="btn btn-sm btn-outline-danger btn-icon-square" title="{{ _('Удалить') }}">×</button>
             </form>
           </td>
         </tr>

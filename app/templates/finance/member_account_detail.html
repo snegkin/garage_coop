@@ -134,7 +134,8 @@
           <input class="form-control form-control-sm" type="date" name="date" value="{{ today.isoformat() }}" required>
         </div>
         <div class="col-4">
-          <input class="form-control form-control-sm" name="amount" placeholder="{{ _('сумма') }}" required>
+          <input class="form-control form-control-sm" name="amount" placeholder="{{ fmt2(-balance) if balance < 0 else _('сумма') }}">
+          {% if balance < 0 %}<div class="form-text">{{ _("пусто — закрыть долг полностью") }}</div>{% endif %}
         </div>
         <div class="col-4">
           <input class="form-control form-control-sm" name="comment" placeholder="{{ _('комментарий (необязательно)') }}">

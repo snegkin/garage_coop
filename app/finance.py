@@ -304,9 +304,23 @@ def add_member_payment(account_id):
     f = request.form
     try:
         date = dt.date.fromisoformat(f["date"])
-        amount = Decimal(f["amount"])
-    except (KeyError, ValueError, InvalidOperation):
-        return respond(False, _("Проверьте дату и сумму платежа."))
+    except (KeyError, ValueError):
+        return respond(False, _("Проверьте дату платежа."))
+
+    amount_raw = (f.get("amount") or "").strip()
+    if amount_raw:
+        try:
+            amount = Decimal(amount_raw)
+        except InvalidOperation:
+            return respond(False, _("Проверьте сумму платежа."))
+    else:
+        # Пустое поле — закрыть текущий долг полностью (см. placeholder в
+        # форме, показывающий именно эту сумму); если долга нет, пустое
+        # поле ничего не означает — сумму нужно указать явно.
+        current_balance = _balance(account)
+        if current_balance >= 0:
+            return respond(False, _("Укажите сумму платежа — на счёте нет долга, чтобы закрыть его пустым полем."))
+        amount = -current_balance
     if amount <= 0:
         return respond(False, _("Сумма платежа должна быть больше нуля."))
 

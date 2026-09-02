@@ -38,21 +38,6 @@
         <li class="nav-item"><a class="nav-link" href="{{ url_for('cooperative.view') }}">{{ _("О кооперативе") }}</a></li>
       </ul>
       <ul class="navbar-nav ms-auto align-items-lg-center">
-        <li class="nav-item dropdown">
-          <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-            {{ LANGUAGE_FLAGS[current_locale] }}
-          </a>
-          <ul class="dropdown-menu dropdown-menu-end">
-            {% for code, label in SUPPORTED_LANGUAGES.items() %}
-            <li><a class="dropdown-item {{ 'active' if code == current_locale }}" href="{{ url_for('set_language', lang=code) }}">{{ LANGUAGE_FLAGS[code] }} {{ label }}</a></li>
-            {% endfor %}
-          </ul>
-        </li>
-        <li class="nav-item">
-          <a class="nav-link" href="{{ url_for('set_theme', theme=next_theme(current_theme)) }}" title="{{ _('Переключить тему') }}" aria-label="{{ _('Переключить тему') }}">
-            {{ THEME_TOGGLE_ICONS[current_theme] }}
-          </a>
-        </li>
         {% if is_board() %}
         <li class="nav-item dropdown">
           <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">{{ _("Кооператив") }}</a>
@@ -89,6 +74,21 @@
           </ul>
         </li>
         {% endif %}
+        <li class="nav-item dropdown">
+          <a class="nav-link dropdown-toggle text-white" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+            {{ LANGUAGE_FLAGS[current_locale] }}
+          </a>
+          <ul class="dropdown-menu dropdown-menu-end">
+            {% for code, label in SUPPORTED_LANGUAGES.items() %}
+            <li><a class="dropdown-item {{ 'active' if code == current_locale }}" href="{{ url_for('set_language', lang=code) }}">{{ LANGUAGE_FLAGS[code] }} {{ label }}</a></li>
+            {% endfor %}
+          </ul>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link text-white" href="{{ url_for('set_theme', theme=next_theme(current_theme)) }}" title="{{ _('Переключить тему') }}" aria-label="{{ _('Переключить тему') }}">
+            {{ THEME_TOGGLE_ICONS[current_theme] }}
+          </a>
+        </li>
         <li class="nav-item dropdown">
           <a class="nav-link dropdown-toggle d-flex align-items-center py-1 position-relative" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
             <span class="d-flex flex-column text-center position-relative" style="line-height:1.15;">

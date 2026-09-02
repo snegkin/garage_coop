@@ -417,14 +417,14 @@ def transfer_member_account_funds(account_id):
     today = dt.date.today()
     if reason:
         source_comment = _("Зачёт на счёт {number} ({name}): {reason}").format(
-            number=target.account_number, name=target.person.full_name, reason=reason)
+            number=target.account_number, name=target.person.short_name, reason=reason)
         target_comment = _("Зачёт со счёта {number} ({name}): {reason}").format(
-            number=source.account_number, name=source.person.full_name, reason=reason)
+            number=source.account_number, name=source.person.short_name, reason=reason)
     else:
         source_comment = _("Зачёт на счёт {number} ({name})").format(
-            number=target.account_number, name=target.person.full_name)
+            number=target.account_number, name=target.person.short_name)
         target_comment = _("Зачёт со счёта {number} ({name})").format(
-            number=source.account_number, name=source.person.full_name)
+            number=source.account_number, name=source.person.short_name)
 
     database.db_session.add(Charge(
         account_id=source.id, year=today.year, amount=amount,

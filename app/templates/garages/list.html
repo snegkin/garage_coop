@@ -17,7 +17,10 @@
   <tbody>
     {% for g in garages %}
     <tr onclick="window.location='{{ url_for('garages.detail', garage_id=g.id) }}'" style="cursor:pointer" data-filter-text="{{ (g.number ~ ' ' ~ (g.ownerships|map(attribute='person.full_name')|join(' ')))|lower }}">
-      <td>{{ g.number }}</td>
+      <td data-sort-value="{{ g.number }}">
+        {{ g.number }}
+        {% if g.comment %}<span class="text-info" title="{{ g.comment }}">✎</span>{% endif %}
+      </td>
       <td data-sort-value="{{ g.area_sqm }}">{{ fmt2(g.area_sqm) }}</td>
       <td>{{ _("да") if g.land_privatized else _("нет") }}</td>
       <td>{{ g.ownerships|map(attribute="person.full_name")|join(", ") or "—" }}</td>

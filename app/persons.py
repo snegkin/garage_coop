@@ -223,16 +223,16 @@ def detail(person_id):
     if not is_board() and g.user.person_id != person_id:
         abort(403)
     account = database.db_session.query(User).filter_by(person_id=person.id).first()
+    # Пени без начислений (баланс — 0) НЕ отфильтровываются здесь — этим
+    # занимается чекбокс «Актуальные» на клиенте (data-zero-penalty, см.
+    # persons/detail.html), иначе для таких счетов чекбокс не работал бы:
+    # строка не долетала бы до шаблона ни в каком состоянии галки.
     member_accounts = (
         database.db_session.query(MemberAccount)
         .filter_by(person_id=person.id)
         .options(joinedload(MemberAccount.charges))
         .all()
     )
-    member_accounts = [
-        ma for ma in member_accounts
-        if not ma.fee_type.is_penalty or ma.charges
-    ]
     revision_rows = {}
     if is_chairman():
         revision_rows = {rev.id: _revision_diff_rows(rev, person) for rev in person.revisions}
@@ -288,6 +288,9 @@ def statement(person_id):
         .options(joinedload(MemberAccount.charges), joinedload(MemberAccount.payments))
         .all()
     )
+    # Печатная выписка — здесь нет чекбокса «Актуальные», который мог бы
+    # раскрыть счёт обратно, поэтому пени без единого начисления (нечего
+    # печатать) отфильтровываем насовсем, в отличие от detail() выше.
     member_accounts = [ma for ma in member_accounts if not ma.fee_type.is_penalty or ma.charges]
     member_accounts.sort(key=lambda ma: (ma.garage.number, ma.fee_type.name))
 

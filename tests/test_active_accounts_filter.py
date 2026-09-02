@@ -33,8 +33,7 @@ def test_garage_detail_has_active_only_checkbox_and_row_markers(app, db, client)
     db.add_all([regular_acc, penalty_acc])
     db.flush()
     # пеня начислялась и полностью погашена — баланс ровно 0, но не должна
-    # исчезать с сервера (см. persons.py/garages.py: "not is_penalty or charges"),
-    # только скрываться на клиенте по чекбоксу
+    # исчезать с сервера, только скрываться на клиенте по чекбоксу
     db.add(Charge(account_id=penalty_acc.id, year=2026, amount=Decimal("50.00")))
     db.add(Payment(account_id=penalty_acc.id, date=dt.date(2026, 1, 1), amount=Decimal("50.00")))
     make_user(db, "board_filter", "pass12345", role=RoleEnum.BOARD)
@@ -49,6 +48,40 @@ def test_garage_detail_has_active_only_checkbox_and_row_markers(app, db, client)
     assert f'data-account-row="{penalty_acc.id}"' in html
     assert 'data-zero-penalty="1"' in html
     assert 'data-archived="0"' in html
+
+
+def test_garage_detail_shows_penalty_account_with_no_charges_at_all(app, db, client):
+    """
+    Регрессия: раньше garages.py/persons.py (detail()) отдельно от чекбокса
+    ещё и отфильтровывали пени БЕЗ единого начисления ("not is_penalty or
+    ma.charges") — такая строка вообще не попадала в HTML ни при каком
+    состоянии чекбокса, то есть снять галку «Актуальные» не давало её
+    увидеть, хотя баланс такого счёта тоже ровно 0 (нет начислений — нет и
+    долга), то есть по смыслу он должен вести себя как «полностью
+    погашенная пеня» — быть скрытым по умолчанию, но появляться по снятой
+    галке. Фильтр убран, скрытие теперь целиком на чекбоксе.
+    """
+    person = make_person(db, full_name="Пеня Без Начислений")
+    garage = make_garage(db, number="303")
+    make_ownership(db, garage, person)
+    regular, penalty = _setup_fee_types(db)
+    penalty_acc = MemberAccount(person_id=person.id, garage_id=garage.id, fee_type_id=penalty.id, account_number="П13030")
+    db.add(penalty_acc)
+    make_user(db, "board_filter4", "pass12345", role=RoleEnum.BOARD)
+    db.commit()
+    login(client, "board_filter4", "pass12345")
+
+    resp = client.get(f"/garages/{garage.id}")
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+    assert f'data-account-row="{penalty_acc.id}"' in html
+    assert 'data-zero-penalty="1"' in html
+
+    resp2 = client.get(f"/persons/{person.id}")
+    assert resp2.status_code == 200
+    html2 = resp2.get_data(as_text=True)
+    assert f'data-account-row="{penalty_acc.id}"' in html2
+    assert 'data-zero-penalty="1"' in html2
 
 
 def test_person_detail_has_active_only_checkbox_and_archived_marker(app, db, client):

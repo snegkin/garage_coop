@@ -42,10 +42,10 @@
       <h5>{{ _("Ключевая ставка ЦБ РФ") }}</h5>
     </div>
     <div class="mb-3">
-      <input class="form-control" id="keyRateFilterInput" placeholder="{{ _('Поиск по дате или ставке...') }}">
+      <input class="form-control" data-table-filter-for="keyRatesTable" placeholder="{{ _('Поиск по дате или ставке...') }}">
     </div>
 
-    <table class="table table-sm bg-body sortable" id="keyRatesTable">
+    <table class="table table-sm bg-body sortable" id="keyRatesTable" data-page-size="20">
       <thead><tr><th>{{ _("Действует с") }}</th><th>{{ _("Ставка, %") }}</th><th>{{ _("Источник") }}</th><th class="no-sort"></th></tr></thead>
       <tbody>
         {% for r in rates %}
@@ -64,8 +64,8 @@
         {% endfor %}
       </tbody>
     </table>
-    <nav id="keyRatesPager" class="d-none mb-3">
-      <ul class="pagination pagination-sm mb-0" id="keyRatesPagerLinks"></ul>
+    <nav class="d-none mb-3" data-pager-for="keyRatesTable">
+      <ul class="pagination pagination-sm mb-0"></ul>
     </nav>
 
     <div class="card bg-body mb-3">
@@ -108,111 +108,4 @@
     </div>
   </div>
 </div>
-
-<script>
-(function () {
-  const input = document.getElementById("keyRateFilterInput");
-  const table = document.getElementById("keyRatesTable");
-  const pager = document.getElementById("keyRatesPager");
-  const pagerLinks = document.getElementById("keyRatesPagerLinks");
-  if (!table) return;
-
-  const rows = Array.from(table.querySelectorAll("tbody tr[data-filter-text]"));
-  const ROWS_PER_PAGE = 20;
-  const PAGE_RADIUS = 3;
-  let currentPage = 1;
-
-  function renderPages(totalPages) {
-    pagerLinks.innerHTML = "";
-    if (totalPages <= 1) return;
-
-    const first = document.createElement("li");
-    first.className = "page-item" + (currentPage === 1 ? " disabled" : "");
-    first.innerHTML = '<a class="page-link" href="#">&laquo;</a>';
-    if (currentPage > 1) {
-      first.querySelector("a").addEventListener("click", function (e) { e.preventDefault(); currentPage = 1; updatePager(); });
-    }
-    pagerLinks.appendChild(first);
-
-    let start = Math.max(1, currentPage - PAGE_RADIUS);
-    let end = Math.min(totalPages, currentPage + PAGE_RADIUS);
-
-    if (start > 1) {
-      const li = document.createElement("li");
-      li.className = "page-item disabled";
-      li.innerHTML = "<span class=\"page-link\">…</span>";
-      pagerLinks.appendChild(li);
-    }
-
-    for (let p = start; p <= end; p++) {
-      const li = document.createElement("li");
-      li.className = "page-item" + (p === currentPage ? " active" : "");
-      const a = document.createElement("a");
-      a.className = "page-link";
-      a.href = "#";
-      a.textContent = p;
-      a.addEventListener("click", function (e) {
-        e.preventDefault();
-        currentPage = p;
-        updatePager();
-      });
-      li.appendChild(a);
-      pagerLinks.appendChild(li);
-    }
-
-    if (end < totalPages) {
-      const li = document.createElement("li");
-      li.className = "page-item disabled";
-      li.innerHTML = "<span class=\"page-link\">…</span>";
-      pagerLinks.appendChild(li);
-    }
-
-    const last = document.createElement("li");
-    last.className = "page-item" + (currentPage === totalPages ? " disabled" : "");
-    const lastA = document.createElement("a");
-    lastA.className = "page-link";
-    lastA.href = "#";
-    lastA.innerHTML = "&raquo;";
-    lastA.addEventListener("click", function (e) {
-      e.preventDefault();
-      currentPage = totalPages;
-      updatePager();
-    });
-    last.appendChild(lastA);
-    pagerLinks.appendChild(last);
-  }
-
-  function updatePager() {
-    const q = input ? input.value.trim().toLowerCase() : "";
-    let visibleRows = rows.filter(function (row) {
-      return !q || row.getAttribute("data-filter-text").includes(q);
-    });
-
-    if (visibleRows.length === 0) {
-      pager.classList.add("d-none");
-      return;
-    }
-
-    pager.classList.remove("d-none");
-    const totalPages = Math.ceil(visibleRows.length / ROWS_PER_PAGE);
-    if (currentPage > totalPages) currentPage = totalPages;
-
-    visibleRows.forEach(function (row, i) {
-      const page = Math.floor(i / ROWS_PER_PAGE) + 1;
-      row.classList.toggle("d-none", page !== currentPage);
-    });
-
-    renderPages(totalPages);
-  }
-
-  if (input) {
-    input.addEventListener("input", function () {
-      currentPage = 1;
-      updatePager();
-    });
-  }
-
-  updatePager();
-})();
-</script>
 {% endblock %}

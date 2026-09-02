@@ -277,14 +277,21 @@ def save_api_settings(account_id):
 # Баланс
 # ---------------------------------------------------------------------------
 
-@bp.route("/sync-balance", methods=["POST"])
-@roles_required(RoleEnum.CHAIRMAN)
-def sync_balance(account_id):
-    account = _get_account(account_id)
+def sync_account_balance(account: BankAccount) -> tuple[str, str]:
+    """
+    Общая логика обновления баланса счёта из API банка — вызывается и роутом
+    sync_balance ниже (кнопка «Обновить баланс»), и cron-скриптом
+    scripts/sync_bank_accounts.py (обновление всех настроенных счетов по
+    расписанию, см. его докстринг), поэтому ничего не знает про
+    flash/redirect и работает с любым account, полученным вызывающим кодом.
+
+    Возвращает (status, message): status — "unsupported" (для этого счёта
+    нет рабочей интеграции, см. get_client), "error" (запрос к банку не
+    удался) или "success".
+    """
     client = get_client(account)
     if client is None:
-        flash(_("Для этого счёта не настроено или не поддерживается автоматическое обновление баланса."), "warning")
-        return redirect(url_for("finance.bank_accounts"))
+        return "unsupported", _("Для этого счёта не настроено или не поддерживается автоматическое обновление баланса.")
 
     cred = _get_or_create_credential(account)
     try:
@@ -293,8 +300,7 @@ def sync_balance(account_id):
         _persist_rotated_refresh_token(cred, client)  # обновление токена могло пройти, даже если сам запрос — нет
         cred.last_error = str(e)
         database.db_session.commit()
-        flash(_("Не удалось получить баланс из банка: {error}").format(error=str(e)), "danger")
-        return redirect(url_for("finance.bank_accounts"))
+        return "error", _("Не удалось получить баланс из банка: {error}").format(error=str(e))
 
     account.balance = info.amount
     account.balance_updated_at = info.as_of
@@ -306,7 +312,15 @@ def sync_balance(account_id):
         summary=f"Баланс счёта {account.bank_name} {account.checking_account} обновлён из банка: {info.amount} ₽",
     )
     database.db_session.commit()
-    flash(_("Баланс обновлён из банка."), "success")
+    return "success", _("Баланс обновлён из банка: {amount} ₽").format(amount=info.amount)
+
+
+@bp.route("/sync-balance", methods=["POST"])
+@roles_required(RoleEnum.CHAIRMAN)
+def sync_balance(account_id):
+    account = _get_account(account_id)
+    status, message = sync_account_balance(account)
+    flash(message, "success" if status == "success" else ("warning" if status == "unsupported" else "danger"))
     return redirect(url_for("finance.bank_accounts"))
 
 
@@ -382,28 +396,29 @@ def statement(account_id):
     )
 
 
-@bp.route("/sync-statement", methods=["POST"])
-@roles_required(RoleEnum.CHAIRMAN)
-def sync_statement(account_id):
-    account = _get_account(account_id)
+def sync_account_statement(account: BankAccount, date_from: dt.date, date_to: dt.date) -> tuple[str, str, dict]:
+    """
+    Общая логика загрузки выписки из API банка за период — вызывается и
+    роутом sync_statement ниже (кнопка «Загрузить из банка»), и
+    cron-скриптом scripts/sync_bank_accounts.py, поэтому ничего не знает
+    про flash/redirect/request.form.
+
+    Возвращает (status, message, stats): status — "unsupported"/"error"/
+    "success" (см. sync_account_balance выше); stats заполнен только при
+    "success" — {"added", "auto_allocated", "direct", "parametric"}.
+    """
     client = get_client(account)
     if client is None:
-        flash(_("Для этого счёта не настроено или не поддерживается автоматическая выписка."), "warning")
-        return redirect(url_for("finance.bank_accounts"))
+        return "unsupported", _("Для этого счёта не настроено или не поддерживается автоматическая выписка."), {}
 
-    f = request.form
-    date_from = dt.date.fromisoformat(f["date_from"])
-    date_to = dt.date.fromisoformat(f["date_to"])
     cred = _get_or_create_credential(account)
-
     try:
         fetched = client.get_statement(date_from, date_to)
     except BankApiError as e:
         _persist_rotated_refresh_token(cred, client)
         cred.last_error = str(e)
         database.db_session.commit()
-        flash(_("Не удалось получить выписку из банка: {error}").format(error=str(e)), "danger")
-        return redirect(url_for("bank_sync.statement", account_id=account.id))
+        return "error", _("Не удалось получить выписку из банка: {error}").format(error=str(e)), {}
 
     existing_uids = {
         row[0] for row in database.db_session.query(BankStatementLine.external_uid)
@@ -466,17 +481,38 @@ def sync_statement(account_id):
                 f"{direct + parametric} сопоставлено с реестром ({direct} прямых, {parametric} параметрических)",
     )
     database.db_session.commit()
+    stats = {"added": added, "auto_allocated": auto_allocated, "direct": direct, "parametric": parametric}
+    return "success", _("Выписка обновлена: {n} новых операций.").format(n=added), stats
+
+
+@bp.route("/sync-statement", methods=["POST"])
+@roles_required(RoleEnum.CHAIRMAN)
+def sync_statement(account_id):
+    account = _get_account(account_id)
+    f = request.form
+    date_from = dt.date.fromisoformat(f["date_from"])
+    date_to = dt.date.fromisoformat(f["date_to"])
+    status, message, stats = sync_account_statement(account, date_from, date_to)
+    if status == "unsupported":
+        flash(message, "warning")
+        return redirect(url_for("finance.bank_accounts"))
+    if status == "error":
+        flash(message, "danger")
+        return redirect(url_for("bank_sync.statement", account_id=account.id))
+
     extra = ""
-    if direct or parametric:
-        extra = f" Сопоставлено с реестром: {direct} прямых + {parametric} параметрических совпадений."
-    if auto_allocated:
+    if stats["direct"] or stats["parametric"]:
+        extra = _(" Сопоставлено с реестром: {direct} прямых + {parametric} параметрических совпадений.").format(
+            direct=stats["direct"], parametric=stats["parametric"],
+        )
+    if stats["auto_allocated"]:
         flash(
             _("Выписка обновлена: {n} новых операций, из них {m} автоматически разнесено по лицевым счетам.")
-            .format(n=added, m=auto_allocated) + extra,
+            .format(n=stats["added"], m=stats["auto_allocated"]) + extra,
             "success",
         )
     else:
-        flash(_("Выписка обновлена: {n} новых операций.").format(n=added) + extra, "success")
+        flash(message + extra, "success")
     # Показываем только что загруженный период, а не сбрасываем на дефолт.
     return redirect(url_for("bank_sync.statement", account_id=account.id, date_from=date_from.isoformat(), date_to=date_to.isoformat()))
 

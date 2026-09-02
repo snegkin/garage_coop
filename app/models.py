@@ -767,6 +767,12 @@ class VoteBallot(Base):
     заново при каждой подаче/переголосовании, пока голосование открыто.
     Переголосование, пока Vote.status == OPEN, разрешено — обновляет ту же
     запись (upsert по (question_id, person_id)), не создаёт дубль.
+
+    comment — необязательное текстовое обоснование голоса, ПУБЛИЧНОЕ
+    (видно всем, не только правлению, и независимо от статуса голосования
+    — в отличие от агрегированных итогов, которые до закрытия видны только
+    правлению, см. voting.question_results): человек вправе аргументировать
+    свою позицию перед остальными.
     """
     __tablename__ = "vote_ballot"
 
@@ -775,6 +781,7 @@ class VoteBallot(Base):
     person_id: Mapped[int] = mapped_column(ForeignKey("person.id"), index=True)
     choice: Mapped[VoteChoice] = mapped_column(Enum(VoteChoice))
     weight: Mapped[Decimal] = mapped_column(Numeric(8, 5))
+    comment: Mapped[str | None] = mapped_column(Text)
     cast_at: Mapped[dt.datetime] = mapped_column(DateTime)
 
     question: Mapped["VoteQuestion"] = relationship(back_populates="ballots")
@@ -841,6 +848,10 @@ class VoteProposalBoardBallot(Base):
     не используется — правление голосует именно за/против, без варианта
     воздержаться, см. proposals.board_vote). Переголосование, пока
     предложение PENDING, разрешено — upsert по (proposal_id, person_id).
+
+    comment — необязательное текстовое обоснование, ПУБЛИЧНОЕ (видно всем,
+    не только правлению, независимо от статуса предложения) — как и у
+    VoteBallot.comment.
     """
     __tablename__ = "vote_proposal_board_ballot"
 
@@ -848,6 +859,7 @@ class VoteProposalBoardBallot(Base):
     proposal_id: Mapped[int] = mapped_column(ForeignKey("vote_proposal.id", ondelete="CASCADE"), index=True)
     person_id: Mapped[int] = mapped_column(ForeignKey("person.id", ondelete="CASCADE"), index=True)
     choice: Mapped[VoteChoice] = mapped_column(Enum(VoteChoice))
+    comment: Mapped[str | None] = mapped_column(Text)
     voted_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.now)
 
     proposal: Mapped["VoteProposal"] = relationship(back_populates="board_ballots")

@@ -163,6 +163,29 @@ def test_revote_updates_existing_ballot_not_duplicate(app, db):
     assert results["against"] == Decimal("0")
 
 
+def test_ballot_comment_is_stored_and_updated_on_revote(app, db):
+    """Комментарий — публичное обоснование голоса, необязательное, обновляется при переголосовании как и сам выбор."""
+    garage = make_garage(db)
+    voter = make_person(db)
+    make_ownership(db, garage, voter, share="1")
+    db.commit()
+
+    vote, question = _make_vote(db)
+    cast_ballots(vote, voter, {question.id: VoteChoice.AGAINST}, {question.id: "Слишком дорого"})
+    db.commit()
+    assert question.ballots[0].comment == "Слишком дорого"
+
+    cast_ballots(vote, voter, {question.id: VoteChoice.FOR}, {question.id: "Передумал, поддерживаю"})
+    db.commit()
+    assert len(question.ballots) == 1
+    assert question.ballots[0].comment == "Передумал, поддерживаю"
+
+    # без комментария — поле пустое, не ошибка
+    cast_ballots(vote, voter, {question.id: VoteChoice.FOR})
+    db.commit()
+    assert question.ballots[0].comment is None
+
+
 # ---------------------------------------------------------------------------
 # eligible_voters()
 # ---------------------------------------------------------------------------
@@ -191,6 +214,37 @@ def test_eligible_voters_sorted_by_name(app, db):
     voters = eligible_voters()
     names = [p.full_name for p in voters]
     assert names == sorted(names)
+
+
+def test_ballot_comment_is_publicly_visible_to_other_members_while_vote_open(app, db, client):
+    """
+    Комментарий — публичный: виден ЛЮБОМУ члену кооператива сразу, не
+    дожидаясь закрытия голосования (в отличие от агрегированных итогов,
+    см. voting.question_results, которые до закрытия видит только
+    правление) — человек вправе аргументировать позицию для остальных.
+    """
+    garage = make_garage(db)
+    voter = make_person(db, full_name="Голосующий")
+    make_ownership(db, garage, voter, share="1")
+    make_user(db, "voter", "pass1234", role=RoleEnum.MEMBER, person=voter)
+
+    other = make_person(db, full_name="Другой Член")
+    make_ownership(db, make_garage(db, number="2"), other, share="1")
+    make_user(db, "other", "pass1234", role=RoleEnum.MEMBER, person=other)
+    db.commit()
+
+    vote, question = _make_vote(db)
+    db.commit()
+
+    login(client, "voter", "pass1234")
+    client.post(f"/voting/{vote.id}/ballot", data={f"choice_{question.id}": "against", f"comment_{question.id}": "Слишком дорого для бюджета"})
+    client.get("/auth/logout")
+
+    login(client, "other", "pass1234")
+    resp = client.get(f"/voting/{vote.id}")
+    html = resp.get_data(as_text=True)
+    assert "Слишком дорого для бюджета" in html
+    assert "Голосующий" in html
 
 
 # ---------------------------------------------------------------------------

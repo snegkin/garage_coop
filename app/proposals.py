@@ -237,6 +237,7 @@ def board_vote(proposal_id):
         flash(_("Выберите «за» или «против»."), "danger")
         return redirect(url_for("proposals.detail", proposal_id=proposal_id))
     choice = VoteChoice(raw)
+    comment = (request.form.get("comment") or "").strip() or None
 
     existing = (
         database.db_session.query(VoteProposalBoardBallot)
@@ -246,10 +247,11 @@ def board_vote(proposal_id):
     now = dt.datetime.now()
     if existing is not None:
         existing.choice = choice
+        existing.comment = comment
         existing.voted_at = now
     else:
         database.db_session.add(VoteProposalBoardBallot(
-            proposal_id=proposal.id, person_id=person.id, choice=choice, voted_at=now,
+            proposal_id=proposal.id, person_id=person.id, choice=choice, comment=comment, voted_at=now,
         ))
     database.db_session.flush()
 

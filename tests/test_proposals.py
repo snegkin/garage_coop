@@ -188,3 +188,31 @@ def test_member_cannot_cast_board_vote(app, db, client):
     client.post(f"/proposals/{proposal_id}/board-vote", data={"choice": "for"})
 
     assert db.query(VoteProposalBoardBallot).count() == 0
+
+
+def test_board_vote_comment_is_stored_and_publicly_visible(app, db, client):
+    """Комментарий члена правления к голосу за/против — публичный, виден
+    рядовому члену кооператива на карточке предложения (не только правлению)."""
+    owner = _make_owner_member(db)
+    board = _make_board(db, size=2)
+    chair_person, chair_username = board[0]
+
+    proposal = VoteProposal(title="Спорный вопрос", proposed_by_person_id=owner.id, created_at=dt.datetime.now())
+    db.add(proposal)
+    db.commit()
+    proposal_id = proposal.id
+
+    login(client, chair_username, "pass1234")
+    resp = client.post(f"/proposals/{proposal_id}/board-vote", data={"choice": "against", "comment": "Не согласован бюджет"})
+    assert resp.status_code == 302
+    client.get("/auth/logout")
+
+    db.expire_all()
+    ballot = db.query(VoteProposalBoardBallot).filter_by(proposal_id=proposal_id, person_id=chair_person.id).first()
+    assert ballot.comment == "Не согласован бюджет"
+
+    login(client, "owner", "pass1234")
+    resp = client.get(f"/proposals/{proposal_id}")
+    html = resp.get_data(as_text=True)
+    assert "Не согласован бюджет" in html
+    assert chair_person.full_name in html

@@ -160,20 +160,27 @@ def eligible_voters() -> list[Person]:
     )
 
 
-def cast_ballots(vote: Vote, person: Person, choices: dict[int, VoteChoice]) -> None:
+def cast_ballots(
+    vote: Vote, person: Person, choices: dict[int, VoteChoice], comments: dict[int, str] | None = None,
+) -> None:
     """
     Подаёт/обновляет бюллетень человека по всем переданным вопросам этого
     голосования за один раз (upsert по (question_id, person_id) — см.
     UniqueConstraint на VoteBallot). Вес пересчитывается заново на каждую
     подачу — не «замораживается» на первом голосовании, чтобы отражать
-    актуальное владение на момент волеизъявления. Не коммитит сама.
+    актуальное владение на момент волеизъявления. comments — необязательное
+    текстовое обоснование по каждому вопросу (VoteBallot.comment, ПУБЛИЧНОЕ
+    — см. models.VoteBallot); отсутствие ключа или пустая строка — без
+    комментария. Не коммитит сама.
     """
     weight = person_voting_weight(person.id)
+    comments = comments or {}
     now = dt.datetime.now()
     question_ids = {q.id: q for q in vote.questions}
     for question_id, choice in choices.items():
         if question_id not in question_ids:
             continue
+        comment = (comments.get(question_id) or "").strip() or None
         existing = (
             database.db_session.query(VoteBallot)
             .filter_by(question_id=question_id, person_id=person.id)
@@ -182,10 +189,12 @@ def cast_ballots(vote: Vote, person: Person, choices: dict[int, VoteChoice]) -> 
         if existing is not None:
             existing.choice = choice
             existing.weight = weight
+            existing.comment = comment
             existing.cast_at = now
         else:
             database.db_session.add(VoteBallot(
-                question_id=question_id, person_id=person.id, choice=choice, weight=weight, cast_at=now,
+                question_id=question_id, person_id=person.id, choice=choice, weight=weight,
+                comment=comment, cast_at=now,
             ))
 
 
@@ -491,14 +500,16 @@ def ballot(vote_id):
     if request.method == "POST":
         f = request.form
         choices = {}
+        comments = {}
         for question in vote.questions:
             raw = f.get(f"choice_{question.id}")
             if raw:
                 choices[question.id] = VoteChoice(raw)
+                comments[question.id] = f.get(f"comment_{question.id}", "")
         if len(choices) != len(vote.questions):
             flash(_("Ответьте на все вопросы повестки перед отправкой бюллетеня."), "danger")
             return redirect(url_for("voting.ballot", vote_id=vote_id))
-        cast_ballots(vote, person, choices)
+        cast_ballots(vote, person, choices, comments)
         database.db_session.commit()
         flash(_("Бюллетень принят. Вы можете изменить голос, пока приём бюллетеней открыт."), "success")
         return redirect(url_for("voting.detail", vote_id=vote_id))
@@ -541,14 +552,16 @@ def set_ballot_for_person(vote_id, person_id):
     if request.method == "POST":
         f = request.form
         choices = {}
+        comments = {}
         for question in vote.questions:
             raw = f.get(f"choice_{question.id}")
             if raw:
                 choices[question.id] = VoteChoice(raw)
+                comments[question.id] = f.get(f"comment_{question.id}", "")
         if not choices:
             flash(_("Отметьте хотя бы один вопрос повестки."), "danger")
             return redirect(url_for("voting.set_ballot_for_person", vote_id=vote_id, person_id=person_id))
-        cast_ballots(vote, person, choices)
+        cast_ballots(vote, person, choices, comments)
         database.db_session.commit()
         flash(_("Голос члена кооператива «{name}» зафиксирован.", name=person.full_name), "success")
         return redirect(url_for("voting.detail", vote_id=vote_id))

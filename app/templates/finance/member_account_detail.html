@@ -57,17 +57,26 @@
 <div class="row g-4">
   <div class="col-md-6">
     <h5>{{ _("Начисления") }}</h5>
+    {% set charges = account.charges|sort(attribute="year", reverse=True) %}
     <table class="table table-sm bg-body sortable">
-      <thead><tr><th>{{ _("Год") }}</th><th>{{ _("Сумма") }}</th><th>{{ _("Комментарий") }}</th></tr></thead>
+      <thead>
+        <tr>
+          <th>{{ _("Год") }}</th><th>{{ _("Сумма") }}</th><th>{{ _("Комментарий") }}</th>
+          {% if is_board() %}<th class="no-sort"></th>{% endif %}
+        </tr>
+      </thead>
       <tbody>
-        {% for c in account.charges|sort(attribute="year", reverse=True) %}
+        {% for c in charges %}
         <tr>
           <td>{{ c.year }}</td>
           <td data-sort-value="{{ c.amount }}">{{ fmt2(c.amount) }} ₽</td>
           <td>{{ linkify_related_person(c.comment, c.related_person, is_board()) or "—" }}</td>
+          {% if is_board() %}
+          <td><button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#editChargeModal{{ c.id }}">{{ _("Изменить") }}</button></td>
+          {% endif %}
         </tr>
         {% else %}
-        <tr><td colspan="3" class="text-muted">{{ _("Начислений нет.") }}</td></tr>
+        <tr><td colspan="{{ 4 if is_board() else 3 }}" class="text-muted">{{ _("Начислений нет.") }}</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -137,12 +146,17 @@
           <p class="text-muted small">
             {{ _("Для исправления ошибочного разнесения (зачислили не на тот вид взноса) или когда один человек фактически заплатил за другого. Доступны только счета того же человека или того же гаража. Реальных денег не движется — начисление на этом счёте и зачисление на выбранном.") }}
           </p>
+          <p class="small">
+            {{ _("Счёт-источник (списание)") }}: <strong>{{ account.account_number }}</strong> —
+            {{ _("баланс") }} <span class="{{ 'text-danger' if balance < 0 else 'text-success' }}">{{ fmt2(balance) }} ₽</span>
+          </p>
           <div class="mb-3">
             <label class="form-label">{{ _("Счёт-получатель") }}</label>
             <select class="form-select" name="target_account_id" data-searchable required>
               <option value=""></option>
               {% for t in transferable_accounts %}
-              <option value="{{ t.id }}">{{ t.account_number }} — {{ t.person.full_name }} — {{ t.fee_type.name }}, {{ _("гараж") }} №{{ t.garage.number }}</option>
+              {% set t_balance = transferable_balances[t.id] %}
+              <option value="{{ t.id }}">{{ t.account_number }} — {{ t.person.full_name }} — {{ t.fee_type.name }}, {{ _("гараж") }} №{{ t.garage.number }} ({{ _("баланс") }} {{ fmt2(t_balance) }} ₽)</option>
               {% endfor %}
             </select>
           </div>
@@ -191,6 +205,44 @@
     </div>
   </div>
 </div>
+{% endif %}
+
+{% if is_board() %}
+{% for c in charges %}
+<div class="modal fade" id="editChargeModal{{ c.id }}" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" action="{{ url_for('finance.edit_member_charge', account_id=account.id, charge_id=c.id) }}">
+        <div class="modal-header">
+          <h5 class="modal-title">{{ _("Изменить начисление") }}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <p class="text-muted small">{{ _("Для исправления ошибки в уже проведённом начислении — например, если сумма была рассчитана по неверной формуле.") }}</p>
+          <div class="row g-2 mb-3">
+            <div class="col-6">
+              <label class="form-label">{{ _("Год") }}</label>
+              <input class="form-control" type="number" name="year" value="{{ c.year }}" required>
+            </div>
+            <div class="col-6">
+              <label class="form-label">{{ _("Сумма, ₽") }}</label>
+              <input class="form-control" name="amount" value="{{ c.amount }}" required>
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">{{ _("Комментарий") }}</label>
+            <input class="form-control" name="comment" value="{{ c.comment or '' }}">
+          </div>
+        </div>
+        <div class="modal-footer d-flex justify-content-end">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+          <button class="btn btn-primary">{{ _("Сохранить") }}</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endfor %}
 {% endif %}
 
 <script>

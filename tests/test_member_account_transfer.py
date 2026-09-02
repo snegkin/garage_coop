@@ -156,6 +156,39 @@ def test_transfer_only_for_board(db, client):
     assert db.query(Charge).filter_by(account_id=source.id).count() == 0
 
 
+def test_transfer_modal_lists_accounts_sorted_by_number_with_balances(app, db, client):
+    """Счета в выпадающем списке — по возрастанию номера счёта (не по ФИО),
+    и рядом с каждым — его текущий баланс, чтобы видно было, куда зачисляются
+    средства, не открывая отдельно каждый счёт."""
+    person = make_person(db, full_name="Ясенев Ясен Ясенович")
+    garage = make_garage(db, number="86")
+    make_ownership(db, garage, person)
+    membership, land_tax = _setup_fee_types(db)
+
+    source = MemberAccount(person_id=person.id, garage_id=garage.id, fee_type_id=membership.id, account_number="18503")
+    target_low = MemberAccount(person_id=person.id, garage_id=garage.id, fee_type_id=land_tax.id, account_number="18501")
+    fee_type_c = FeeType(code="dues3", name="Целевой взнос")
+    db.add(fee_type_c)
+    db.flush()
+    target_mid = MemberAccount(person_id=person.id, garage_id=garage.id, fee_type_id=fee_type_c.id, account_number="18502")
+    db.add_all([source, target_low, target_mid])
+    db.flush()
+    db.add(Charge(account_id=target_low.id, year=2026, amount=Decimal("150.00")))  # баланс -150
+
+    make_user(db, "board5", "pass12345", role=RoleEnum.BOARD)
+    db.commit()
+    login(client, "board5", "pass12345")
+
+    resp = client.get(f"/finance/member-accounts/{source.id}")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+
+    pos_18501 = body.index("18501")
+    pos_18502 = body.index("18502")
+    assert pos_18501 < pos_18502  # по номеру счёта, а не по ФИО (у всех троих оно одинаковое)
+    assert "-150,00" in body or "-150.00" in body  # баланс счёта 18501 виден в модалке
+
+
 def test_transfer_button_hidden_without_transferable_accounts(app, db, client):
     """Единственный счёт у человека/гаража — переносить некуда, кнопки нет."""
     person = make_person(db, full_name="Единственный Счёт")

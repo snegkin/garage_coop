@@ -357,8 +357,18 @@
   // Тип графика — переключатель «Линии»/«Столбцы» ниже; хранится отдельно
   // от chart.config.type, чтобы render() мог решить, какие свойства датасета
   // (tension/pointRadius у линии против заливки у столбцов) применить,
-  // прежде чем передать тип в сам Chart.js.
+  // прежде чем передать тип в сам Chart.js. Выбор запоминается в localStorage
+  // браузера — как и сортировка таблиц (см. base.html) — и восстанавливается
+  // при следующем открытии страницы.
+  const CHART_TYPE_STORAGE_KEY = "electricityMonitorChartType";
   let chartType = "line";
+  try {
+    const savedChartType = localStorage.getItem(CHART_TYPE_STORAGE_KEY);
+    if (savedChartType === "line" || savedChartType === "bar") chartType = savedChartType;
+  } catch (e) {}
+  if (chartType === "bar") {
+    document.getElementById("chartTypeBar").checked = true;
+  }
 
   function selectedDeviceIds() {
     return Array.from(document.querySelectorAll(".js-phase-toggle:checked")).map(function (el) {
@@ -420,8 +430,13 @@
   document.querySelectorAll(".js-phase-toggle").forEach(function (el) {
     el.addEventListener("change", render);
   });
-  document.getElementById("chartTypeLine").addEventListener("change", function () { chartType = "line"; render(); });
-  document.getElementById("chartTypeBar").addEventListener("change", function () { chartType = "bar"; render(); });
+  function setChartType(type) {
+    chartType = type;
+    try { localStorage.setItem(CHART_TYPE_STORAGE_KEY, type); } catch (e) {}
+    render();
+  }
+  document.getElementById("chartTypeLine").addEventListener("change", function () { setChartType("line"); });
+  document.getElementById("chartTypeBar").addEventListener("change", function () { setChartType("bar"); });
   applyBtn.addEventListener("click", function () {
     emptyMsg.textContent = emptyMsgDefaultText;
     fetchAndRender();

@@ -281,6 +281,7 @@ def redistribute_member_account_balance(
             database.db_session.add(Charge(
                 account_id=sibling.id, year=today.year, amount=portion,
                 comment=_("Доля долга выбывшего собственника ({name})").format(name=departing_name),
+                related_person_id=departing_account.person_id,
             ))
             touched_accounts.append(sibling)
     else:
@@ -295,6 +296,7 @@ def redistribute_member_account_balance(
             database.db_session.add(Payment(
                 account_id=sibling.id, date=today, amount=portion,
                 comment=_("Доля переплаты выбывшего собственника ({name})").format(name=departing_name),
+                related_person_id=departing_account.person_id,
             ))
             touched_accounts.append(sibling)
 
@@ -332,6 +334,7 @@ def transfer_member_account_balance(old_account: MemberAccount, new_account: Mem
         database.db_session.add(Charge(
             account_id=new_account.id, year=today.year, amount=amount,
             comment=_("Долг, унаследованный от прежнего собственника ({name})").format(name=old_name),
+            related_person_id=old_account.person_id,
         ))
     else:
         database.db_session.add(Charge(
@@ -341,6 +344,7 @@ def transfer_member_account_balance(old_account: MemberAccount, new_account: Mem
         database.db_session.add(Payment(
             account_id=new_account.id, date=today, amount=amount,
             comment=_("Переплата, унаследованная от прежнего собственника ({name})").format(name=old_name),
+            related_person_id=old_account.person_id,
         ))
 
     database.db_session.flush()

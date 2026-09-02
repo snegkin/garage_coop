@@ -823,3 +823,40 @@ cron** (обёртка `.sh` — тот же паттерн, что `update_key_
     `test_garage_account_summary.py`, `test_owner_account_archival.py`,
     `test_permissions.py` — 32 passed) — без регрессий. pytest: 262 (+1
     новый, полный прогон целиком не гонялся).
+50. Кликабельное ФИО в автосгенерированных комментариях начислений/
+    платежей про унаследованный долг/переплату при смене собственника
+    (`accounting.transfer_member_account_balance` — «Долг/Переплата,
+    унаследованная от прежнего собственника (ФИО)»;
+    `redistribute_member_account_balance` — «Доля долга/переплаты
+    выбывшего собственника (ФИО)») — на `/persons/<id>/statement` и
+    `/finance/member-accounts/<id>`. Комментарий как был текстом, так и
+    остался (нужен для печати/экспорта) — вместо парсинга ФИО из текста на
+    рендере (хрупко: тёзки, изменение формулировки) заведено структурное
+    поле `Charge.related_person_id`/`Payment.related_person_id` (FK на
+    `person.id`, `SET NULL`, миграция `0f446a1369f4`), проставляется
+    ТОЛЬКО в этих 4 местах генерации — у комментариев, введённых вручную
+    председателем (`finance.add_member_charge`/`add_member_payment`), поле
+    остаётся NULL, поэтому случайное совпадение чужого ФИО в свободном
+    тексте никогда не превращается в ссылку.
+
+    Рендер — `app/comment_format.linkify_related_person(comment,
+    related_person, can_link)`, новый Jinja-глобал: при заданном
+    `related_person` заменяет вхождение его ФИО в тексте на `<a>` (только
+    если `can_link` — используется `is_board()`, рядовому собственнику
+    нового счёта чужая карточка недоступна, см. `persons.detail`).
+    Построение ссылки — `Markup("{}{}{}").format(before, link, after)`
+    (тот же приём безопасного экранирования, что в `contact_format.py`),
+    не regex по всем `Person.full_name` — однозначно, т.к. ФИО и человек
+    уже связаны через FK, а не угадываются по подстроке.
+
+    Тесты — `test_inherited_debt_comment_links_to_old_owner_only_for_board`
+    в `tests/test_owner_account_archival.py` (сценарий
+    `transfer_member_account_balance` — единственный собственник заменён)
+    и дополнение к `test_archiving_co_owner_redistributes_balance_and_shares`
+    в `tests/test_person_archive.py` (сценарий `redistribute_member_account_balance`
+    — несколько содольщиков): в обоих — `related_person_id` проставлен
+    верно, ссылка есть в HTML для правления и отсутствует (голый текст) у
+    самого владельца нового/оставшегося счёта. Прогнаны также
+    `test_active_accounts_filter.py`, `test_garage_account_summary.py` —
+    без регрессий. pytest: 264 (+2 новых, полный прогон целиком не
+    гонялся).

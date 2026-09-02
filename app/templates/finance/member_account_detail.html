@@ -56,7 +56,7 @@
         <tr>
           <td>{{ c.year }}</td>
           <td data-sort-value="{{ c.amount }}">{{ fmt2(c.amount) }} ₽</td>
-          <td>{{ c.comment or "—" }}</td>
+          <td>{{ linkify_related_person(c.comment, c.related_person, is_board()) or "—" }}</td>
         </tr>
         {% else %}
         <tr><td colspan="3" class="text-muted">{{ _("Начислений нет.") }}</td></tr>
@@ -91,7 +91,7 @@
         <tr>
           <td data-sort-value="{{ p.date }}">{{ fmt_date(p.date) }}</td>
           <td data-sort-value="{{ p.amount }}">{{ fmt2(p.amount) }} ₽</td>
-          <td>{{ p.comment or "—" }}</td>
+          <td>{{ linkify_related_person(p.comment, p.related_person, is_board()) or "—" }}</td>
         </tr>
         {% else %}
         <tr><td colspan="3" class="text-muted">{{ _("Платежей нет.") }}</td></tr>

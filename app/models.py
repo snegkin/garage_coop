@@ -1469,11 +1469,18 @@ class Charge(Base):
     penalty_for_charge_id: Mapped[int | None] = mapped_column(
         ForeignKey("charge.id", ondelete="SET NULL"), index=True
     )
+    # Человек, упомянутый по ФИО в comment (напр. «Долг, унаследованный от
+    # прежнего собственника (Иванов И.И.)» — см. accounting.
+    # transfer_member_account_balance/redistribute_member_account_balance).
+    # Только для того, чтобы в шаблоне превратить это ФИО в ссылку на
+    # карточку человека (правлению) — не влияет на расчёты.
+    related_person_id: Mapped[int | None] = mapped_column(ForeignKey("person.id", ondelete="SET NULL"), index=True)
 
     garage: Mapped["Garage | None"] = relationship(back_populates="charges")
     account: Mapped["MemberAccount | None"] = relationship(back_populates="charges")
     fee_type: Mapped["FeeType | None"] = relationship()
     reading: Mapped["ElectricityReading | None"] = relationship(back_populates="charge")
+    related_person: Mapped["Person | None"] = relationship(foreign_keys=[related_person_id])
     allocations: Mapped[list["ChargeAllocation"]] = relationship(
         back_populates="charge", cascade="all, delete-orphan"
     )
@@ -1501,10 +1508,15 @@ class Payment(Base):
     amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
     payer_person_id: Mapped[int | None] = mapped_column(ForeignKey("person.id", ondelete="SET NULL"), index=True)
     comment: Mapped[str | None] = mapped_column(Text)
+    # См. Charge.related_person_id — тот же приём, для тех же
+    # автосгенерированных комментариев про унаследованный долг/переплату,
+    # только со стороны Payment.
+    related_person_id: Mapped[int | None] = mapped_column(ForeignKey("person.id", ondelete="SET NULL"), index=True)
 
     garage: Mapped["Garage | None"] = relationship(back_populates="payments")
     account: Mapped["MemberAccount | None"] = relationship(back_populates="payments")
-    payer: Mapped["Person | None"] = relationship()
+    payer: Mapped["Person | None"] = relationship(foreign_keys=[payer_person_id])
+    related_person: Mapped["Person | None"] = relationship(foreign_keys=[related_person_id])
     allocations: Mapped[list["ChargeAllocation"]] = relationship(
         back_populates="payment", cascade="all, delete-orphan"
     )

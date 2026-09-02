@@ -187,6 +187,17 @@ def test_archiving_co_owner_redistributes_balance_and_shares(app, db, client):
     # счёт выбывшего не удалён — история доступна
     assert database.db_session.get(MemberAccount, account_a.id) is not None
 
+    # платёж, унаследованный оставшимся содольщиком, ссылается на выбывшего
+    # (см. accounting.redistribute_member_account_balance,
+    # Payment.related_person_id) — по этой ссылке в HTML имя выбывшего
+    # становится кликабельным для правления (app/comment_format.py)
+    inherited_payment = next(
+        p for p in database.db_session.get(MemberAccount, account_b.id).payments
+        if p.related_person_id is not None
+    )
+    assert inherited_payment.related_person_id == person_a.id
+    assert "Выбывающий Совладелец" in inherited_payment.comment
+
 
 def test_archiving_co_owner_with_debt_transfers_debt_not_credit(app, db, client):
     """Симметричный случай — у выбывающего был ДОЛГ, не переплата; он

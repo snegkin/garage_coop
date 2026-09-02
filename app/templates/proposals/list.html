@@ -15,6 +15,7 @@
       <th>{{ _("Тема") }}</th>
       <th>{{ _("Предложил") }}</th>
       <th>{{ _("Подано") }}</th>
+      <th>{{ _("Рассмотрение до") }}</th>
       <th>{{ _("Статус") }}</th>
       <th class="no-sort">{{ _("Правление") }}</th>
     </tr>
@@ -25,6 +26,10 @@
       <td><a href="{{ url_for('proposals.detail', proposal_id=p.id) }}">{{ p.title }}</a></td>
       <td>{{ p.proposed_by.full_name }}</td>
       <td data-sort-value="{{ p.created_at }}">{{ p.created_at.strftime('%d.%m.%Y %H:%M') }}</td>
+      <td data-sort-value="{{ deadlines[p.id] }}">
+        {% if p.status.value == 'pending' %}{{ deadlines[p.id].strftime('%d.%m.%Y %H:%M') }}
+        {% else %}—{% endif %}
+      </td>
       <td>
         {% if p.status.value == 'pending' %}<span class="badge text-bg-secondary">{{ _("на рассмотрении") }}</span>
         {% elif p.status.value == 'approved' %}<span class="badge text-bg-success">{{ _("одобрено") }}</span>
@@ -39,7 +44,7 @@
       </td>
     </tr>
     {% else %}
-    <tr><td colspan="5" class="text-muted">{{ _("Предложений пока нет.") }}</td></tr>
+    <tr><td colspan="6" class="text-muted">{{ _("Предложений пока нет.") }}</td></tr>
     {% endfor %}
   </tbody>
 </table>

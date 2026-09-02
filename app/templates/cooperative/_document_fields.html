@@ -1,4 +1,4 @@
-{# Ожидает переменную doc_types. Переменная doc (опционально) — документ для редактирования. Только поля, без <form> и кнопок. #}
+{# Ожидает переменные doc_types, all_counterparties. Переменная doc (опционально) — документ для редактирования. Только поля, без <form> и кнопок. #}
 <div class="mb-3">
   <label class="form-label">{{ _("Тип документа") }}</label>
   <select class="form-select" name="doc_type" required>
@@ -24,6 +24,17 @@
   <input class="form-control" type="file" name="file">
   {% if doc is defined and doc and doc.file_path %}<small class="text-muted">{{ _("Текущий файл: ") }}{{ doc.file_path }}</small>{% endif %}
 </div>
+{% if all_counterparties %}
+<div class="mb-3">
+  <label class="form-label">{{ _("Контрагент") }}</label>
+  <select class="form-select" name="counterparty_id">
+    <option value="">{{ _("— не указан —") }}</option>
+    {% for c in all_counterparties %}
+    <option value="{{ c.id }}" {{ "selected" if doc is defined and doc and doc.counterparty_id == c.id }}>{{ c.name }}</option>
+    {% endfor %}
+  </select>
+</div>
+{% endif %}
 <div class="mb-3">
   <label class="form-label">{{ _("Комментарий") }}</label>
   <textarea class="form-control" name="comment">{{ doc.comment or '' if doc is defined else '' }}</textarea>

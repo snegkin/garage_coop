@@ -8,7 +8,7 @@ from werkzeug.utils import secure_filename
 from . import database
 from .i18n import translate as _
 from .auth import login_required, roles_required
-from .models import Cooperative, BankAccount, BankApiProvider, RoleEnum, Document, DocumentType
+from .models import Cooperative, BankAccount, BankApiProvider, RoleEnum, Document, DocumentType, Person
 from .accounting import cooperative_balance
 from .uploads import save_upload
 from .permissions import is_board
@@ -36,7 +36,11 @@ def view():
     if not is_board():
         query = query.filter(Document.is_internal.is_(False))
     docs = query.all()
-    return render_template("cooperative/view.html", coop=coop, bank_accounts=bank_accounts, coop_balance=cooperative_balance(), docs=docs, doc_types=DocumentType)
+    chairman = database.db_session.query(Person).filter(Person.is_chairman.is_(True)).first()
+    return render_template(
+        "cooperative/view.html", coop=coop, bank_accounts=bank_accounts, coop_balance=cooperative_balance(),
+        docs=docs, doc_types=DocumentType, chairman=chairman,
+    )
 
 
 @bp.route("/edit", methods=["GET", "POST"])

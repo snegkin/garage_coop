@@ -40,7 +40,7 @@ def create_app(config_class=Config):
     engine, _db_session = init_engine(app.config["SQLALCHEMY_DATABASE_URI"])
     init_db_lifecycle(app)
 
-    from . import auth, i18n, theme, news_format
+    from . import auth, i18n, theme, news_format, contact_format
     app.register_blueprint(auth.bp)
     i18n.init_app(app)
     theme.init_app(app)
@@ -50,6 +50,10 @@ def create_app(config_class=Config):
     # не завязан на модель News) — отдельное имя jinja-глобала для ясности
     # в шаблонах wiki/*.html, функция та же самая.
     app.jinja_env.globals["render_wiki_html"] = news_format.render_html
+    app.jinja_env.globals["phone_link"] = contact_format.phone_link
+    app.jinja_env.globals["phones_html"] = contact_format.phones_html
+    app.jinja_env.globals["email_link"] = contact_format.email_link
+    app.jinja_env.globals["telegram_link"] = contact_format.telegram_link
 
     @app.before_request
     def _load_user():

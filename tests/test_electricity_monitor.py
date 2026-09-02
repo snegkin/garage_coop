@@ -17,6 +17,7 @@ import pytest
 
 from app import database
 from app.bank_api import crypto
+from app.electricity_monitor import HISTORY_HOURS
 from app.models import RoleEnum, EWeLinkAccount, PowerPhaseDevice, PowerPhaseReading
 from app.ewelink import EWeLinkClient, EWeLinkTokens, EWeLinkApiError, EWeLinkAuthError, parse_phase_snapshot
 from app.ewelink.client import AUTHORIZE_PAGE_URL, _extract_token_pair
@@ -456,7 +457,7 @@ def test_history_data_defaults_to_last_history_hours(app, db, client):
     """Без since/until — окно в HISTORY_HOURS часов от текущего момента."""
     device = make_phase_device(db)
     now = dt.datetime.utcnow()
-    db.add(PowerPhaseReading(device_id=device.id, ts=now - dt.timedelta(hours=10), power_w=Decimal("999")))
+    db.add(PowerPhaseReading(device_id=device.id, ts=now - dt.timedelta(hours=HISTORY_HOURS + 1), power_w=Decimal("999")))
     db.add(PowerPhaseReading(device_id=device.id, ts=now, power_w=Decimal("42")))
     make_user(db, "board5", "pass12345", role=RoleEnum.BOARD)
     db.commit()

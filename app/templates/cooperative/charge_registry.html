@@ -41,7 +41,7 @@
   <tbody>
     {% for batch in batches %}
     <tr>
-      <td>{{ fmt_date(batch.sent_at) if batch.sent_at else "—" }}</td>
+      <td data-sort-value="{{ batch.sent_at.isoformat() if batch.sent_at else '' }}">{{ fmt_date(batch.sent_at) if batch.sent_at else "—" }}</td>
       <td>{{ batch.period }}</td>
       <td>{{ batch.charges_count }}</td>
       <td data-sort-value="{{ batch.total_amount }}">{{ fmt2(batch.total_amount) }} ₽</td>

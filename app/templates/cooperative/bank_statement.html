@@ -67,7 +67,7 @@
        остаются рабочими "из коробки" через var(--bs-success)/var(--bs-danger). #}
     {% for line in lines %}
     <tr id="stmt-line-{{ line.id }}" style="--bs-table-color: var({{ '--bs-success' if line.direction == 'credit' else '--bs-danger' }});">
-      <td>{{ fmt_date(line.operation_date) }}</td>
+      <td data-sort-value="{{ line.operation_date.isoformat() }}">{{ fmt_date(line.operation_date) }}</td>
       <td data-sort-value="{{ line.amount }}">{{ fmt2(line.amount) }} ₽</td>
       <td class="text-end js-account-number">{{ line.account_number or "—" }}</td>
       <td>{{ line.counterparty_name or "—" }}</td>

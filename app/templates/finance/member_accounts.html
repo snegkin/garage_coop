@@ -13,13 +13,13 @@
 </div>
 <p class="text-muted small">{{ _("Земельный налог, членские взносы и пени по ним — отдельный счёт на каждого собственника по каждому гаражу.") }}</p>
 <div class="d-flex align-items-center gap-3 mb-3 flex-wrap">
-  <input class="form-control" style="max-width:400px" id="memberAccountsFilterInput" placeholder="{{ _('Поиск по ФИО, гаражу или счёту...') }}">
+  <input class="form-control" style="max-width:400px" data-table-filter-for="memberAccountsTable" placeholder="{{ _('Поиск по ФИО, гаражу или счёту...') }}">
   <div class="form-check mb-0">
-    <input class="form-check-input" type="checkbox" id="memberAccountsActiveOnly" checked>
+    <input class="form-check-input" type="checkbox" id="memberAccountsActiveOnly" data-active-only-for="memberAccountsTable" checked>
     <label class="form-check-label" for="memberAccountsActiveOnly">{{ _("Актуальные") }}</label>
   </div>
 </div>
-<table class="table table-hover bg-body sortable" id="memberAccountsTable">
+<table class="table table-hover bg-body sortable" id="memberAccountsTable" data-page-size="20">
   <thead><tr><th>{{ _("ФИО") }}</th><th>{{ _("Гараж") }}</th><th>{{ _("Вид взноса") }}</th><th class="text-end">{{ _("Счёт") }}</th><th class="text-end">{{ _("Баланс") }}</th></tr></thead>
   <tbody>
     {% for account, balance in rows %}
@@ -37,8 +37,8 @@
     {% endfor %}
   </tbody>
 </table>
-<nav id="memberAccountsPager" class="d-none mb-3">
-  <ul class="pagination pagination-sm mb-0" id="memberAccountsPagerLinks"></ul>
+<nav class="d-none mb-3" data-pager-for="memberAccountsTable">
+  <ul class="pagination pagination-sm mb-0"></ul>
 </nav>
 
 <div class="modal fade" id="createMemberAccountModal" tabindex="-1" aria-hidden="true">
@@ -83,127 +83,4 @@
     </div>
   </div>
 </div>
-
-<script>
-// Поиск + постраничный вывод по 20 записей — тот же приём, что на
-// странице «Пеня» (ключевая ставка ЦБ) и в реестре платежей выписки:
-// фильтруем по data-filter-text, делим отфильтрованное на страницы по
-// ROWS_PER_PAGE, рисуем пейджер с «…» при большом числе страниц.
-(function () {
-  const input = document.getElementById("memberAccountsFilterInput");
-  const activeOnly = document.getElementById("memberAccountsActiveOnly");
-  const table = document.getElementById("memberAccountsTable");
-  const pager = document.getElementById("memberAccountsPager");
-  const pagerLinks = document.getElementById("memberAccountsPagerLinks");
-  if (!table) return;
-
-  const rows = Array.from(table.querySelectorAll("tbody tr[data-filter-text]"));
-  const ROWS_PER_PAGE = 20;
-  const PAGE_RADIUS = 3;
-  let currentPage = 1;
-
-  function renderPages(totalPages) {
-    pagerLinks.innerHTML = "";
-    if (totalPages <= 1) return;
-
-    const first = document.createElement("li");
-    first.className = "page-item" + (currentPage === 1 ? " disabled" : "");
-    first.innerHTML = '<a class="page-link" href="#">&laquo;</a>';
-    if (currentPage > 1) {
-      first.querySelector("a").addEventListener("click", function (e) { e.preventDefault(); currentPage = 1; updatePager(); });
-    }
-    pagerLinks.appendChild(first);
-
-    let start = Math.max(1, currentPage - PAGE_RADIUS);
-    let end = Math.min(totalPages, currentPage + PAGE_RADIUS);
-
-    if (start > 1) {
-      const li = document.createElement("li");
-      li.className = "page-item disabled";
-      li.innerHTML = "<span class=\"page-link\">…</span>";
-      pagerLinks.appendChild(li);
-    }
-
-    for (let p = start; p <= end; p++) {
-      const li = document.createElement("li");
-      li.className = "page-item" + (p === currentPage ? " active" : "");
-      const a = document.createElement("a");
-      a.className = "page-link";
-      a.href = "#";
-      a.textContent = p;
-      a.addEventListener("click", function (e) {
-        e.preventDefault();
-        currentPage = p;
-        updatePager();
-      });
-      li.appendChild(a);
-      pagerLinks.appendChild(li);
-    }
-
-    if (end < totalPages) {
-      const li = document.createElement("li");
-      li.className = "page-item disabled";
-      li.innerHTML = "<span class=\"page-link\">…</span>";
-      pagerLinks.appendChild(li);
-    }
-
-    const last = document.createElement("li");
-    last.className = "page-item" + (currentPage === totalPages ? " disabled" : "");
-    const lastA = document.createElement("a");
-    lastA.className = "page-link";
-    lastA.href = "#";
-    lastA.innerHTML = "&raquo;";
-    lastA.addEventListener("click", function (e) {
-      e.preventDefault();
-      currentPage = totalPages;
-      updatePager();
-    });
-    last.appendChild(lastA);
-    pagerLinks.appendChild(last);
-  }
-
-  function updatePager() {
-    const q = input ? input.value.trim().toLowerCase() : "";
-    const onlyActive = activeOnly ? activeOnly.checked : false;
-    let visibleRows = rows.filter(function (row) {
-      const matchesQuery = !q || row.getAttribute("data-filter-text").includes(q);
-      const isNoise = onlyActive && (row.getAttribute("data-archived") === "1" || row.getAttribute("data-zero-penalty") === "1");
-      return matchesQuery && !isNoise;
-    });
-
-    if (visibleRows.length === 0) {
-      pager.classList.add("d-none");
-      rows.forEach(function (row) { row.classList.add("d-none"); });
-      return;
-    }
-
-    pager.classList.remove("d-none");
-    const totalPages = Math.ceil(visibleRows.length / ROWS_PER_PAGE);
-    if (currentPage > totalPages) currentPage = totalPages;
-
-    rows.forEach(function (row) { row.classList.add("d-none"); });
-    visibleRows.forEach(function (row, i) {
-      const page = Math.floor(i / ROWS_PER_PAGE) + 1;
-      row.classList.toggle("d-none", page !== currentPage);
-    });
-
-    renderPages(totalPages);
-  }
-
-  if (input) {
-    input.addEventListener("input", function () {
-      currentPage = 1;
-      updatePager();
-    });
-  }
-  if (activeOnly) {
-    activeOnly.addEventListener("change", function () {
-      currentPage = 1;
-      updatePager();
-    });
-  }
-
-  updatePager();
-})();
-</script>
 {% endblock %}

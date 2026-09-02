@@ -407,6 +407,19 @@ document.addEventListener("DOMContentLoaded", function () {
 // Если таблица вдобавок sortable (см. выше), после клика по заголовку
 // sortTable шлёт событие table:sorted — по нему пейджер сбрасывается на
 // страницу 1 и пересчитывается по новому порядку строк в DOM.
+//
+// Два необязательных дополнительных фильтра поверх текстового поиска —
+// нужны единицам страниц, без них ничего не подключается:
+// [data-active-only-for="<id>"] на чекбоксе — скрывает «шумные» строки
+//   (data-archived="1" или data-zero-penalty="1" на <tr>, тот же приём,
+//   что и в самостоятельном data-active-accounts-toggle ниже, но
+//   согласованный с пагинацией, а не поверх неё) при включённой галочке.
+//   Пример: чекбокс «Актуальные» на /finance/member-accounts.
+// [data-select-filter-for="<id>"] на <select> (плюс его же атрибут
+//   data-select-filter-attr — имя data-атрибута на <tr> для сравнения) —
+//   показывает только строки, где этот атрибут равен выбранному значению
+//   селекта (пустое значение селекта — показать все). Пример: фильтр по
+//   контрагенту в документах кооператива (cooperative/view.html).
 document.addEventListener("DOMContentLoaded", function () {
   var PAGE_RADIUS = 3;
 
@@ -418,6 +431,9 @@ document.addEventListener("DOMContentLoaded", function () {
     var pager = document.querySelector('[data-pager-for="' + id + '"]');
     var pagerLinks = pager ? pager.querySelector("ul") : null;
     var noResults = document.querySelector('[data-no-results-for="' + id + '"]');
+    var activeOnlyCheckbox = document.querySelector('[data-active-only-for="' + id + '"]');
+    var selectFilter = document.querySelector('[data-select-filter-for="' + id + '"]');
+    var selectFilterAttr = selectFilter ? selectFilter.getAttribute("data-select-filter-attr") : null;
     if (!table.querySelector("tbody tr[data-filter-text]")) return;
     var currentPage = 1;
 
@@ -466,8 +482,13 @@ document.addEventListener("DOMContentLoaded", function () {
     function update() {
       var allRows = rows();
       var q = input ? input.value.trim().toLowerCase() : "";
+      var selectValue = selectFilter ? selectFilter.value : "";
+      var excludeNoise = activeOnlyCheckbox ? activeOnlyCheckbox.checked : false;
       var visibleRows = allRows.filter(function (row) {
-        return !q || row.getAttribute("data-filter-text").includes(q);
+        var matchesQuery = !q || row.getAttribute("data-filter-text").includes(q);
+        var matchesSelect = !selectValue || row.getAttribute(selectFilterAttr) === selectValue;
+        var isNoise = excludeNoise && (row.getAttribute("data-archived") === "1" || row.getAttribute("data-zero-penalty") === "1");
+        return matchesQuery && matchesSelect && !isNoise;
       });
 
       allRows.forEach(function (row) { row.classList.add("d-none"); });
@@ -492,6 +513,12 @@ document.addEventListener("DOMContentLoaded", function () {
 
     if (input) {
       input.addEventListener("input", function () { currentPage = 1; update(); });
+    }
+    if (activeOnlyCheckbox) {
+      activeOnlyCheckbox.addEventListener("change", function () { currentPage = 1; update(); });
+    }
+    if (selectFilter) {
+      selectFilter.addEventListener("change", function () { currentPage = 1; update(); });
     }
     table.addEventListener("table:sorted", function () { currentPage = 1; update(); });
     update();

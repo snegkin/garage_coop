@@ -78,11 +78,11 @@
 
 <div class="row g-2 mb-3">
   <div class="{% if is_board() and all_counterparties %}col-md-8{% else %}col-12{% endif %}">
-    <input class="form-control" id="documentFilterInput" placeholder="{{ _('Поиск по названию, номеру или типу...') }}">
+    <input class="form-control" data-table-filter-for="documentsTable" placeholder="{{ _('Поиск по названию, номеру или типу...') }}">
   </div>
   {% if is_board() and all_counterparties %}
   <div class="col-md-4">
-    <select class="form-select" id="documentCounterpartyFilter">
+    <select class="form-select" data-select-filter-for="documentsTable" data-select-filter-attr="data-counterparty-id">
       <option value="">{{ _("Все контрагенты") }}</option>
       {% for c in all_counterparties %}
       <option value="{{ c.id }}">{{ c.name }}</option>
@@ -92,7 +92,7 @@
   {% endif %}
 </div>
 
-<table class="table table-hover bg-body sortable" id="documentsTable">
+<table class="table table-hover bg-body sortable" id="documentsTable" data-page-size="20">
   <thead><tr><th>{{ _("Дата") }}</th><th>{{ _("Тип") }}</th><th>{{ _("№") }}</th><th>{{ _("Название") }}</th>{% if is_board() %}<th>{{ _("Контрагент") }}</th>{% endif %}<th class="no-sort">{{ _("Файл") }}</th>{% if is_board() %}<th class="no-sort">{{ _("Доступ") }}</th>{% endif %}</tr></thead>
   <tbody>
     {% for d in docs %}
@@ -144,10 +144,10 @@
     {% endfor %}
   </tbody>
 </table>
-<p id="documentNoResults" class="text-muted d-none">{{ _("Ничего не найдено.") }}</p>
+<p class="text-muted d-none" data-no-results-for="documentsTable">{{ _("Ничего не найдено.") }}</p>
 
-<nav id="documentPager" class="d-none">
-  <ul class="pagination pagination-sm mb-0" id="docPagerLinks"></ul>
+<nav class="d-none" data-pager-for="documentsTable">
+  <ul class="pagination pagination-sm mb-0"></ul>
 </nav>
 
 {% if is_board() %}
@@ -196,127 +196,5 @@
 </div>
 {% endfor %}
 {% endif %}
-
-<script>
-(function () {
-  const input = document.getElementById("documentFilterInput");
-  const counterpartyFilter = document.getElementById("documentCounterpartyFilter");
-  const table = document.getElementById("documentsTable");
-  const noResults = document.getElementById("documentNoResults");
-  const pager = document.getElementById("documentPager");
-  const pagerLinks = document.getElementById("docPagerLinks");
-  if (!table) return;
-
-  const rows = Array.from(table.querySelectorAll("tbody tr[data-filter-text]"));
-  const ROWS_PER_PAGE = 20;
-  const PAGE_RADIUS = 3;
-  let currentPage = 1;
-
-  function renderPages(totalPages) {
-    pagerLinks.innerHTML = "";
-    if (totalPages <= 1) return;
-
-    const first = document.createElement("li");
-    first.className = "page-item" + (currentPage === 1 ? " disabled" : "");
-    first.innerHTML = '<a class="page-link" href="#">&laquo;</a>';
-    if (currentPage > 1) {
-      first.querySelector("a").addEventListener("click", function (e) { e.preventDefault(); currentPage = 1; updatePager(); });
-    }
-    pagerLinks.appendChild(first);
-
-    let start = Math.max(1, currentPage - PAGE_RADIUS);
-    let end = Math.min(totalPages, currentPage + PAGE_RADIUS);
-
-    if (start > 1) {
-      const li = document.createElement("li");
-      li.className = "page-item disabled";
-      li.innerHTML = "<span class=\"page-link\">…</span>";
-      pagerLinks.appendChild(li);
-    }
-
-    for (let p = start; p <= end; p++) {
-      const li = document.createElement("li");
-      li.className = "page-item" + (p === currentPage ? " active" : "");
-      const a = document.createElement("a");
-      a.className = "page-link";
-      a.href = "#";
-      a.textContent = p;
-      a.addEventListener("click", function (e) {
-        e.preventDefault();
-        currentPage = p;
-        updatePager();
-      });
-      li.appendChild(a);
-      pagerLinks.appendChild(li);
-    }
-
-    if (end < totalPages) {
-      const li = document.createElement("li");
-      li.className = "page-item disabled";
-      li.innerHTML = "<span class=\"page-link\">…</span>";
-      pagerLinks.appendChild(li);
-    }
-
-    const last = document.createElement("li");
-    last.className = "page-item" + (currentPage === totalPages ? " disabled" : "");
-    const lastA = document.createElement("a");
-    lastA.className = "page-link";
-    lastA.href = "#";
-    lastA.innerHTML = "&raquo;";
-    lastA.addEventListener("click", function (e) {
-      e.preventDefault();
-      currentPage = totalPages;
-      updatePager();
-    });
-    last.appendChild(lastA);
-    pagerLinks.appendChild(last);
-  }
-
-  function updatePager() {
-    const q = input ? input.value.trim().toLowerCase() : "";
-    const counterpartyId = counterpartyFilter ? counterpartyFilter.value : "";
-    let visibleRows = rows.filter(function (row) {
-      const textMatch = !q || row.getAttribute("data-filter-text").includes(q);
-      const counterpartyMatch = !counterpartyId || row.getAttribute("data-counterparty-id") === counterpartyId;
-      return textMatch && counterpartyMatch;
-    });
-
-    rows.forEach(function (row) { row.classList.add("d-none"); });
-    if (noResults) noResults.classList.toggle("d-none", visibleRows.length > 0);
-
-    if (visibleRows.length === 0) {
-      pager.classList.add("d-none");
-      return;
-    }
-
-    pager.classList.remove("d-none");
-    const totalPages = Math.ceil(visibleRows.length / ROWS_PER_PAGE);
-    if (currentPage > totalPages) currentPage = totalPages;
-
-    visibleRows.forEach(function (row, i) {
-      const page = Math.floor(i / ROWS_PER_PAGE) + 1;
-      if (page === currentPage) row.classList.remove("d-none");
-    });
-
-    renderPages(totalPages);
-  }
-
-  if (input) {
-    input.addEventListener("input", function () {
-      currentPage = 1;
-      updatePager();
-    });
-  }
-
-  if (counterpartyFilter) {
-    counterpartyFilter.addEventListener("change", function () {
-      currentPage = 1;
-      updatePager();
-    });
-  }
-
-  updatePager();
-})();
-</script>
 
 {% endblock %}

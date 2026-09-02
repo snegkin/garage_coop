@@ -114,7 +114,7 @@ def test_documents_list_has_search_input(app, db, client):
     resp = client.get("/cooperative/")
     assert resp.status_code == 200
     html = resp.get_data(as_text=True)
-    assert 'id="documentFilterInput"' in html
+    assert 'data-table-filter-for="documentsTable"' in html
     assert 'placeholder' in html
     # старых кнопок-фильтров быть не должно
     assert "btn-outline-secondary\" href=\"{{ url_for('cooperative.documents.list_documents', type=" not in html

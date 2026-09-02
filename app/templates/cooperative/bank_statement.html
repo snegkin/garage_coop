@@ -71,7 +71,8 @@
        строке — тогда её подхватывают все ячейки, и светлая/тёмная тема
        остаются рабочими "из коробки" через var(--bs-success)/var(--bs-danger). #}
     {% for line in lines %}
-    <tr id="stmt-line-{{ line.id }}" data-filter-text="{{ (fmt_date(line.operation_date) ~ ' ' ~ fmt2(line.amount) ~ ' ' ~ (line.account_number or '') ~ ' ' ~ (line.counterparty_name or '') ~ ' ' ~ (line.payment_purpose or '') ~ ' ' ~ (line.document_number or ''))|lower }}" style="--bs-table-color: var({{ '--bs-success' if line.direction == 'credit' else '--bs-danger' }});">
+    {% set status_text = (_('разнесён') if line.matched_payment_id else (_('реестр платежей') if is_aggregate_registry_payment(line.payment_purpose) else _('не разнесён'))) if line.direction == 'credit' else '' %}
+    <tr id="stmt-line-{{ line.id }}" data-filter-text="{{ (fmt_date(line.operation_date) ~ ' ' ~ fmt2(line.amount) ~ ' ' ~ (line.account_number or '') ~ ' ' ~ (line.counterparty_name or '') ~ ' ' ~ (line.payment_purpose or '') ~ ' ' ~ (line.document_number or '') ~ ' ' ~ status_text)|lower }}" style="--bs-table-color: var({{ '--bs-success' if line.direction == 'credit' else '--bs-danger' }});">
       <td data-sort-value="{{ line.operation_date.isoformat() }}">{{ fmt_date(line.operation_date) }}</td>
       <td data-sort-value="{{ line.amount }}">{{ fmt2(line.amount) }} ₽</td>
       <td class="text-end js-account-number">{{ line.account_number or "—" }}</td>
@@ -157,6 +158,9 @@ document.addEventListener("DOMContentLoaded", function () {
               row.querySelector(".js-account-number").textContent = data.account_number;
             }
             row.querySelector(".js-allocate-cell").innerHTML = "";
+            // держим data-filter-text в актуальном состоянии, чтобы поиск по статусу не показывал устаревшее значение
+            var filterText = row.getAttribute("data-filter-text") || "";
+            row.setAttribute("data-filter-text", filterText.replace("{{ _('не разнесён') }}", "{{ _('разнесён') }}"));
           } else {
             errorBox.textContent = data.message;
             errorBox.classList.remove("d-none");

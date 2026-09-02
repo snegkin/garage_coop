@@ -302,15 +302,12 @@ table.table-labels th.table-label { white-space: normal; word-break: break-word;
 // Заголовки с классом "no-sort" (например, колонка с кнопками действий) не сортируются.
 // Если у ячейки указан атрибут data-sort-value — сортировка идёт по нему (число или
 // сравнимая строка), иначе — по видимому тексту ячейки (с учётом чисел внутри текста).
+// Выбранный столбец/направление запоминаются в localStorage браузера (см.
+// sortStorageKey/saveSortState/loadSortState) и применяются заново при
+// следующем открытии той же таблицы — сервер об этом ничего не знает,
+// каждый посетитель видит свой собственный последний выбор.
 document.addEventListener("DOMContentLoaded", function () {
-  document.querySelectorAll("table.sortable").forEach(function (table) {
-    const thead = table.querySelector("thead");
-    if (!thead) return;
-    thead.querySelectorAll("th").forEach(function (th, colIndex) {
-      if (th.classList.contains("no-sort")) return;
-      th.addEventListener("click", function () { sortTable(table, colIndex, th); });
-    });
-  });
+  const tables = Array.from(document.querySelectorAll("table.sortable"));
 
   function cellValue(row, colIndex) {
     const cell = row.children[colIndex];
@@ -319,17 +316,43 @@ document.addEventListener("DOMContentLoaded", function () {
     return raw !== null ? raw : cell.textContent.trim();
   }
 
-  function sortTable(table, colIndex, th) {
+  // id таблицы, если он есть (стабилен между посещениями); иначе —
+  // путь страницы + порядковый номер таблицы среди .sortable на ней
+  // (таблиц без id в проекте больше, чем с id — так тоже можно
+  // запоминать сортировку, просто менее устойчиво к переверстке страницы).
+  function sortStorageKey(table) {
+    const id = table.id;
+    const ref = id ? "id:" + id : "idx:" + tables.indexOf(table);
+    return "sortState:" + location.pathname + ":" + ref;
+  }
+
+  function saveSortState(table, colIndex, dir) {
+    try {
+      localStorage.setItem(sortStorageKey(table), JSON.stringify({ col: colIndex, dir: dir }));
+    } catch (e) {}
+  }
+
+  function loadSortState(table) {
+    try {
+      const raw = localStorage.getItem(sortStorageKey(table));
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (typeof parsed.col === "number" && (parsed.dir === "asc" || parsed.dir === "desc")) return parsed;
+    } catch (e) {}
+    return null;
+  }
+
+  function applySort(table, colIndex, dir) {
     const tbody = table.querySelector("tbody");
-    if (!tbody) return;
+    const th = table.querySelectorAll("thead th")[colIndex];
+    if (!tbody || !th) return;
     const rows = Array.from(tbody.querySelectorAll("tr")).filter(function (row) {
       return row.children.length > colIndex;
     });
     if (!rows.length) return;
 
-    const newDir = th.classList.contains("sort-asc") ? "desc" : "asc";
     table.querySelectorAll("thead th").forEach(function (h) { h.classList.remove("sort-asc", "sort-desc"); });
-    th.classList.add(newDir === "asc" ? "sort-asc" : "sort-desc");
+    th.classList.add(dir === "asc" ? "sort-asc" : "sort-desc");
 
     const isNumeric = function (v) { return /^-?\d+(\.\d+)?$/.test(v.trim()); };
 
@@ -342,7 +365,7 @@ document.addEventListener("DOMContentLoaded", function () {
       } else {
         cmp = va.localeCompare(vb, undefined, { numeric: true, sensitivity: "base" });
       }
-      return newDir === "asc" ? cmp : -cmp;
+      return dir === "asc" ? cmp : -cmp;
     });
 
     rows.forEach(function (row) { tbody.appendChild(row); });
@@ -351,6 +374,25 @@ document.addEventListener("DOMContentLoaded", function () {
     // пересортировки его нужно явно попросить пересчитать эту раскладку.
     table.dispatchEvent(new CustomEvent("table:sorted"));
   }
+
+  tables.forEach(function (table) {
+    const thead = table.querySelector("thead");
+    if (!thead) return;
+    const headers = Array.from(thead.querySelectorAll("th"));
+    headers.forEach(function (th, colIndex) {
+      if (th.classList.contains("no-sort")) return;
+      th.addEventListener("click", function () {
+        const newDir = th.classList.contains("sort-asc") ? "desc" : "asc";
+        applySort(table, colIndex, newDir);
+        saveSortState(table, colIndex, newDir);
+      });
+    });
+
+    const saved = loadSortState(table);
+    if (saved && headers[saved.col] && !headers[saved.col].classList.contains("no-sort")) {
+      applySort(table, saved.col, saved.dir);
+    }
+  });
 });
 
 // Текстовый фильтр + клиентская пагинация для любой таблицы с атрибутом

@@ -649,6 +649,32 @@ def test_allocate_statement_line_rejects_debit(app, db, client):
     assert updated_line.matched_payment_id is None
 
 
+def test_statement_filter_text_includes_settlement_status(app, db, client):
+    """Поиск по таблице выписки (data-filter-text, см. base.html) должен
+    находить операции по статусу разнесения — не только по счёту/сумме/
+    назначению. Регрессия: изначально при добавлении пагинации в выписку
+    статус в атрибут data-filter-text забыли включить (в видимом тексте
+    ячейки он и так был — проверяем именно атрибут, а не страницу целиком,
+    иначе тест прошёл бы и без исправления)."""
+    import re
+
+    bank_account = make_bank_account(db)
+    line = BankStatementLine(
+        bank_account_id=bank_account.id, external_uid="op-un", operation_date=dt.date(2026, 8, 20),
+        direction="credit", amount=Decimal("100.00"), payment_purpose="Взнос без счёта",
+    )
+    db.add(line)
+    make_user(db, "chair18", "pass12345", role=RoleEnum.BOARD)
+    db.commit()
+    login(client, "chair18", "pass12345")
+
+    resp = client.get(f"/cooperative/bank-accounts/{bank_account.id}/statement")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    filter_texts = re.findall(r'data-filter-text="([^"]*)"', body)
+    assert any("не разнесён" in ft.lower() for ft in filter_texts)
+
+
 # ---------------------------------------------------------------------------
 # Поиск лицевого счёта по ФИО / лицам для связи — app/bank_sync.py
 # ---------------------------------------------------------------------------

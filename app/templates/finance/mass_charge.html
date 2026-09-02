@@ -105,7 +105,7 @@
 // Preview calculation data
 var garageData = [
 {% for g in garages %}
-  { id: {{ g.id }}, number: "{{ g.number }}", area: {{ g.area_sqm }}, coefficient: {{ g.coefficient }}, owners: "{{ person_names.get(g.id) or '' }}", privatized: {{ g.land_privatized | lower }} },
+  { id: {{ g.id }}, number: "{{ g.number }}", area: {{ g.area_sqm }}, coefficient: {{ g.coefficient }}, owners: "{{ person_names.get(g.id) or '' }}", privatized: {{ g.land_privatized | lower }}, privatizedLandArea: {{ g.privatized_land_area if g.privatized_land_area is not none else 'null' }} },
 {% endfor %}
 ];
 var coopData = {
@@ -223,13 +223,17 @@ function updatePreview() {
 
       description = "<strong>Методика:</strong> кадастровая стоимость × ставка / кадастровая площадь = цена м².<br>";
       description += "Неприватизированные: (цена м² × стандартная площадь + доля в общей территории) × % банка × коэффициент.<br>";
-      description += "Приватизированные: только доля в общей территории × коэффициент.<br><br>";
+      description += "Приватизированные: доля в общей территории минус стоимость превышения фактической приватизированной площади над стандартной (если больше; отрицательное — 0), × коэффициент.<br><br>";
       description += "<em>Кадастровая стоимость: " + coopData.cadastral_value + " ₽, кадастровая площадь: " + coopData.cadastral_area + " м², ставка: " + coopData.land_tax_rate + "%</em><br><br>";
       rows += "<thead><tr><th>Гараж</th><th>Приватиз.</th><th>Коэфф.</th><th>Сумма</th></tr></thead><tbody>";
       selectedGarages.forEach(function(g) {
         var garageTax;
         if (g.privatized) {
           garageTax = commonAreaTax;
+          if (g.privatizedLandArea != null && g.privatizedLandArea > standardArea) {
+            var excessArea = g.privatizedLandArea - standardArea;
+            garageTax = Math.max(garageTax - excessArea * pricePerSqm, 0);
+          }
         } else {
           garageTax = (standardArea * pricePerSqm + commonAreaTax) * bankMultiplier;
         }

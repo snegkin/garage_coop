@@ -584,7 +584,12 @@ def compute_land_tax(year: int) -> dict[int, Decimal] | None:
       кооператива на кадастровой карте, уже без приватизированных участков)
     - налог за 1 м2 = (cadastral_value / чистая площадь) * ставка налога, %
       (без промежуточного округления)
-    - налог на общую территорию (на гараж) = налог за 1 м2 * (common_area / количество гаражей)
+    - налог на общую территорию (на единицу коэффициента) = налог за 1 м2 *
+      (common_area / сумма коэффициентов ВСЕХ гаражей) — делится не
+      поголовно, а пропорционально коэффициенту (Garage.coefficient): у
+      гаража с коэффициентом 2 доля в общей территории будет вдвое больше,
+      чем у гаража с коэффициентом 1 (умножение на coefficient — ниже,
+      общее для всех слагаемых)
       - эту часть платят АБСОЛЮТНО ВСЕ (и приватизированные, и нет)
     - налог под самим гаражом = налог за 1 м2 * standard_garage_land_area
       - эту часть платят ТОЛЬКО владельцы НЕприватизированных гаражей
@@ -612,18 +617,23 @@ def compute_land_tax(year: int) -> dict[int, Decimal] | None:
         return None
 
     garages = database.db_session.query(Garage).all()
-    garage_count = len(garages)
-    if garage_count == 0:
+    if len(garages) == 0:
         return {}
 
     net_taxable_area = coop.cadastral_area
     if net_taxable_area <= 0:
         return None
 
+    total_coefficient = sum((g.coefficient for g in garages), Decimal("0"))
+    if total_coefficient <= 0:
+        return None
+
     total_tax = coop.cadastral_value * (coop.land_tax_rate_percent / Decimal("100"))
     price_per_sqm = total_tax / net_taxable_area  # полная точность, без промежуточного округления
 
-    common_area_tax = price_per_sqm * (coop.common_area / garage_count)
+    # На единицу коэффициента — итоговая доля каждого гаража получится
+    # умножением на его coefficient при формировании garage_tax ниже.
+    common_area_tax = price_per_sqm * (coop.common_area / total_coefficient)
     standard_area = coop.standard_garage_land_area or Decimal("30")
     bank_multiplier = Decimal("1") + (coop.bank_fee_percent or Decimal("0")) / Decimal("100")
 

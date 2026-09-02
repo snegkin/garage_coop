@@ -16,7 +16,7 @@ from .models import (
     GarageOwnership, PersonalAccount,
 )
 from sqlalchemy.orm import joinedload
-from .accounting import balance, charge_sort_date
+from .accounting import balance
 
 bp = Blueprint("persons", __name__, url_prefix="/persons")
 
@@ -242,25 +242,20 @@ def detail(person_id):
     )
 
 
-def _charge_status_rows(charges) -> list[dict]:
-    """Для каждого начисления — сколько из него реально погашено (через
-    ChargeAllocation, см. accounting.reallocate_*_charges — FIFO,
-    пересчитывается при каждом новом начислении/платеже, здесь только
-    читаем уже посчитанное) и статус для печати: оплачено полностью,
-    частично или не оплачено вовсе. Сортировка — тем же ключом, что и в
-    FIFO-разнесении (accounting.charge_sort_date), чтобы порядок в
-    распечатке совпадал с тем, в каком долги реально гасились."""
-    rows = []
-    for charge in sorted(charges, key=charge_sort_date):
-        paid = sum((a.amount for a in charge.allocations), Decimal("0"))
-        if paid <= 0:
-            status = "unpaid"
-        elif paid >= charge.amount:
-            status = "paid"
-        else:
-            status = "partial"
-        rows.append({"charge": charge, "date": charge_sort_date(charge), "paid": paid, "status": status})
-    return rows
+def _statement_row(account_number: str, url: str, label: str, charges, payments) -> dict:
+    """Одна сводная строка выписки — один лицевой счёт, весь его баланс за
+    всё время (сумма начислений/сумма платежей), без построчной разбивки
+    по годам/платежам — за деталями (кто когда платил, комментарии к
+    отдельным начислениям) правление и сам владелец счёта переходят по
+    ссылке на карточку счёта (url)."""
+    charged = sum((c.amount for c in charges), Decimal("0"))
+    paid = sum((p.amount for p in payments), Decimal("0"))
+    years = [c.year for c in charges]
+    return {
+        "account_number": account_number, "url": url, "label": label,
+        "charged": charged, "paid": paid, "balance": paid - charged,
+        "year_from": min(years) if years else None, "year_to": max(years) if years else None,
+    }
 
 
 @bp.route("/<int:person_id>/statement")
@@ -268,12 +263,20 @@ def _charge_status_rows(charges) -> list[dict]:
 def statement(person_id):
     """
     Сводная печатная выписка по ВСЕМ лицевым счетам человека сразу —
-    взносы/налог/пеня (MemberAccount) и, если он собственник гаража(ей),
+    взносы/налог (MemberAccount) и, если он собственник гаража(ей),
     электричество (PersonalAccount, счёт общий на гараж, не персональный,
-    но раз человек им пользуется — включаем и его тоже) — чтобы не
-    собирать распечатку по каждому счёту отдельно со страницы member_account_detail.
-    Для каждого счёта — начисления с их статусом оплаты (см.
-    _charge_status_rows) и платежи, хронологически.
+    но раз человек им пользуется — включаем и его тоже). Одна строка на
+    счёт (см. _statement_row) — не постатейно по каждому начислению/
+    платежу, как было раньше: для печатной выписки, которую видит и
+    рядовой член, это оказалось избыточно подробно (годы, статусы оплаты
+    каждого начисления по отдельности), а полная история всё равно есть
+    на карточке конкретного счёта, куда ведёт ссылка по номеру.
+
+    Счета вида взноса «пеня» — отдельным блоком под основной таблицей
+    (penalty_rows), не строкой в общем списке: их баланс расчётно другой
+    природы (не долг за товар/услугу, а санкция за просрочку), поэтому
+    итог считается явно в два слагаемых — «Баланс» (без пени) и «Пеня» —
+    и складывается в penalty_rows/grand_total ниже.
     """
     person = database.db_session.get(Person, person_id)
     if person is None:
@@ -290,7 +293,7 @@ def statement(person_id):
     )
     # Печатная выписка — здесь нет чекбокса «Актуальные», который мог бы
     # раскрыть счёт обратно, поэтому пени без единого начисления (нечего
-    # печатать) отфильтровываем насовсем, в отличие от detail() выше.
+    # показывать) отфильтровываем насовсем, в отличие от detail() выше.
     member_accounts = [ma for ma in member_accounts if not ma.fee_type.is_penalty or ma.charges]
     member_accounts.sort(key=lambda ma: (ma.garage.number, ma.fee_type.name))
 
@@ -308,25 +311,31 @@ def statement(person_id):
         )
         personal_accounts.sort(key=lambda pa: pa.garage.number)
 
-    sections = []
+    rows, penalty_rows = [], []
     for ma in member_accounts:
-        sections.append({
-            "title": f"{ma.fee_type.name}, {_('гараж')} №{ma.garage.number}",
-            "account_number": ma.account_number,
-            "charges": _charge_status_rows(ma.charges),
-            "payments": sorted(ma.payments, key=lambda p: p.date),
-            "balance": balance(ma),
-        })
+        row = _statement_row(
+            ma.account_number, url_for("finance.member_account_detail", account_id=ma.id),
+            f"{ma.fee_type.name}, {_('гараж')} №{ma.garage.number}", ma.charges, ma.payments,
+        )
+        (penalty_rows if ma.fee_type.is_penalty else rows).append(row)
     for pa in personal_accounts:
-        sections.append({
-            "title": f"{_('Электричество')}, {_('гараж')} №{pa.garage.number}",
-            "account_number": pa.account_number,
-            "charges": _charge_status_rows(pa.garage.charges),
-            "payments": sorted(pa.garage.payments, key=lambda p: p.date),
-            "balance": balance(pa.garage),
-        })
+        rows.append(_statement_row(
+            pa.account_number, url_for("garages.detail", garage_id=pa.garage_id),
+            f"{_('Электричество')}, {_('гараж')} №{pa.garage.number}", pa.garage.charges, pa.garage.payments,
+        ))
 
-    return render_template("persons/statement.html", person=person, sections=sections, today=dt.date.today())
+    all_rows = rows + penalty_rows
+    years = [r["year_from"] for r in all_rows if r["year_from"]] + [r["year_to"] for r in all_rows if r["year_to"]]
+    balance_excl_penalty = sum((r["balance"] for r in rows), Decimal("0"))
+    penalty_total = sum((r["balance"] for r in penalty_rows), Decimal("0"))
+
+    return render_template(
+        "persons/statement.html", person=person, rows=rows, penalty_rows=penalty_rows,
+        balance_excl_penalty=balance_excl_penalty, penalty_total=penalty_total,
+        grand_total=balance_excl_penalty + penalty_total,
+        year_from=min(years) if years else None, year_to=max(years) if years else None,
+        today=dt.date.today(),
+    )
 
 
 @bp.route("/<int:person_id>/archive", methods=["POST"])

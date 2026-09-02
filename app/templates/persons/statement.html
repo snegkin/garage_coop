@@ -62,23 +62,25 @@
   .statement-print .print-org-address { font-size: 8px; color: #333; }
 
   /* Подписи — председатель/бухгалтер, справа внизу; место под печать —
-     строго под подписями, не сбоку. Намеренно БЕЗ flex-контейнера на
-     print-signatures: flex-колонка с растянутым stamp-place по высоте
-     под signature-rows в некоторых браузерах ведёт себя в реальной
-     печати иначе, чем на экране (круг превращался в овал только в
-     print-превью, хотя на экране выглядел верно) — вместо этого обычный
-     блочный поток (signature-rows/stamp-place друг под другом сами по
-     себе) + margin-left:auto с width:max-content для прижатия к правому
-     краю у каждого по отдельности — этот приём не зависит от рендера
-     flexbox при печати. */
+     строго под подписями, не сбоку. Обычный блочный поток
+     (signature-rows/stamp-place друг под другом сами по себе, без
+     flex-контейнера) + width:max-content/margin-left:auto для прижатия
+     к правому краю у каждого по отдельности. ВАЖНО: у обоих —
+     !important на width/margin-left. Без него их клобберит более общее
+     правило сброса печати чуть выше (`body div { width: auto !important;
+     margin-left: 0 !important; ... }`, нужное для сброса обёрток
+     base.html) — оно матчит вообще ЛЮБОЙ <div> в body, включая эти два,
+     и как !important побеждает несмотря на более узкий селектор здесь;
+     нашли только по факту в реальной печати браузера (на экране этого
+     сброса нет вовсе, там всё было верно и без !important). */
   .statement-print .print-signatures { margin-top: 12mm; }
-  .statement-print .signature-rows { text-align: left; width: max-content; margin-left: auto; }
+  .statement-print .signature-rows { text-align: left; width: max-content !important; margin-left: auto !important; }
   .statement-print .signature-line { margin-bottom: 7mm; white-space: nowrap; }
   .statement-print .sig-role { display: inline-block; width: 28mm; }
   .statement-print .sig-blank { display: inline-block; width: 45mm; border-bottom: 1px solid #000; margin: 0 2mm; }
   .statement-print .sig-name { font-size: 9px; }
   .statement-print .stamp-place {
-    width: 24mm; height: 24mm; margin: 4mm 0 0 auto; border: 1px dashed #666; border-radius: 50%;
+    width: 24mm !important; height: 24mm; margin: 4mm 0 0 auto !important; border: 1px dashed #666; border-radius: 50%;
     display: flex; align-items: center; justify-content: center;
     font-size: 8px; color: #666; text-align: center;
   }

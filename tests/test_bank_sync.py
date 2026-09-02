@@ -585,6 +585,49 @@ def test_allocate_statement_line_empty_field_falls_back_to_purpose_text(app, db,
     assert balance(member_account) == Decimal("0.00")
 
 
+def test_allocate_statement_line_override_wrong_account_does_not_fall_back_to_name(app, db, client):
+    """Явно введённый в поле номер счёта, если такого счёта нет, не должен
+    приводить к тихому разнесению по имени плательщика — председатель мог
+    просто опечататься в номере, а не иметь в виду какой-то другой счёт."""
+    person = make_person(db, full_name="Сидорова Анна Викторовна")
+    garage = make_garage(db, number="22")
+    make_ownership(db, garage, person)
+    fee_type = FeeType(code="10", name="Членский взнос")
+    db.add(fee_type)
+    db.flush()
+    member_account = MemberAccount(
+        person_id=person.id, garage_id=garage.id, fee_type_id=fee_type.id, account_number="30099",
+    )
+    db.add(member_account)
+    db.flush()
+    db.add(Charge(account_id=member_account.id, year=2026, amount=Decimal("250.00")))
+
+    bank_account = make_bank_account(db)
+    line = BankStatementLine(
+        bank_account_id=bank_account.id, external_uid="op-typo", operation_date=dt.date(2026, 8, 20),
+        direction="credit", amount=Decimal("250.00"), payment_purpose="Взнос",
+        counterparty_name="Сидорова Анна Викторовна",  # по имени нашлось бы однозначно
+    )
+    db.add(line)
+    make_user(db, "chair20", "pass12345", role=RoleEnum.CHAIRMAN)
+    db.commit()
+    login(client, "chair20", "pass12345")
+
+    resp = client.post(
+        f"/cooperative/bank-accounts/{bank_account.id}/statement/{line.id}/allocate",
+        data={"account_number": "99999"},  # опечатка/несуществующий номер
+        headers={"X-Requested-With": "XMLHttpRequest"},
+    )
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["success"] is False
+    assert "99999" in data["message"]
+    db.expire_all()
+    updated_line = database.db_session.get(BankStatementLine, line.id)
+    assert updated_line.matched_payment_id is None
+    assert balance(member_account) == Decimal("-250.00")  # не тронут
+
+
 def test_allocate_statement_line_rejects_debit(app, db, client):
     bank_account = make_bank_account(db)
     line = BankStatementLine(
@@ -831,6 +874,89 @@ def test_allocate_payment_registry_entry_creates_payment(app, db, client):
     assert payment.amount == Decimal("400.00")
     assert payment.account_id == member_account.id
     assert balance(member_account) == Decimal("0.00")  # разнесено через reallocate_member_charges
+
+
+def test_allocate_payment_registry_entry_manual_override(app, db, client):
+    """Ручное поле ввода номера счёта (см. payment_registry.html) — то же
+    переопределение, что и на странице выписки: если в записи реестра
+    сохранён неверный/отсутствующий номер, председатель может ввести
+    правильный при разнесении."""
+    person = make_person(db)
+    garage = make_garage(db)
+    fee_type = FeeType(code="10", name="Членский взнос")
+    db.add(fee_type)
+    db.flush()
+    member_account = MemberAccount(
+        person_id=person.id, garage_id=garage.id, fee_type_id=fee_type.id, account_number="40011",
+    )
+    db.add(member_account)
+    db.flush()
+    db.add(Charge(account_id=member_account.id, year=2026, amount=Decimal("200.00")))
+
+    bank_account = make_bank_account(db, provider=BankApiProvider.SBERBANK)
+    entry = PaymentRegistryEntry(
+        bank_account_id=bank_account.id, external_id="ext-override", account_number=None,
+        amount=Decimal("200.00"), operation_date=dt.date(2026, 8, 10),
+    )
+    db.add(entry)
+    make_user(db, "chair21", "pass12345", role=RoleEnum.CHAIRMAN)
+    db.commit()
+    login(client, "chair21", "pass12345")
+
+    resp = client.post(
+        f"/cooperative/bank-accounts/{bank_account.id}/registry/payments/{entry.id}/allocate",
+        data={"account_number": "40011"},
+    )
+    assert resp.status_code == 302
+    db.expire_all()
+    updated_entry = database.db_session.get(PaymentRegistryEntry, entry.id)
+    assert updated_entry.account_number == "40011"
+    assert updated_entry.matched_payment_id is not None
+    assert balance(member_account) == Decimal("0.00")
+
+
+def test_allocate_payment_registry_entry_override_wrong_account_does_not_fall_back_to_name(app, db, client):
+    """Тот же принцип, что и для выписки (см.
+    test_allocate_statement_line_override_wrong_account_does_not_fall_back_to_name):
+    явно введённый неверный номер счёта — ошибка ввода, а не повод тихо
+    разнести платёж по имени плательщика на какой-то другой счёт."""
+    person = make_person(db, full_name="Кузнецова Ольга Сергеевна")
+    garage = make_garage(db, number="23")
+    make_ownership(db, garage, person)
+    fee_type = FeeType(code="10", name="Членский взнос")
+    db.add(fee_type)
+    db.flush()
+    member_account = MemberAccount(
+        person_id=person.id, garage_id=garage.id, fee_type_id=fee_type.id, account_number="40022",
+    )
+    db.add(member_account)
+    db.flush()
+    db.add(Charge(account_id=member_account.id, year=2026, amount=Decimal("150.00")))
+
+    bank_account = make_bank_account(db, provider=BankApiProvider.SBERBANK)
+    entry = PaymentRegistryEntry(
+        bank_account_id=bank_account.id, external_id="ext-typo", account_number=None,
+        payer_name="Кузнецова Ольга Сергеевна",  # по имени нашлось бы однозначно
+        amount=Decimal("150.00"), operation_date=dt.date(2026, 8, 10),
+    )
+    db.add(entry)
+    make_user(db, "chair22", "pass12345", role=RoleEnum.CHAIRMAN)
+    db.commit()
+    login(client, "chair22", "pass12345")
+
+    resp = client.post(
+        f"/cooperative/bank-accounts/{bank_account.id}/registry/payments/{entry.id}/allocate",
+        data={"account_number": "99999"},
+        headers={"X-Requested-With": "XMLHttpRequest"},
+    )
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["success"] is False
+    assert "99999" in data["message"]
+    db.expire_all()
+    updated_entry = database.db_session.get(PaymentRegistryEntry, entry.id)
+    assert updated_entry.matched_payment_id is None
+    assert balance(member_account) == Decimal("-150.00")
 
 
 def test_allocate_payment_registry_entry_unknown_account_number(app, db, client):

@@ -63,7 +63,7 @@
     {% for entry in entries %}
     <tr id="registry-entry-{{ entry.id }}" data-filter-text="{{ (fmt_date(entry.operation_date) ~ ' ' ~ (entry.account_number or '') ~ ' ' ~ (entry.payer_name or '') ~ ' ' ~ fmt2(entry.amount) ~ ' ' ~ (entry.payment_purpose or '') ~ ' ' ~ (_('разнесён') if entry.matched_payment_id else _('не разнесён')))|lower }}">
       <td data-sort-value="{{ entry.operation_date.isoformat() }}">{{ fmt_date(entry.operation_date) }}</td>
-      <td class="text-end">{{ entry.account_number or "—" }}</td>
+      <td class="text-end js-account-number">{{ entry.account_number or "—" }}</td>
       <td>{{ entry.payer_name or "—" }}</td>
       <td data-sort-value="{{ entry.amount }}">{{ fmt2(entry.amount) }} ₽</td>
       <td>
@@ -94,7 +94,10 @@
       <td class="js-allocate-cell">
         {% if not entry.matched_payment_id %}
         <form method="post" action="{{ url_for('bank_sync.allocate_payment_registry_entry', account_id=account.id, entry_id=entry.id) }}" class="js-allocate-form d-flex flex-column gap-1">
-          <button class="btn btn-sm btn-outline-primary">{{ _("Разнести") }}</button>
+          <div class="d-flex gap-1">
+            <input class="form-control form-control-sm" style="width:8rem" type="text" name="account_number" placeholder="{{ entry.account_number or _("Лицевой счёт") }}">
+            <button class="btn btn-sm btn-outline-primary">{{ _("Разнести") }}</button>
+          </div>
           <div class="text-danger small js-allocate-error d-none"></div>
         </form>
         {% endif %}
@@ -140,6 +143,9 @@ document.addEventListener("DOMContentLoaded", function () {
           if (data.success) {
             var row = form.closest("tr");
             row.querySelector(".js-settlement-status").innerHTML = '<span class="badge bg-success">{{ _("разнесён") }}</span>';
+            if (data.account_number) {
+              row.querySelector(".js-account-number").textContent = data.account_number;
+            }
             row.querySelector(".js-allocate-cell").innerHTML = "";
             // держим data-filter-text в актуальном состоянии, чтобы поиск по статусу не показывал устаревшее значение
             var filterText = row.getAttribute("data-filter-text") || "";

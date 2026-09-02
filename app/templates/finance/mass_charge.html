@@ -217,7 +217,14 @@ function updatePreview() {
       var netArea = coopData.cadastral_area;
       var totalTax = coopData.cadastral_value * (coopData.land_tax_rate / 100);
       var pricePerSqm = totalTax / netArea;
-      var commonAreaTax = pricePerSqm * (coopData.common_area / selectedGarages.length);
+      // Делится не поголовно, а пропорционально коэффициенту — и сумма
+      // коэффициентов берётся по ВСЕМ гаражам кооператива (garageData), а
+      // не только по отмеченным в списке слева: выбор конкретных гаражей
+      // сужает, кому разослать начисление, а не то, между кем в принципе
+      // поделена общая территория — так же, как считает бэкенд
+      // (accounting.compute_land_tax).
+      var totalCoefficient = garageData.reduce(function(sum, g) { return sum + g.coefficient; }, 0);
+      var commonAreaTax = pricePerSqm * (coopData.common_area / totalCoefficient);
       var standardArea = coopData.standard_garage_land_area || 30;
       var bankMultiplier = 1 + (coopData.bank_fee_percent || 0) / 100;
 

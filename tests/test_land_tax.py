@@ -5,7 +5,8 @@
 - net_taxable_area = common_area (текущая площадь на кадастровой карте)
 - total_tax = cadastral_area × (land_tax_rate_percent / 100)
 - price_per_sqm = total_tax / common_area
-- common_area_tax = price_per_sqm × (common_area / кол-во_гаражей)
+- common_area_tax (на единицу коэффициента) = price_per_sqm × (common_area / сумма коэффициентов ВСЕХ гаражей)
+  — делится не поголовно, а пропорционально Garage.coefficient
 - неприватизированный: (standard_garage_land_area × price_per_sqm + common_area_tax) × (1 + bank_fee_percent/100)
 - приватизированный: (common_area_tax минус стоимость превышения фактической
   приватизированной площади над стандартной, если больше; иначе 0) × (1 + bank_fee_percent/100)
@@ -93,30 +94,66 @@ def test_single_non_privatized_garage(app, db):
 
 
 def test_land_tax_with_coefficient(app, db):
-    """Коэффициент гаража умножает сумму налога."""
+    """Коэффициент гаража умножает сумму налога — и для единственного
+    гаража с коэффициентом 2 он же и есть сумма коэффициентов (делитель
+    common_area_tax), поэтому доля в общей территории здесь ниже, чем
+    была бы при делении поголовно."""
     coop = _make_coop(db)
     garage = make_garage(db, number="1", area_sqm="18.00", coefficient=Decimal("2"))
 
     result = compute_land_tax(2026)
     assert result is not None
 
-    # base = (2812.50 + 46875) × 1.016 = 50482.50
-    # с коэффициентом 2: 50482.50 × 2 = 100965.00
-    expected = ((Decimal("2812.50") + Decimal("46875")) * Decimal("1.016")) * Decimal("2")
+    # common_area_tax = 93.75 × (500 / 2) = 23437.50 (делитель — сумма коэффициентов, здесь 2)
+    # under_building = 2812.50 (фиксирован, не зависит от коэффициента)
+    # base = (2812.50 + 23437.50) × 1.016 = 26670.00
+    # с коэффициентом 2: 26670.00 × 2 = 53340.00
+    expected = ((Decimal("2812.50") + Decimal("23437.50")) * Decimal("1.016")) * Decimal("2")
     assert result[garage.id] == expected.quantize(Decimal("0.01"))
 
 
 def test_land_tax_with_coefficient_less_than_one(app, db):
-    """Коэффициент < 1 (маленький гараж)."""
+    """Коэффициент < 1 (маленький гараж) — единственный гараж, поэтому
+    сумма коэффициентов равна его собственному коэффициенту (0.5), и доля
+    в общей территории здесь получается БОЛЬШЕ, чем при делении
+    поголовно (весь common_area делится на меньшую сумму)."""
     coop = _make_coop(db)
     garage = make_garage(db, number="1", area_sqm="18.00", coefficient=Decimal("0.5"))
 
     result = compute_land_tax(2026)
     assert result is not None
 
-    # base = 50482.50, с коэффициентом 0.5: 25241.25
-    expected = ((Decimal("2812.50") + Decimal("46875")) * Decimal("1.016")) * Decimal("0.5")
+    # common_area_tax = 93.75 × (500 / 0.5) = 93750
+    # under_building = 2812.50
+    # base = (2812.50 + 93750) × 1.016 = 98083.50
+    # с коэффициентом 0.5: 98083.50 × 0.5 = 49041.75
+    expected = ((Decimal("2812.50") + Decimal("93750")) * Decimal("1.016")) * Decimal("0.5")
     assert result[garage.id] == expected.quantize(Decimal("0.01"))
+
+
+def test_land_tax_common_area_split_proportionally_to_coefficient(app, db):
+    """Два гаража с разными коэффициентами (1 и 3) — доля в общей
+    территории делится 1:3, а не 1:1, и в сумме обе доли снова дают
+    полный common_area_tax (46875), просто распределённый по весу."""
+    _make_coop(db)
+    g1 = make_garage(db, number="1", area_sqm="18.00", coefficient=Decimal("1"))
+    g2 = make_garage(db, number="2", area_sqm="18.00", coefficient=Decimal("3"))
+
+    result = compute_land_tax(2026)
+    assert result is not None
+
+    # total_coefficient = 1 + 3 = 4
+    # common_area_tax (на единицу коэфф.) = 93.75 × (500 / 4) = 11718.75
+    # under_building = 2812.50 (одинаков для обоих — до применения коэффициента)
+    # g1: (2812.50 + 11718.75) × 1.016 × 1 = 14755.35
+    # g2: (2812.50 + 11718.75) × 1.016 × 3 = 44266.05
+    per_garage_before_coefficient = (Decimal("2812.50") + Decimal("11718.75")) * Decimal("1.016")
+    assert result[g1.id] == (per_garage_before_coefficient * Decimal("1")).quantize(Decimal("0.01"))
+    assert result[g2.id] == (per_garage_before_coefficient * Decimal("3")).quantize(Decimal("0.01"))
+    # доля g1 в общей территории (без "под гаражом" и без % банка) + доля g2
+    # снова дают полный common_area_tax — распределение никого не обделяет
+    # и не создаёт денег из воздуха
+    assert Decimal("11718.75") * Decimal("1") + Decimal("11718.75") * Decimal("3") == Decimal("46875.00")
 
 
 def test_single_privatized_garage(app, db):

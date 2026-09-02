@@ -44,8 +44,8 @@
     {% for p in persons %}
     <tr>
       <td><a href="{{ url_for('persons.detail', person_id=p.id) }}">{{ p.full_name }}</a></td>
-      <td>{{ p.email or "—" }}</td>
-      <td>{{ p.phones|map(attribute='number')|join(', ') or "—" }}</td>
+      <td>{{ email_link(p.email) }}</td>
+      <td>{{ phones_html(p.phones) }}</td>
     </tr>
     {% endfor %}
   </tbody>

@@ -80,16 +80,8 @@
               <input class="form-control" name="passport_number" value="{{ person.passport_number or '' }}" placeholder="123456">
             </div>
             <div class="col-md-4">
-              <label class="form-label">{{ _("Код подразделения") }}</label>
-              <input class="form-control" name="passport_department_code" value="{{ person.passport_department_code or '' }}" placeholder="123-456">
-            </div>
-            <div class="col-md-6">
               <label class="form-label">{{ _("Дата выдачи") }}</label>
               <input type="date" class="form-control" name="passport_issue_date" value="{{ person.passport_issue_date.strftime('%Y-%m-%d') if person.passport_issue_date else '' }}">
-            </div>
-            <div class="col-md-12">
-              <label class="form-label">{{ _("Кем выдан") }}</label>
-              <textarea class="form-control" name="passport_issued_by" rows="2">{{ person.passport_issued_by or '' }}</textarea>
             </div>
           </div>
         </div>
@@ -104,7 +96,7 @@
       <tr><th style="width:180px">{{ _("ФИО") }}</th><td>{{ person.full_name }}</td></tr>
       <tr><th>{{ _("Паспорт") }}</th><td>
         {% if person.passport_series %}
-          {{ person.passport_series }} {{ person.passport_number or "" }}, {{ _("выдан") }} {{ fmt_date(person.passport_issue_date) }} {{ person.passport_issued_by or "" }}
+          {{ person.passport_series }} {{ person.passport_number or "" }}, {{ _("выдан") }} {{ fmt_date(person.passport_issue_date) }}
         {% else %}—{% endif %}
       </td></tr>
       <tr><th>{{ _("Членство") }}</th><td>

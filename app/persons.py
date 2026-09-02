@@ -90,10 +90,8 @@ def _save_from_form(person, f):
     person.telegram = f.get("telegram") or None
     person.passport_series = f.get("passport_series") or None
     person.passport_number = f.get("passport_number") or None
-    person.passport_issued_by = f.get("passport_issued_by") or None
     issue_date = f.get("passport_issue_date")
     person.passport_issue_date = dt.date.fromisoformat(issue_date) if issue_date else None
-    person.passport_department_code = f.get("passport_department_code") or None
     membership_start = f.get("membership_start_date")
     person.membership_start_date = dt.date.fromisoformat(membership_start) if membership_start else None
     membership_end = f.get("membership_end_date")
@@ -160,9 +158,7 @@ _REVISION_FIELDS = [
     ("phones", "Телефоны"),
     ("passport_series", "Серия паспорта"),
     ("passport_number", "Номер паспорта"),
-    ("passport_issued_by", "Кем выдан"),
     ("passport_issue_date", "Дата выдачи"),
-    ("passport_department_code", "Код подразделения"),
 ]
 
 
@@ -194,9 +190,7 @@ def _revision_diff_rows(revision, person):
             "phones": sorted(p.number for p in person.phones),
             "passport_series": person.passport_series,
             "passport_number": person.passport_number,
-            "passport_issued_by": person.passport_issued_by,
             "passport_issue_date": person.passport_issue_date.isoformat() if person.passport_issue_date else None,
-            "passport_department_code": person.passport_department_code,
         }
 
     def fmt(key, value):
@@ -621,8 +615,6 @@ def _apply_revision(revision):
     # паспорт
     person.passport_series = snap.get("passport_series")
     person.passport_number = snap.get("passport_number")
-    person.passport_issued_by = snap.get("passport_issued_by")
-    person.passport_department_code = snap.get("passport_department_code")
     issue_date_str = snap.get("passport_issue_date")
     if issue_date_str:
         try:

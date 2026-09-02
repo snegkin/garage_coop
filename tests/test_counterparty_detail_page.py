@@ -8,7 +8,7 @@ data-table-filter-for / data-pager-for, см. app/templates/base.html) и
 """
 import io
 
-from app.models import RoleEnum, Counterparty
+from app.models import RoleEnum, Counterparty, Document, DocumentType
 
 from tests.conftest import make_person, make_user, login
 
@@ -81,3 +81,53 @@ def test_detail_page_documents_section_empty_state(db, client):
     assert resp.status_code == 200
     body = resp.get_data(as_text=True)
     assert "Документов, связанных с этим контрагентом, пока нет." in body
+
+
+def test_detail_page_has_add_document_button(db, client):
+    _make_board(db)
+    counterparty = _make_counterparty(db)
+    db.commit()
+
+    login(client, "board1", "pass1234")
+    resp = client.get(f"/counterparties/{counterparty.id}")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert 'id="addDocumentModal"' in body
+    assert f'action="/counterparties/{counterparty.id}/documents/new"' in body
+
+
+def test_add_document_creates_document_linked_to_counterparty(db, client):
+    _make_board(db)
+    counterparty = _make_counterparty(db)
+    db.commit()
+
+    login(client, "board1", "pass1234")
+    resp = client.post(f"/counterparties/{counterparty.id}/documents/new", data={
+        "doc_type": DocumentType.ACT.value,
+        "date": "2026-01-01",
+        "title": "Договор оказания услуг",
+        "file": (io.BytesIO(b"file contents"), "contract.pdf"),
+    }, content_type="multipart/form-data")
+    assert resp.status_code == 302
+    assert resp.headers["Location"].endswith(f"/counterparties/{counterparty.id}")
+
+    doc = db.query(Document).filter_by(title="Договор оказания услуг").first()
+    assert doc is not None
+    assert doc.counterparty_id == counterparty.id
+    assert doc.file_path is not None
+
+
+def test_only_board_can_add_document_to_counterparty(db, client):
+    person = make_person(db, full_name="Member One")
+    make_user(db, "member1", "pass1234", role=RoleEnum.MEMBER, person=person)
+    counterparty = _make_counterparty(db)
+    db.commit()
+
+    login(client, "member1", "pass1234")
+    resp = client.post(f"/counterparties/{counterparty.id}/documents/new", data={
+        "doc_type": DocumentType.ACT.value,
+        "date": "2026-01-01",
+        "title": "Sneaky doc",
+    })
+    assert resp.status_code == 302
+    assert db.query(Document).filter_by(title="Sneaky doc").first() is None

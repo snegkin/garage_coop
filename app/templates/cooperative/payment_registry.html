@@ -21,6 +21,14 @@
 <p class="mb-4">
   <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('bank_sync.registry_format_settings', account_id=account.id) }}">{{ _("Настроить формат файла") }}</a>
 </p>
+{% if pending_entries %}
+<form method="post" action="{{ url_for('bank_sync.allocate_all_payment_registry_entries', account_id=account.id) }}" class="mb-3">
+  <input type="hidden" name="date_from" value="{{ date_from.isoformat() if date_from else '' }}">
+  <input type="hidden" name="date_to" value="{{ date_to.isoformat() if date_to else '' }}">
+  <button class="btn btn-outline-primary">{{ _("Разнести всё возможное") }} ({{ pending_entries }})</button>
+  <span class="text-muted small">{{ _("повторяет автоматическое распознавание для всех ещё не разнесённых записей реестра разом — удобно после добавления нового лицевого счёта") }}</span>
+</form>
+{% endif %}
 {% endif %}
 
 {% if date_from or date_to %}

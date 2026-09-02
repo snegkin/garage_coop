@@ -138,9 +138,12 @@ def list_proposals():
             if ballot:
                 my_ballots[p.id] = ballot
 
+    deadlines = {p.id: p.created_at + PROPOSAL_REVIEW_PERIOD for p in proposals}
+
     return render_template(
         "proposals/list.html", proposals=proposals, board_ids=board_ids,
         my_ballots=my_ballots, can_propose=bool(person) and person_voting_weight(person.id) > 0,
+        deadlines=deadlines,
     )
 
 

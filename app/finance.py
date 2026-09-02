@@ -327,6 +327,39 @@ def add_member_payment(account_id):
     )
 
 
+@bp.route("/member-accounts/<int:account_id>/payments/<int:payment_id>/delete", methods=["POST"])
+@roles_required(RoleEnum.CHAIRMAN)
+def delete_member_payment(account_id, payment_id):
+    """
+    Удаление ошибочно/задвоенно внесённого платежа. Если платёж был
+    сопоставлен со строкой банковской выписки или записью реестра платежей
+    (BankStatementLine.matched_payment_id / PaymentRegistryEntry.
+    matched_payment_id, оба ondelete="SET NULL") — при удалении эта ссылка
+    сама обнулится (внешние ключи в проекте включены на каждое соединение,
+    см. app/database.py), сама строка выписки/реестра останется, но
+    вернётся в статус «не разнесён» и будет доступна для повторного
+    разнесения.
+    """
+    account = database.db_session.get(MemberAccount, account_id)
+    if account is None:
+        abort(404)
+    payment = database.db_session.get(Payment, payment_id)
+    if payment is None or payment.account_id != account.id:
+        abort(404)
+
+    audit.record(
+        "payment.delete", entity_type="member_account", entity_id=account.id,
+        summary=f"Удалён платёж {payment.amount} ₽ от {payment.date} на счёте {account.account_number} "
+                f"({account.person.full_name})",
+    )
+    database.db_session.delete(payment)
+    database.db_session.flush()
+    reallocate_member_charges(account)
+    database.db_session.commit()
+    flash(_("Платёж удалён."), "success")
+    return redirect(url_for("finance.member_account_detail", account_id=account.id))
+
+
 # ---------------------------------------------------------------------------
 # Зачёт средств между лицевыми счетами — для исправления ошибочного
 # разнесения платежа (зачислили не на тот вид взноса) или когда один

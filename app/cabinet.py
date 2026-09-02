@@ -51,9 +51,7 @@ def profile():
             "phones": sorted([p.number for p in person.phones]),
             "passport_series": person.passport_series,
             "passport_number": person.passport_number,
-            "passport_issued_by": person.passport_issued_by,
             "passport_issue_date": person.passport_issue_date.isoformat() if person.passport_issue_date else None,
-            "passport_department_code": person.passport_department_code,
         }
         new_data = {
             "email": f.get("email") or None,
@@ -63,9 +61,7 @@ def profile():
             "phones": sorted([p.strip() for p in f.get("phones", "").split(",") if p.strip()]),
             "passport_series": f.get("passport_series") or None,
             "passport_number": f.get("passport_number") or None,
-            "passport_issued_by": f.get("passport_issued_by") or None,
             "passport_issue_date": f.get("passport_issue_date") or None,
-            "passport_department_code": f.get("passport_department_code") or None,
         }
         # Если ничего не изменилось — предупреждаем
         if current == new_data:
@@ -118,9 +114,7 @@ def profile():
             'phones': [Phone(id=-1, number=n) for n in snap.get('phones', [])],
             'passport_series': snap.get('passport_series'),
             'passport_number': snap.get('passport_number'),
-            'passport_issued_by': snap.get('passport_issued_by'),
             'passport_issue_date': issue_date,
-            'passport_department_code': snap.get('passport_department_code'),
             'membership_start_date': person.membership_start_date,
             'membership_end_date': person.membership_end_date,
             'comment': person.comment,

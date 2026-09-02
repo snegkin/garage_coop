@@ -27,25 +27,17 @@
   </div>
 
   <div class="col-12"><hr><h6>{{ _("Паспорт РФ") }}</h6></div>
-  <div class="col-md-2">
+  <div class="col-md-3">
     <label class="form-label">{{ _("Серия") }}</label>
     <input class="form-control" name="passport_series" value="{{ (person.passport_series or '') if person else '' }}">
   </div>
-  <div class="col-md-2">
+  <div class="col-md-3">
     <label class="form-label">{{ _("Номер") }}</label>
     <input class="form-control" name="passport_number" value="{{ (person.passport_number or '') if person else '' }}">
   </div>
-  <div class="col-md-4">
-    <label class="form-label">{{ _("Код подразделения") }}</label>
-    <input class="form-control" name="passport_department_code" value="{{ (person.passport_department_code or '') if person else '' }}">
-  </div>
-  <div class="col-md-4">
+  <div class="col-md-6">
     <label class="form-label">{{ _("Дата выдачи") }}</label>
     <input class="form-control" type="date" name="passport_issue_date" value="{{ (person.passport_issue_date or '') if person else '' }}">
-  </div>
-  <div class="col-12">
-    <label class="form-label">{{ _("Кем выдан") }}</label>
-    <input class="form-control" name="passport_issued_by" value="{{ (person.passport_issued_by or '') if person else '' }}">
   </div>
 
   {% if is_board() %}

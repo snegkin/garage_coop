@@ -896,9 +896,7 @@ class Person(Base):
     # паспортные данные РФ
     passport_series: Mapped[str | None] = mapped_column(String(4))
     passport_number: Mapped[str | None] = mapped_column(String(6))
-    passport_issued_by: Mapped[str | None] = mapped_column(Text)
     passport_issue_date: Mapped[dt.date | None] = mapped_column(Date)
-    passport_department_code: Mapped[str | None] = mapped_column(String(7))
 
     comment: Mapped[str | None] = mapped_column(Text)
 

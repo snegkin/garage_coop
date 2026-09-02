@@ -43,7 +43,7 @@
       <tr><th>{{ _("Адрес проживания") }}</th><td>{{ person.residence_address or "—" }}</td></tr>
       <tr><th>{{ _("Паспорт") }}</th><td>
         {% if person.passport_series %}
-          {{ person.passport_series }} {{ person.passport_number or "" }}, {{ _("выдан") }} {{ fmt_date(person.passport_issue_date) }} {{ person.passport_issued_by or "" }}
+          {{ person.passport_series }} {{ person.passport_number or "" }}, {{ _("выдан") }} {{ fmt_date(person.passport_issue_date) }}
         {% else %}—{% endif %}
       </td></tr>
       {% if is_board() %}

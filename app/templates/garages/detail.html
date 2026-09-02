@@ -192,6 +192,7 @@
 
     <form method="post" action="{{ url_for('garages.add_owner', garage_id=garage.id) }}" class="d-flex gap-2 mb-4 flex-wrap">
       <select name="person_id" class="form-select form-select-sm" style="max-width:220px" data-searchable required>
+        <option value=""></option>
         {% for p in all_persons %}<option value="{{ p.id }}">{{ p.full_name }}</option>{% endfor %}
       </select>
       <input class="form-control form-control-sm" style="max-width:120px" name="share" placeholder="{{ _('доля, по умолчанию 1 (100%)') }}">
@@ -226,6 +227,7 @@
     {% if is_board() or is_owner %}
     <form method="post" action="{{ url_for('garages.add_contact', garage_id=garage.id) }}" class="d-flex gap-2">
       <select name="person_id" class="form-select form-select-sm" id="contactPersonSelect" data-searchable required>
+        <option value=""></option>
         {% for p in all_persons %}
         <option value="{{ p.id }}" {{ "selected" if preselect_contact_person_id == p.id }}>{{ p.full_name }}</option>
         {% endfor %}

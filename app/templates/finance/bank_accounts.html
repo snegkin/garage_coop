@@ -1,0 +1,216 @@
+{% extends "base.html" %}
+{% block title %}Расчётные счета{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h3>{{ _("Расчётные счета") }}</h3>
+  {% if is_chairman() %}
+  <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#createBankAccountModal">+ {{ _("Добавить счёт") }}</button>
+  {% endif %}
+</div>
+
+<table class="table table-bordered bg-body sortable">
+  <thead><tr><th>{{ _("Банк") }}</th><th>{{ _("БИК") }}</th><th>{{ _("Расчётный счёт") }}</th><th>{{ _("Корр. счёт") }}</th><th>{{ _("Баланс") }}</th><th>{{ _("Основной") }}</th><th>{{ _("API банка") }}</th><th>{{ _("Комментарий") }}</th><th class="no-sort"></th></tr></thead>
+  <tbody>
+    {% for account in bank_accounts %}
+    <tr>
+      <td>{{ account.bank_name }}</td>
+      <td>{{ account.bik or "—" }}</td>
+      <td>{{ account.checking_account }}</td>
+      <td>{{ account.correspondent_account or "—" }}</td>
+      <td>
+        {% if account.balance is not none %}
+          <span class="{{ 'text-danger' if account.balance < 0 else 'text-success' }}">{{ fmt2(account.balance) }} ₽</span>
+          {% if account.balance_updated_at %}<span class="text-muted small">({{ fmt_date(account.balance_updated_at) }})</span>{% endif %}
+        {% else %}—{% endif %}
+      </td>
+      <td>{% if account.is_primary %}<span class="badge bg-primary">{{ _("основной") }}</span>{% endif %}</td>
+      <td>
+        {% if account.api_provider.value == "none" %}
+          <span class="text-muted">{{ _("не используется") }}</span>
+        {% elif account.api_provider.value == "sberbank" %}
+          <span class="badge bg-success">{{ _("Сбербанк") }}</span>
+          {% if account.api_credential and account.api_credential.last_error %}
+            <span class="badge bg-danger" title="{{ account.api_credential.last_error }}">{{ _("ошибка") }}</span>
+          {% endif %}
+        {% else %}
+          <span class="badge bg-secondary">{{ _("выбран, не реализовано") }}</span>
+        {% endif %}
+      </td>
+      <td>{{ account.comment or "—" }}</td>
+      <td class="text-nowrap">
+        <div class="dropdown">
+          <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+            {{ _("Действия") }}
+          </button>
+          <ul class="dropdown-menu dropdown-menu-end">
+            {% if account.api_provider.value != "none" %}
+            <li><a class="dropdown-item" href="{{ url_for('bank_sync.statement', account_id=account.id) }}">{{ _("Выписка") }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('bank_sync.charge_registry', account_id=account.id) }}">{{ _("Реестр начислений") }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('bank_sync.payment_registry', account_id=account.id) }}">{{ _("Реестр платежей") }}</a></li>
+            {% if is_chairman() %}
+            <li><hr class="dropdown-divider"></li>
+            <li>
+              <form method="post" action="{{ url_for('bank_sync.sync_balance', account_id=account.id) }}" class="d-inline">
+                <button class="dropdown-item">{{ _("Обновить баланс") }}</button>
+              </form>
+            </li>
+            <li><button class="dropdown-item" data-bs-toggle="modal" data-bs-target="#bankApiSettingsModal{{ account.id }}">{{ _("Настроить API") }}</button></li>
+            {% endif %}
+            {% endif %}
+            {% if is_chairman() %}
+            <li><hr class="dropdown-divider"></li>
+            <li><button class="dropdown-item" data-bs-toggle="modal" data-bs-target="#editBankAccountModal{{ account.id }}">{{ _("Изменить") }}</button></li>
+            <li>
+              <form method="post" action="{{ url_for('cooperative.delete_bank_account', account_id=account.id) }}" class="d-inline" onsubmit="return confirm('{{ _("Удалить расчётный счёт?") }}')">
+                <button class="dropdown-item text-danger">{{ _("Удалить") }}</button>
+              </form>
+            </li>
+            {% endif %}
+          </ul>
+        </div>
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="9" class="text-muted">{{ _("Расчётных счетов пока нет.") }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+{% if is_chairman() %}
+<div class="modal fade" id="createBankAccountModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <form method="post" action="{{ url_for('cooperative.create_bank_account') }}">
+        <div class="modal-header">
+          <h5 class="modal-title">{{ _("Новый расчётный счёт") }}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          {% set account = None %}
+          {% include "cooperative/_bank_account_fields.html" %}
+        </div>
+        <div class="modal-footer d-flex justify-content-end">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+          <button class="btn btn-primary">{{ _("Сохранить") }}</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+{% for account in bank_accounts %}
+<div class="modal fade" id="editBankAccountModal{{ account.id }}" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <form method="post" action="{{ url_for('cooperative.edit_bank_account', account_id=account.id) }}">
+        <div class="modal-header">
+          <h5 class="modal-title">{{ account.bank_name }}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          {% include "cooperative/_bank_account_fields.html" %}
+        </div>
+        <div class="modal-footer d-flex justify-content-end">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+          <button class="btn btn-primary">{{ _("Сохранить") }}</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endfor %}
+
+{% for account in bank_accounts %}
+{% if account.api_provider.value != "none" %}
+<div class="modal fade" id="bankApiSettingsModal{{ account.id }}" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <form method="post" action="{{ url_for('bank_sync.save_api_settings', account_id=account.id) }}" enctype="multipart/form-data">
+        <div class="modal-header">
+          <h5 class="modal-title">{{ _("Настройка API") }} — {{ account.bank_name }} {{ account.checking_account }}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          {% set cred = account.api_credential %}
+          <input type="hidden" name="api_provider" value="{{ account.api_provider.value }}">
+          {% if account.api_provider.value != "sberbank" %}
+          <div class="alert alert-warning">{{ _("Интеграция для этого банка ещё не реализована — реквизиты можно сохранить заранее, но синхронизация работать не будет.") }}</div>
+          {% endif %}
+          <div class="form-check mb-3">
+            <input class="form-check-input" type="checkbox" name="sandbox" id="sandbox{{ account.id }}" {{ "checked" if not cred or cred.sandbox }}>
+            <label class="form-check-label" for="sandbox{{ account.id }}">{{ _("Тестовый контур банка (песочница)") }}</label>
+          </div>
+          <div class="row g-2 mb-3">
+            <div class="col-6">
+              <label class="form-label">Client ID</label>
+              <input class="form-control" name="client_id" value="{{ cred.client_id if cred and cred.client_id else '' }}">
+            </div>
+            <div class="col-6">
+              <label class="form-label">Client secret</label>
+              <input class="form-control" type="password" name="client_secret" placeholder="{{ _("оставьте пустым, чтобы не менять") if cred and cred.client_secret_encrypted else '' }}" autocomplete="new-password">
+              {% if cred and cred.client_secret_encrypted %}<div class="form-text">{{ _("Секрет уже сохранён — заполните заново только чтобы заменить его.") }}</div>{% endif %}
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Refresh token</label>
+            <textarea class="form-control" name="refresh_token" rows="2" placeholder="{{ _("оставьте пустым, чтобы не менять") if cred and cred.refresh_token_encrypted else '' }}" autocomplete="off"></textarea>
+            <div class="form-text">
+              {{ _("Обязателен — Sber API работает не по client_id/secret напрямую, а по access_token/refresh_token, выданным конкретному пользователю СберБизнес. Получите пару access_token/refresh_token в личном кабинете Sber API («Ключи доступа» → сгенерировать) и вставьте сюда refresh_token — access_token приложению не нужен, он сам обновляется через refresh_token перед каждым обращением к банку.") }}
+              {% if cred and cred.refresh_token_encrypted %}{{ _("Уже сохранён — заполните заново только чтобы заменить.") }}{% endif %}
+            </div>
+          </div>
+          <div class="row g-2 mb-3">
+            <div class="col-6">
+              <label class="form-label">{{ _("ID организации в банке") }}</label>
+              <input class="form-control" name="organization_id" value="{{ cred.organization_id if cred and cred.organization_id else '' }}">
+              <div class="form-text">{{ _("Заполнять, только если отличается от ИНН кооператива.") }}</div>
+            </div>
+            <div class="col-6">
+              <label class="form-label">{{ _("Номер счёта для запросов к банку") }}</label>
+              <input class="form-control" name="account_number" value="{{ cred.account_number if cred and cred.account_number else '' }}" placeholder="{{ account.checking_account }}">
+              <div class="form-text">{{ _("Заполнять, только если отличается от расчётного счёта выше.") }}</div>
+            </div>
+          </div>
+          {% if cred and cred.last_error %}
+          <div class="alert alert-danger">{{ _("Последняя ошибка синхронизации") }}: {{ cred.last_error }}</div>
+          {% endif %}
+          <hr>
+          <h6>{{ _("Клиентский сертификат (mTLS)") }}</h6>
+          <p class="text-muted small">
+            {{ _("Банк требует клиентский сертификат для самого соединения — отдельно от client_id/secret. Выдаётся в личном кабинете Sber API в формате .pfx/.p12 с паролем; загрузите его здесь, пароль не сохраняется, используется один раз для конвертации.") }}
+          </p>
+          {% if cred and cred.tls_cert_filename %}
+          <div class="alert alert-success py-2">{{ _("Сертификат загружен.") }} {{ _("Загрузите новый файл ниже, чтобы заменить.") }}</div>
+          {% endif %}
+          <div class="row g-2 mb-3">
+            <div class="col-6">
+              <label class="form-label">{{ _("Файл сертификата (.pfx/.p12)") }}</label>
+              <input class="form-control" type="file" name="tls_cert_p12" accept=".pfx,.p12">
+            </div>
+            <div class="col-6">
+              <label class="form-label">{{ _("Пароль от файла сертификата") }}</label>
+              <input class="form-control" type="password" name="tls_cert_passphrase" autocomplete="new-password">
+            </div>
+          </div>
+          <div class="alert alert-warning small">
+            {{ _("Также обязательны доверенные сертификаты банка (УЦ Сбера и НУЦ Минцифры) на сервере приложения — переменная окружения SBERBANK_API_CA_BUNDLE, см. .env.example (там же прямые ссылки на архивы с цепочкой сертификатов от банка). Без неё соединение с банком не установится, даже если всё остальное настроено верно.") }}
+          </div>
+          {% if cred %}
+          <div class="text-muted small">
+            {{ _("Баланс синхронизирован") }}: {{ fmt_date(cred.last_balance_sync_at) if cred.last_balance_sync_at else "—" }}<br>
+            {{ _("Выписка синхронизирована") }}: {{ fmt_date(cred.last_statement_sync_at) if cred.last_statement_sync_at else "—" }}
+          </div>
+          {% endif %}
+        </div>
+        <div class="modal-footer d-flex justify-content-end">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+          <button class="btn btn-primary">{{ _("Сохранить") }}</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endfor %}
+{% endif %}
+{% endblock %}

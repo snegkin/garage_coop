@@ -53,6 +53,7 @@
 
             <li><hr class="dropdown-divider"></li>
             <li><h6 class="dropdown-header">{{ _("Финансы") }}</h6></li>
+            <li><a class="dropdown-item" href="{{ url_for('finance.bank_accounts') }}">{{ _("Расчётные счета") }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('penalty.view') }}">{{ _("Пеня") }}</a></li>
             {% if is_privileged() %}
             <li><a class="dropdown-item" href="{{ url_for('finance.member_accounts') }}">{{ _("Счета членов кооператива") }}</a></li>

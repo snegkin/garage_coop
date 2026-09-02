@@ -105,7 +105,7 @@ def create_bank_account():
     ))
     database.db_session.commit()
     flash(_("Расчётный счёт добавлен."), "success")
-    return redirect(url_for("cooperative.view"))
+    return redirect(url_for("finance.bank_accounts"))
 
 
 @bp.route("/bank-accounts/<int:account_id>/edit", methods=["POST"])
@@ -134,7 +134,7 @@ def edit_bank_account(account_id):
         abort(400)
     database.db_session.commit()
     flash(_("Расчётный счёт обновлён."), "success")
-    return redirect(url_for("cooperative.view"))
+    return redirect(url_for("finance.bank_accounts"))
 
 
 @bp.route("/bank-accounts/<int:account_id>/delete", methods=["POST"])
@@ -146,7 +146,7 @@ def delete_bank_account(account_id):
     database.db_session.delete(account)
     database.db_session.commit()
     flash(_("Расчётный счёт удалён."), "success")
-    return redirect(url_for("cooperative.view"))
+    return redirect(url_for("finance.bank_accounts"))
 
 
 # ---------------------------------------------------------------------------

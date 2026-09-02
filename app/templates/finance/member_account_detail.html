@@ -46,6 +46,9 @@
 {% endif %}
 <p class="fs-5 {{ 'text-danger' if balance < 0 else 'text-success' }}">
   {{ _("Баланс") }}: {{ fmt2(balance) }} ₽
+  {% if is_board() and transferable_accounts %}
+  <button type="button" class="btn btn-sm btn-outline-secondary ms-2" data-bs-toggle="modal" data-bs-target="#transferFundsModal">{{ _("Зачесть на другой счёт") }}</button>
+  {% endif %}
   {% if account.fee_type.is_penalty and balance < 0 and is_privileged() %}
   <button type="button" class="btn btn-sm btn-outline-danger ms-2" data-bs-toggle="modal" data-bs-target="#writeOffPenaltyModal">{{ _("Списать") }}</button>
   {% endif %}
@@ -120,6 +123,47 @@
     </form>
   </div>
 </div>
+
+{% if is_board() and transferable_accounts %}
+<div class="modal fade" id="transferFundsModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" action="{{ url_for('finance.transfer_member_account_funds', account_id=account.id) }}">
+        <div class="modal-header">
+          <h5 class="modal-title">{{ _("Зачесть на другой счёт") }}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <p class="text-muted small">
+            {{ _("Для исправления ошибочного разнесения (зачислили не на тот вид взноса) или когда один человек фактически заплатил за другого. Доступны только счета того же человека или того же гаража. Реальных денег не движется — начисление на этом счёте и зачисление на выбранном.") }}
+          </p>
+          <div class="mb-3">
+            <label class="form-label">{{ _("Счёт-получатель") }}</label>
+            <select class="form-select" name="target_account_id" data-searchable required>
+              <option value=""></option>
+              {% for t in transferable_accounts %}
+              <option value="{{ t.id }}">{{ t.account_number }} — {{ t.person.full_name }} — {{ t.fee_type.name }}, {{ _("гараж") }} №{{ t.garage.number }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">{{ _("Сумма, ₽") }}</label>
+            <input class="form-control" name="amount" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">{{ _("Причина (необязательно)") }}</label>
+            <textarea class="form-control" name="reason" rows="2" placeholder="{{ _('например: разнесение по ошибке ушло не туда') }}"></textarea>
+          </div>
+        </div>
+        <div class="modal-footer d-flex justify-content-end">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+          <button class="btn btn-primary">{{ _("Зачесть") }}</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
 
 {% if account.fee_type.is_penalty and balance < 0 and is_privileged() %}
 <div class="modal fade" id="writeOffPenaltyModal" tabindex="-1" aria-hidden="true">

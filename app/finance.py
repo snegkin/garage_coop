@@ -2,6 +2,7 @@ import datetime as dt
 from decimal import Decimal, InvalidOperation
 
 from flask import Blueprint, render_template, request, redirect, url_for, flash, g, abort
+from sqlalchemy import or_
 
 from . import database
 from . import audit
@@ -114,9 +115,26 @@ def member_account_detail(account_id):
     prev_account = nav_query.filter(MemberAccount.id < account.id).order_by(MemberAccount.id.desc()).first()
     next_account = nav_query.filter(MemberAccount.id > account.id).order_by(MemberAccount.id).first()
 
+    # Счета, на которые можно зачесть средства с этого (см.
+    # transfer_member_account_funds) — того же человека или того же
+    # гаража, не произвольные чужие счета.
+    transferable_accounts = (
+        database.db_session.query(MemberAccount)
+        .join(Person, MemberAccount.person_id == Person.id)
+        .join(FeeType, MemberAccount.fee_type_id == FeeType.id)
+        .filter(
+            MemberAccount.id != account.id,
+            or_(MemberAccount.person_id == account.person_id, MemberAccount.garage_id == account.garage_id),
+        )
+        # свои же счета (тот же человек) — выше в списке, дальше — по ФИО/виду взноса
+        .order_by(MemberAccount.person_id != account.person_id, Person.full_name, FeeType.name)
+        .all()
+    )
+
     return render_template(
         "finance/member_account_detail.html", account=account, balance=_balance(account),
         prev_account=prev_account, next_account=next_account, today=dt.date.today(),
+        transferable_accounts=transferable_accounts,
     )
 
 
@@ -258,6 +276,81 @@ def add_member_payment(account_id):
         True, _("Платёж зарегистрирован."),
         balance=fmt2(new_balance), balance_negative=new_balance < 0,
     )
+
+
+# ---------------------------------------------------------------------------
+# Зачёт средств между лицевыми счетами — для исправления ошибочного
+# разнесения платежа (зачислили не на тот вид взноса) или когда один
+# человек по факту заплатил за другого. Разрешено только между счетами
+# ОДНОГО И ТОГО ЖЕ человека или ОДНОГО И ТОГО ЖЕ гаража — не между
+# произвольными людьми, чтобы кнопкой нельзя было случайно перевести
+# деньги постороннему. Уровень доступа — is_board(), как у «Начислить»/
+# «Зарегистрировать платёж» (не is_privileged(), как у списания пени: тут
+# кооператив ничего не теряет, просто исправляется бухгалтерская запись).
+# ---------------------------------------------------------------------------
+
+@bp.route("/member-accounts/<int:account_id>/transfer", methods=["POST"])
+@login_required
+def transfer_member_account_funds(account_id):
+    source = database.db_session.get(MemberAccount, account_id)
+    if source is None:
+        abort(404)
+    if not is_board():
+        abort(403)
+
+    f = request.form
+    try:
+        target_id = int(f["target_account_id"])
+        amount = Decimal(f["amount"])
+    except (KeyError, ValueError, InvalidOperation):
+        flash(_("Проверьте выбранный счёт и сумму."), "danger")
+        return redirect(url_for("finance.member_account_detail", account_id=source.id))
+    if amount <= 0:
+        flash(_("Сумма зачёта должна быть больше нуля."), "danger")
+        return redirect(url_for("finance.member_account_detail", account_id=source.id))
+
+    target = database.db_session.get(MemberAccount, target_id)
+    if target is None or target.id == source.id:
+        flash(_("Выберите другой счёт для зачёта."), "danger")
+        return redirect(url_for("finance.member_account_detail", account_id=source.id))
+    if target.person_id != source.person_id and target.garage_id != source.garage_id:
+        flash(_("Зачёт возможен только между счетами одного человека или одного гаража."), "danger")
+        return redirect(url_for("finance.member_account_detail", account_id=source.id))
+
+    reason = (f.get("reason") or "").strip()
+    today = dt.date.today()
+    if reason:
+        source_comment = _("Зачёт на счёт {number} ({name}): {reason}").format(
+            number=target.account_number, name=target.person.full_name, reason=reason)
+        target_comment = _("Зачёт со счёта {number} ({name}): {reason}").format(
+            number=source.account_number, name=source.person.full_name, reason=reason)
+    else:
+        source_comment = _("Зачёт на счёт {number} ({name})").format(
+            number=target.account_number, name=target.person.full_name)
+        target_comment = _("Зачёт со счёта {number} ({name})").format(
+            number=source.account_number, name=source.person.full_name)
+
+    database.db_session.add(Charge(
+        account_id=source.id, year=today.year, amount=amount,
+        related_person_id=target.person_id, comment=source_comment,
+    ))
+    database.db_session.add(Payment(
+        account_id=target.id, date=today, amount=amount,
+        related_person_id=source.person_id, comment=target_comment,
+    ))
+    database.db_session.flush()
+    reallocate_member_charges(source)
+    reallocate_member_charges(target)
+    audit.record(
+        "member_account.transfer", entity_type="member_account", entity_id=source.id,
+        summary=(
+            f"Зачёт {amount} со счёта {source.account_number} ({source.person.full_name}) "
+            f"на счёт {target.account_number} ({target.person.full_name})"
+        ) + (f": {reason}" if reason else ""),
+    )
+    database.db_session.commit()
+    flash(_("Зачёт выполнен."), "success")
+    return redirect(url_for("finance.member_account_detail", account_id=source.id))
 
 
 # ---------------------------------------------------------------------------

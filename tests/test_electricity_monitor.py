@@ -48,12 +48,14 @@ def test_parse_phase_snapshot_reads_unsuffixed_keys():
     центиАмперы) — подтверждено 2026-09-01 сверкой с показаниями в
     приложении eWeLink на живых устройствах, см. parse_phase_snapshot()."""
     device = {"itemData": {"deviceid": "10023349b3", "online": True, "params": {
-        "power": "61230", "voltage": "23150", "current": "265",
+        "power": "61230", "voltage": "23150", "current": "265", "dayKwh": 579, "monthKwh": 1234,
     }}}
     snap = parse_phase_snapshot(device)
     assert snap.power_w == Decimal("612.3")
     assert snap.voltage_v == Decimal("231.5")
     assert snap.current_a == Decimal("2.65")
+    assert snap.day_kwh == Decimal("5.79")
+    assert snap.month_kwh == Decimal("12.34")
     assert snap.is_online is True
 
 
@@ -77,6 +79,8 @@ def test_parse_phase_snapshot_missing_fields_are_none():
     assert snap.power_w is None
     assert snap.voltage_v is None
     assert snap.current_a is None
+    assert snap.day_kwh is None
+    assert snap.month_kwh is None
     assert snap.is_online is False
 
 
@@ -422,6 +426,51 @@ def test_view_shows_latest_reading_per_device(app, db, client):
     # — см. .desc() в electricity_monitor.view; мощность отображается в кВт (612.3 / 1000),
     # разделитель дробной части — запятая (локаль ru по умолчанию, см. fmt2()).
     assert "0,61" in resp.get_data(as_text=True)
+
+
+def test_view_shows_and_sums_day_month_kwh_across_phases(app, db, client):
+    """day_kwh/month_kwh не хранятся отдельными колонками — извлекаются из
+    raw_params того же последнего показания, что и power_w (см.
+    scripts/poll_ewelink.py и _parse_kwh_from_reading), без отдельного
+    живого запроса к eWeLink. Суммируются по всем фазам так же, как
+    total_power."""
+    device_a = make_phase_device(db, label="Фаза A", ewelink_device_id="dev-a", sort_order=0)
+    device_b = make_phase_device(db, label="Фаза B", ewelink_device_id="dev-b", sort_order=1)
+    db.add(PowerPhaseReading(
+        device_id=device_a.id, ts=dt.datetime.utcnow(), power_w=Decimal("300"), is_online=True,
+        raw_params=str({"power": "30000", "dayKwh": 579, "monthKwh": 12050}),
+    ))
+    db.add(PowerPhaseReading(
+        device_id=device_b.id, ts=dt.datetime.utcnow(), power_w=Decimal("200"), is_online=True,
+        raw_params=str({"power": "20000", "dayKwh": 421, "monthKwh": 9000}),
+    ))
+    make_user(db, "board17", "pass12345", role=RoleEnum.BOARD)
+    db.commit()
+    login(client, "board17", "pass12345")
+
+    resp = client.get("/electricity/")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert "5,79" in body and "4,21" in body  # показания каждой фазы в её карточке
+    assert "10,00" in body  # 5.79 + 4.21 — суммарный расход за сегодня
+    assert "210,50" in body  # 120.5 + 90.0 — суммарный расход за месяц
+
+
+def test_parse_kwh_from_reading_handles_missing_and_malformed_raw_params():
+    from app.electricity_monitor import _parse_kwh_from_reading
+
+    assert _parse_kwh_from_reading(None) is None
+
+    empty = PowerPhaseReading(raw_params=None)
+    assert _parse_kwh_from_reading(empty) is None
+
+    malformed = PowerPhaseReading(raw_params="not a dict at all {")
+    assert _parse_kwh_from_reading(malformed) is None
+
+    ok = PowerPhaseReading(raw_params=str({"dayKwh": 100, "monthKwh": 2000}))
+    snap = _parse_kwh_from_reading(ok)
+    assert snap.day_kwh == Decimal("1")
+    assert snap.month_kwh == Decimal("20")
 
 
 # ---------------------------------------------------------------------------

@@ -34,7 +34,13 @@
             <li><a class="dropdown-item" href="{{ url_for('proposals.list_proposals') }}">{{ _("Предложения") }}</a></li>
           </ul>
         </li>
-        <li class="nav-item"><a class="nav-link" href="{{ url_for('governance.view') }}">{{ _("Состав правления") }}</a></li>
+        <li class="nav-item dropdown">
+          <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">{{ _("Правление") }}</a>
+          <ul class="dropdown-menu">
+            <li><a class="dropdown-item" href="{{ url_for('governance.contacts') }}">{{ _("Контакты") }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('governance.view') }}">{{ _("Созывы") }}</a></li>
+          </ul>
+        </li>
         <li class="nav-item"><a class="nav-link" href="{{ url_for('cooperative.view') }}">{{ _("О кооперативе") }}</a></li>
       </ul>
       <ul class="navbar-nav ms-auto align-items-lg-center">

@@ -44,7 +44,12 @@
 {% else %}
 <p class="mb-2"><strong>{{ _("Номер счёта") }}:</strong> {{ account.account_number }}</p>
 {% endif %}
-<p class="fs-5 {{ 'text-danger' if balance < 0 else 'text-success' }}">{{ _("Баланс") }}: {{ fmt2(balance) }} ₽</p>
+<p class="fs-5 {{ 'text-danger' if balance < 0 else 'text-success' }}">
+  {{ _("Баланс") }}: {{ fmt2(balance) }} ₽
+  {% if account.fee_type.is_penalty and balance < 0 and is_privileged() %}
+  <button type="button" class="btn btn-sm btn-outline-danger ms-2" data-bs-toggle="modal" data-bs-target="#writeOffPenaltyModal">{{ _("Списать") }}</button>
+  {% endif %}
+</p>
 
 <div class="row g-4">
   <div class="col-md-6">
@@ -115,6 +120,34 @@
     </form>
   </div>
 </div>
+
+{% if account.fee_type.is_penalty and balance < 0 and is_privileged() %}
+<div class="modal fade" id="writeOffPenaltyModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" action="{{ url_for('finance.write_off_penalty', account_id=account.id) }}">
+        <div class="modal-header">
+          <h5 class="modal-title">{{ _("Списать пеню") }}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <p class="text-muted small">
+            {{ _("Для случаев, когда кооператив отказывается от взыскания — мировое соглашение, добровольный отказ от претензий и т.п. Регистрируется как погашающий платёж на всю сумму непогашенной пени ({amount} ₽) — реальных денег не движется, счёт просто обнуляется.", amount=fmt2(-balance)) }}
+          </p>
+          <div class="mb-3">
+            <label class="form-label">{{ _("Причина списания") }}</label>
+            <textarea class="form-control" name="reason" rows="2" placeholder="{{ _('например: мировое соглашение от 01.09.2026, отказ от взыскания') }}" required autofocus></textarea>
+          </div>
+        </div>
+        <div class="modal-footer d-flex justify-content-end">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+          <button class="btn btn-danger">{{ _("Списать") }}</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
 
 <script>
 document.addEventListener("DOMContentLoaded", function () {

@@ -7,7 +7,7 @@ from . import database
 from . import audit
 from .i18n import translate as _, fmt2
 from .auth import login_required, roles_required
-from .permissions import can_view_member_account, is_board
+from .permissions import can_view_member_account, is_board, is_privileged
 from .models import (
     GarageOwnership, Charge, Payment, Garage, PersonalAccount,
     FeeType, MemberAccount, Person, RoleEnum,
@@ -258,6 +258,53 @@ def add_member_payment(account_id):
         True, _("Платёж зарегистрирован."),
         balance=fmt2(new_balance), balance_negative=new_balance < 0,
     )
+
+
+# ---------------------------------------------------------------------------
+# Списание пени — для случаев, когда кооператив отказывается от взыскания
+# (мировое соглашение, добровольный отказ от претензий и т.п.). Только
+# председатель и бухгалтер (is_privileged() — не is_board(): рядовому члену
+# правления прощать долги не положено); только для счетов вида взноса
+# «пеня» — списание обычных взносов/налога этой кнопкой не делается,
+# отдельный сценарий, не то, о чём просили.
+# ---------------------------------------------------------------------------
+
+@bp.route("/member-accounts/<int:account_id>/write-off-penalty", methods=["POST"])
+@login_required
+def write_off_penalty(account_id):
+    account = database.db_session.get(MemberAccount, account_id)
+    if account is None:
+        abort(404)
+    if not is_privileged():
+        abort(403)
+    if not account.fee_type.is_penalty:
+        flash(_("Списание доступно только для счетов пени."), "danger")
+        return redirect(url_for("finance.member_account_detail", account_id=account.id))
+
+    current_balance = _balance(account)
+    if current_balance >= 0:
+        flash(_("По этому счёту нет непогашенной пени — списывать нечего."), "warning")
+        return redirect(url_for("finance.member_account_detail", account_id=account.id))
+
+    reason = (request.form.get("reason") or "").strip()
+    if not reason:
+        flash(_("Укажите причину списания (мировое соглашение, отказ от взыскания и т.п.)."), "danger")
+        return redirect(url_for("finance.member_account_detail", account_id=account.id))
+
+    amount = -current_balance
+    database.db_session.add(Payment(
+        account_id=account.id, date=dt.date.today(), amount=amount,
+        comment=_("Списание пени: {reason}").format(reason=reason),
+    ))
+    database.db_session.flush()
+    reallocate_member_charges(account)
+    audit.record(
+        "penalty.write_off", entity_type="member_account", entity_id=account.id,
+        summary=f"Списана пеня {amount} на счёте {account.account_number} ({account.person.full_name}): {reason}",
+    )
+    database.db_session.commit()
+    flash(_("Пеня списана."), "success")
+    return redirect(url_for("finance.member_account_detail", account_id=account.id))
 
 
 @bp.route("/member-accounts/new", methods=["POST"])

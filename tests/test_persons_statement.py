@@ -7,6 +7,14 @@
 Задолженность». Номер счёта в каждой строке — ссылка на карточку счёта
 (finance.member_account_detail для взносов/налога, garages.detail для
 электричества — своей страницы у него нет).
+
+Печать — отдельная форма (.statement-print, скрыта на экране), не
+распечатка экранных bootstrap-таблиц (.statement-screen, скрыта на
+печати) — та же идея, что и у pd4/print.html: свой шрифт/границы/@page,
+не завязана на тему сайта. Обе версии рендерятся сервером всегда, видимость
+переключает только CSS @media print — эти тесты проверяют, что в HTML
+вообще есть обе структуры со своей разметкой (саму печать браузера тестами
+не проверить).
 """
 import datetime as dt
 from decimal import Decimal
@@ -141,3 +149,37 @@ def test_statement_self_view_allowed_others_forbidden(app, db, client):
     login(client, "other_user", "pass12345")
     resp = client.get(f"/persons/{person.id}/statement")
     assert resp.status_code == 403
+
+
+def test_statement_has_separate_print_form_reset_from_site_styles(app, db, client):
+    person = make_person(db, full_name="Печатная Форма")
+    garage = make_garage(db, number="52")
+    make_ownership(db, garage, person)
+    membership, _land_tax, penalty = _setup_fee_types(db)
+
+    account = MemberAccount(person_id=person.id, garage_id=garage.id, fee_type_id=membership.id, account_number="15200")
+    penalty_account = MemberAccount(person_id=person.id, garage_id=garage.id, fee_type_id=penalty.id, account_number="П15200")
+    db.add_all([account, penalty_account])
+    db.flush()
+    db.add(Charge(account_id=account.id, year=2026, amount=Decimal("500.00")))
+    db.add(Charge(account_id=penalty_account.id, year=2026, amount=Decimal("20.00")))
+
+    make_user(db, "board5", "pass12345", role=RoleEnum.CHAIRMAN)
+    db.commit()
+    login(client, "board5", "pass12345")
+
+    resp = client.get(f"/persons/{person.id}/statement")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+
+    # своя печатная форма — сброс шрифта/полей, не завязана на тему сайта
+    assert '@page { size: auto; margin: 15mm; }' in body
+    assert 'font-family: Arial, Helvetica, sans-serif;' in body
+    assert '.statement-print {' in body
+    assert '.statement-screen' in body and 'display: none !important;' in body  # скрыта именно на печати
+
+    # данные есть в печатной форме, но БЕЗ ссылок (печатному листу некуда вести)
+    assert 'class="print-table"' in body
+    assert '<td>15200</td>' in body
+    assert '<td>П15200</td>' in body
+    assert '<a href="/finance/member-accounts/' in body  # ссылка всё ещё есть в экранной версии

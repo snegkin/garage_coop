@@ -13,9 +13,16 @@
 </div>
 
 <style>
+/* Печатная форма — самостоятельный чёрно-белый документ, не распечатка
+   экранных bootstrap-таблиц (те завязаны на тему сайта, шрифт интерфейса
+   и цвета для экрана — при печати выглядят как попало и часто обрезаются
+   по ширине). На экране показывается .statement-screen, на печати —
+   .statement-print (обратная видимость ниже), по тому же принципу, что и
+   pd4/print.html. */
 @media print {
-  .no-print, nav, footer { display: none !important; }
-  html, body { margin: 0 !important; padding: 0 !important; }
+  @page { size: auto; margin: 15mm; }
+  .no-print, .statement-screen, nav, footer { display: none !important; }
+  html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; }
   body div, body main, body section {
     width: auto !important;
     max-width: none !important;
@@ -25,17 +32,28 @@
     padding-right: 0 !important;
   }
 }
-.statement-header { display: none; }
-@media print { .statement-header { display: block; } }
+.statement-print { display: none; }
+@media print {
+  .statement-print {
+    display: block;
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 12px;
+    color: #000;
+    background: #fff;
+  }
+  .statement-print .print-title { font-size: 16px; font-weight: bold; text-align: center; margin: 0 0 2mm; }
+  .statement-print .print-subtitle { text-align: center; margin: 0 0 1mm; }
+  .statement-print .print-meta { text-align: center; color: #333; font-size: 11px; margin: 0 0 6mm; }
+  .statement-print .print-table { width: 100%; border-collapse: collapse; margin: 0 0 6mm; }
+  .statement-print .print-table th, .statement-print .print-table td { border: 1px solid #000; padding: 1.5mm 2.5mm; }
+  .statement-print .print-table th { background: #eee; text-align: left; font-weight: bold; }
+  .statement-print .print-table td.num, .statement-print .print-table th.num { text-align: right; }
+  .statement-print .print-table tfoot td { font-weight: bold; }
+  .statement-print .print-table .grand-total-row td { font-size: 13px; }
+}
 </style>
 
-<div class="statement-header mb-3">
-  <h4 class="mb-0">
-    {{ _("Выписка по лицевым счетам") }}
-    {% if year_from %}{{ _("с {y1} по {y2} г.", y1=year_from, y2=year_to) if year_from != year_to else _("за {y} г.", y=year_from) }}{% endif %}
-  </h4>
-  <p class="text-muted mb-0">{{ person.full_name }} · {{ _("по состоянию на") }} {{ fmt_date(today) }}</p>
-</div>
+<div class="statement-screen">
 
 {% if not rows and not penalty_rows %}
 <p class="text-muted">{{ _("У этого человека пока нет лицевых счетов.") }}</p>
@@ -90,4 +108,69 @@
 {% endif %}
 
 {% endif %}
+</div>
+
+<div class="statement-print">
+  <p class="print-title">{{ _("Выписка по лицевым счетам") }}</p>
+  <p class="print-subtitle">
+    {{ person.full_name }}
+    {% if year_from %} · {{ _("с {y1} по {y2} г.", y1=year_from, y2=year_to) if year_from != year_to else _("за {y} г.", y=year_from) }}{% endif %}
+  </p>
+  <p class="print-meta">{{ _("по состоянию на") }} {{ fmt_date(today) }}</p>
+
+  {% if not rows and not penalty_rows %}
+  <p>{{ _("У этого человека пока нет лицевых счетов.") }}</p>
+  {% else %}
+
+  <table class="print-table">
+    <thead>
+      <tr><th>{{ _("Л/С") }}</th><th>{{ _("Назначение") }}</th><th class="num">{{ _("Начислено") }}</th><th class="num">{{ _("Оплачено") }}</th><th class="num">{{ _("Сумма") }}</th></tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+      <tr>
+        <td>{{ row.account_number }}</td>
+        <td>{{ row.label }}</td>
+        <td class="num">{{ fmt2(row.charged) }}</td>
+        <td class="num">{{ fmt2(row.paid) }}</td>
+        <td class="num">{{ fmt2(row.balance) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+    <tfoot>
+      <tr>
+        <td colspan="4">{{ _("Баланс") }}{% if penalty_rows %} ({{ _("без пени") }}){% endif %}</td>
+        <td class="num">{{ fmt2(balance_excl_penalty) }} ₽</td>
+      </tr>
+    </tfoot>
+  </table>
+
+  {% if penalty_rows %}
+  <table class="print-table">
+    <thead>
+      <tr><th>{{ _("Л/С") }}</th><th>{{ _("Назначение") }}</th><th class="num">{{ _("Начислено") }}</th><th class="num">{{ _("Оплачено") }}</th><th class="num">{{ _("Сумма") }}</th></tr>
+    </thead>
+    <tbody>
+      {% for row in penalty_rows %}
+      <tr>
+        <td>{{ row.account_number }}</td>
+        <td>{{ row.label }}</td>
+        <td class="num">{{ fmt2(row.charged) }}</td>
+        <td class="num">{{ fmt2(row.paid) }}</td>
+        <td class="num">{{ fmt2(row.balance) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+    <tfoot>
+      <tr><td colspan="4">{{ _("Пеня") }}</td><td class="num">{{ fmt2(penalty_total) }} ₽</td></tr>
+      <tr class="grand-total-row">
+        <td colspan="4">{{ _("Итого") }}{% if grand_total < 0 %} / {{ _("Задолженность") }}{% endif %}</td>
+        <td class="num">{{ fmt2(grand_total) }} ₽</td>
+      </tr>
+    </tfoot>
+  </table>
+  {% endif %}
+
+  {% endif %}
+</div>
 {% endblock %}

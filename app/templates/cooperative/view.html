@@ -17,7 +17,18 @@
   <tr><th>{{ _("КПП") }}</th><td>{{ coop.kpp }}</td></tr>
   <tr><th>{{ _("ОГРН") }}</th><td>{{ coop.ogrn }}</td></tr>
   <tr><th>{{ _("Юридический адрес") }}</th><td>{{ coop.legal_address or "—" }}</td></tr>
-  <tr><th>{{ _("Почтовый адрес") }}</th><td>{{ coop.postal_address or "—" }}</td></tr>
+  {% set chairman_address = chairman.residence_address or chairman.registration_address if chairman else none %}
+  <tr>
+    <th>{{ _("Почтовый адрес") }}</th>
+    <td>
+      {% if coop.postal_address %}
+        {{ coop.postal_address }}
+      {% elif chairman_address %}
+        {{ chairman_address }}
+        <div class="text-muted small">{{ _("почтовый адрес не указан — показан адрес места жительства/регистрации председателя") }}</div>
+      {% else %}—{% endif %}
+    </td>
+  </tr>
   <tr><th>{{ _("Дата регистрации") }}</th><td>{{ fmt_date(coop.registration_date) }}</td></tr>
   <tr><th>{{ _("Площадь кооператива") }}</th><td>{{ (fmt2(coop.total_area) ~ " м²") if coop.total_area is not none else "—" }}</td></tr>
   <tr><th>{{ _("Площадь под гаражами") }}</th><td>{{ (fmt2(coop.garage_area) ~ " м²") if coop.garage_area is not none else "—" }}</td></tr>

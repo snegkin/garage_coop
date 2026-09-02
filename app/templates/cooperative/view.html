@@ -96,7 +96,7 @@
   <thead><tr><th>{{ _("Дата") }}</th><th>{{ _("Тип") }}</th><th>{{ _("№") }}</th><th>{{ _("Название") }}</th>{% if is_board() %}<th>{{ _("Контрагент") }}</th>{% endif %}<th class="no-sort">{{ _("Файл") }}</th>{% if is_board() %}<th class="no-sort">{{ _("Доступ") }}</th>{% endif %}</tr></thead>
   <tbody>
     {% for d in docs %}
-    <tr data-filter-text="{{ ((d.number or '') ~ ' ' ~ d.title ~ ' ' ~ doc_type_label(d.doc_type.value)|lower) }}" data-counterparty-id="{{ d.counterparty_id or '' }}">
+    <tr data-filter-text="{{ ((d.number or '') ~ ' ' ~ d.title ~ ' ' ~ doc_type_label(d.doc_type.value))|lower }}" data-counterparty-id="{{ d.counterparty_id or '' }}">
       <td data-sort-value="{{ d.date }}">{{ fmt_date(d.date) }}</td>
       <td>{{ doc_type_label(d.doc_type.value) }}</td>
       <td>{{ d.number or "—" }}</td>

@@ -665,7 +665,20 @@ def mass_charge():
             fee_type_id = int(f["fee_type_id"])
             fee_type = database.db_session.get(FeeType, fee_type_id)
             base_amount = Decimal(f["base_amount"])
-            garage_amounts = {garage.id: base_amount * garage.coefficient for garage in garages}
+            if fee_type is not None and fee_type.code == "land_tax":
+                # Земельный налог начисляется по-разному в зависимости от
+                # того, приватизирован ли участок под конкретным гаражом
+                # (см. compute_land_tax — та же логика для автоматической
+                # стратегии «land_tax» ниже) — поэтому для этого вида взноса
+                # форма даёт вторую сумму, для гаражей с приватизированной
+                # землёй, а не одну общую на всех.
+                base_amount_privatized = Decimal(f.get("base_amount_privatized") or "0")
+                garage_amounts = {
+                    garage.id: (base_amount_privatized if garage.land_privatized else base_amount) * garage.coefficient
+                    for garage in garages
+                }
+            else:
+                garage_amounts = {garage.id: base_amount * garage.coefficient for garage in garages}
         else:  # "total_area"
             fee_type_id = int(f["fee_type_id"])
             fee_type = database.db_session.get(FeeType, fee_type_id)

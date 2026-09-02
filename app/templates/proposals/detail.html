@@ -33,11 +33,14 @@
 </div>
 {% endif %}
 
+{% set choice_label = {'for': _("за"), 'against': _("против"), 'abstain': _("воздержался")} %}
+
 {% if is_board() or proposal.status.value != 'pending' %}
 <div class="card bg-body mb-3">
   <div class="card-body">
     <h6 class="card-title">{{ _("Решение правления") }}</h6>
     <p class="mb-1">{{ _("За") }}: <strong>{{ tally['for'] }}</strong> · {{ _("Против") }}: <strong>{{ tally['against'] }}</strong>
+      · {{ _("Воздержалось") }}: <strong>{{ tally['abstain'] }}</strong>
       · {{ _("проголосовало") }} {{ tally['voted_ids']|length }} {{ _("из") }} {{ tally['board_ids']|length }} {{ _("членов правления") }}</p>
   </div>
 </div>
@@ -51,7 +54,7 @@
     {% for b in commented %}
     <div class="small mb-1">
       <strong>{{ b.person.full_name }}</strong>
-      <span class="badge text-bg-light border">{{ _("за") if b.choice.value == 'for' else _("против") }}</span>
+      <span class="badge text-bg-light border">{{ choice_label[b.choice.value] }}</span>
       — {{ b.comment }}
     </div>
     {% endfor %}
@@ -64,7 +67,7 @@
   <div class="card-body">
     <h6 class="card-title">{{ _("Ваш голос") }}</h6>
     {% if my_ballot %}
-    <p class="text-muted small">{{ _("Вы уже проголосовали") }} «{{ _("за") if my_ballot.choice.value == 'for' else _("против") }}» — {{ _("можно переголосовать, пока предложение на рассмотрении.") }}</p>
+    <p class="text-muted small">{{ _("Вы уже проголосовали") }} «{{ choice_label[my_ballot.choice.value] }}» — {{ _("можно переголосовать, пока предложение на рассмотрении.") }}</p>
     {% endif %}
     <form method="post" action="{{ url_for('proposals.board_vote', proposal_id=proposal.id) }}">
       <div class="mb-2">
@@ -75,6 +78,7 @@
       <div class="d-flex gap-2">
         <button class="btn btn-success" name="choice" value="for">{{ _("Одобрить (за)") }}</button>
         <button class="btn btn-outline-danger" name="choice" value="against">{{ _("Отклонить (против)") }}</button>
+        <button class="btn btn-outline-secondary" name="choice" value="abstain">{{ _("Воздержаться") }}</button>
       </div>
     </form>
   </div>

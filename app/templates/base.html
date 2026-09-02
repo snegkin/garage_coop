@@ -296,6 +296,10 @@ table.table-labels th.table-label { white-space: normal; word-break: break-word;
 .wiki-tree-item:hover > div > .wiki-tree-actions { opacity: 1; }
 .badge-sm { font-size: .55em; vertical-align: middle; }
 .dropdown-icon { display: inline-block; width: 1.25rem; text-align: center; margin-right: 0.5rem; }
+/* Квадратная кнопка-значок (только символ, без текста) — начисления/платежи
+   на странице лицевого счёта и т.п., где рядом уже есть колонка с суммой/
+   датой и обычная текстовая кнопка была бы избыточно широкой. */
+.btn-icon-square { width: 2rem; height: 2rem; padding: 0; display: inline-flex; align-items: center; justify-content: center; line-height: 1; }
 </style>
 <script>
 // Клик по заголовку у любой таблицы с классом "sortable" сортирует строки её tbody.

@@ -68,6 +68,8 @@ def test_transfer_between_accounts_of_same_person(app, db, client):
     assert "18001" in payments[0].comment
     assert "Иванов И.И." in payments[0].comment
     assert payments[0].related_person_id == person.id
+    # связь для последующей возможной отмены зачёта (finance.cancel_transfer)
+    assert payments[0].offset_charge_id == charges[0].id
 
     entries = db.query(AuditLog).filter_by(action="member_account.transfer").all()
     assert len(entries) == 1

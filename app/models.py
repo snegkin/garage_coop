@@ -1524,11 +1524,21 @@ class Payment(Base):
     # автосгенерированных комментариев про унаследованный долг/переплату,
     # только со стороны Payment.
     related_person_id: Mapped[int | None] = mapped_column(ForeignKey("person.id", ondelete="SET NULL"), index=True)
+    # Заполняется только для платежа, созданного зачётом между лицевыми
+    # счетами (см. finance.transfer_member_account_funds) — id того самого
+    # Charge, что зачёт завёл ПАРНО на счёте-источнике. Без этой связи
+    # удаление такого платежа (finance.delete_member_payment) стирало бы
+    # только его половину, оставляя начисление на счёте-источнике висеть
+    # без соответствующего платежа на другой стороне — деньги "терялись"
+    # бы для владельца счёта-источника. См. finance.cancel_transfer,
+    # которая по этой ссылке удаляет обе половины зачёта разом.
+    offset_charge_id: Mapped[int | None] = mapped_column(ForeignKey("charge.id", ondelete="SET NULL"), index=True)
 
     garage: Mapped["Garage | None"] = relationship(back_populates="payments")
     account: Mapped["MemberAccount | None"] = relationship(back_populates="payments")
     payer: Mapped["Person | None"] = relationship(foreign_keys=[payer_person_id])
     related_person: Mapped["Person | None"] = relationship(foreign_keys=[related_person_id])
+    offset_charge: Mapped["Charge | None"] = relationship(foreign_keys=[offset_charge_id])
     allocations: Mapped[list["ChargeAllocation"]] = relationship(
         back_populates="payment", cascade="all, delete-orphan"
     )

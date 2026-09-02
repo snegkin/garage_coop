@@ -58,7 +58,10 @@ def create_app(config_class=Config):
     @app.context_processor
     def _inject_user():
         from . import database
-        from .models import Cooperative, PersonDataRevision, PersonDataRevisionStatus, Vote, VoteQuestion, VoteBallot, VoteStatus, RoleEnum, Person
+        from .models import (
+            Cooperative, PersonDataRevision, PersonDataRevisionStatus, Vote, VoteQuestion, VoteBallot, VoteStatus,
+            RoleEnum, Person, VoteProposal, VoteProposalBoardBallot, ProposalStatus,
+        )
         from .accounting import balance as _balance
         from .permissions import is_board, is_chairman, is_privileged
         coop = database.db_session.query(Cooperative).first()
@@ -89,11 +92,25 @@ def create_app(config_class=Config):
                     ).exists(),
                 ).count()
 
+        # уведомления для правления — предложения членов кооператива, ждущие голоса этого человека
+        pending_proposals = 0
+        if user and user.person_id:
+            from .governance import current_board_member_ids
+            if user.person_id in current_board_member_ids():
+                pending_proposals = database.db_session.query(VoteProposal).filter(
+                    VoteProposal.status == ProposalStatus.PENDING,
+                    ~database.db_session.query(VoteProposalBoardBallot.id).filter(
+                        VoteProposalBoardBallot.proposal_id == VoteProposal.id,
+                        VoteProposalBoardBallot.person_id == user.person_id,
+                    ).exists(),
+                ).count()
+
         return {
             "current_user": user, "coop_name": coop_name, "balance": _balance,
             "is_board": is_board, "is_chairman": is_chairman, "is_privileged": is_privileged,
             "pending_pd_count": pending_pd,
             "pending_votes_count": pending_votes,
+            "pending_proposals_count": pending_proposals,
         }
 
     from .main import bp as main_bp
@@ -112,6 +129,7 @@ def create_app(config_class=Config):
     from .governance import bp as governance_bp
     from .penalty import bp as penalty_bp
     from .voting import bp as voting_bp
+    from .proposals import bp as proposals_bp
     from .news import bp as news_bp
     from .wiki import bp as wiki_bp
     from .setup_wizard import bp as setup_wizard_bp
@@ -132,6 +150,7 @@ def create_app(config_class=Config):
     app.register_blueprint(governance_bp)
     app.register_blueprint(penalty_bp)
     app.register_blueprint(voting_bp)
+    app.register_blueprint(proposals_bp)
     app.register_blueprint(news_bp)
     app.register_blueprint(wiki_bp)
     app.register_blueprint(setup_wizard_bp)

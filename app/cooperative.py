@@ -8,7 +8,7 @@ from werkzeug.utils import secure_filename
 from . import database
 from .i18n import translate as _
 from .auth import login_required, roles_required
-from .models import Cooperative, BankAccount, BankApiProvider, RoleEnum, Document, DocumentType, Person
+from .models import Cooperative, BankAccount, BankApiProvider, RoleEnum, Document, DocumentType, Person, Counterparty
 from .accounting import cooperative_balance
 from .uploads import save_upload
 from .permissions import is_board
@@ -36,9 +36,12 @@ def view():
         query = query.filter(Document.is_internal.is_(False))
     docs = query.all()
     chairman = database.db_session.query(Person).filter(Person.is_chairman.is_(True)).first()
+    # Контрагент у документа — поле для правления (форма документа, фильтр
+    # в списке); рядовым участникам эта справочная информация не показывается.
+    all_counterparties = database.db_session.query(Counterparty).order_by(Counterparty.name).all() if is_board() else []
     return render_template(
         "cooperative/view.html", coop=coop, coop_balance=cooperative_balance(),
-        docs=docs, doc_types=DocumentType, chairman=chairman,
+        docs=docs, doc_types=DocumentType, chairman=chairman, all_counterparties=all_counterparties,
     )
 
 
@@ -180,6 +183,7 @@ def create_document():
             file_name=secure_filename(file_storage.filename) if file_storage and file_storage.filename else None,
             comment=f.get("comment") or None,
             is_internal=bool(f.get("is_internal")),
+            counterparty_id=int(f["counterparty_id"]) if f.get("counterparty_id") else None,
         )
         database.db_session.add(doc)
         database.db_session.commit()
@@ -203,6 +207,7 @@ def edit_document(doc_id):
     doc.title = f["title"]
     doc.comment = f.get("comment") or None
     doc.is_internal = bool(f.get("is_internal"))
+    doc.counterparty_id = int(f["counterparty_id"]) if f.get("counterparty_id") else None
 
     file_storage = request.files.get("file")
     if file_storage and file_storage.filename:

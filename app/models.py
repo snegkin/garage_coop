@@ -416,6 +416,7 @@ class Counterparty(Base):
     expenses: Mapped[list["Expense"]] = relationship(back_populates="counterparty")
     payments: Mapped[list["CounterpartyPayment"]] = relationship(back_populates="counterparty")
     reconciliation_acts: Mapped[list["ReconciliationAct"]] = relationship(back_populates="counterparty")
+    documents: Mapped[list["Document"]] = relationship(back_populates="counterparty")
 
 
 class Expense(Base):
@@ -554,6 +555,9 @@ class Document(Base):
     file_name: Mapped[str | None] = mapped_column(String(500))  # оригинальное имя файла при загрузке
     comment: Mapped[str | None] = mapped_column(Text)
     is_internal: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    counterparty_id: Mapped[int | None] = mapped_column(ForeignKey("counterparty.id", ondelete="SET NULL"), index=True)
+
+    counterparty: Mapped["Counterparty | None"] = relationship(back_populates="documents")
 
 
 class BoardTerm(Base):

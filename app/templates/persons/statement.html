@@ -37,29 +37,29 @@
   .statement-print {
     display: block;
     font-family: Arial, Helvetica, sans-serif;
-    font-size: 12px;
+    font-size: 10px;
     color: #000;
     background: #fff;
   }
-  .statement-print .print-title { font-size: 16px; font-weight: bold; text-align: center; margin: 0 0 2mm; }
+  .statement-print .print-title { font-size: 13px; font-weight: bold; text-align: center; margin: 0 0 2mm; }
   .statement-print .print-subtitle { text-align: center; margin: 0 0 1mm; }
-  .statement-print .print-meta { text-align: center; color: #333; font-size: 11px; margin: 0 0 6mm; }
+  .statement-print .print-meta { text-align: center; color: #333; font-size: 9px; margin: 0 0 6mm; }
   .statement-print .print-table { width: 100%; border-collapse: collapse; margin: 0 0 6mm; }
-  .statement-print .print-table th, .statement-print .print-table td { border: 1px solid #000; padding: 1.5mm 2.5mm; }
+  .statement-print .print-table th, .statement-print .print-table td { border: 1px solid #000; padding: 1mm 2mm; }
   .statement-print .print-table th { background: #eee; text-align: left; font-weight: bold; }
   .statement-print .print-table td.num, .statement-print .print-table th.num { text-align: right; }
   .statement-print .print-table tfoot td { font-weight: bold; }
-  .statement-print .print-table .grand-total-row td { font-size: 13px; }
+  .statement-print .print-table .grand-total-row td { font-size: 11px; }
 
   /* Официальная шапка — логотип + реквизиты кооператива, слева вверху */
   .statement-print .print-letterhead {
     display: flex; align-items: center; gap: 5mm;
     border-bottom: 1px solid #000; padding-bottom: 3mm; margin-bottom: 6mm;
   }
-  .statement-print .print-logo { height: 18mm; width: auto; flex: none; }
-  .statement-print .print-org-name { font-size: 12px; font-weight: bold; }
-  .statement-print .print-org-requisites { font-size: 10px; color: #333; }
-  .statement-print .print-org-address { font-size: 10px; color: #333; }
+  .statement-print .print-logo { height: 16mm; width: auto; flex: none; }
+  .statement-print .print-org-name { font-size: 10px; font-weight: bold; }
+  .statement-print .print-org-requisites { font-size: 8px; color: #333; }
+  .statement-print .print-org-address { font-size: 8px; color: #333; }
 
   /* Подписи — председатель/бухгалтер и место под печать, справа внизу */
   .statement-print .print-signatures { display: flex; justify-content: flex-end; margin-top: 12mm; }
@@ -67,11 +67,11 @@
   .statement-print .signature-line { margin-bottom: 7mm; white-space: nowrap; }
   .statement-print .sig-role { display: inline-block; width: 28mm; }
   .statement-print .sig-blank { display: inline-block; width: 45mm; border-bottom: 1px solid #000; margin: 0 2mm; }
-  .statement-print .sig-name { font-size: 10px; }
+  .statement-print .sig-name { font-size: 9px; }
   .statement-print .stamp-place {
     width: 24mm; height: 24mm; border: 1px dashed #666; border-radius: 50%;
     display: flex; align-items: center; justify-content: center;
-    font-size: 9px; color: #666; text-align: center; margin-left: 8mm;
+    font-size: 8px; color: #666; text-align: center; margin-left: 8mm;
   }
 }
 </style>
@@ -210,11 +210,11 @@
     <div class="signature-rows">
       <div class="signature-line">
         <span class="sig-role">{{ _("Председатель") }}</span><span class="sig-blank"></span>
-        {% if chairman %}<span class="sig-name">/{{ chairman.full_name }}/</span>{% endif %}
+        {% if chairman %}<span class="sig-name">/{{ chairman.short_name }}/</span>{% endif %}
       </div>
       <div class="signature-line">
         <span class="sig-role">{{ _("Бухгалтер") }}</span><span class="sig-blank"></span>
-        {% if accountant %}<span class="sig-name">/{{ accountant.full_name }}/</span>{% endif %}
+        {% if accountant %}<span class="sig-name">/{{ accountant.short_name }}/</span>{% endif %}
       </div>
     </div>
     <div class="stamp-place">{{ _("М.П.") }}</div>

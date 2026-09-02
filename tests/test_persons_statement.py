@@ -207,12 +207,14 @@ def test_statement_print_form_has_letterhead_and_signatures(app, db, client):
     assert "770101001" in body
     assert "г. Москва, ул. Гаражная, д. 1" in body
 
-    # подписи и место под печать — справа внизу
+    # подписи и место под печать — справа внизу, ФИО сокращённо (Фамилия И.О.)
     assert 'class="print-signatures"' in body
     assert "Председатель" in body
-    assert "Председателев Пётр Петрович" in body
+    assert "Председателев П.П." in body
+    assert "Председателев Пётр Петрович" not in body
     assert "Бухгалтер" in body
-    assert "Бухгалтерова Анна Ивановна" in body
+    assert "Бухгалтерова А.И." in body
+    assert "Бухгалтерова Анна Ивановна" not in body
     assert 'class="stamp-place"' in body
     assert "М.П." in body
 

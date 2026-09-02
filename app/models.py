@@ -893,6 +893,18 @@ class Person(Base):
     email: Mapped[str | None] = mapped_column(String(120))
     telegram: Mapped[str | None] = mapped_column(String(120))
 
+    @property
+    def short_name(self) -> str:
+        """Фамилия и инициалы: «Иванов И.И.» — для официальных документов
+        (подписи на печатных формах, подписи собственников под номером
+        гаража и т.п.), где полное ФИО избыточно."""
+        parts = self.full_name.strip().split()
+        if not parts:
+            return self.full_name
+        surname = parts[0]
+        initials = ".".join(p[0] for p in parts[1:3]) + "." if len(parts) > 1 else ""
+        return f"{surname} {initials}" if initials else surname
+
     # паспортные данные РФ
     passport_series: Mapped[str | None] = mapped_column(String(4))
     passport_number: Mapped[str | None] = mapped_column(String(6))

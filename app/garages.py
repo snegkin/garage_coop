@@ -207,16 +207,6 @@ def create():
     )
 
 
-def _owner_initials(person) -> str:
-    '''Фамилия и инициалы: Иванов И.П.'''
-    parts = person.full_name.strip().split()
-    if not parts:
-        return person.full_name
-    surname = parts[0]
-    initials = ".".join(p[0] for p in parts[1:3]) + "." if len(parts) > 1 else ""
-    return f"{surname} {initials}" if initials else surname
-
-
 def _truncate(text: str, max_len: int = 70) -> str:
     """Обрезаем текст, добавляя «…», если не помещается."""
     text = str(text)
@@ -381,7 +371,7 @@ def detail(garage_id):
 
     # заголовок: «Гараж №N (Фамилия И.О.)» — не более 70 символов
     owner_names = ", ".join(
-        _owner_initials(o.person) for o in garage.ownerships
+        o.person.short_name for o in garage.ownerships
     )
     title = _("Гараж №{n}", n=garage.number)
     if owner_names:

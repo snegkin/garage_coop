@@ -59,9 +59,14 @@ def test_transfer_between_accounts_of_same_person(app, db, client):
     assert charges[0].amount == Decimal("500.00")
     assert charges[0].related_person_id == person.id
     assert "18002" in charges[0].comment
+    # в комментарии, который видит член кооператива, — инициалы (Person.short_name),
+    # не полное ФИО (оно остаётся только в записи журнала аудита ниже)
+    assert "Иванов И.И." in charges[0].comment
+    assert "Иванов Иван Иванович" not in charges[0].comment
     assert len(payments) == 1  # платёж от зачёта (исходный Payment был на счёте-источнике, не здесь)
     assert payments[0].amount == Decimal("500.00")
     assert "18001" in payments[0].comment
+    assert "Иванов И.И." in payments[0].comment
     assert payments[0].related_person_id == person.id
 
     entries = db.query(AuditLog).filter_by(action="member_account.transfer").all()

@@ -44,7 +44,7 @@
   <tbody>
     {% for entry in entries %}
     <tr id="registry-entry-{{ entry.id }}" data-filter-text="{{ (fmt_date(entry.operation_date) ~ ' ' ~ (entry.account_number or '') ~ ' ' ~ (entry.payer_name or '') ~ ' ' ~ fmt2(entry.amount) ~ ' ' ~ (entry.payment_purpose or '') ~ ' ' ~ (_('разнесён') if entry.matched_payment_id else _('не разнесён')))|lower }}">
-      <td>{{ fmt_date(entry.operation_date) }}</td>
+      <td data-sort-value="{{ entry.operation_date.isoformat() }}">{{ fmt_date(entry.operation_date) }}</td>
       <td class="text-end">{{ entry.account_number or "—" }}</td>
       <td>{{ entry.payer_name or "—" }}</td>
       <td data-sort-value="{{ entry.amount }}">{{ fmt2(entry.amount) }} ₽</td>

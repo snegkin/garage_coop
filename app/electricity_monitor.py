@@ -35,7 +35,7 @@ from .ewelink import EWeLinkClient, EWeLinkTokens, EWeLinkApiError, EWeLinkAuthE
 
 bp = Blueprint("electricity_monitor", __name__, url_prefix="/electricity")
 
-HISTORY_HOURS = 3  # период по умолчанию для графика при первом открытии страницы (см. view())
+HISTORY_HOURS = 24 * 7  # период по умолчанию для графика при первом открытии страницы (см. view())
 MAX_CHART_POINTS = 1500  # точек на устройство в ответе history_data() — при 30 днях с опросом раз в 5 минут сырых точек ~8600, а за более старую историю (raw_params накопится) может быть больше; без ограничения график будет тормозить
 OAUTH_STATE_SESSION_KEY = "ewelink_oauth_state"
 

@@ -102,16 +102,28 @@
   <div class="col-md-6">
     <h5>{{ _("Платежи") }}</h5>
     <table class="table table-sm bg-body sortable">
-      <thead><tr><th>{{ _("Дата") }}</th><th>{{ _("Сумма") }}</th><th>{{ _("Комментарий") }}</th></tr></thead>
+      <thead>
+        <tr>
+          <th>{{ _("Дата") }}</th><th>{{ _("Сумма") }}</th><th>{{ _("Комментарий") }}</th>
+          {% if is_chairman() %}<th class="no-sort"></th>{% endif %}
+        </tr>
+      </thead>
       <tbody>
         {% for p in account.payments|sort(attribute="date", reverse=True) %}
         <tr>
           <td data-sort-value="{{ p.date }}">{{ fmt_date(p.date) }}</td>
           <td data-sort-value="{{ p.amount }}">{{ fmt2(p.amount) }} ₽</td>
           <td>{{ linkify_related_person(p.comment, p.related_person, is_board()) or "—" }}</td>
+          {% if is_chairman() %}
+          <td>
+            <form method="post" action="{{ url_for('finance.delete_member_payment', account_id=account.id, payment_id=p.id) }}" onsubmit="return confirm('{{ _('Удалить этот платёж? Если он был разнесён из выписки/реестра, соответствующая строка вернётся в статус «не разнесён».') }}')">
+              <button class="btn btn-sm btn-outline-danger">×</button>
+            </form>
+          </td>
+          {% endif %}
         </tr>
         {% else %}
-        <tr><td colspan="3" class="text-muted">{{ _("Платежей нет.") }}</td></tr>
+        <tr><td colspan="{{ 4 if is_chairman() else 3 }}" class="text-muted">{{ _("Платежей нет.") }}</td></tr>
         {% endfor %}
       </tbody>
     </table>

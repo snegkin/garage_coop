@@ -89,7 +89,7 @@
       <td class="no-sort">
         {% if loop.first %}
         <form method="post" action="{{ url_for('power.delete_reading', reading_id=r.id) }}" onsubmit="return confirm('{{ _('Удалить показание?') }}')">
-          <button class="btn btn-sm btn-outline-danger">✕</button>
+          <button class="btn btn-sm btn-outline-danger btn-icon-square" title="{{ _('Удалить') }}">✕</button>
         </form>
         {% endif %}
       </td>

@@ -524,22 +524,35 @@ def allocate_statement_line(account_id, line_id):
         return respond(False, _("Разносить можно только зачисления, не списания."))
 
     override = (request.form.get("account_number") or "").strip()
-    # Тот же порядок, что и при автоматическом разнесении (sync_statement)
-    # и в предпросмотре подсказки (statement()): переопределение из формы →
-    # уже сохранённый номер → повторный разбор текста. Раньше здесь не
-    # было последнего шага — из-за этого подсказка «Предполагаемый счёт»
-    # (которая как раз и вычисляется через extract_account_number) могла
-    # показать номер, а сама кнопка «Разнести» с пустым полем — ничего не
-    # найти, хотя номер буквально виден в тексте назначения платежа.
-    account_number = override or line.account_number or extract_account_number(line.payment_purpose)
+    if override:
+        # Явное переопределение из формы — председатель указал номер сам,
+        # значит имел в виду именно его; если такого счёта нет, это ошибка
+        # ввода, а не повод тихо угадывать счёт по имени плательщика (см.
+        # strict_account_number в _allocate_payment_to_account).
+        account_number = override
+        strict = True
+    else:
+        # Тот же порядок, что и при автоматическом разнесении
+        # (sync_statement) и в предпросмотре подсказки (statement()):
+        # уже сохранённый номер → повторный разбор текста, с откатом на
+        # поиск по имени, если и это не совпало. Раньше здесь не было
+        # последнего шага (extract_account_number) — из-за этого подсказка
+        # «Предполагаемый счёт» могла показать номер, а сама кнопка
+        # «Разнести» с пустым полем — ничего не найти, хотя номер буквально
+        # виден в тексте назначения платежа.
+        account_number = line.account_number or extract_account_number(line.payment_purpose)
+        strict = False
 
     comment = _("Разнесено вручную по выписке банка, операция {uid}").format(uid=line.external_uid or line.id)
     payment, resolved_number = _allocate_payment_to_account(
         line.operation_date, line.amount, comment,
         account_number=account_number, payer_name=line.counterparty_name, purpose=line.payment_purpose,
+        strict_account_number=strict,
     )
     if payment is None:
-        if account_number:
+        if strict:
+            msg = _("Лицевой счёт «{number}» не найден.").format(number=account_number)
+        elif account_number:
             msg = _("Лицевой счёт «{number}» не найден, и по имени плательщика однозначно определить его тоже не удалось.").format(number=account_number)
         else:
             msg = _("Не удалось определить лицевой счёт по имени плательщика — укажите номер лицевого счёта вручную.")
@@ -1104,6 +1117,7 @@ def _resolve_account_by_name(payer_name: str | None, purpose: str | None):
 def _allocate_payment_to_account(
     date: dt.date, amount: Decimal, comment: str,
     account_number: str | None = None, payer_name: str | None = None, purpose: str | None = None,
+    strict_account_number: bool = False,
 ) -> tuple[Payment | None, str | None]:
     """Общая точка для «нашли лицевой счёт — завести Payment на полную
     сумму и разнести по FIFO» — используется и для реестра платежей
@@ -1114,6 +1128,13 @@ def _allocate_payment_to_account(
     найден — самый надёжный источник, используется как есть); если номера
     нет или счёт с таким номером не найден — по имени плательщика/тому,
     за кого платят (см. _resolve_account_by_name), включая лиц для связи.
+    Исключение — strict_account_number=True: это явное переопределение
+    номера счёта председателем через поле ввода (см. allocate_statement_line/
+    allocate_payment_registry_entry), а не подсказка из текста/файла —
+    если ТАКОГО номера не нашлось, ошибочно тихо подставлять счёт,
+    найденный по имени плательщика, который председатель мог не иметь в
+    виду вовсе; в этом случае считаем, что счёт не найден, вместо
+    отката ко второму шагу.
 
     Возвращает (Payment, распознанный_номер_счёта) — второй элемент
     полезен даже при поиске по имени, чтобы сохранить фактический номер
@@ -1130,6 +1151,8 @@ def _allocate_payment_to_account(
     resolved_account_number = account_number
     if account_number:
         kind, target = _find_account_by_number(account_number)
+    if kind is None and strict_account_number:
+        return None, None
     if kind is None:
         kind, target, resolved_account_number = _resolve_account_by_name(payer_name, purpose)
     if kind is None:
@@ -1368,6 +1391,14 @@ def allocate_payment_registry_entry(account_id, entry_id):
     каждого разнесения. Роут отдаёт JSON при заголовке
     X-Requested-With; обычная форма (JS отключён) по-прежнему работает
     через redirect+flash.
+
+    Поле формы account_number — та же ручная подсказка/переопределение,
+    что и на странице выписки (см. allocate_statement_line): если
+    председатель указал номер сам — используется строго он, без отката на
+    поиск по имени плательщика при ошибке (см. strict_account_number в
+    _allocate_payment_to_account); если поле пустое — берём номер,
+    сохранённый при импорте записи (уже структурное поле файла реестра,
+    не разбор текста), с откатом на поиск по имени, как раньше.
     """
     is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
 
@@ -1384,17 +1415,29 @@ def allocate_payment_registry_entry(account_id, entry_id):
     if entry.matched_payment_id is not None:
         return respond(False, _("Эта запись уже разнесена."))
 
+    override = (request.form.get("account_number") or "").strip()
+    if override:
+        account_number = override
+        strict = True
+    else:
+        account_number = entry.account_number
+        strict = False
+
     comment = _("Импорт из реестра платежей банка (id {id})").format(id=entry.external_id)
     payment, resolved_number = _allocate_payment_to_account(
         entry.operation_date, entry.amount, comment,
-        account_number=entry.account_number, payer_name=entry.payer_name, purpose=entry.payment_purpose,
+        account_number=account_number, payer_name=entry.payer_name, purpose=entry.payment_purpose,
+        strict_account_number=strict,
     )
     if payment is None:
+        if strict:
+            return respond(False, _("Лицевой счёт «{number}» не найден.").format(number=account_number))
         return respond(
             False,
             _("Не удалось найти лицевой счёт ни по номеру, ни по имени плательщика для этой записи реестра."),
         )
 
+    entry.account_number = resolved_number
     entry.matched_payment_id = payment.id
     audit.record(
         "bank_api.payment_registry_allocate", entity_type="bank_account", entity_id=account.id,

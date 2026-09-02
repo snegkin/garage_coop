@@ -29,7 +29,6 @@ def _parse_decimal(raw):
 @login_required
 def view():
     coop = database.db_session.query(Cooperative).first()
-    bank_accounts = database.db_session.query(BankAccount).order_by(BankAccount.is_primary.desc(), BankAccount.bank_name).all()
     # Загружаем документы — рядовые участники видят только не-внутренние
     from .permissions import is_board
     query = database.db_session.query(Document).order_by(Document.date.desc())
@@ -38,7 +37,7 @@ def view():
     docs = query.all()
     chairman = database.db_session.query(Person).filter(Person.is_chairman.is_(True)).first()
     return render_template(
-        "cooperative/view.html", coop=coop, bank_accounts=bank_accounts, coop_balance=cooperative_balance(),
+        "cooperative/view.html", coop=coop, coop_balance=cooperative_balance(),
         docs=docs, doc_types=DocumentType, chairman=chairman,
     )
 

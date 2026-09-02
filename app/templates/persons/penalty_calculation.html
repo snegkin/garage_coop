@@ -54,21 +54,25 @@
 .penalty-doc td.num, .penalty-doc th.num { text-align: right; }
 .penalty-doc tfoot td { font-weight: bold; }
 .penalty-doc .grand-total { text-align: right; font-size: 12px; font-weight: bold; margin: 6mm 0; }
-/* Место под печать — строго под подписью, не сбоку. Намеренно БЕЗ
-   flex-контейнера на print-signatures: flex-колонка с растянутым
-   stamp-place по высоте под signature-rows в реальной печати вела себя
-   иначе, чем на экране (круг превращался в овал только в print-превью) —
-   вместо этого обычный блочный поток + margin-left:auto с
-   width:max-content для прижатия к правому краю у каждого по
-   отдельности, этот приём не зависит от рендера flexbox при печати. */
+/* Место под печать — строго под подписью, не сбоку. Обычный блочный поток
+   (signature-rows/stamp-place друг под другом сами по себе) +
+   width:max-content/margin-left:auto для прижатия к правому краю у
+   каждого по отдельности. ВАЖНО: у обоих — !important на
+   width/margin-left. Без него их клобберит общее правило сброса печати
+   в @media print выше (`body div { width: auto !important; margin-left:
+   0 !important; ... }`, нужное для сброса обёрток base.html) — оно
+   матчит вообще ЛЮБОЙ <div> в body, включая эти два, и как !important
+   побеждает несмотря на более узкий селектор здесь; на экране этого
+   сброса нет вовсе (он внутри @media print), там и без !important всё
+   было верно — нашли только по факту в реальной печати браузера. */
 .penalty-doc .print-signatures { margin-top: 12mm; }
-.penalty-doc .signature-rows { text-align: left; width: max-content; margin-left: auto; }
+.penalty-doc .signature-rows { text-align: left; width: max-content !important; margin-left: auto !important; }
 .penalty-doc .signature-line { margin-bottom: 7mm; white-space: nowrap; }
 .penalty-doc .sig-role { display: inline-block; width: 28mm; }
 .penalty-doc .sig-blank { display: inline-block; width: 45mm; border-bottom: 1px solid #000; margin: 0 2mm; }
 .penalty-doc .sig-name { font-size: 9px; }
 .penalty-doc .stamp-place {
-  width: 24mm; height: 24mm; margin: 4mm 0 0 auto; border: 1px dashed #666; border-radius: 50%;
+  width: 24mm !important; height: 24mm; margin: 4mm 0 0 auto !important; border: 1px dashed #666; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
   font-size: 8px; color: #666; text-align: center;
 }

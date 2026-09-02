@@ -126,15 +126,17 @@ def member_account_detail(account_id):
             MemberAccount.id != account.id,
             or_(MemberAccount.person_id == account.person_id, MemberAccount.garage_id == account.garage_id),
         )
-        # свои же счета (тот же человек) — выше в списке, дальше — по ФИО/виду взноса
-        .order_by(MemberAccount.person_id != account.person_id, Person.full_name, FeeType.name)
+        .order_by(MemberAccount.account_number)
         .all()
     )
+    # Баланс каждого счёта-получателя — чтобы видеть в модалке зачёта, куда
+    # реально уходят деньги, не открывая отдельно каждый счёт.
+    transferable_balances = {t.id: _balance(t) for t in transferable_accounts}
 
     return render_template(
         "finance/member_account_detail.html", account=account, balance=_balance(account),
         prev_account=prev_account, next_account=next_account, today=dt.date.today(),
-        transferable_accounts=transferable_accounts,
+        transferable_accounts=transferable_accounts, transferable_balances=transferable_balances,
     )
 
 
@@ -233,6 +235,53 @@ def add_member_charge(account_id):
         True, _("Начисление добавлено."),
         balance=fmt2(new_balance), balance_negative=new_balance < 0,
     )
+
+
+@bp.route("/member-accounts/<int:account_id>/charges/<int:charge_id>/edit", methods=["POST"])
+@roles_required(RoleEnum.BOARD)
+def edit_member_charge(account_id, charge_id):
+    """
+    Правка уже проведённого начисления — например, когда массовое
+    начисление (mass_charge) посчитало сумму по формуле, которая для
+    части счетов (в частности, земельный налог по приватизированным
+    гаражам за отдельные годы) не совпадает с правильным расчётом, и
+    ошибку нужно исправить точечно, не откатывая всё начисление целиком.
+    Разрешена правка любого начисления счёта, а не только последнего
+    (в отличие от counterparties.edit_payment) — типичный случай здесь
+    как раз в том, что ошибка вскрывается для начислений прошлых лет.
+    """
+    account = database.db_session.get(MemberAccount, account_id)
+    if account is None:
+        abort(404)
+    charge = database.db_session.get(Charge, charge_id)
+    if charge is None or charge.account_id != account.id:
+        abort(404)
+
+    f = request.form
+    try:
+        year = int(f["year"])
+        amount = Decimal(f["amount"])
+    except (KeyError, ValueError, InvalidOperation):
+        flash(_("Проверьте год и сумму начисления."), "danger")
+        return redirect(url_for("finance.member_account_detail", account_id=account.id))
+    if amount <= 0:
+        flash(_("Сумма начисления должна быть больше нуля."), "danger")
+        return redirect(url_for("finance.member_account_detail", account_id=account.id))
+
+    old_amount = charge.amount
+    charge.year = year
+    charge.amount = amount
+    charge.comment = f.get("comment") or None
+    database.db_session.flush()
+    reallocate_member_charges(account)
+    audit.record(
+        "charge.edit", entity_type="member_account", entity_id=account.id,
+        summary=f"Начисление на счёте {account.account_number} ({account.person.full_name}) изменено: "
+                f"{old_amount} → {amount} ₽, {year} год",
+    )
+    database.db_session.commit()
+    flash(_("Начисление изменено."), "success")
+    return redirect(url_for("finance.member_account_detail", account_id=account.id))
 
 
 @bp.route("/member-accounts/<int:account_id>/payments/add", methods=["POST"])

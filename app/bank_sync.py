@@ -1281,6 +1281,7 @@ def payment_registry(account_id):
     return render_template(
         "cooperative/payment_registry.html", account=account, entries=entries,
         date_from=date_from, date_to=date_to, statement_link_dates=statement_link_dates,
+        pending_entries=sum(1 for entry in entries if not entry.matched_payment_id),
     )
 
 
@@ -1401,6 +1402,68 @@ def allocate_payment_registry_entry(account_id, entry_id):
     )
     database.db_session.commit()
     return respond(True, _("Платёж разнесён."), account_number=resolved_number)
+
+
+@bp.route("/registry/payments/allocate-all", methods=["POST"])
+@roles_required(RoleEnum.CHAIRMAN)
+def allocate_all_payment_registry_entries(account_id):
+    """
+    «Разнести всё возможное одной кнопкой» — тот же приём, что для выписки
+    (см. allocate_all_statement_lines), но для записей реестра платежей.
+    Здесь проще: номер лицевого счёта уже сохранён при импорте самим
+    форматом реестра (см. PaymentRegistryEntry.account_number), не нужно
+    заново вытаскивать его регэкспом из свободного текста назначения —
+    просто повторяем автоматическое разнесение (номер счёта → имя
+    плательщика/лица для связи, см. _allocate_payment_to_account) для
+    всех ещё не разнесённых записей разом.
+    """
+    account = _get_account(account_id)
+    date_from = request.form.get("date_from") or None
+    date_to = request.form.get("date_to") or None
+
+    query = database.db_session.query(PaymentRegistryEntry).filter(
+        PaymentRegistryEntry.bank_account_id == account.id,
+        PaymentRegistryEntry.matched_payment_id.is_(None),
+    )
+    if date_from:
+        query = query.filter(PaymentRegistryEntry.operation_date >= dt.date.fromisoformat(date_from))
+    if date_to:
+        query = query.filter(PaymentRegistryEntry.operation_date <= dt.date.fromisoformat(date_to))
+    entries = query.all()
+
+    allocated = 0
+    for entry in entries:
+        comment = _("Импорт из реестра платежей банка (id {id})").format(id=entry.external_id)
+        payment, resolved_number = _allocate_payment_to_account(
+            entry.operation_date, entry.amount, comment,
+            account_number=entry.account_number, payer_name=entry.payer_name, purpose=entry.payment_purpose,
+        )
+        if payment is not None:
+            entry.matched_payment_id = payment.id
+            allocated += 1
+
+    if allocated:
+        audit.record(
+            "bank_api.payment_registry_bulk_allocate", entity_type="bank_account", entity_id=account.id,
+            summary=f"Массовое разнесение реестра платежей счёта {account.bank_name} {account.checking_account}: "
+                    f"{allocated} записей",
+        )
+    database.db_session.commit()
+    remaining = len(entries) - allocated
+    if allocated:
+        flash(_("Разнесено: {n} записей.").format(n=allocated), "success")
+    else:
+        flash(_("Не удалось разнести ни одной записи — для оставшихся нужен ручной ввод номера счёта."), "warning")
+    if remaining:
+        flash(
+            _("Осталось неразнесённых (нужен ручной ввод номера счёта): {n}.").format(n=remaining),
+            "warning",
+        )
+    # Сохраняем активный фильтр по дате (см. payment_registry()) — иначе
+    # редирект на голый URL сбросил бы его и показал весь реестр.
+    return redirect(url_for(
+        "bank_sync.payment_registry", account_id=account.id, date_from=date_from, date_to=date_to,
+    ))
 
 
 @bp.route("/match-registry-statement", methods=["POST"])

@@ -853,6 +853,96 @@ def test_allocate_payment_registry_entry_unknown_account_number(app, db, client)
     assert updated_entry.matched_payment_id is None
 
 
+def test_allocate_all_payment_registry_entries(app, db, client):
+    person_a = make_person(db, full_name="Иванов Иван Иванович")
+    person_b = make_person(db, full_name="Петров Пётр Петрович")
+    garage = make_garage(db)
+    fee_type = FeeType(code="10", name="Членский взнос")
+    db.add(fee_type)
+    db.flush()
+    account_a = MemberAccount(
+        person_id=person_a.id, garage_id=garage.id, fee_type_id=fee_type.id, account_number="20055",
+    )
+    account_b = MemberAccount(
+        person_id=person_b.id, garage_id=garage.id, fee_type_id=fee_type.id, account_number="20056",
+    )
+    db.add_all([account_a, account_b])
+    db.flush()
+    db.add(Charge(account_id=account_a.id, year=2026, amount=Decimal("400.00")))
+    db.add(Charge(account_id=account_b.id, year=2026, amount=Decimal("300.00")))
+    db.flush()
+
+    bank_account = make_bank_account(db, provider=BankApiProvider.SBERBANK)
+    entry_a = PaymentRegistryEntry(
+        bank_account_id=bank_account.id, external_id="bulk-1", account_number="20055",
+        payer_name=person_a.full_name, amount=Decimal("400.00"), operation_date=dt.date(2026, 8, 10),
+    )
+    entry_b = PaymentRegistryEntry(
+        bank_account_id=bank_account.id, external_id="bulk-2", account_number="20056",
+        payer_name=person_b.full_name, amount=Decimal("300.00"), operation_date=dt.date(2026, 8, 11),
+    )
+    entry_unknown = PaymentRegistryEntry(
+        bank_account_id=bank_account.id, external_id="bulk-3", account_number="does-not-exist",
+        amount=Decimal("100.00"), operation_date=dt.date(2026, 8, 12),
+    )
+    db.add_all([entry_a, entry_b, entry_unknown])
+    make_user(db, "chair8", "pass12345", role=RoleEnum.CHAIRMAN)
+    db.commit()
+    login(client, "chair8", "pass12345")
+
+    resp = client.post(f"/cooperative/bank-accounts/{bank_account.id}/registry/payments/allocate-all")
+    assert resp.status_code == 302
+    db.expire_all()
+
+    assert database.db_session.get(PaymentRegistryEntry, entry_a.id).matched_payment_id is not None
+    assert database.db_session.get(PaymentRegistryEntry, entry_b.id).matched_payment_id is not None
+    assert database.db_session.get(PaymentRegistryEntry, entry_unknown.id).matched_payment_id is None
+    assert balance(account_a) == Decimal("0.00")
+    assert balance(account_b) == Decimal("0.00")
+
+
+def test_allocate_all_payment_registry_entries_respects_date_filter(app, db, client):
+    """Кнопка передаёт date_from/date_to текущего фильтра страницы (см.
+    payment_registry.html) — массовое разнесение должно ограничиваться
+    только показанными записями, а не молча трогать остальные."""
+    person = make_person(db)
+    garage = make_garage(db)
+    fee_type = FeeType(code="10", name="Членский взнос")
+    db.add(fee_type)
+    db.flush()
+    member_account = MemberAccount(
+        person_id=person.id, garage_id=garage.id, fee_type_id=fee_type.id, account_number="20055",
+    )
+    db.add(member_account)
+    db.flush()
+    db.add(Charge(account_id=member_account.id, year=2026, amount=Decimal("700.00")))
+    db.flush()
+
+    bank_account = make_bank_account(db, provider=BankApiProvider.SBERBANK)
+    entry_in_window = PaymentRegistryEntry(
+        bank_account_id=bank_account.id, external_id="win-1", account_number="20055",
+        payer_name=person.full_name, amount=Decimal("400.00"), operation_date=dt.date(2026, 8, 10),
+    )
+    entry_out_of_window = PaymentRegistryEntry(
+        bank_account_id=bank_account.id, external_id="win-2", account_number="20055",
+        payer_name=person.full_name, amount=Decimal("300.00"), operation_date=dt.date(2026, 1, 1),
+    )
+    db.add_all([entry_in_window, entry_out_of_window])
+    make_user(db, "chair9", "pass12345", role=RoleEnum.CHAIRMAN)
+    db.commit()
+    login(client, "chair9", "pass12345")
+
+    resp = client.post(
+        f"/cooperative/bank-accounts/{bank_account.id}/registry/payments/allocate-all",
+        data={"date_from": "2026-08-01", "date_to": "2026-08-31"},
+    )
+    assert resp.status_code == 302
+    db.expire_all()
+
+    assert database.db_session.get(PaymentRegistryEntry, entry_in_window.id).matched_payment_id is not None
+    assert database.db_session.get(PaymentRegistryEntry, entry_out_of_window.id).matched_payment_id is None
+
+
 def test_charge_registry_batch_status_choices():
     """Проверка того, что модель статусов реестра не разошлась с шаблоном
     (charge_registry.html: status_classes ожидает конкретные значения)."""

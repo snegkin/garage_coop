@@ -368,7 +368,14 @@
 
   function datasetStyle(color) {
     if (chartType === "bar") {
-      return { backgroundColor: color, borderColor: color, borderWidth: 0 };
+      // Без barThickness Chart.js сам считает ширину столбца по расстоянию
+      // между соседними точками на оси времени — а при периоде в несколько
+      // дней и прореживании до MAX_CHART_POINTS (см. electricity_monitor.py)
+      // это расстояние в пикселях получается меньше одного пикселя: столбец
+      // технически рисуется, но не виден глазом (при этом подсказка по
+      // наведению всё равно находит ближайшую точку и работает исправно).
+      // Фиксированная толщина в 2px — минимальная гарантированно видимая.
+      return { backgroundColor: color, borderColor: color, borderWidth: 0, barThickness: 2, minBarLength: 1 };
     }
     return { borderColor: color, backgroundColor: color, borderWidth: 1.5, pointRadius: 0, tension: 0.15 };
   }

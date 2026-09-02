@@ -7,9 +7,6 @@
     {% if year_from %}<span class="text-muted fs-6">{{ _("с {y1} по {y2} г.", y1=year_from, y2=year_to) if year_from != year_to else _("за {y} г.", y=year_from) }}</span>{% endif %}
   </h3>
   <div class="d-flex gap-2">
-    {% if penalty_rows and is_board() %}
-    <a class="btn btn-outline-danger" href="{{ url_for('persons.penalty_calculation', person_id=person.id) }}">{{ _("Расчёт пени (приложение)") }}</a>
-    {% endif %}
     <button class="btn btn-primary" onclick="window.print()">{{ _("Печать") }}</button>
     <a class="btn btn-outline-secondary" href="{{ url_for('persons.detail', person_id=person.id) }}">{{ _("Назад") }}</a>
   </div>
@@ -107,6 +104,12 @@
 </table>
 
 {% if penalty_rows %}
+<div class="d-flex justify-content-between align-items-center mb-2 no-print">
+  <h6 class="mb-0 text-muted">{{ _("Пеня") }}</h6>
+  {% if is_board() %}
+  <a class="btn btn-sm btn-outline-danger" href="{{ url_for('persons.penalty_calculation', person_id=person.id) }}">{{ _("Расчёт") }}</a>
+  {% endif %}
+</div>
 <table class="table table-sm bg-body">
   <thead><tr><th>{{ _("Л/С") }}</th><th>{{ _("Назначение") }}</th><th class="text-end">{{ _("Начислено") }}</th><th class="text-end">{{ _("Оплачено") }}</th><th class="text-end">{{ _("Сумма") }}</th></tr></thead>
   <tbody>

@@ -284,6 +284,51 @@ def edit_member_charge(account_id, charge_id):
     return redirect(url_for("finance.member_account_detail", account_id=account.id))
 
 
+@bp.route("/member-accounts/<int:account_id>/charges/<int:charge_id>/delete", methods=["POST"])
+@roles_required(RoleEnum.CHAIRMAN)
+def delete_member_charge(account_id, charge_id):
+    """
+    Удаление ошибочно проведённого начисления. Уровень доступа — CHAIRMAN,
+    как и у delete_member_payment (не is_board(), как у создания/правки) —
+    удаление финансовой записи чувствительнее, чем правка суммы.
+
+    Если это начисление — «источник» зачёта между счетами (см.
+    transfer_member_account_funds/cancel_transfer, Payment.offset_charge_id
+    ссылается именно на такое начисление) — прямое удаление здесь
+    заблокировано: SET NULL на offset_charge_id молча оборвал бы связь, и
+    платёж на другом счёте остался бы висеть, как будто он не имеет
+    отношения к зачёту, а долг на этом счёте пропал бы без следа. Нужно
+    использовать «Отменить зачёт» на платеже — она удаляет обе половины
+    разом.
+    """
+    account = database.db_session.get(MemberAccount, account_id)
+    if account is None:
+        abort(404)
+    charge = database.db_session.get(Charge, charge_id)
+    if charge is None or charge.account_id != account.id:
+        abort(404)
+    linked_payment = database.db_session.query(Payment).filter_by(offset_charge_id=charge.id).first()
+    if linked_payment is not None:
+        flash(
+            _("Это начисление — часть зачёта между счетами. Используйте «Отменить зачёт» на платеже "
+              "(счёт {number}).").format(number=linked_payment.account.account_number if linked_payment.account else "?"),
+            "danger",
+        )
+        return redirect(url_for("finance.member_account_detail", account_id=account.id))
+
+    audit.record(
+        "charge.delete", entity_type="member_account", entity_id=account.id,
+        summary=f"Удалено начисление {charge.amount} ₽ за {charge.year} год на счёте {account.account_number} "
+                f"({account.person.full_name})",
+    )
+    database.db_session.delete(charge)
+    database.db_session.flush()
+    reallocate_member_charges(account)
+    database.db_session.commit()
+    flash(_("Начисление удалено."), "success")
+    return redirect(url_for("finance.member_account_detail", account_id=account.id))
+
+
 @bp.route("/member-accounts/<int:account_id>/payments/add", methods=["POST"])
 @login_required
 def add_member_payment(account_id):
@@ -360,6 +405,14 @@ def delete_member_payment(account_id, payment_id):
     payment = database.db_session.get(Payment, payment_id)
     if payment is None or payment.account_id != account.id:
         abort(404)
+    if payment.offset_charge_id is not None:
+        # Платёж — одна из двух половин зачёта между счетами (см.
+        # transfer_member_account_funds); обычное удаление стёрло бы только
+        # эту половину, оставив начисление на счёте-источнике висеть без
+        # соответствующего платежа — деньги "терялись" бы для владельца
+        # того счёта. Нужна cancel_transfer, которая отменяет обе половины.
+        flash(_("Этот платёж — часть зачёта между счетами. Используйте «Отменить зачёт»."), "danger")
+        return redirect(url_for("finance.member_account_detail", account_id=account.id))
 
     audit.record(
         "payment.delete", entity_type="member_account", entity_id=account.id,
@@ -372,6 +425,50 @@ def delete_member_payment(account_id, payment_id):
     database.db_session.commit()
     flash(_("Платёж удалён."), "success")
     return redirect(url_for("finance.member_account_detail", account_id=account.id))
+
+
+@bp.route("/member-accounts/<int:account_id>/payments/<int:payment_id>/cancel-transfer", methods=["POST"])
+@roles_required(RoleEnum.CHAIRMAN)
+def cancel_transfer(account_id, payment_id):
+    """
+    Отменяет зачёт между счетами целиком — удаляет и платёж (эта функция
+    вызывается со счёта-получателя), и парное начисление на счёте-
+    источнике (Payment.offset_charge_id, см. transfer_member_account_funds
+    и её докстринг), пересчитывая FIFO-разнесение на обоих счетах. Именно
+    поэтому это отдельное действие, а не обычное «Удалить платёж» —
+    удаление только одной половины оставило бы деньги фактически
+    списанными у владельца счёта-источника без следа.
+    """
+    target = database.db_session.get(MemberAccount, account_id)
+    if target is None:
+        abort(404)
+    payment = database.db_session.get(Payment, payment_id)
+    if payment is None or payment.account_id != target.id:
+        abort(404)
+    if payment.offset_charge_id is None:
+        flash(_("Этот платёж не является частью зачёта между счетами."), "danger")
+        return redirect(url_for("finance.member_account_detail", account_id=target.id))
+
+    charge = database.db_session.get(Charge, payment.offset_charge_id)
+    source = database.db_session.get(MemberAccount, charge.account_id) if charge else None
+
+    audit.record(
+        "member_account.transfer_cancel", entity_type="member_account", entity_id=target.id,
+        summary=(
+            f"Отменён зачёт {payment.amount} ₽ на счёт {target.account_number} ({target.person.full_name})"
+            + (f" со счёта {source.account_number} ({source.person.full_name})" if source else "")
+        ),
+    )
+    database.db_session.delete(payment)
+    if charge is not None:
+        database.db_session.delete(charge)
+    database.db_session.flush()
+    reallocate_member_charges(target)
+    if source is not None:
+        reallocate_member_charges(source)
+    database.db_session.commit()
+    flash(_("Зачёт отменён — обе стороны возвращены к исходному состоянию."), "success")
+    return redirect(url_for("finance.member_account_detail", account_id=target.id))
 
 
 # ---------------------------------------------------------------------------
@@ -426,13 +523,16 @@ def transfer_member_account_funds(account_id):
         target_comment = _("Зачёт со счёта {number} ({name})").format(
             number=source.account_number, name=source.person.short_name)
 
-    database.db_session.add(Charge(
+    source_charge = Charge(
         account_id=source.id, year=today.year, amount=amount,
         related_person_id=target.person_id, comment=source_comment,
-    ))
+    )
+    database.db_session.add(source_charge)
+    database.db_session.flush()  # нужен source_charge.id для offset_charge_id ниже
     database.db_session.add(Payment(
         account_id=target.id, date=today, amount=amount,
         related_person_id=source.person_id, comment=target_comment,
+        offset_charge_id=source_charge.id,
     ))
     database.db_session.flush()
     reallocate_member_charges(source)

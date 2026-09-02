@@ -72,7 +72,16 @@
           <td data-sort-value="{{ c.amount }}">{{ fmt2(c.amount) }} ₽</td>
           <td>{{ linkify_related_person(c.comment, c.related_person, is_board()) or "—" }}</td>
           {% if is_board() %}
-          <td><button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#editChargeModal{{ c.id }}">{{ _("Изменить") }}</button></td>
+          <td>
+            <div class="d-flex gap-1">
+              <button type="button" class="btn btn-sm btn-outline-secondary btn-icon-square" data-bs-toggle="modal" data-bs-target="#editChargeModal{{ c.id }}" title="{{ _('Изменить') }}">✎</button>
+              {% if is_chairman() %}
+              <form method="post" action="{{ url_for('finance.delete_member_charge', account_id=account.id, charge_id=c.id) }}" onsubmit="return confirm('{{ _('Удалить это начисление?') }}')">
+                <button class="btn btn-sm btn-outline-danger btn-icon-square" title="{{ _('Удалить') }}">×</button>
+              </form>
+              {% endif %}
+            </div>
+          </td>
           {% endif %}
         </tr>
         {% else %}
@@ -116,9 +125,15 @@
           <td>{{ linkify_related_person(p.comment, p.related_person, is_board()) or "—" }}</td>
           {% if is_chairman() %}
           <td>
-            <form method="post" action="{{ url_for('finance.delete_member_payment', account_id=account.id, payment_id=p.id) }}" onsubmit="return confirm('{{ _('Удалить этот платёж? Если он был разнесён из выписки/реестра, соответствующая строка вернётся в статус «не разнесён».') }}')">
-              <button class="btn btn-sm btn-outline-danger">×</button>
+            {% if p.offset_charge_id is not none %}
+            <form method="post" action="{{ url_for('finance.cancel_transfer', account_id=account.id, payment_id=p.id) }}" onsubmit="return confirm('{{ _('Отменить зачёт? Начисление на счёте-источнике тоже будет удалено — обе стороны вернутся к исходному состоянию.') }}')">
+              <button class="btn btn-sm btn-outline-danger" title="{{ _('Это часть зачёта между счетами — удаляет обе половины') }}">{{ _("Отменить зачёт") }}</button>
             </form>
+            {% else %}
+            <form method="post" action="{{ url_for('finance.delete_member_payment', account_id=account.id, payment_id=p.id) }}" onsubmit="return confirm('{{ _('Удалить этот платёж? Если он был разнесён из выписки/реестра, соответствующая строка вернётся в статус «не разнесён».') }}')">
+              <button class="btn btn-sm btn-outline-danger btn-icon-square" title="{{ _('Удалить') }}">×</button>
+            </form>
+            {% endif %}
           </td>
           {% endif %}
         </tr>

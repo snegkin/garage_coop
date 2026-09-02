@@ -29,13 +29,18 @@ def _parse_decimal(raw):
         return None
 
 
-def _save_document(file_key: str, title_key: str, default_title: str, doc_type: DocumentType = DocumentType.ACT) -> int | None:
-    """Сохраняет прикреплённый файл (если есть) как Document, возвращает document_id или None."""
+def _save_document(
+    file_key: str, title_key: str, default_title: str,
+    counterparty: Counterparty, doc_type: DocumentType = DocumentType.ACT,
+) -> int | None:
+    """Сохраняет прикреплённый файл (если есть) как Document, возвращает document_id или None.
+    Документ сразу привязывается к контрагенту (Document.counterparty_id) — чтобы
+    его можно было найти фильтром по контрагенту в общем списке документов."""
     file_path = save_upload(request.files.get(file_key), current_app.config["UPLOAD_FOLDER"])
     if not file_path:
         return None
     title = request.form.get(title_key) or default_title
-    doc = Document(doc_type=doc_type, date=dt.date.today(), title=title, file_path=file_path)
+    doc = Document(doc_type=doc_type, date=dt.date.today(), title=title, file_path=file_path, counterparty_id=counterparty.id)
     database.db_session.add(doc)
     database.db_session.flush()
     return doc.id
@@ -156,7 +161,7 @@ def add_expense(counterparty_id):
     f = request.form
     document_id = _save_document(
         "document_file", "document_title",
-        _("Счёт от {name}", name=counterparty.name),
+        _("Счёт от {name}", name=counterparty.name), counterparty,
     )
     database.db_session.add(Expense(
         counterparty_id=counterparty.id,
@@ -189,7 +194,7 @@ def add_payment(counterparty_id):
     bank_account = database.db_session.get(BankAccount, int(bank_account_id)) if bank_account_id else None
     document_id = _save_document(
         "document_file", "document_title",
-        _("Платёжный документ — {name}", name=counterparty.name),
+        _("Платёжный документ — {name}", name=counterparty.name), counterparty,
     )
     pay_counterparty(
         counterparty=counterparty,
@@ -240,7 +245,7 @@ def edit_payment(counterparty_id, payment_id):
     bank_account = database.db_session.get(BankAccount, int(bank_account_id)) if bank_account_id else None
     document_id = _save_document(
         "document_file", "document_title",
-        _("Платёжный документ — {name}", name=counterparty.name),
+        _("Платёжный документ — {name}", name=counterparty.name), counterparty,
     )
     edit_counterparty_payment(
         payment=payment,
@@ -306,7 +311,7 @@ def add_reconciliation_act(counterparty_id):
     f = request.form
     document_id = _save_document(
         "document_file", "document_title",
-        _("Акт сверки — {name}", name=counterparty.name),
+        _("Акт сверки — {name}", name=counterparty.name), counterparty,
     )
     database.db_session.add(ReconciliationAct(
         counterparty_id=counterparty.id,

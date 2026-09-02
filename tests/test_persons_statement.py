@@ -345,5 +345,5 @@ def test_statement_link_to_penalty_calculation_shown_only_with_accrued_penalty(a
     resp = client.get(f"/persons/{person.id}/statement")
     assert resp.status_code == 200
     body = resp.get_data(as_text=True)
-    assert "Расчёт пени (приложение)" in body
     assert f'href="/persons/{person.id}/penalty-calculation"' in body
+    assert ">Расчёт<" in body

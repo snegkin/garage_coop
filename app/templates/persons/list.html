@@ -36,8 +36,8 @@
         <span class="badge bg-warning text-dark ms-1" title="Ожидают одобрения">⚠</span>
         {% endif %}
       </td>
-      <td>{{ p.phones|map(attribute="number")|join(", ") or "—" }}</td>
-      <td>{{ p.email or "—" }}</td>
+      <td onclick="event.stopPropagation()">{{ phones_html(p.phones) }}</td>
+      <td onclick="event.stopPropagation()">{{ email_link(p.email) }}</td>
       <td class="{{ 'text-danger' if balances[p.id] is not none and balances[p.id] < 0 else 'text-success' }}" data-sort-value="{{ balances[p.id] if balances[p.id] is not none else '' }}">
         {{ (fmt2(balances[p.id]) ~ " ₽") if balances[p.id] is not none else "—" }}
       </td>

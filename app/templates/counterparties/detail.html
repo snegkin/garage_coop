@@ -17,8 +17,8 @@
     <table class="table table-bordered bg-body">
       <tr><th style="width:160px">{{ _("ИНН") }}</th><td>{{ counterparty.inn or "—" }}</td></tr>
       <tr><th>{{ _("КПП") }}</th><td>{{ counterparty.kpp or "—" }}</td></tr>
-      <tr><th>{{ _("Телефон") }}</th><td>{{ counterparty.phone or "—" }}</td></tr>
-      <tr><th>{{ _("Email") }}</th><td>{{ counterparty.email or "—" }}</td></tr>
+      <tr><th>{{ _("Телефон") }}</th><td>{{ phone_link(counterparty.phone) }}</td></tr>
+      <tr><th>{{ _("Email") }}</th><td>{{ email_link(counterparty.email) }}</td></tr>
       <tr><th>{{ _("Адрес") }}</th><td>{{ counterparty.address or "—" }}</td></tr>
       <tr>
         <th>{{ _("Начальный баланс") }}</th>

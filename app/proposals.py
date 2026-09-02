@@ -5,10 +5,10 @@
 Организационная модель:
 - Любой член кооператива (собственник хотя бы доли гаража) подаёт
   предложение — тему и описание (create()). Статус — PENDING.
-- Правление рассматривает предложение голосованием «за/против» вынесения
-  его на общее голосование (board_vote()) — по головам, один голос на
-  члена текущего созыва правления (не по долям владения, в отличие от
-  самого Vote).
+- Правление рассматривает предложение голосованием «за/против/воздержался»
+  вынесения его на общее голосование (board_vote()) — по головам, один
+  голос на члена текущего созыва правления (не по долям владения, в
+  отличие от самого Vote); «воздержался» не засчитывается ни в чью пользу.
 - Пока предложение PENDING, председатель может поправить формулировку
   (edit()).
 - Решение подводится (resolve_if_due()), как только выполняется одно из
@@ -54,14 +54,22 @@ def _board_ballots(proposal: VoteProposal) -> list[VoteProposalBoardBallot]:
 
 
 def proposal_tally(proposal: VoteProposal) -> dict:
-    """Голоса «за»/«против» среди ЧЛЕНОВ ТЕКУЩЕГО состава правления — если состав сменился, голос выбывшего в подсчёт не идёт."""
+    """
+    Голоса «за»/«против»/«воздержался» среди ЧЛЕНОВ ТЕКУЩЕГО состава
+    правления — если состав сменился, голос выбывшего в подсчёт не идёт.
+    «Воздержался» не влияет на решение ни в чью пользу (см.
+    resolve_if_due: сравниваются только for/against) — как и в обычном
+    голосовании (voting.py), это способ отметиться проголосовавшим, не
+    поддерживая ни одну из сторон.
+    """
     board_ids = current_board_member_ids()
     ballots = [b for b in _board_ballots(proposal) if b.person_id in board_ids]
     for_count = sum(1 for b in ballots if b.choice == VoteChoice.FOR)
     against_count = sum(1 for b in ballots if b.choice == VoteChoice.AGAINST)
+    abstain_count = sum(1 for b in ballots if b.choice == VoteChoice.ABSTAIN)
     return {
         "board_ids": board_ids, "voted_ids": {b.person_id for b in ballots},
-        "for": for_count, "against": against_count,
+        "for": for_count, "against": against_count, "abstain": abstain_count,
     }
 
 
@@ -233,8 +241,8 @@ def board_vote(proposal_id):
         return redirect(url_for("proposals.detail", proposal_id=proposal_id))
 
     raw = request.form.get("choice")
-    if raw not in (VoteChoice.FOR.value, VoteChoice.AGAINST.value):
-        flash(_("Выберите «за» или «против»."), "danger")
+    if raw not in (VoteChoice.FOR.value, VoteChoice.AGAINST.value, VoteChoice.ABSTAIN.value):
+        flash(_("Выберите «за», «против» или «воздержался»."), "danger")
         return redirect(url_for("proposals.detail", proposal_id=proposal_id))
     choice = VoteChoice(raw)
     comment = (request.form.get("comment") or "").strip() or None

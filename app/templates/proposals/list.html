@@ -33,7 +33,7 @@
       <td>
         {% if p.id in my_ballots %}
           {% set c = my_ballots[p.id].choice.value %}
-          <span class="badge text-bg-light border">{{ _("ваш голос") }}: {{ _("за") if c == 'for' else _("против") }}</span>
+          <span class="badge text-bg-light border">{{ _("ваш голос") }}: {{ _("за") if c == 'for' else (_("против") if c == 'against' else _("воздержался")) }}</span>
         {% elif p.status.value != 'pending' %}—
         {% else %}<span class="text-muted small">{{ _("не голосовали") }}</span>{% endif %}
       </td>

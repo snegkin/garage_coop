@@ -9,6 +9,30 @@
 </div>
 
 <div class="d-flex justify-content-between align-items-center mb-2">
+  <h5 class="mb-0">{{ _("Контакты действующего правления") }}</h5>
+</div>
+<p class="text-muted small">{{ _("Это открытые данные — по ним можно связаться с правлением по любым вопросам работы кооператива.") }}</p>
+<table class="table table-bordered bg-body mb-4">
+  <thead><tr><th>{{ _("ФИО") }}</th><th>{{ _("Роль") }}</th><th>{{ _("Телефон") }}</th><th>{{ _("Email") }}</th><th>{{ _("Telegram") }}</th></tr></thead>
+  <tbody>
+    {% for m in (current_term.members if current_term else []) %}
+    <tr>
+      <td>{{ m.person.full_name }}</td>
+      <td>
+        {% if m.is_chairman %}<span class="badge bg-primary">{{ _("председатель") }}</span>{% else %}<span class="badge bg-info text-dark">{{ _("член правления") }}</span>{% endif %}
+        {% if m.role %} {{ m.role }}{% endif %}
+      </td>
+      <td>{{ m.person.phones|map(attribute="number")|join(", ") or "—" }}</td>
+      <td>{{ m.person.email or "—" }}</td>
+      <td>{{ m.person.telegram or "—" }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="5" class="text-muted">{{ _("Действующего состава правления пока нет.") }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<div class="d-flex justify-content-between align-items-center mb-2">
   <h5 class="mb-0">{{ _("Бухгалтер") }}</h5>
 </div>
 <p class="text-muted small">{{ _("Бухгалтера назначает председатель — это не выборная общим собранием должность, поэтому вне созывов и без протокола. Бухгалтер не обязан быть членом правления — может быть на аутсорсе, для входа в систему достаточно завести ему учётную запись в разделе «Учётные записи».") }}</p>

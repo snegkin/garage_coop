@@ -343,6 +343,98 @@ document.addEventListener("DOMContentLoaded", function () {
   }
 });
 
+// Текстовый фильтр + клиентская пагинация для любой таблицы с атрибутом
+// data-page-size — разметочный приём, общий для нескольких таблиц на одной
+// странице (карточка контрагента и т.п.), не копия скрипта на каждую
+// таблицу. Строки таблицы отмечаются data-filter-text (текст для поиска, в
+// нижнем регистре); связанные элементы находятся по общему id таблицы:
+// [data-table-filter-for="<id>"] — текстовый инпут поиска,
+// [data-pager-for="<id>"] — <nav> с <ul> внутри для ссылок пагинации,
+// [data-no-results-for="<id>"] — элемент-заглушка «Ничего не найдено».
+// Все три необязательны — таблица без них просто не получает фильтр/пейджер.
+document.addEventListener("DOMContentLoaded", function () {
+  var PAGE_RADIUS = 3;
+
+  document.querySelectorAll("table[data-page-size]").forEach(function (table) {
+    var id = table.id;
+    if (!id) return;
+    var pageSize = parseInt(table.getAttribute("data-page-size"), 10) || 20;
+    var input = document.querySelector('[data-table-filter-for="' + id + '"]');
+    var pager = document.querySelector('[data-pager-for="' + id + '"]');
+    var pagerLinks = pager ? pager.querySelector("ul") : null;
+    var noResults = document.querySelector('[data-no-results-for="' + id + '"]');
+    var rows = Array.from(table.querySelectorAll("tbody tr[data-filter-text]"));
+    if (!rows.length) return;
+    var currentPage = 1;
+
+    function renderPages(totalPages) {
+      if (!pagerLinks) return;
+      pagerLinks.innerHTML = "";
+      if (totalPages <= 1) return;
+
+      function pageItem(label, targetPage, disabled, active) {
+        var li = document.createElement("li");
+        li.className = "page-item" + (disabled ? " disabled" : "") + (active ? " active" : "");
+        var a = document.createElement("a");
+        a.className = "page-link";
+        a.href = "#";
+        a.innerHTML = label;
+        if (!disabled) {
+          a.addEventListener("click", function (e) { e.preventDefault(); currentPage = targetPage; update(); });
+        }
+        li.appendChild(a);
+        pagerLinks.appendChild(li);
+      }
+
+      function ellipsis() {
+        var li = document.createElement("li");
+        li.className = "page-item disabled";
+        li.innerHTML = "<span class=\"page-link\">…</span>";
+        pagerLinks.appendChild(li);
+      }
+
+      pageItem("&laquo;", 1, currentPage === 1, false);
+      var start = Math.max(1, currentPage - PAGE_RADIUS);
+      var end = Math.min(totalPages, currentPage + PAGE_RADIUS);
+      if (start > 1) ellipsis();
+      for (var p = start; p <= end; p++) pageItem(String(p), p, false, p === currentPage);
+      if (end < totalPages) ellipsis();
+      pageItem("&raquo;", totalPages, currentPage === totalPages, false);
+    }
+
+    function update() {
+      var q = input ? input.value.trim().toLowerCase() : "";
+      var visibleRows = rows.filter(function (row) {
+        return !q || row.getAttribute("data-filter-text").includes(q);
+      });
+
+      rows.forEach(function (row) { row.classList.add("d-none"); });
+      if (noResults) noResults.classList.toggle("d-none", visibleRows.length > 0);
+
+      if (visibleRows.length === 0) {
+        if (pager) pager.classList.add("d-none");
+        return;
+      }
+
+      if (pager) pager.classList.remove("d-none");
+      var totalPages = Math.ceil(visibleRows.length / pageSize);
+      if (currentPage > totalPages) currentPage = totalPages;
+
+      visibleRows.forEach(function (row, i) {
+        var page = Math.floor(i / pageSize) + 1;
+        if (page === currentPage) row.classList.remove("d-none");
+      });
+
+      renderPages(totalPages);
+    }
+
+    if (input) {
+      input.addEventListener("input", function () { currentPage = 1; update(); });
+    }
+    update();
+  });
+});
+
 // Чекбокс «Актуальные» у таблицы лицевых счетов (страницы гаража/человека,
 // см. data-active-accounts-toggle на самом чекбоксе — CSS-селектор его
 // строк) — скрывает архивные счета (data-archived="1", см.

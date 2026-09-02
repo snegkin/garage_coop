@@ -131,6 +131,10 @@ def detail(counterparty_id):
     expenses = sorted(counterparty.expenses, key=lambda e: e.date, reverse=True)
     payments = sorted(counterparty.payments, key=lambda p: p.date, reverse=True)
     acts = sorted(counterparty.reconciliation_acts, key=lambda a: a.period_end, reverse=True)
+    # Документы контрагента (Document.counterparty_id) — как проставленные
+    # вручную в форме документа, так и автоматически при прикреплении файла
+    # к расходу/платежу/акту сверки (см. _save_document выше).
+    documents = sorted(counterparty.documents, key=lambda d: d.date, reverse=True)
     bank_accounts = database.db_session.query(BankAccount).order_by(BankAccount.is_primary.desc(), BankAccount.bank_name).all()
 
     expense_paid = {e.id: expense_paid_amount(e) for e in expenses}
@@ -144,6 +148,7 @@ def detail(counterparty_id):
         expenses=expenses,
         payments=payments,
         acts=acts,
+        documents=documents,
         bank_accounts=bank_accounts,
         expense_paid=expense_paid,
         last_payment_id=last_payment_id,

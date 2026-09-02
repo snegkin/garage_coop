@@ -43,6 +43,22 @@
 </div>
 {% endif %}
 
+{% set commented = proposal.board_ballots|selectattr('comment')|list %}
+{% if commented %}
+<div class="card bg-body mb-3">
+  <div class="card-body">
+    <h6 class="card-title">{{ _("Комментарии правления") }}</h6>
+    {% for b in commented %}
+    <div class="small mb-1">
+      <strong>{{ b.person.full_name }}</strong>
+      <span class="badge text-bg-light border">{{ _("за") if b.choice.value == 'for' else _("против") }}</span>
+      — {{ b.comment }}
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
 {% if can_vote %}
 <div class="card bg-body mb-3">
   <div class="card-body">
@@ -50,9 +66,16 @@
     {% if my_ballot %}
     <p class="text-muted small">{{ _("Вы уже проголосовали") }} «{{ _("за") if my_ballot.choice.value == 'for' else _("против") }}» — {{ _("можно переголосовать, пока предложение на рассмотрении.") }}</p>
     {% endif %}
-    <form method="post" action="{{ url_for('proposals.board_vote', proposal_id=proposal.id) }}" class="d-flex gap-2">
-      <button class="btn btn-success" name="choice" value="for">{{ _("Одобрить (за)") }}</button>
-      <button class="btn btn-outline-danger" name="choice" value="against">{{ _("Отклонить (против)") }}</button>
+    <form method="post" action="{{ url_for('proposals.board_vote', proposal_id=proposal.id) }}">
+      <div class="mb-2">
+        <label class="form-label small">{{ _("Комментарий (необязательно)") }}</label>
+        <textarea class="form-control form-control-sm" name="comment" rows="2" placeholder="{{ _('Обоснуйте своё решение — комментарий будет виден всем.') }}">{{ my_ballot.comment or '' if my_ballot else '' }}</textarea>
+        <div class="form-text">{{ _("Комментарий публичный — его увидят все члены кооператива.") }}</div>
+      </div>
+      <div class="d-flex gap-2">
+        <button class="btn btn-success" name="choice" value="for">{{ _("Одобрить (за)") }}</button>
+        <button class="btn btn-outline-danger" name="choice" value="against">{{ _("Отклонить (против)") }}</button>
+      </div>
     </form>
   </div>
 </div>

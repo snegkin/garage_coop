@@ -7,6 +7,9 @@
     {% if year_from %}<span class="text-muted fs-6">{{ _("с {y1} по {y2} г.", y1=year_from, y2=year_to) if year_from != year_to else _("за {y} г.", y=year_from) }}</span>{% endif %}
   </h3>
   <div class="d-flex gap-2">
+    {% if penalty_rows and is_board() %}
+    <a class="btn btn-outline-danger" href="{{ url_for('persons.penalty_calculation', person_id=person.id) }}">{{ _("Расчёт пени (приложение)") }}</a>
+    {% endif %}
     <button class="btn btn-primary" onclick="window.print()">{{ _("Печать") }}</button>
     <a class="btn btn-outline-secondary" href="{{ url_for('persons.detail', person_id=person.id) }}">{{ _("Назад") }}</a>
   </div>
@@ -123,7 +126,7 @@
       <td class="text-end {{ 'text-danger' if penalty_total < 0 else 'text-success' }}">{{ fmt2(penalty_total) }} ₽</td>
     </tr>
     <tr class="fw-bold fs-5">
-      <td colspan="4" class="text-end">{{ _("Итого") }}{% if grand_total < 0 %} / {{ _("Задолженность") }}{% endif %}:</td>
+      <td colspan="4" class="text-end">{{ _("Итого") }}:</td>
       <td class="text-end {{ 'text-danger' if grand_total < 0 else 'text-success' }}">{{ fmt2(grand_total) }} ₽</td>
     </tr>
   </tfoot>
@@ -197,7 +200,7 @@
     <tfoot>
       <tr><td colspan="4">{{ _("Пеня") }}</td><td class="num">{{ fmt2(penalty_total) }} ₽</td></tr>
       <tr class="grand-total-row">
-        <td colspan="4">{{ _("Итого") }}{% if grand_total < 0 %} / {{ _("Задолженность") }}{% endif %}</td>
+        <td colspan="4">{{ _("Итого") }}</td>
         <td class="num">{{ fmt2(grand_total) }} ₽</td>
       </tr>
     </tfoot>

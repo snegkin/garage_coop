@@ -228,6 +228,72 @@ def compute_charge_penalty(
     return total.quantize(Decimal("0.01")), target_date
 
 
+def compute_charge_penalty_breakdown(
+    charge: Charge, coop: Cooperative, target_date: dt.date,
+    key_dates: list[dt.date], key_rates: list[Decimal],
+) -> list[dict]:
+    """
+    Тот же день-за-днём проход, что и compute_charge_penalty, но вместо
+    одной суммы возвращает построчную раскладку по периодам — для
+    официального расчёта пени, который истец (кооператив) прикладывает к
+    исковому заявлению (см. app/templates/persons/penalty_calculation.html):
+    период (с — по), число дней, непогашенный остаток, ставка ЦБ РФ,
+    знаменатель (300 или 150), сумма пени за период. Дни с одинаковым
+    (остаток, ставка, знаменатель) схлопываются в одну строку; смена
+    любого из них (частичный платёж изменил остаток, ставка ЦБ изменилась,
+    наступил 31-й день просрочки) начинает новую строку.
+
+    В отличие от compute_charge_penalty — считает ВСЕГДА с самого первого
+    дня просрочки по target_date включительно, не учитывает
+    penalty_calculated_through (это поле — только для идемпотентности
+    бухгалтерских проводок accrue_penalties, для судебного расчёта нужна
+    вся история целиком, а не только «новые» дни с последнего запуска
+    начисления). Не пишет ничего в БД.
+    """
+    due = dues_due_date(coop, charge.year)
+    if due is None:
+        return []
+    start = due + dt.timedelta(days=1)
+    if start > target_date:
+        return []
+
+    allocations = sorted(
+        ((a.payment.date, a.amount) for a in charge.allocations), key=lambda x: x[0]
+    )
+
+    periods: list[dict] = []
+    current: dict | None = None
+    d = start
+    one_day = dt.timedelta(days=1)
+    while d <= target_date:
+        paid = sum((amt for pdate, amt in allocations if pdate <= d), Decimal("0"))
+        unpaid = charge.amount - paid
+        if unpaid > 0:
+            rate = _rate_on(key_dates, key_rates, d)
+            if rate is not None:
+                day_index = (d - due).days
+                divisor = Decimal(300) if day_index <= 30 else Decimal(150)
+                day_amount = unpaid * (rate / Decimal("100")) / divisor
+                if current is not None and current["unpaid"] == unpaid and current["rate"] == rate and current["divisor"] == divisor:
+                    current["end"] = d
+                    current["days"] += 1
+                    current["amount"] += day_amount
+                else:
+                    if current is not None:
+                        periods.append(current)
+                    current = {
+                        "start": d, "end": d, "days": 1,
+                        "unpaid": unpaid, "rate": rate, "divisor": divisor, "amount": day_amount,
+                    }
+        d += one_day
+    if current is not None:
+        periods.append(current)
+
+    for p in periods:
+        p["amount"] = p["amount"].quantize(Decimal("0.01"))
+    return periods
+
+
 def accrue_penalties(target_date: dt.date | None = None) -> dict:
     """
     Начисляет пеню по всем просроченным начислениям членов кооператива

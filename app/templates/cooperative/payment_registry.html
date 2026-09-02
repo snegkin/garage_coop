@@ -23,6 +23,16 @@
 </p>
 {% endif %}
 
+{% if date_from or date_to %}
+<p class="mb-3">
+  <span class="badge bg-info text-dark">
+    {{ _("Показаны записи за") }}
+    {{ fmt_date(date_from) if date_from else "…" }} — {{ fmt_date(date_to) if date_to else "…" }}
+  </span>
+  <a class="small ms-1" href="{{ url_for('bank_sync.payment_registry', account_id=account.id) }}">{{ _("показать весь реестр") }}</a>
+</p>
+{% endif %}
+
 <div class="mb-3">
   <input class="form-control" data-table-filter-for="registryTable" placeholder="{{ _('Поиск по счёту, плательщику, назначению...') }}">
 </div>
@@ -57,7 +67,7 @@
       <td id="entry-{{ entry.id }}">{{ entry.payment_purpose or "—" }}</td>
       <td>
         {% if entry.matched_statement %}
-          <a href="{{ url_for('bank_sync.statement', account_id=account.id) }}#line-{{ entry.matched_statement.id }}"
+          <a href="{{ url_for('bank_sync.statement', account_id=account.id, date_from=statement_link_dates[entry.id][0], date_to=statement_link_dates[entry.id][1]) }}#line-{{ entry.matched_statement.id }}"
              class="badge bg-info text-decoration-none" title="Выписка #{{ entry.matched_statement.id }}">
             {{ _("из выписки") }}
           </a>

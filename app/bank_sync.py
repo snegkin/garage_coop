@@ -357,9 +357,23 @@ def statement(account_id):
         if account_number:
             suggested_numbers[line.id] = account_number
 
+    # Ссылка «из реестра» ведёт на реестр платежей уже отфильтрованным по
+    # дате операции — иначе, при большом реестре, найти в нём нужную запись
+    # (да ещё и на нужной странице пейджера) сложнее, чем просто открыть
+    # реестр целиком. Записи реестра и выписки сопоставляются с допуском
+    # ±1 день (см. _match_registry_and_statement) — окно берём с запасом.
+    registry_link_dates = {
+        line.id: (
+            (line.operation_date - dt.timedelta(days=3)).isoformat(),
+            (line.operation_date + dt.timedelta(days=3)).isoformat(),
+        )
+        for line in lines if line.matched_registry
+    }
+
     return render_template(
         "cooperative/bank_statement.html", account=account, lines=lines, date_from=date_from, date_to=date_to,
         is_aggregate_registry_payment=is_aggregate_registry_payment, suggested_numbers=suggested_numbers,
+        registry_link_dates=registry_link_dates,
         pending_credits=sum(
             1 for line in lines
             if line.direction == "credit" and not line.matched_payment_id
@@ -1230,14 +1244,44 @@ def _store_payment_registry_items(account: BankAccount, items: list) -> int:
 @bp.route("/registry/payments")
 @roles_required(RoleEnum.BOARD)
 def payment_registry(account_id):
+    """
+    Без date_from/date_to — весь реестр (обычный вход через «Реестр
+    платежей» на странице банковских счетов). Со страницы выписки ссылка
+    на сопоставленную запись реестра (см. bank_statement.html) передаёт их
+    сама, отталкиваясь от даты операции по выписке — записи реестра и
+    выписки сопоставляются с допуском ±1 день (см.
+    _match_registry_and_statement), поэтому окно фильтра берём с запасом.
+    """
     account = _get_account(account_id)
-    entries = (
-        database.db_session.query(PaymentRegistryEntry)
-        .filter_by(bank_account_id=account.id)
-        .order_by(PaymentRegistryEntry.operation_date.desc(), PaymentRegistryEntry.id.desc())
-        .all()
+    date_from = date_to = None
+    if request.args.get("date_from"):
+        date_from = dt.date.fromisoformat(request.args["date_from"])
+    if request.args.get("date_to"):
+        date_to = dt.date.fromisoformat(request.args["date_to"])
+
+    query = database.db_session.query(PaymentRegistryEntry).filter_by(bank_account_id=account.id)
+    if date_from:
+        query = query.filter(PaymentRegistryEntry.operation_date >= date_from)
+    if date_to:
+        query = query.filter(PaymentRegistryEntry.operation_date <= date_to)
+    entries = query.order_by(PaymentRegistryEntry.operation_date.desc(), PaymentRegistryEntry.id.desc()).all()
+
+    # Ссылка «из выписки» (см. payment_registry.html) ведёт на страницу
+    # выписки уже отфильтрованной по дате операции — иначе окно выписки по
+    # умолчанию (последние 30 дней, см. statement()) могло бы вообще не
+    # захватывать старую операцию, и ссылка вела бы в пустоту.
+    statement_link_dates = {
+        entry.id: (
+            (entry.operation_date - dt.timedelta(days=3)).isoformat(),
+            (entry.operation_date + dt.timedelta(days=3)).isoformat(),
+        )
+        for entry in entries if entry.matched_statement
+    }
+
+    return render_template(
+        "cooperative/payment_registry.html", account=account, entries=entries,
+        date_from=date_from, date_to=date_to, statement_link_dates=statement_link_dates,
     )
-    return render_template("cooperative/payment_registry.html", account=account, entries=entries)
 
 
 @bp.route("/registry/payments/upload", methods=["POST"])

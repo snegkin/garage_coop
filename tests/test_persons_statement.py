@@ -20,7 +20,7 @@ import datetime as dt
 from decimal import Decimal
 
 from app.models import (
-    RoleEnum, FeeType, MemberAccount, Charge, Payment, PersonalAccount,
+    RoleEnum, FeeType, MemberAccount, Charge, Payment, PersonalAccount, Cooperative,
 )
 from app.i18n import fmt2
 
@@ -183,3 +183,50 @@ def test_statement_has_separate_print_form_reset_from_site_styles(app, db, clien
     assert '<td>15200</td>' in body
     assert '<td>П15200</td>' in body
     assert '<a href="/finance/member-accounts/' in body  # ссылка всё ещё есть в экранной версии
+
+
+def test_statement_print_form_has_letterhead_and_signatures(app, db, client):
+    coop = Cooperative(full_name='Гаражный кооператив "Заря"', inn="7701234567", kpp="770101001", ogrn="1027700123456", legal_address="г. Москва, ул. Гаражная, д. 1")
+    db.add(coop)
+    chairman = make_person(db, full_name="Председателев Пётр Петрович", is_chairman=True)
+    accountant = make_person(db, full_name="Бухгалтерова Анна Ивановна", is_accountant=True)
+    person = make_person(db, full_name="Обычный Человек")
+    make_user(db, "board6", "pass12345", role=RoleEnum.CHAIRMAN)
+    db.commit()
+    login(client, "board6", "pass12345")
+
+    resp = client.get(f"/persons/{person.id}/statement")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+
+    # официальная шапка слева вверху — логотип + реквизиты кооператива
+    assert 'class="print-letterhead"' in body
+    assert 'src="/static/logo.png"' in body
+    assert "Гаражный кооператив" in body and "Заря" in body  # кавычки в HTML экранируются как &#34;
+    assert "7701234567" in body
+    assert "770101001" in body
+    assert "г. Москва, ул. Гаражная, д. 1" in body
+
+    # подписи и место под печать — справа внизу
+    assert 'class="print-signatures"' in body
+    assert "Председатель" in body
+    assert "Председателев Пётр Петрович" in body
+    assert "Бухгалтер" in body
+    assert "Бухгалтерова Анна Ивановна" in body
+    assert 'class="stamp-place"' in body
+    assert "М.П." in body
+
+
+def test_statement_print_form_without_coop_or_officers_does_not_crash(app, db, client):
+    """Реквизиты/председатель/бухгалтер не заполнены — форма всё равно рендерится,
+    просто без этих данных (не 500)."""
+    person = make_person(db, full_name="Без Реквизитов")
+    make_user(db, "board7", "pass12345", role=RoleEnum.CHAIRMAN)
+    db.commit()
+    login(client, "board7", "pass12345")
+
+    resp = client.get(f"/persons/{person.id}/statement")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert 'class="print-letterhead"' in body
+    assert 'class="print-signatures"' in body

@@ -13,7 +13,7 @@ from .auth import login_required, roles_required, is_safe_next_url
 from .permissions import is_board, is_chairman, sync_user_role
 from .models import (
     Person, Phone, User, RoleEnum, MemberAccount, PersonDataRevision, PersonDataRevisionStatus,
-    GarageOwnership, PersonalAccount,
+    GarageOwnership, PersonalAccount, Cooperative,
 )
 from sqlalchemy.orm import joinedload
 from .accounting import balance
@@ -335,6 +335,12 @@ def statement(person_id):
         grand_total=balance_excl_penalty + penalty_total,
         year_from=min(years) if years else None, year_to=max(years) if years else None,
         today=dt.date.today(),
+        # Для официальной шапки/подписей на печатной форме (см.
+        # persons/statement.html: .print-letterhead/.print-signatures) —
+        # никак не влияют на суммы, только на оформление печатного листа.
+        coop=database.db_session.query(Cooperative).first(),
+        chairman=database.db_session.query(Person).filter(Person.is_chairman.is_(True)).first(),
+        accountant=database.db_session.query(Person).filter(Person.is_accountant.is_(True)).first(),
     )
 
 

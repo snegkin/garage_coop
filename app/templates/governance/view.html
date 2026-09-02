@@ -22,9 +22,9 @@
         {% if m.is_chairman %}<span class="badge bg-primary">{{ _("председатель") }}</span>{% else %}<span class="badge bg-info text-dark">{{ _("член правления") }}</span>{% endif %}
         {% if m.role %} {{ m.role }}{% endif %}
       </td>
-      <td>{{ m.person.phones|map(attribute="number")|join(", ") or "—" }}</td>
-      <td>{{ m.person.email or "—" }}</td>
-      <td>{{ m.person.telegram or "—" }}</td>
+      <td>{{ phones_html(m.person.phones) }}</td>
+      <td>{{ email_link(m.person.email) }}</td>
+      <td>{{ telegram_link(m.person.telegram) }}</td>
     </tr>
     {% else %}
     <tr><td colspan="5" class="text-muted">{{ _("Действующего состава правления пока нет.") }}</td></tr>

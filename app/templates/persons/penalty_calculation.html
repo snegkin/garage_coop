@@ -54,16 +54,19 @@
 .penalty-doc td.num, .penalty-doc th.num { text-align: right; }
 .penalty-doc tfoot td { font-weight: bold; }
 .penalty-doc .grand-total { text-align: right; font-size: 12px; font-weight: bold; margin: 6mm 0; }
-.penalty-doc .print-signatures { display: flex; justify-content: flex-end; margin-top: 12mm; }
+/* Место под печать — строго под подписью, не сбоку (колонка, а не
+   строка — иначе flex растягивал stamp-place по высоте под более высокий
+   signature-rows, и вместо круга получался овал). */
+.penalty-doc .print-signatures { display: flex; flex-direction: column; align-items: flex-end; margin-top: 12mm; }
 .penalty-doc .signature-rows { text-align: left; }
 .penalty-doc .signature-line { margin-bottom: 7mm; white-space: nowrap; }
 .penalty-doc .sig-role { display: inline-block; width: 28mm; }
 .penalty-doc .sig-blank { display: inline-block; width: 45mm; border-bottom: 1px solid #000; margin: 0 2mm; }
 .penalty-doc .sig-name { font-size: 9px; }
 .penalty-doc .stamp-place {
-  width: 24mm; height: 24mm; border: 1px dashed #666; border-radius: 50%;
+  width: 24mm; height: 24mm; flex: none; border: 1px dashed #666; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
-  font-size: 8px; color: #666; text-align: center; margin-left: 8mm;
+  font-size: 8px; color: #666; text-align: center; margin-top: 4mm;
 }
 </style>
 

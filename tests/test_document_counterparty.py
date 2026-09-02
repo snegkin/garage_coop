@@ -118,7 +118,7 @@ def test_documents_list_shows_counterparty_filter_for_board(db, client):
     resp = client.get("/cooperative/")
     assert resp.status_code == 200
     body = resp.get_data(as_text=True)
-    assert "documentCounterpartyFilter" in body
+    assert 'data-select-filter-for="documentsTable"' in body
     assert counterparty.name in body
     assert f'data-counterparty-id="{counterparty.id}"' in body
 
@@ -135,6 +135,7 @@ def test_documents_list_hides_counterparty_filter_for_member(db, client):
     resp = client.get("/cooperative/")
     assert resp.status_code == 200
     body = resp.get_data(as_text=True)
-    # Сам select не рендерится — скрипт всё равно ссылается на этот id
-    # через getElementById (проверяет на null), это не бага.
-    assert 'id="documentCounterpartyFilter"' not in body
+    # Весь блок с select обёрнут в {% if is_board() and all_counterparties %}
+    # (см. cooperative/view.html) — для остальных ролей его не должно быть
+    # в разметке вовсе, не только "визуально скрыт".
+    assert 'data-select-filter-for="documentsTable"' not in body

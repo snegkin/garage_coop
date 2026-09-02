@@ -86,7 +86,7 @@
       </td>
       <td>
         {% if line.matched_registry %}
-          <a href="{{ url_for('bank_sync.payment_registry', account_id=account.id) }}#entry-{{ line.matched_registry.id }}"
+          <a href="{{ url_for('bank_sync.payment_registry', account_id=account.id, date_from=registry_link_dates[line.id][0], date_to=registry_link_dates[line.id][1]) }}#entry-{{ line.matched_registry.id }}"
              class="badge bg-info text-decoration-none" title="Реестр #{{ line.matched_registry.id }}">
             {{ _("из реестра") }}
           </a>

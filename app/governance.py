@@ -61,10 +61,18 @@ def view():
         commissions=commissions,
         meetings=meetings,
         persons=persons,
-        current_term=_current_term(),
         current_commission=_current_commission(),
         current_accountant=database.db_session.query(Person).filter_by(is_accountant=True).first(),
     )
+
+
+@bp.route("/contacts")
+@login_required
+def contacts():
+    """Контакты действующего правления — вынесены с общей страницы «Правление»
+    (созывы/ревизионная комиссия/бухгалтер) в отдельную, т.к. это открытые
+    данные, к которым обращаются чаще и без остального контекста."""
+    return render_template("governance/contacts.html", current_term=_current_term())
 
 
 # ---------------------------------------------------------------------------

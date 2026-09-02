@@ -3,12 +3,9 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h3>{{ _("Электронные голосования") }}</h3>
-  <div class="d-flex gap-2">
-    <a class="btn btn-outline-secondary" href="{{ url_for('proposals.list_proposals') }}">{{ _("Предложения голосований") }}</a>
-    {% if is_chairman() %}
-    <a class="btn btn-primary" href="{{ url_for('voting.create') }}">+ {{ _("Новое голосование") }}</a>
-    {% endif %}
-  </div>
+  {% if is_chairman() %}
+  <a class="btn btn-primary" href="{{ url_for('voting.create') }}">+ {{ _("Новое голосование") }}</a>
+  {% endif %}
 </div>
 
 {% if my_weight <= 0 %}

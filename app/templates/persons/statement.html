@@ -60,7 +60,7 @@
               {% elif row.status == "partial" %}<span class="badge bg-warning text-dark">{{ _("частично") }}</span>
               {% else %}<span class="badge bg-danger">{{ _("не оплачено") }}</span>{% endif %}
             </td>
-            <td>{{ row.charge.comment or "—" }}</td>
+            <td>{{ linkify_related_person(row.charge.comment, row.charge.related_person, is_board()) or "—" }}</td>
           </tr>
           {% else %}
           <tr><td colspan="5" class="text-muted">{{ _("Начислений нет.") }}</td></tr>
@@ -76,7 +76,7 @@
           <tr>
             <td>{{ fmt_date(payment.date) }}</td>
             <td>{{ fmt2(payment.amount) }} ₽</td>
-            <td>{{ payment.comment or "—" }}</td>
+            <td>{{ linkify_related_person(payment.comment, payment.related_person, is_board()) or "—" }}</td>
           </tr>
           {% else %}
           <tr><td colspan="3" class="text-muted">{{ _("Платежей нет.") }}</td></tr>

@@ -154,3 +154,56 @@ def test_removing_and_readding_the_same_sole_owner_does_not_duplicate_accounts(a
     assert accounts[0].is_archived is False
     assert accounts[0].account_number == "12020"
     assert balance(accounts[0]) == Decimal("-300.00")  # долг никуда не делся, не обнулился
+
+
+def test_inherited_debt_comment_links_to_old_owner_only_for_board(app, db, client):
+    """
+    Комментарий унаследованного начисления/платежа (см.
+    accounting.transfer_member_account_balance) упоминает прежнего
+    собственника по ФИО — Charge.related_person_id должен указывать на
+    него, а в HTML это ФИО должно быть ссылкой на его карточку, но только
+    для правления (rядовому собственнику нового счёта чужая карточка
+    недоступна — см. app/comment_format.py).
+    """
+    old_owner = make_person(db, full_name="Прежний Собственников")
+    new_owner = make_person(db, full_name="Новый Собственников")
+    garage = make_garage(db, number="202")
+    ownership = make_ownership(db, garage, old_owner)
+    fee_type = _setup_fee_type(db)
+
+    old_account = MemberAccount(
+        person_id=old_owner.id, garage_id=garage.id, fee_type_id=fee_type.id, account_number="12030",
+    )
+    db.add(old_account)
+    db.flush()
+    db.add(Charge(account_id=old_account.id, year=2026, amount=Decimal("700.00")))
+    make_user(db, "board_link", "pass12345", role=RoleEnum.BOARD)
+    make_user(db, "new_owner_link", "pass12345", role=RoleEnum.MEMBER, person=new_owner)
+    db.commit()
+
+    login(client, "board_link", "pass12345")
+    client.post(f"/garages/{garage.id}/owners/{ownership.id}/remove", data={"comment": "продал"})
+    client.post(f"/garages/{garage.id}/owners/add", data={"person_id": new_owner.id, "share": "1"})
+    db.expire_all()
+
+    new_acc = (
+        database.db_session.query(MemberAccount)
+        .filter_by(garage_id=garage.id, fee_type_id=fee_type.id, person_id=new_owner.id)
+        .one()
+    )
+    inherited_charge = next(c for c in new_acc.charges if c.related_person_id is not None)
+    assert inherited_charge.related_person_id == old_owner.id
+    assert "Прежний Собственников" in inherited_charge.comment
+
+    resp = client.get(f"/finance/member-accounts/{new_acc.id}")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert f'<a href="{"/persons/%d" % old_owner.id}">Прежний Собственников</a>' in body
+
+    client.get("/auth/logout")
+    login(client, "new_owner_link", "pass12345")
+    resp = client.get(f"/finance/member-accounts/{new_acc.id}")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert "Прежний Собственников" in body
+    assert f'<a href="/persons/{old_owner.id}">' not in body

@@ -205,6 +205,7 @@ def create():
             else:
                 flash(_("Фото не сохранено: поддерживаются только изображения (jpg, png, webp, gif)."), "warning")
 
+        audit.record("garage.create", f"Создан гараж №{garage.number}, лицевой счёт открыт", entity_type="garage", entity_id=garage.id)
         database.db_session.commit()
         flash(_("Гараж №{number} создан, лицевой счёт открыт.", number=garage.number), "success")
         return redirect(url_for("garages.detail", garage_id=garage.id))
@@ -445,6 +446,7 @@ def edit(garage_id):
         garage.land_cadastral_number = f.get("land_cadastral_number") or None
         garage.privatized_land_area = parse_decimal(f["privatized_land_area"]) if f.get("privatized_land_area") else None
         garage.comment = f.get("comment") or None
+        audit.record("garage.edit", f"Изменены данные гаража №{garage.number}", entity_type="garage", entity_id=garage.id)
         database.db_session.commit()
         flash(_("Изменения сохранены."), "success")
         return redirect(url_for("garages.detail", garage_id=garage.id))
@@ -479,6 +481,10 @@ def add_owner(garage_id):
             garage_id=garage.id, person_id=person_id, event_type=GarageOwnershipEventType.SHARE_CHANGED,
             share=share, comment=comment, created_by_user_id=g.user.id,
         ))
+        audit.record(
+            "garage_owner.share_change", f"Изменена доля собственника гаража №{garage.number}: {existing.person.full_name} — {share}",
+            entity_type="person", entity_id=person_id,
+        )
     else:
         # До добавления! После — count() уже включает эту новую запись,
         # проверка утратит смысл (см. _archive_owner_accounts_and_reuse).
@@ -494,6 +500,11 @@ def add_owner(garage_id):
             garage_id=garage.id, person_id=person_id, event_type=GarageOwnershipEventType.ADDED,
             share=share, comment=comment, created_by_user_id=g.user.id,
         ))
+        person = database.db_session.get(Person, person_id)
+        audit.record(
+            "garage_owner.add", f"{person.full_name} добавлен(а) в собственники гаража №{garage.number}, доля {share}",
+            entity_type="person", entity_id=person_id,
+        )
     database.db_session.commit()
     flash(_("Собственник добавлен/обновлён."), "success")
     return redirect(url_for("garages.detail", garage_id=garage_id))
@@ -522,6 +533,10 @@ def update_owner_share(garage_id, ownership_id):
         garage_id=garage_id, person_id=ownership.person_id, event_type=GarageOwnershipEventType.SHARE_CHANGED,
         share=share, comment=comment, created_by_user_id=g.user.id,
     ))
+    audit.record(
+        "garage_owner.share_change", f"Изменена доля собственника гаража №{ownership.garage.number}: {ownership.person.full_name} — {share}",
+        entity_type="person", entity_id=ownership.person_id,
+    )
     database.db_session.commit()
     flash(_("Доля обновлена."), "success")
     return redirect(url_for("garages.detail", garage_id=garage_id))
@@ -560,6 +575,12 @@ def _remove_owner_and_redistribute(garage: Garage, ownership: GarageOwnership, r
         garage_id=garage.id, person_id=ownership.person_id, event_type=GarageOwnershipEventType.REMOVED,
         share=None, comment=reason, created_by_user_id=user_id,
     ))
+    audit.record(
+        "garage_owner.remove",
+        f"{ownership.person.full_name} выбыл(а) из собственников гаража №{garage.number}"
+        + (f" (причина: {reason})" if reason else ""),
+        entity_type="person", entity_id=ownership.person_id,
+    )
 
     remaining = [o for o in garage.ownerships if o.id != ownership.id]
     if remaining:
@@ -906,6 +927,12 @@ def add_electricity_reading(garage_id):
             database.db_session.flush()
             reallocate_garage_charges(garage)
 
+    audit.record(
+        "electricity_reading.add",
+        f"Внесены показания счётчика гаража №{garage.number}: {reading_value}"
+        + (f", начислено {audit.format_amount(amount)}" if amount is not None else ""),
+        entity_type="garage", entity_id=garage.id,
+    )
     database.db_session.commit()
 
     if amount is None:
@@ -994,6 +1021,13 @@ def edit_last_reading(garage_id):
     elif charge is not None:
         garage.charges.remove(charge)
 
+    audit.record(
+        "electricity_reading.edit_last",
+        f"Председатель исправил(а) последнее показание счётчика гаража №{garage.number} на {new_value}"
+        + (f", начисление обновлено на {audit.format_amount(amount)}" if amount is not None
+           else ", связанное начисление удалено" if charge is not None else ""),
+        entity_type="garage", entity_id=garage.id,
+    )
     database.db_session.flush()
     reallocate_garage_charges(garage)
     database.db_session.commit()

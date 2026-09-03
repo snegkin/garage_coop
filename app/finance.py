@@ -61,6 +61,7 @@ def create_fee_type():
         type_code=f.get("type_code") or None,
         is_penalty=bool(f.get("is_penalty")),
     ))
+    audit.record("fee_type.create", f"Добавлен вид взноса: {f['name']} ({f['code']})")
     database.db_session.commit()
     flash(_("Вид взноса добавлен."), "success")
     return redirect(url_for("finance.fee_types"))
@@ -855,6 +856,12 @@ def create_member_account():
         person_id=person_id, garage_id=garage_id, fee_type_id=fee_type_id, account_number=account_number,
     )
     database.db_session.add(account)
+    database.db_session.flush()
+    audit.record(
+        "member_account.create", entity_type="member_account", entity_id=account.id,
+        summary=f"Создан счёт {account.account_number} ({account.person.short_name}, "
+                f"гараж {account.garage.number}, {account.fee_type.name})",
+    )
     try:
         database.db_session.commit()
     except Exception:
@@ -956,6 +963,11 @@ def account_format():
 
         if f.get("regenerate_existing"):
             changed, failed = _regenerate_account_numbers(settings)
+            audit.record(
+                "account_format.change",
+                f"Изменён формат номеров счетов, существующие номера пересозданы: изменено — {changed}, "
+                f"не удалось из-за конфликта — {failed}",
+            )
             database.db_session.commit()
             if failed:
                 flash(_(
@@ -971,6 +983,7 @@ def account_format():
             # (см. accounting.next_owner_index), но без переоформления уже
             # розданных людям счетов. Новый формат применяется только к
             # счетам, которые будут созданы впредь.
+            audit.record("account_format.change", "Изменён формат номеров счетов, существующие номера оставлены как есть")
             database.db_session.commit()
             flash(_("Формат обновлён. Уже существующие номера оставлены как есть — новый формат применяется только к новым счетам."), "success")
         return redirect(url_for("finance.account_format"))

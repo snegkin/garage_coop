@@ -3,6 +3,7 @@ import datetime as dt
 from flask import Blueprint, render_template, request, redirect, url_for, flash, current_app
 
 from . import database
+from . import audit
 from .i18n import translate as _
 from .auth import login_required, roles_required, is_safe_next_url
 from .models import GeneralMeeting, Person, Document, DocumentType, RoleEnum
@@ -48,6 +49,7 @@ def create():
             protocol_document_id=protocol_document_id,
         )
         database.db_session.add(meeting)
+        audit.record("meeting.create", f"Добавлено общее собрание от {audit.format_date(meeting_date)}")
         database.db_session.commit()
         flash(_("Собрание добавлено."), "success")
 
@@ -87,6 +89,7 @@ def edit(meeting_id):
         database.db_session.flush()
         meeting.protocol_document_id = protocol_doc.id
 
+    audit.record("meeting.edit", f"Изменено общее собрание от {audit.format_date(meeting.date)}")
     database.db_session.commit()
     flash(_("Собрание обновлено."), "success")
     return redirect(url_for("meetings.list_meetings"))

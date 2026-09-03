@@ -28,6 +28,7 @@ import xml.etree.ElementTree as ET
 from flask import Blueprint, render_template, request, redirect, url_for, flash
 
 from . import database
+from . import audit
 from .i18n import translate as _, parse_decimal
 from .auth import roles_required
 from .models import Charge, Cooperative, FeeType, KeyRate, MemberAccount, RoleEnum
@@ -450,6 +451,7 @@ def add_manual_key_rate():
 def delete_key_rate(rate_id):
     row = database.db_session.get(KeyRate, rate_id)
     if row is not None:
+        audit.record("key_rate.delete", f"Удалена запись ключевой ставки ЦБ РФ {row.rate}% с {audit.format_date(row.effective_date)}")
         database.db_session.delete(row)
         database.db_session.commit()
         flash(_("Запись ставки удалена."), "success")

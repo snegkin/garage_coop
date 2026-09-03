@@ -1,9 +1,10 @@
 import datetime as dt
 from decimal import Decimal
 
-from flask import Blueprint, render_template, request, redirect, url_for, flash, current_app
+from flask import Blueprint, render_template, request, redirect, url_for, flash, current_app, abort
 
 from . import database
+from . import audit
 from .i18n import translate as _, parse_decimal
 from .auth import roles_required
 from .models import Counterparty, ElectricityTariff, MasterMeterReading, Document, DocumentType, RoleEnum, Expense, BankAccount
@@ -86,6 +87,10 @@ def save_supplier():
     settings = get_electricity_settings()
     counterparty_id = request.form.get("counterparty_id")
     settings.supplier_id = int(counterparty_id) if counterparty_id else None
+    audit.record(
+        "power.supplier_set",
+        f"Поставщик электроэнергии изменён на: {settings.supplier.name if settings.supplier else '—'}",
+    )
     database.db_session.commit()
     flash(_("Данные поставщика сохранены."), "success")
     return redirect(url_for("power.view"))
@@ -100,6 +105,7 @@ def add_tariff():
         effective_date=dt.date.fromisoformat(f["effective_date"]),
         comment=f.get("comment") or None,
     ))
+    audit.record("power.tariff_add", f"Добавлен тариф на электроэнергию {parse_decimal(f['rate'])} ₽/кВт·ч с {audit.format_date(dt.date.fromisoformat(f['effective_date']))}")
     database.db_session.commit()
     flash(_("Тариф добавлен."), "success")
     return redirect(url_for("power.view"))
@@ -172,6 +178,7 @@ def add_master_reading():
                 "Показания внесены, но расход перед поставщиком не создан — "
                 "сначала укажите поставщика электроэнергии."
             ), "warning")
+            audit.record("power.reading_add", f"Внесены показания общего счётчика за {month}.{year} (без поставщика — расход не создан)")
         else:
             expense = Expense(
                 counterparty_id=settings.supplier.id,
@@ -195,8 +202,22 @@ def add_master_reading():
                     bank_account=bank_account,
                     comment=_("Оплата за электроэнергию {month}.{year}", month=month, year=year),
                 )
+                audit.record(
+                    "power.reading_add",
+                    f"Внесены показания общего счётчика за {month}.{year}, начислен и сразу оплачен "
+                    f"расход перед поставщиком на {audit.format_amount(amount)}",
+                    entity_type="counterparty", entity_id=settings.supplier.id,
+                )
             else:
                 reallocate_counterparty_expenses(settings.supplier)
+                audit.record(
+                    "power.reading_add",
+                    f"Внесены показания общего счётчика за {month}.{year}, начислен расход перед "
+                    f"поставщиком на {audit.format_amount(amount)}",
+                    entity_type="counterparty", entity_id=settings.supplier.id,
+                )
+    else:
+        audit.record("power.reading_add", f"Внесены показания общего счётчика за {month}.{year} (нулевая сумма начисления)")
 
     database.db_session.commit()
     flash(_("Показания общего счётчика внесены."), "success")
@@ -247,6 +268,7 @@ def delete_reading(reading_id):
             return redirect(url_for("power.view"))
         database.db_session.delete(expense)
 
+    audit.record("power.reading_delete", f"Удалено показание общего счётчика за {reading.month}.{reading.year}")
     database.db_session.delete(reading)
     database.db_session.commit()
     flash(_("Показание удалено."), "success")

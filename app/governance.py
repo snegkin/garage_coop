@@ -3,6 +3,7 @@ import datetime as dt
 from flask import Blueprint, render_template, request, redirect, url_for, flash, abort
 
 from . import database
+from . import audit
 from .i18n import translate as _
 from .auth import login_required, roles_required
 from .permissions import sync_user_role
@@ -96,6 +97,7 @@ def set_accountant():
 
     person.is_accountant = True
     sync_user_role(person)
+    audit.record("accountant.set", f"Бухгалтером назначен: {person.full_name}", entity_type="person", entity_id=person.id)
     database.db_session.commit()
     flash(_("Бухгалтер назначен."), "success")
     return redirect(url_for("governance.view"))
@@ -110,6 +112,7 @@ def unset_accountant():
         abort(404)
     person.is_accountant = False
     sync_user_role(person)
+    audit.record("accountant.unset", f"Бухгалтер снят с должности: {person.full_name}", entity_type="person", entity_id=person.id)
     database.db_session.commit()
     flash(_("Бухгалтер снят с должности."), "success")
     return redirect(url_for("governance.view"))
@@ -174,6 +177,7 @@ def create_term():
 
     term = BoardTerm(start_date=start_date, elected_by_meeting_id=int(f["elected_by_meeting_id"]))
     database.db_session.add(term)
+    audit.record("board_term.create", f"Открыт новый созыв правления с {audit.format_date(start_date)}")
     database.db_session.commit()
     flash(_("Созыв правления добавлен. Теперь внесите его состав."), "success")
     return redirect(url_for("governance.term_detail", term_id=term.id))
@@ -202,6 +206,7 @@ def close_term(term_id):
         abort(404)
     end_date = request.form.get("end_date")
     term.end_date = dt.date.fromisoformat(end_date) if end_date else dt.date.today()
+    audit.record("board_term.close", f"Закрыт созыв правления от {audit.format_date(term.start_date)}, дата закрытия {audit.format_date(term.end_date)}")
     database.db_session.commit()
     flash(_("Созыв закрыт."), "success")
     return redirect(url_for("governance.term_detail", term_id=term.id))
@@ -218,6 +223,7 @@ def apply_term(term_id):
         return redirect(url_for("governance.term_detail", term_id=term.id))
 
     count = _apply_board_term_flags(term)
+    audit.record("board_term.apply", f"Состав созыва правления от {audit.format_date(term.start_date)} применён к правам доступа, затронуто записей: {count}")
     database.db_session.commit()
     flash(_("Состав применён к правам доступа: обновлено записей — {count}.", count=count), "success")
     return redirect(url_for("governance.term_detail", term_id=term.id))
@@ -241,12 +247,19 @@ def add_board_member(term_id):
         for m in term.members:
             m.is_chairman = False
 
+    person = database.db_session.get(Person, person_id)
     database.db_session.add(BoardMember(
         term_id=term.id,
         person_id=person_id,
         is_chairman=is_chairman,
         role=f.get("role") or None,
     ))
+    audit.record(
+        "board_term.member_add",
+        f"{person.full_name} добавлен(а) в состав созыва правления от {audit.format_date(term.start_date)}"
+        + (" (председатель)" if is_chairman else ""),
+        entity_type="person", entity_id=person_id,
+    )
     database.db_session.commit()
     flash(_("Человек добавлен в состав созыва."), "success")
     return redirect(url_for("governance.term_detail", term_id=term.id))
@@ -267,6 +280,12 @@ def edit_board_member(term_id, member_id):
                 m.is_chairman = False
     member.is_chairman = is_chairman
     member.role = f.get("role") or None
+    audit.record(
+        "board_term.member_edit",
+        f"Изменена запись состава созыва правления: {member.person.full_name}"
+        + (" (председатель)" if is_chairman else ""),
+        entity_type="person", entity_id=member.person_id,
+    )
     database.db_session.commit()
     flash(_("Запись изменена."), "success")
     return redirect(url_for("governance.term_detail", term_id=term_id))
@@ -278,6 +297,11 @@ def delete_board_member(term_id, member_id):
     member = database.db_session.get(BoardMember, member_id)
     if member is None or member.term_id != term_id:
         abort(404)
+    audit.record(
+        "board_term.member_delete",
+        f"{member.person.full_name} убран(а) из состава созыва правления от {audit.format_date(member.term.start_date)}",
+        entity_type="person", entity_id=member.person_id,
+    )
     database.db_session.delete(member)
     database.db_session.commit()
     flash(_("Человек убран из состава созыва."), "success")
@@ -304,6 +328,7 @@ def create_commission():
 
     commission = RevisionCommission(start_date=start_date, elected_by_meeting_id=int(f["elected_by_meeting_id"]))
     database.db_session.add(commission)
+    audit.record("revision_commission.create", f"Создана ревизионная комиссия с {audit.format_date(start_date)}")
     database.db_session.commit()
     flash(_("Ревизионная комиссия добавлена. Теперь внесите её состав."), "success")
     return redirect(url_for("governance.commission_detail", commission_id=commission.id))
@@ -334,6 +359,7 @@ def close_commission(commission_id):
         abort(404)
     end_date = request.form.get("end_date")
     commission.end_date = dt.date.fromisoformat(end_date) if end_date else dt.date.today()
+    audit.record("revision_commission.close", f"Закрыта ревизионная комиссия от {audit.format_date(commission.start_date)}, дата закрытия {audit.format_date(commission.end_date)}")
     database.db_session.commit()
     flash(_("Состав ревизионной комиссии закрыт."), "success")
     return redirect(url_for("governance.commission_detail", commission_id=commission.id))
@@ -365,9 +391,16 @@ def add_commission_member(commission_id):
         for m in commission.members:
             m.is_chair = False
 
+    person = database.db_session.get(Person, person_id)
     database.db_session.add(RevisionCommissionMember(
         commission_id=commission.id, person_id=person_id, is_chair=is_chair,
     ))
+    audit.record(
+        "revision_commission.member_add",
+        f"{person.full_name} добавлен(а) в состав ревизионной комиссии от {audit.format_date(commission.start_date)}"
+        + (" (председатель комиссии)" if is_chair else ""),
+        entity_type="person", entity_id=person_id,
+    )
     database.db_session.commit()
     flash(_("Человек добавлен в состав комиссии."), "success")
     return redirect(url_for("governance.commission_detail", commission_id=commission.id))
@@ -386,6 +419,12 @@ def edit_commission_member(commission_id, member_id):
             if m.id != member.id:
                 m.is_chair = False
     member.is_chair = is_chair
+    audit.record(
+        "revision_commission.member_edit",
+        f"Изменена запись состава ревизионной комиссии: {member.person.full_name}"
+        + (" (председатель комиссии)" if is_chair else ""),
+        entity_type="person", entity_id=member.person_id,
+    )
     database.db_session.commit()
     flash(_("Запись изменена."), "success")
     return redirect(url_for("governance.commission_detail", commission_id=commission_id))
@@ -397,6 +436,11 @@ def delete_commission_member(commission_id, member_id):
     member = database.db_session.get(RevisionCommissionMember, member_id)
     if member is None or member.commission_id != commission_id:
         abort(404)
+    audit.record(
+        "revision_commission.member_delete",
+        f"{member.person.full_name} убран(а) из состава ревизионной комиссии от {audit.format_date(member.commission.start_date)}",
+        entity_type="person", entity_id=member.person_id,
+    )
     database.db_session.delete(member)
     database.db_session.commit()
     flash(_("Человек убран из состава комиссии."), "success")

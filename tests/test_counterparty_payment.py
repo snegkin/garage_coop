@@ -225,6 +225,43 @@ def test_add_payment_empty_amount_closes_debt_in_full(app, db, client):
     assert payment.amount == Decimal("2500.00")
 
 
+def test_add_payment_empty_amount_marks_expense_as_paid(app, db, client):
+    """Регрессия: counterparty_balance() (вызывается для «закрыть весь долг»
+    при пустой сумме) читает counterparty.payments/.expenses ДО того, как
+    pay_counterparty() добавляет новый CounterpartyPayment через
+    counterparty_id= напрямую (не через relationship-атрибут) — без
+    expire() в reallocate_counterparty_expenses() эта уже закэшированная
+    коллекция не увидела бы новый платёж, и ExpenseAllocation не создался
+    бы вовсе: плашка «не оплачено» осталась бы висеть, хотя Payment на всю
+    сумму долга реально был бы создан (см. предыдущий тест)."""
+    counterparty = make_counterparty(db)
+    account = make_bank_account(db)
+    line = make_statement_line(db, account, amount=Decimal("2500.00"), operation_date=dt.date(2026, 2, 1))
+    expense = Expense(counterparty_id=counterparty.id, date=dt.date(2026, 1, 1), amount=Decimal("2500.00"))
+    db.add(expense)
+    db.flush()
+    make_user(db, "board58b", "pass12345", role=RoleEnum.BOARD)
+    db.commit()
+    login(client, "board58b", "pass12345")
+
+    resp = client.post(f"/counterparties/{counterparty.id}/payments/new", data={
+        "date": "2026-02-01", "amount": "",
+        "bank_account_id": str(account.id), "adjust_balance": "on",
+        "bank_statement_line_id": str(line.id),
+    })
+    assert resp.status_code == 302
+    db.expire_all()
+
+    from app.accounting import expense_paid_amount
+    assert expense_paid_amount(expense) == Decimal("2500.00")
+
+    resp = client.get(f"/counterparties/{counterparty.id}")
+    html = resp.get_data(as_text=True)
+    stats_start = html.find('id="expensesTable"')
+    assert "оплачено</span>" in html[stats_start:stats_start + 2000]
+    assert "не оплачено" not in html[stats_start:stats_start + 2000]
+
+
 def test_add_payment_empty_amount_without_debt_is_rejected(app, db, client):
     counterparty = make_counterparty(db)
     make_user(db, "board59", "pass12345", role=RoleEnum.BOARD)
@@ -328,6 +365,43 @@ def test_add_payment_rejects_already_referenced_statement_line(app, db, client):
     assert resp.status_code == 302
     db.expire_all()
     assert db.query(CounterpartyPayment).filter_by(counterparty_id=counterparty_b.id).count() == 0
+
+
+def test_reversed_payment_frees_its_referenced_statement_line(app, db, client):
+    """Сторно платежа должно освобождать строку выписки, на которую он
+    ссылался, для повторной привязки — иначе ошибочный/неверно заведённый
+    платёж навсегда «занимает» строку выписки, хотя сам он уже недействует
+    (см. app/counterparties.py:_resolve_statement_line)."""
+    counterparty = make_counterparty(db)
+    account = make_bank_account(db)
+    line = make_statement_line(db, account, direction="debit", amount=Decimal("500.00"))
+    make_user(db, "board66", "pass12345", role=RoleEnum.BOARD)
+    db.commit()
+    login(client, "board66", "pass12345")
+
+    client.post(f"/counterparties/{counterparty.id}/payments/new", data={
+        "date": "2026-01-10", "amount": "500.00", "bank_statement_line_id": str(line.id),
+    })
+    db.expire_all()
+    payment = db.query(CounterpartyPayment).filter_by(counterparty_id=counterparty.id).one()
+
+    client.post(f"/counterparties/{counterparty.id}/payments/{payment.id}/reverse", data={"date": "2026-01-11"})
+    db.expire_all()
+
+    resp = client.get(f"/counterparties/{counterparty.id}")
+    assert f'value="{line.id}"' in resp.get_data(as_text=True)  # снова доступна в списке
+
+    resp = client.post(f"/counterparties/{counterparty.id}/payments/new", data={
+        "date": "2026-01-12", "amount": "500.00", "bank_statement_line_id": str(line.id),
+    })
+    assert resp.status_code == 302
+    db.expire_all()
+    new_payments = (
+        db.query(CounterpartyPayment)
+        .filter_by(counterparty_id=counterparty.id, bank_statement_line_id=line.id, reverses_payment_id=None)
+        .all()
+    )
+    assert len(new_payments) == 2  # исходный (сторнированный) + новый, оба всё ещё ссылаются на строку
 
 
 def test_edit_payment_can_keep_its_own_referenced_statement_line(app, db, client):

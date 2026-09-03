@@ -10,7 +10,7 @@ from decimal import Decimal
 
 from app import database
 from app.accounting import balance
-from app.models import RoleEnum, FeeType, MemberAccount, Charge, Payment
+from app.models import RoleEnum, FeeType, MemberAccount, Charge, ChargeAllocation, Payment
 
 from tests.conftest import make_person, make_garage, make_ownership, make_user, login
 
@@ -47,6 +47,16 @@ def test_empty_amount_closes_debt_in_full(app, db, client):
     assert balance(account) == Decimal("0.00")
     payment = db.query(Payment).filter_by(account_id=account.id).one()
     assert payment.amount == Decimal("1710.00")
+
+    # Регрессия: balance() выше уже прочитал (и мог закэшировать)
+    # account.charges/.payments ДО того, как этот Payment был добавлен через
+    # account_id= напрямую — без expire() в reallocate_member_charges() он
+    # остался бы невидим здесь, и ChargeAllocation не создался бы вовсе (тот
+    # же класс бага нашёлся и починен для контрагентов, см.
+    # test_counterparty_payment.py:test_add_payment_empty_amount_marks_expense_as_paid).
+    charge = db.query(Charge).filter_by(account_id=account.id).one()
+    allocations = db.query(ChargeAllocation).filter_by(charge_id=charge.id).all()
+    assert sum(a.amount for a in allocations) == Decimal("1710.00")
 
 
 def test_empty_amount_without_debt_is_rejected(app, db, client):

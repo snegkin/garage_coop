@@ -1655,13 +1655,13 @@ DOC_TYPE_LABELS = {
         "charter": "устав", "order": "приказ", "act": "акт",
         "letter": "письмо", "protocol": "протокол",
         "invoice": "счёт", "statement": "выписка", "certificate": "справка",
-        "estimate": "смета", "report": "отчёт", "other": "прочее",
+        "estimate": "смета", "report": "отчёт", "agreement": "соглашение", "other": "прочее",
     },
     "en": {
         "charter": "charter", "order": "order", "act": "act",
         "letter": "letter", "protocol": "protocol",
         "invoice": "invoice", "statement": "statement", "certificate": "certificate",
-        "estimate": "estimate", "report": "report", "other": "other",
+        "estimate": "estimate", "report": "report", "agreement": "agreement", "other": "other",
     },
 }
 

@@ -562,6 +562,7 @@ class DocumentType(str, enum.Enum):
     CERTIFICATE = "certificate"
     ESTIMATE = "estimate"
     REPORT = "report"
+    AGREEMENT = "agreement"
     OTHER = "other"
 
 

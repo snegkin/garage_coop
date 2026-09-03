@@ -1,12 +1,12 @@
 import datetime as dt
 import os
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 
 from flask import Blueprint, render_template, request, redirect, url_for, flash, abort, send_file, current_app
 from werkzeug.utils import secure_filename
 
 from . import database
-from .i18n import translate as _
+from .i18n import translate as _, parse_optional_decimal as _parse_decimal
 from .auth import login_required, roles_required
 from .models import Cooperative, BankAccount, BankApiProvider, RoleEnum, Document, DocumentType, Person, Counterparty
 from .accounting import cooperative_balance
@@ -14,15 +14,6 @@ from .uploads import save_upload
 from .permissions import is_board
 
 bp = Blueprint("cooperative", __name__, url_prefix="/cooperative")
-
-
-def _parse_decimal(raw):
-    if not raw:
-        return None
-    try:
-        return Decimal(raw)
-    except InvalidOperation:
-        return None
 
 
 @bp.route("/")

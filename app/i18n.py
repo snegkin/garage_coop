@@ -1648,6 +1648,65 @@ def format_date(value) -> str:
     return value.strftime(DATE_FORMATS.get(locale, DATE_FORMATS["ru"]))
 
 
+def _normalize_decimal_string(raw) -> str:
+    """
+    Готовит введённую пользователем строку к Decimal(...): fmt2 выше выводит
+    дробные числа с запятой для ru-локали, но их же нужно уметь ввести
+    обратно, а браузер и Decimal() понимают только точку. Также убираем
+    пробелы (обычные и неразрывные) — их подставляют при копировании
+    сгруппированных по тысячам чисел.
+
+    Если в строке есть и запятая, и точка — дробным разделителем считается
+    тот, что стоит ПОСЛЕЕ (например, британский "1,234.56"), более ранний
+    трактуется как разделитель тысяч и просто убирается. Если разделитель
+    один, но встречается несколько раз ("1,234,567" / "1.234.567") — это
+    точно группировка тысяч, а не дробная часть, и такой разделитель тоже
+    убирается целиком. Однозначного решения для одиночной запятой/точки
+    без второго разделителя нет (в частности, британские "1,234" без
+    точки — это 1234, а не 1.234) — здесь она всегда трактуется как дробный
+    разделитель, т.к. это соответствует форматам, которые реально
+    используются в интерфейсе (ru — запятая, en — точка), без группировки
+    тысяч.
+    """
+    text = str(raw).strip().replace("\xa0", "").replace(" ", "")
+    last_comma = text.rfind(",")
+    last_dot = text.rfind(".")
+    if last_comma != -1 and last_dot != -1:
+        if last_comma > last_dot:
+            text = text.replace(".", "").replace(",", ".")
+        else:
+            text = text.replace(",", "")
+    elif last_comma != -1:
+        if text.count(",") > 1:
+            text = text.replace(",", "")
+        else:
+            text = text.replace(",", ".")
+    elif last_dot != -1 and text.count(".") > 1:
+        text = text.replace(".", "")
+    return text
+
+
+def parse_decimal(raw) -> Decimal:
+    """
+    Разбирает введённую пользователем строку в Decimal, принимая и точку, и
+    запятую как разделитель дробной части — см. _normalize_decimal_string.
+    Бросает InvalidOperation на некорректном вводе (как и голый Decimal(...)),
+    это уже отлавливается общим обработчиком ошибок форм.
+    """
+    return Decimal(_normalize_decimal_string(raw))
+
+
+def parse_optional_decimal(raw) -> Decimal | None:
+    """Как parse_decimal, но пустой/отсутствующий ввод -> None вместо ошибки
+    (для необязательных полей)."""
+    if not raw:
+        return None
+    try:
+        return parse_decimal(raw)
+    except InvalidOperation:
+        return None
+
+
 def fmt2(value) -> str:
     """
     Форматирует число ровно с 2 знаками после запятой (рубли, м², доля, кВт·ч

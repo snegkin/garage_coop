@@ -24,7 +24,7 @@
 <div class="row g-2 mb-3">
   <div class="col-6">
     <label class="form-label">{{ _("Баланс, ₽") }}</label>
-    <input class="form-control" type="number" step="0.01" name="balance" value="{{ (account.balance if account.balance is not none else '') if account else '' }}">
+    <input class="form-control" type="text" inputmode="decimal" name="balance" value="{{ (account.balance if account.balance is not none else '') if account else '' }}">
     <div class="form-text">{{ _("Вносится вручную, нет интеграции с банком.") }}</div>
   </div>
   <div class="col-6">

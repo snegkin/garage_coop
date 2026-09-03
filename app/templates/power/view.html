@@ -194,7 +194,7 @@
           </div>
           <div class="mb-3">
             <label class="form-label">{{ _("Показания, кВт·ч") }}</label>
-            <input class="form-control" name="reading" id="mmReading" required>
+            <input class="form-control" inputmode="decimal" name="reading" id="mmReading" required>
           </div>
           <div class="row g-2 mb-3">
             <div class="col-6">
@@ -257,7 +257,7 @@
   function update() {
     const year = document.getElementById("mmYear").value;
     const month = String(document.getElementById("mmMonth").value).padStart(2, "0");
-    const reading = parseFloat(document.getElementById("mmReading").value);
+    const reading = parseDecimalInput(document.getElementById("mmReading").value);
     const tariffPreview = document.getElementById("mmTariffPreview");
     const amountPreview = document.getElementById("mmAmountPreview");
     if (!year || !month) { tariffPreview.value = ""; amountPreview.value = ""; return; }

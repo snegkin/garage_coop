@@ -1633,6 +1633,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
 
         # persons/accounts.html — заголовок колонки привязки/отвязки
         "Привязка": "Link",
+
+        # counterparties/detail.html — автоподстановка счёта по строке выписки
+        "Подставлен автоматически по выбранной строке выписки — чтобы изменить, сначала очистите поле «Строка выписки банка».":
+            "Filled in automatically from the selected statement line — to change it, first clear the \"Bank statement line\" field.",
     }
 }
 

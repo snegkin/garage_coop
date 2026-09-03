@@ -233,6 +233,24 @@ def test_statement_print_form_without_coop_or_officers_does_not_crash(app, db, c
     body = resp.get_data(as_text=True)
     assert 'class="print-letterhead"' in body
     assert 'class="print-signatures"' in body
+    # Бухгалтер не назначен — под его подпись не должно резервироваться
+    # место в бланке (в отличие от председателя, который тут есть всегда,
+    # т.к. только он может смотреть чужую выписку).
+    assert "Бухгалтер" not in body
+
+
+def test_statement_print_form_hides_accountant_signature_when_unassigned(app, db, client):
+    make_person(db, full_name="Председателев Пётр Петрович", is_chairman=True)
+    person = make_person(db, full_name="Обычный Человек")
+    make_user(db, "board8", "pass12345", role=RoleEnum.CHAIRMAN)
+    db.commit()
+    login(client, "board8", "pass12345")
+
+    resp = client.get(f"/persons/{person.id}/statement")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert "Председатель" in body
+    assert "Бухгалтер" not in body
 
 
 # ---------------------------------------------------------------------------

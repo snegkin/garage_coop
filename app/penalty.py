@@ -453,34 +453,3 @@ def delete_key_rate(rate_id):
         database.db_session.commit()
         flash(_("Запись ставки удалена."), "success")
     return redirect(url_for("penalty.view"))
-
-
-@bp.route("/run", methods=["POST"])
-@roles_required(RoleEnum.CHAIRMAN)
-def run():
-    f = request.form
-    target_date = dt.date.fromisoformat(f["target_date"]) if f.get("target_date") else dt.date.today()
-
-    result = accrue_penalties(target_date)
-    if result.get("error") == "no_due_date":
-        flash(_(
-            "Не задан срок оплаты взносов — укажите день и месяц в реквизитах кооператива.",
-        ), "danger")
-        return redirect(url_for("cooperative.edit"))
-    if result.get("error") == "no_key_rate":
-        flash(_(
-            "Нет ни одной записи ключевой ставки ЦБ РФ — загрузите с cbr.ru или внесите вручную.",
-        ), "danger")
-        return redirect(url_for("penalty.view"))
-
-    if result["charged_rows"]:
-        flash(_("Начислено пени: {n} на сумму {total} ₽.", n=len(result["charged_rows"]), total=result["total"]), "success")
-    else:
-        flash(_("Новой просрочки не найдено — начислять нечего."), "info")
-    if result["skipped_rows"]:
-        flash(_(
-            "Пропущено (нет счёта пени — заведите вид взноса с is_penalty и тем же кодом счёта): {n}.",
-            n=len(result["skipped_rows"]),
-        ), "warning")
-
-    return render_template("finance/penalty_result.html", result=result)

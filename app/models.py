@@ -1812,12 +1812,11 @@ class PowerPhaseReading(Base):
     scripts/poll_ewelink.py) — не начисление и не биллинг, только текущее
     состояние для мониторинга.
 
-    raw_params хранит сырой JSON params из ответа eWeLink целиком — на
-    время, пока точные имена полей (power/voltage/current против
-    power_00/voltage_00/current_00 и т.п.) не подтверждены живым тестом на
-    оборудовании заказчика (см. app/ewelink/client.py). После подтверждения
-    и фиксации в context.md это поле можно будет не заполнять постоянно, а
-    оставить только для диагностики ошибок парсинга.
+    Все поля — уже разобранные/масштабированные значения из params ответа
+    eWeLink (см. app.ewelink.client.parse_phase_snapshot), не сырой JSON —
+    имена и масштаб полей подтверждены живым тестом на оборудовании
+    заказчика (см. README.md), поэтому больше не нужно хранить raw_params
+    целиком про запас на случай, если разбор окажется неверным.
     """
     __tablename__ = "power_phase_reading"
 
@@ -1827,8 +1826,11 @@ class PowerPhaseReading(Base):
     power_w: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
     voltage_v: Mapped[Decimal | None] = mapped_column(Numeric(6, 2))
     current_a: Mapped[Decimal | None] = mapped_column(Numeric(8, 3))
+    day_kwh: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    month_kwh: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
     is_online: Mapped[bool] = mapped_column(Boolean, default=True)
-    raw_params: Mapped[str | None] = mapped_column(Text)
+    sled_online: Mapped[bool | None] = mapped_column(Boolean)  # статусный светодиод устройства (params.sledOnline)
+    switch_on: Mapped[bool | None] = mapped_column(Boolean)  # состояние реле (params.switches[0].switch)
 
     device: Mapped["PowerPhaseDevice"] = relationship(back_populates="readings")
 

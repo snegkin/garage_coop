@@ -49,6 +49,7 @@ def test_parse_phase_snapshot_reads_unsuffixed_keys():
     приложении eWeLink на живых устройствах, см. parse_phase_snapshot()."""
     device = {"itemData": {"deviceid": "10023349b3", "online": True, "params": {
         "power": "61230", "voltage": "23150", "current": "265", "dayKwh": 579, "monthKwh": 1234,
+        "sledOnline": "on", "switches": [{"switch": "on", "outlet": 0}],
     }}}
     snap = parse_phase_snapshot(device)
     assert snap.power_w == Decimal("612.3")
@@ -57,6 +58,25 @@ def test_parse_phase_snapshot_reads_unsuffixed_keys():
     assert snap.day_kwh == Decimal("5.79")
     assert snap.month_kwh == Decimal("12.34")
     assert snap.is_online is True
+    assert snap.sled_online is True
+    assert snap.switch_on is True
+
+
+def test_parse_phase_snapshot_reads_switch_state_off():
+    device = {"itemData": {"deviceid": "x", "online": True, "params": {
+        "sledOnline": "off", "switches": [{"switch": "off", "outlet": 0}],
+    }}}
+    snap = parse_phase_snapshot(device)
+    assert snap.sled_online is False
+    assert snap.switch_on is False
+
+
+def test_parse_phase_snapshot_switch_falls_back_to_top_level_key():
+    """Прошивки без массива switches (одноканальные) — запасной вариант
+    params["switch"] напрямую, см. _switch_on() в app/ewelink/client.py."""
+    device = {"itemData": {"deviceid": "x", "online": True, "params": {"switch": "on"}}}
+    snap = parse_phase_snapshot(device)
+    assert snap.switch_on is True
 
 
 def test_parse_phase_snapshot_reads_suffixed_keys():
@@ -82,6 +102,8 @@ def test_parse_phase_snapshot_missing_fields_are_none():
     assert snap.day_kwh is None
     assert snap.month_kwh is None
     assert snap.is_online is False
+    assert snap.sled_online is None
+    assert snap.switch_on is None
 
 
 # ---------------------------------------------------------------------------
@@ -429,20 +451,18 @@ def test_view_shows_latest_reading_per_device(app, db, client):
 
 
 def test_view_shows_and_sums_day_month_kwh_across_phases(app, db, client):
-    """day_kwh/month_kwh не хранятся отдельными колонками — извлекаются из
-    raw_params того же последнего показания, что и power_w (см.
-    scripts/poll_ewelink.py и _parse_kwh_from_reading), без отдельного
-    живого запроса к eWeLink. Суммируются по всем фазам так же, как
-    total_power."""
+    """day_kwh/month_kwh — обычные колонки PowerPhaseReading (см. models.py),
+    заполняются поллером напрямую из PhaseSnapshot. Суммируются по всем
+    фазам так же, как total_power."""
     device_a = make_phase_device(db, label="Фаза A", ewelink_device_id="dev-a", sort_order=0)
     device_b = make_phase_device(db, label="Фаза B", ewelink_device_id="dev-b", sort_order=1)
     db.add(PowerPhaseReading(
         device_id=device_a.id, ts=dt.datetime.utcnow(), power_w=Decimal("300"), is_online=True,
-        raw_params=str({"power": "30000", "dayKwh": 579, "monthKwh": 12050}),
+        day_kwh=Decimal("5.79"), month_kwh=Decimal("120.50"),
     ))
     db.add(PowerPhaseReading(
         device_id=device_b.id, ts=dt.datetime.utcnow(), power_w=Decimal("200"), is_online=True,
-        raw_params=str({"power": "20000", "dayKwh": 421, "monthKwh": 9000}),
+        day_kwh=Decimal("4.21"), month_kwh=Decimal("90.00"),
     ))
     make_user(db, "board17", "pass12345", role=RoleEnum.BOARD)
     db.commit()
@@ -456,21 +476,21 @@ def test_view_shows_and_sums_day_month_kwh_across_phases(app, db, client):
     assert "210,50" in body  # 120.5 + 90.0 — суммарный расход за месяц
 
 
-def test_parse_kwh_from_reading_handles_missing_and_malformed_raw_params():
-    from app.electricity_monitor import _parse_kwh_from_reading
+def test_view_shows_switch_off_badge(app, db, client):
+    device = make_phase_device(db)
+    db.add(PowerPhaseReading(
+        device_id=device.id, ts=dt.datetime.utcnow(), power_w=Decimal("0"), is_online=True,
+        switch_on=False, sled_online=True,
+    ))
+    make_user(db, "board18", "pass12345", role=RoleEnum.BOARD)
+    db.commit()
+    login(client, "board18", "pass12345")
 
-    assert _parse_kwh_from_reading(None) is None
-
-    empty = PowerPhaseReading(raw_params=None)
-    assert _parse_kwh_from_reading(empty) is None
-
-    malformed = PowerPhaseReading(raw_params="not a dict at all {")
-    assert _parse_kwh_from_reading(malformed) is None
-
-    ok = PowerPhaseReading(raw_params=str({"dayKwh": 100, "monthKwh": 2000}))
-    snap = _parse_kwh_from_reading(ok)
-    assert snap.day_kwh == Decimal("1")
-    assert snap.month_kwh == Decimal("20")
+    resp = client.get("/electricity/")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert "реле выкл" in body
+    assert "LED" in body
 
 
 # ---------------------------------------------------------------------------

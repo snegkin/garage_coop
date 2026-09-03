@@ -85,6 +85,9 @@ CURRENT_KEYS = ("current", "current_00")
 # аналогии, а не проверен отдельно; уточнить при первом реальном опросе.
 DAY_KWH_KEYS = ("dayKwh",)
 MONTH_KWH_KEYS = ("monthKwh",)
+# Статусный светодиод устройства (не влияет на показания/реле, чисто
+# индикация) — "on"/"off" строкой, как и большинство bool-параметров eWeLink.
+SLED_ONLINE_KEYS = ("sledOnline",)
 
 
 class EWeLinkApiError(Exception):
@@ -117,7 +120,8 @@ class PhaseSnapshot:
     day_kwh: Decimal | None
     month_kwh: Decimal | None
     is_online: bool
-    raw_params: dict
+    sled_online: bool | None
+    switch_on: bool | None
 
 
 def _to_decimal(value) -> Decimal | None:
@@ -136,6 +140,15 @@ def _first_present(params: dict, keys: tuple[str, ...]) -> Decimal | None:
     return None
 
 
+def _first_present_raw(params: dict, keys: tuple[str, ...]):
+    """Как _first_present(), но без приведения к Decimal — для полей, где
+    значение не число (например SLED_ONLINE_KEYS — строка "on"/"off")."""
+    for key in keys:
+        if key in params:
+            return params[key]
+    return None
+
+
 _READING_SCALE = Decimal(100)  # см. parse_phase_snapshot() — подтверждено живым устройством
 
 
@@ -145,6 +158,33 @@ def _scaled(params: dict, keys: tuple[str, ...]) -> Decimal | None:
     parse_phase_snapshot()."""
     value = _first_present(params, keys)
     return value / _READING_SCALE if value is not None else None
+
+
+def _on_off(value) -> bool | None:
+    """eWeLink отдаёт bool-параметры строкой "on"/"off", не JSON-булевым
+    значением — приводим к bool. None, если значения нет вовсе (не тот же
+    смысл, что и False — "off" тоже валидное известное состояние)."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered == "on":
+            return True
+        if lowered == "off":
+            return False
+    return None
+
+
+def _switch_on(params: dict) -> bool | None:
+    """Состояние реле — params["switches"][0]["switch"] на многоканальных
+    прошивках (массив по одному элементу на канал; здесь на канал —
+    отдельное физическое устройство, берём первый/единственный элемент), с
+    запасным вариантом params["switch"] напрямую — по аналогии с
+    POWER_KEYS/суффиксом _00 выше, на случай другой прошивки."""
+    switches = params.get("switches")
+    if isinstance(switches, list) and switches and isinstance(switches[0], dict):
+        return _on_off(switches[0].get("switch"))
+    return _on_off(params.get("switch"))
 
 
 def _extract_token_pair(payload: dict) -> tuple[str, str]:
@@ -175,7 +215,8 @@ def parse_phase_snapshot(device: dict) -> PhaseSnapshot:
         day_kwh=_scaled(params, DAY_KWH_KEYS),
         month_kwh=_scaled(params, MONTH_KWH_KEYS),
         is_online=online,
-        raw_params=params,
+        sled_online=_on_off(_first_present_raw(params, SLED_ONLINE_KEYS)),
+        switch_on=_switch_on(params),
     )
 
 

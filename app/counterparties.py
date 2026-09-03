@@ -200,6 +200,7 @@ def add_payment(counterparty_id):
         bank_account=bank_account,
         document_id=document_id,
         comment=f.get("comment") or None,
+        adjust_balance=bool(f.get("adjust_balance")),
     )
     audit.record(
         "counterparty_payment.create", entity_type="counterparty", entity_id=counterparty.id,
@@ -251,6 +252,7 @@ def edit_payment(counterparty_id, payment_id):
         bank_account=bank_account,
         document_id=document_id,
         comment=f.get("comment") or None,
+        adjust_balance=bool(f.get("adjust_balance")),
     )
     audit.record(
         "counterparty_payment.edit", entity_type="counterparty_payment", entity_id=payment.id,

@@ -443,7 +443,8 @@ class CounterpartyPayment(Base):
     Платёж кооператива контрагенту — зеркало Payment (там платят кооперативу,
     здесь платит кооператив). Реальное списание денег: см.
     accounting.pay_counterparty(), который на создании такого платежа уменьшает
-    CounterpartyPayment.bank_account.balance на сумму платежа.
+    CounterpartyPayment.bank_account.balance на сумму платежа — если только
+    adjusts_bank_balance не выключен явно (см. ниже).
     document_id — платёжный документ (платёжка/квитанция), в отличие от
     Expense.document_id (тот — счёт/акт, подтверждающий сам факт задолженности).
     """
@@ -456,6 +457,16 @@ class CounterpartyPayment(Base):
     amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
     document_id: Mapped[int | None] = mapped_column(ForeignKey("document.id", ondelete="SET NULL"), index=True)
     comment: Mapped[str | None] = mapped_column(Text)
+    # По умолчанию True — обычный случай, платёж вносится сразу и реально
+    # списывается со счёта (см. pay_counterparty). False — платёж вносится
+    # задним числом только для сохранности истории (деньги были списаны с
+    # реального счёта раньше, до появления этой записи в системе) —
+    # bank_account.balance в этом случае трогать не нужно, он их уже не
+    # содержит. Флаг запоминается на самом платеже (а не передаётся заново
+    # при каждой операции), чтобы edit_counterparty_payment/
+    # reverse_counterparty_payment знали, был ли эффект на баланс, который
+    # нужно отменять/переносить.
+    adjusts_bank_balance: Mapped[bool] = mapped_column(Boolean, default=True)
 
     # Отменяющая проводка (сторно): если платёж реально ушёл в банк, но
     # обнаружилась ошибка в реквизитах/организации и деньги вернулись —

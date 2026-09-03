@@ -234,11 +234,18 @@ def detail(person_id):
         .options(joinedload(MemberAccount.charges))
         .all()
     )
+    # Кнопка «Пеня» (Удалить/Списать) над таблицей счетов — только если есть
+    # что удалять/списывать: хотя бы один пенный счёт с непогашенным
+    # остатком. См. finance.write_off_person_penalties/delete_person_penalties.
+    has_unpaid_penalty = any(
+        ma.fee_type.is_penalty and balance(ma) < 0 for ma in member_accounts
+    )
     revision_rows = {}
     if is_chairman():
         revision_rows = {rev.id: _revision_diff_rows(rev, person) for rev in person.revisions}
     return render_template(
         "persons/detail.html", person=person, account=account, member_accounts=member_accounts,
+        has_unpaid_penalty=has_unpaid_penalty,
         revision_rows=revision_rows, today=dt.date.today(),
     )
 

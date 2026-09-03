@@ -96,7 +96,29 @@
 </div>
 
 {% if is_board() and member_accounts %}
-<h5 class="mt-4">{{ _("Лицевые счета") }}</h5>
+<div class="d-flex justify-content-between align-items-center mt-4">
+  <h5 class="mb-0">{{ _("Лицевые счета") }}</h5>
+  {% if is_privileged() and has_unpaid_penalty %}
+  <div class="btn-group">
+    <button class="btn btn-sm btn-outline-danger dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+      {{ _("Пеня") }}
+    </button>
+    <ul class="dropdown-menu dropdown-menu-end">
+      <li>
+        <button type="button" class="dropdown-item" data-bs-toggle="modal" data-bs-target="#writeOffAllPenaltiesModal">{{ _("Списать") }}</button>
+      </li>
+      {% if is_chairman() %}
+      <li>
+        <form method="post" action="{{ url_for('finance.delete_person_penalties', person_id=person.id) }}"
+              onsubmit="return confirm('{{ _('Удалить все начисления пени по этому человеку? Без компенсирующего платежа — начисления пропадут без следа, в отличие от «Списать».') }}')">
+          <button class="dropdown-item text-danger">{{ _("Удалить") }}</button>
+        </form>
+      </li>
+      {% endif %}
+    </ul>
+  </div>
+  {% endif %}
+</div>
 <div class="form-check mb-2">
   <input class="form-check-input" type="checkbox" id="personAccountsActiveOnly" checked
          data-active-accounts-toggle="#personAccountsTable tbody tr[data-account-row]">
@@ -127,6 +149,31 @@
 {% for acc in member_accounts %}
 {% include "finance/_quick_transaction_modals.html" %}
 {% endfor %}
+{% if is_privileged() and has_unpaid_penalty %}
+<div class="modal fade" id="writeOffAllPenaltiesModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" action="{{ url_for('finance.write_off_person_penalties', person_id=person.id) }}">
+        <div class="modal-header">
+          <h5 class="modal-title">{{ _("Списать пеню: {name}", name=person.full_name) }}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <p class="text-muted small">{{ _("Погашается непогашенная пеня сразу по всем пенным счетам этого человека — компенсирующим платежом на каждый счёт (реальных денег не движется), с одной и той же причиной.") }}</p>
+          <div class="mb-3">
+            <label class="form-label">{{ _("Причина") }}</label>
+            <input class="form-control form-control-sm" name="reason" placeholder="{{ _('например: мировое соглашение от 01.09.2026') }}" autofocus required>
+          </div>
+        </div>
+        <div class="modal-footer d-flex justify-content-end">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+          <button class="btn btn-danger">{{ _("Списать") }}</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
 {% endif %}
 
 {% if is_chairman() %}

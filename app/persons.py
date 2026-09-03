@@ -537,6 +537,11 @@ def create_account(person_id):
         is_active=True,
     )
     database.db_session.add(user)
+    database.db_session.flush()
+    audit.record(
+        "account.create", entity_type="user", entity_id=user.id,
+        summary=f"Создана учётная запись «{username}» для {person.full_name}, роль — {initial_role.value}",
+    )
     database.db_session.commit()
     flash(_("Учётная запись создана. Сообщите человеку логин и пароль."), "success")
     return redirect(url_for("persons.detail", person_id=person.id))
@@ -668,6 +673,10 @@ def link_account(user_id):
     user.person_id = person.id
     database.db_session.flush()
     sync_user_role(person)  # роль подтягивается под флаги этого человека
+    audit.record(
+        "account.link", entity_type="user", entity_id=user.id,
+        summary=f"Учётная запись «{user.username}» привязана к {person.full_name}",
+    )
     database.db_session.commit()
     flash(_("Учётная запись привязана."), "success")
     return redirect(url_for("persons.accounts_list"))
@@ -679,7 +688,12 @@ def unlink_account(user_id):
     user = database.db_session.get(User, user_id)
     if user is None:
         abort(404)
+    linked_person_name = user.person.full_name if user.person else None
     user.person_id = None
+    audit.record(
+        "account.unlink", entity_type="user", entity_id=user.id,
+        summary=f"Учётная запись «{user.username}» отвязана от {linked_person_name or 'человека'}",
+    )
     database.db_session.commit()
     flash(_("Учётная запись отвязана от человека."), "success")
     return redirect(url_for("persons.accounts_list"))
@@ -750,6 +764,10 @@ def approve_revision(person_id, revision_id):
     revision.status = PersonDataRevisionStatus.APPROVED
     revision.reviewed_at = dt.datetime.utcnow()
     revision.reviewer_user_id = g.user.id
+    audit.record(
+        "person.revision_approve", entity_type="person", entity_id=person.id,
+        summary=f"Одобрены и применены изменённые данные: {person.full_name}",
+    )
     database.db_session.commit()
     flash(_("Изменения для «{name}» одобрены и применены.", name=person.full_name), "success")
     return redirect(url_for("persons.list_persons"))

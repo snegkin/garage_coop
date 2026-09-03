@@ -6,6 +6,7 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 from werkzeug.utils import secure_filename
 
 from . import database
+from . import audit
 from .i18n import translate as _, parse_optional_decimal as _parse_decimal
 from .auth import login_required, roles_required
 from .models import Cooperative, BankAccount, BankApiProvider, RoleEnum, Document, DocumentType, Person, Counterparty
@@ -69,6 +70,11 @@ def edit():
         coop.dues_due_day = int(f["dues_due_day"]) if f.get("dues_due_day") else None
         coop.dues_due_month = int(f["dues_due_month"]) if f.get("dues_due_month") else None
         coop.comment = f.get("comment") or None
+        audit.record(
+            "cooperative.settings_edit",
+            f"Изменены реквизиты/настройки кооператива: ставка налога — {coop.land_tax_rate_percent}%, "
+            f"комиссия банка — {coop.bank_fee_percent if coop.bank_fee_percent is not None else '—'}%",
+        )
         database.db_session.commit()
         flash(_("Реквизиты сохранены."), "success")
         return redirect(url_for("cooperative.view"))
@@ -104,6 +110,7 @@ def create_bank_account():
         balance_updated_at=dt.date.fromisoformat(f["balance_updated_at"]) if f.get("balance_updated_at") else None,
         api_provider=api_provider,
     ))
+    audit.record("bank_account.create", f"Добавлен расчётный счёт: {f['bank_name']}, {f['checking_account']}")
     database.db_session.commit()
     flash(_("Расчётный счёт добавлен."), "success")
     return redirect(url_for("finance.bank_accounts"))
@@ -133,6 +140,7 @@ def edit_bank_account(account_id):
         account.api_provider = BankApiProvider(f.get("api_provider", "none"))
     except ValueError:
         abort(400)
+    audit.record("bank_account.edit", f"Изменён расчётный счёт: {account.bank_name}, {account.checking_account}")
     database.db_session.commit()
     flash(_("Расчётный счёт обновлён."), "success")
     return redirect(url_for("finance.bank_accounts"))
@@ -144,6 +152,7 @@ def delete_bank_account(account_id):
     account = database.db_session.get(BankAccount, account_id)
     if account is None:
         abort(404)
+    audit.record("bank_account.delete", f"Удалён расчётный счёт: {account.bank_name}, {account.checking_account}")
     database.db_session.delete(account)
     database.db_session.commit()
     flash(_("Расчётный счёт удалён."), "success")
@@ -181,6 +190,7 @@ def create_document():
             counterparty_id=int(f["counterparty_id"]) if f.get("counterparty_id") else None,
         )
         database.db_session.add(doc)
+        audit.record("document.create", f"Добавлен документ: {doc.title}")
         database.db_session.commit()
         flash(_("Документ сохранён."), "success")
         return redirect(url_for("cooperative.view") + "#documentsSection")
@@ -228,6 +238,7 @@ def edit_document(doc_id):
         doc.file_path = save_upload(file_storage, current_app.config["UPLOAD_FOLDER"])
         doc.file_name = secure_filename(file_storage.filename)
 
+    audit.record("document.edit", f"Изменён документ: {doc.title}")
     database.db_session.commit()
     flash(_("Документ обновлён."), "success")
     return _document_list_redirect(doc.counterparty_id)
@@ -258,6 +269,7 @@ def delete_document(doc_id):
         full_path = os.path.join(current_app.config["UPLOAD_FOLDER"], doc.file_path)
         if os.path.exists(full_path):
             os.remove(full_path)
+    audit.record("document.delete", f"Удалён документ: {doc.title}")
     database.db_session.delete(doc)
     database.db_session.commit()
     flash(_("Документ удалён."), "success")

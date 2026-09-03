@@ -79,4 +79,8 @@ def entity_url(entity_type: str | None, entity_id: int | None) -> str | None:
         return url_for("counterparties.detail", counterparty_id=entity_id)
     if entity_type == "member_account":
         return url_for("finance.member_account_detail", account_id=entity_id)
+    if entity_type == "vote":
+        return url_for("voting.detail", vote_id=entity_id)
+    if entity_type == "garage":
+        return url_for("garages.detail", garage_id=entity_id)
     return None

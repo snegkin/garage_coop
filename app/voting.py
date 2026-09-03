@@ -41,6 +41,7 @@ from decimal import Decimal
 from flask import Blueprint, render_template, request, redirect, url_for, flash, g, current_app
 
 from . import database
+from . import audit
 from .i18n import translate as _, parse_decimal
 from .auth import login_required, roles_required
 from .permissions import is_board, is_chairman
@@ -270,6 +271,7 @@ def create():
             database.db_session.add(doc)
             database.db_session.flush()
             vote.protocol_document_id = doc.id
+            audit.record("vote.create", f"Зафиксировано очное голосование «{vote.title}» от {audit.format_date(vote_date.date())}, протокол прикреплён")
             database.db_session.commit()
             flash(_("Очное голосование зафиксировано, протокол прикреплён."), "success")
             return redirect(url_for("voting.detail", vote_id=vote.id))
@@ -290,6 +292,7 @@ def create():
             status=VoteStatus.DRAFT,
         )
         database.db_session.add(vote)
+        audit.record("vote.create", f"Создано голосование-черновик «{vote.title}» ({voting_type.value})")
         database.db_session.commit()
         flash(_("Голосование создано (черновик) — теперь добавьте вопросы повестки."), "success")
         return redirect(url_for("voting.detail", vote_id=vote.id))
@@ -337,6 +340,7 @@ def edit(vote_id):
         vote.meeting_id = int(f["meeting_id"]) if f.get("meeting_id") else None
         vote.opens_at = opens_at
         vote.closes_at = closes_at
+        audit.record("vote.edit", f"Изменено голосование-черновик «{vote.title}»", entity_type="vote", entity_id=vote.id)
         database.db_session.commit()
         flash(_("Голосование обновлено."), "success")
         return redirect(url_for("voting.detail", vote_id=vote_id))
@@ -394,6 +398,7 @@ def add_question(vote_id):
         vote_id=vote.id, order=max_order + 1, text=f["text"],
         majority_threshold=parse_decimal(f.get("majority_threshold") or "0.5"),
     ))
+    audit.record("vote.question_add", f"В повестку голосования «{vote.title}» добавлен вопрос: {f['text']}", entity_type="vote", entity_id=vote.id)
     database.db_session.commit()
     flash(_("Вопрос добавлен."), "success")
     return redirect(url_for("voting.detail", vote_id=vote_id))
@@ -408,6 +413,7 @@ def delete_question(vote_id, question_id):
         return redirect(url_for("voting.detail", vote_id=vote_id))
     question = database.db_session.get(VoteQuestion, question_id)
     if question is not None and question.vote_id == vote_id:
+        audit.record("vote.question_delete", f"Из повестки голосования «{vote.title}» удалён вопрос: {question.text}", entity_type="vote", entity_id=vote.id)
         database.db_session.delete(question)
         database.db_session.commit()
         flash(_("Вопрос удалён."), "success")
@@ -425,6 +431,7 @@ def open_vote(vote_id):
         flash(_("Нельзя открыть голосование без вопросов повестки."), "danger")
         return redirect(url_for("voting.detail", vote_id=vote_id))
     vote.status = VoteStatus.OPEN
+    audit.record("vote.open", f"Открыто голосование «{vote.title}»", entity_type="vote", entity_id=vote.id)
     database.db_session.commit()
     flash(_("Голосование открыто — члены кооператива теперь могут голосовать."), "success")
     return redirect(url_for("voting.detail", vote_id=vote_id))
@@ -439,6 +446,7 @@ def close_vote(vote_id):
         return redirect(url_for("voting.detail", vote_id=vote_id))
     vote.status = VoteStatus.CLOSED
     vote.closed_at = dt.datetime.now()
+    audit.record("vote.close", f"Закрыто голосование «{vote.title}», результаты зафиксированы", entity_type="vote", entity_id=vote.id)
     database.db_session.commit()
     flash(_("Голосование закрыто, результаты зафиксированы."), "success")
     return redirect(url_for("voting.detail", vote_id=vote_id))
@@ -466,6 +474,7 @@ def attach_protocol(vote_id):
     database.db_session.add(doc)
     database.db_session.flush()
     vote.protocol_document_id = doc.id
+    audit.record("vote.protocol_attach", f"К голосованию «{vote.title}» прикреплён протокол", entity_type="vote", entity_id=vote.id)
     database.db_session.commit()
     flash(_("Протокол прикреплён."), "success")
     return redirect(url_for("voting.detail", vote_id=vote_id))
@@ -562,6 +571,11 @@ def set_ballot_for_person(vote_id, person_id):
             flash(_("Отметьте хотя бы один вопрос повестки."), "danger")
             return redirect(url_for("voting.set_ballot_for_person", vote_id=vote_id, person_id=person_id))
         cast_ballots(vote, person, choices, comments)
+        audit.record(
+            "vote.manual_ballot",
+            f"Председатель вручную зафиксировал голос «{person.full_name}» в голосовании «{vote.title}»",
+            entity_type="person", entity_id=person.id,
+        )
         database.db_session.commit()
         flash(_("Голос члена кооператива «{name}» зафиксирован.", name=person.full_name), "success")
         return redirect(url_for("voting.detail", vote_id=vote_id))

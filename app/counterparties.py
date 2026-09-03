@@ -68,6 +68,8 @@ def create():
         opening_balance_date=dt.date.fromisoformat(f["opening_balance_date"]) if f.get("opening_balance_date") else None,
     )
     database.db_session.add(counterparty)
+    database.db_session.flush()
+    audit.record("counterparty.create", f"Добавлен контрагент: {counterparty.name}", entity_type="counterparty", entity_id=counterparty.id)
     database.db_session.commit()
     flash(_("Контрагент добавлен."), "success")
     return redirect(url_for("counterparties.list_counterparties"))
@@ -92,6 +94,7 @@ def edit(counterparty_id):
     counterparty.opening_balance = _parse_decimal(f.get("opening_balance"))
     opening_date = f.get("opening_balance_date")
     counterparty.opening_balance_date = dt.date.fromisoformat(opening_date) if opening_date else None
+    audit.record("counterparty.edit", f"Изменены данные контрагента: {counterparty.name}", entity_type="counterparty", entity_id=counterparty.id)
     database.db_session.commit()
     flash(_("Данные контрагента обновлены."), "success")
     return redirect(url_for("counterparties.list_counterparties"))
@@ -108,6 +111,7 @@ def delete(counterparty_id):
         flash(_("Нельзя удалить контрагента — по нему есть записи о расходах или платежах."), "danger")
         return redirect(url_for("counterparties.list_counterparties"))
 
+    audit.record("counterparty.delete", f"Удалён контрагент: {counterparty.name}")
     database.db_session.delete(counterparty)
     database.db_session.commit()
     flash(_("Контрагент удалён."), "success")
@@ -453,6 +457,12 @@ def add_reconciliation_act(counterparty_id):
         document_id=document_id,
         comment=f.get("comment") or None,
     ))
+    audit.record(
+        "reconciliation_act.create",
+        f"Добавлен акт сверки с {counterparty.name} за {audit.format_date(dt.date.fromisoformat(f['period_start']))}"
+        f"—{audit.format_date(dt.date.fromisoformat(f['period_end']))}",
+        entity_type="counterparty", entity_id=counterparty.id,
+    )
     database.db_session.commit()
     flash(_("Акт сверки добавлен."), "success")
     return redirect(url_for("counterparties.detail", counterparty_id=counterparty.id))
@@ -487,6 +497,7 @@ def add_document(counterparty_id):
         is_internal=True,  # документы по расчётам с контрагентом — только для правления, без выбора (см. _document_fields.html)
         counterparty_id=counterparty.id,
     ))
+    audit.record("document.create", f"Добавлен документ контрагента {counterparty.name}: {f['title']}", entity_type="counterparty", entity_id=counterparty.id)
     database.db_session.commit()
     flash(_("Документ сохранён."), "success")
     return redirect(url_for("counterparties.detail", counterparty_id=counterparty.id))

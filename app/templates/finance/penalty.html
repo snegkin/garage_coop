@@ -18,23 +18,6 @@
         {% endif %}
       </div>
     </div>
-
-    {% if is_chairman() %}
-    <div class="card bg-body">
-      <div class="card-body">
-        <h5 class="card-title">{{ _("Пересчитать на дату") }}</h5>
-        <p class="text-muted small">{{ _("По сегодняшний день пеня уже пересчитана автоматически. Эта форма — для пересчёта на другую (например, прошлую) дату, если нужно для отчёта или печати документов.") }}</p>
-        <form method="post" action="{{ url_for('penalty.run') }}">
-          <div class="mb-2">
-            <label class="form-label">{{ _("Дата расчёта") }}</label>
-            <input class="form-control" type="date" name="target_date" value="{{ today }}">
-            <div class="form-text">{{ _("Пеня считается по эту дату включительно.") }}</div>
-          </div>
-          <button class="btn btn-primary">{{ _("Пересчитать") }}</button>
-        </form>
-      </div>
-    </div>
-    {% endif %}
   </div>
 
   <div class="col-md-6">

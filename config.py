@@ -73,6 +73,13 @@ class Config:
     )
     UPLOAD_FOLDER = os.path.join(BASE_DIR, "instance", "uploads")
 
+    # Превью-кадры с камер видеонаблюдения (см. app/surveillance.py,
+    # scripts/dvr_snapshot.py) — instance/dvr/<recorder_id>/snapshots/
+    # camera_<camera_id>.jpg, пишутся cron-скриптом раз в минуту. Отдаются
+    # приложением через отдельный роут (surveillance.snapshot), не как
+    # статика — тот же принцип, что и у UPLOAD_FOLDER.
+    DVR_SNAPSHOT_FOLDER = os.environ.get("DVR_SNAPSHOT_FOLDER") or os.path.join(BASE_DIR, "instance", "dvr")
+
     # Ограничение размера входящего запроса (загрузка файлов и т.д.) —
     # без этого анонимный/залогиненный пользователь может положить сервер
     # запросами с гигантскими телами. 25 МБ с запасом покрывает фото/сканы/протоколы.

@@ -2,6 +2,7 @@
 {% block title %}{{ _("Вход в систему") }}{% endblock %}
 {% block content %}
 <div class="d-flex justify-content-end align-items-start gap-2 mb-2">
+  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('surveillance.view') }}">{{ _("Видеонаблюдение") }}</a>
   <div class="dropdown">
     <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">
       {{ LANGUAGE_FLAGS[current_locale] }}

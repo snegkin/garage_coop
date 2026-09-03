@@ -1624,6 +1624,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Нет счётчика электричества": "No electricity meter",
         "Есть комментарий": "Has a comment",
         "Ожидает одобрения изменений": "Awaiting approval of changes",
+
+        # dashboard.html — % собираемости
+        "Собираемость": "Collection rate",
     }
 }
 

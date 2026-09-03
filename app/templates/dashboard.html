@@ -25,6 +25,13 @@
         <div class="text-muted">{{ _("Долги перед кооперативом") }}</div>
         <div class="fs-2 {{ 'text-danger' if stats.total_debt < 0 else '' }}">{{ fmt2(-stats.total_debt) }} ₽</div>
         <div class="text-muted small">{{ _("{n} счетов с долгом", n=stats.accounts_in_debt) if stats.accounts_in_debt else _("нет должников") }}</div>
+        {% if stats.collection_rate_current is not none or stats.collection_rate_previous is not none %}
+        <div class="text-muted small">
+          {{ _("Собираемость") }}:
+          {%- if stats.collection_rate_current is not none %} {{ stats.current_year }} — {{ fmt2(stats.collection_rate_current) }}%{% endif -%}
+          {%- if stats.collection_rate_previous is not none %}{% if stats.collection_rate_current is not none %} ·{% endif %} {{ stats.previous_year }} — {{ fmt2(stats.collection_rate_previous) }}%{% endif -%}
+        </div>
+        {% endif %}
       </div></div>
     </a>
   </div>

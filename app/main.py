@@ -1,3 +1,4 @@
+import datetime as dt
 from decimal import Decimal
 
 from flask import Blueprint, render_template, redirect, url_for
@@ -6,7 +7,9 @@ from sqlalchemy import func
 from . import database
 from .auth import login_required
 from .permissions import is_board
-from .models import Garage, Person, GeneralMeeting, AnnualReport, MemberAccount, Charge, Payment, AuditLog
+from .models import (
+    Garage, Person, GeneralMeeting, AnnualReport, MemberAccount, Charge, Payment, AuditLog, ChargeAllocation,
+)
 from .accounting import cooperative_balance
 from .permissions import is_chairman
 from .setup_wizard import wizard_status
@@ -50,6 +53,33 @@ def _debt_summary() -> dict:
     return {"total_debt": total_debt, "accounts_in_debt": accounts_in_debt}
 
 
+def _collection_rate(year: int) -> Decimal | None:
+    """
+    % собираемости за год — какая доля начисленного за год (по активным
+    счетам членов) уже реально оплачена. Считается точно через
+    ChargeAllocation (разнесение платежей по начислениям FIFO, см.
+    accounting.reallocate_member_charges), а не через общий баланс счёта,
+    который мог получить оплату вперемешку за разные годы. None, если за
+    этот год ничего не начислялось — делить не на что.
+    """
+    total_charged = (
+        database.db_session.query(func.sum(Charge.amount))
+        .join(MemberAccount, Charge.account_id == MemberAccount.id)
+        .filter(MemberAccount.is_archived.is_(False), Charge.year == year)
+        .scalar()
+    ) or Decimal("0")
+    if total_charged == 0:
+        return None
+    total_paid = (
+        database.db_session.query(func.sum(ChargeAllocation.amount))
+        .join(Charge, ChargeAllocation.charge_id == Charge.id)
+        .join(MemberAccount, Charge.account_id == MemberAccount.id)
+        .filter(MemberAccount.is_archived.is_(False), Charge.year == year)
+        .scalar()
+    ) or Decimal("0")
+    return (total_paid / total_charged * 100).quantize(Decimal("0.1"))
+
+
 @bp.route("/dashboard")
 @login_required
 def dashboard():
@@ -58,12 +88,17 @@ def dashboard():
     if not is_board():
         return redirect(url_for("cabinet.garages"))
 
+    current_year = dt.date.today().year
     stats = {
         "garages_count": database.db_session.query(Garage).count(),
         "persons_count": database.db_session.query(Person).count(),
         "last_meeting": database.db_session.query(GeneralMeeting).order_by(GeneralMeeting.date.desc()).first(),
         "last_report": database.db_session.query(AnnualReport).order_by(AnnualReport.year.desc()).first(),
         "coop_balance": cooperative_balance(),
+        "current_year": current_year,
+        "previous_year": current_year - 1,
+        "collection_rate_current": _collection_rate(current_year),
+        "collection_rate_previous": _collection_rate(current_year - 1),
         **_debt_summary(),
     }
 

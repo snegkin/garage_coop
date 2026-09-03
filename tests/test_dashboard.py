@@ -9,6 +9,7 @@ import datetime as dt
 from decimal import Decimal
 
 from app import audit
+from app.accounting import reallocate_member_charges
 from app.models import RoleEnum, FeeType, MemberAccount, Charge, Payment
 
 from tests.conftest import make_person, make_garage, make_ownership, make_user, login
@@ -102,3 +103,42 @@ def test_dashboard_debt_card_links_to_member_accounts(app, db, client):
     resp = client.get("/dashboard")
     assert resp.status_code == 200
     assert 'href="/finance/member-accounts"' in resp.get_data(as_text=True)
+
+
+def test_dashboard_shows_collection_rate_for_current_and_previous_year(app, db, client):
+    current_year = dt.date.today().year
+    person = make_person(db, full_name="Собираемость Проверяемая")
+    garage = make_garage(db, number="72")
+    make_ownership(db, garage, person)
+    account = _make_account(db, person, garage, "dash3")
+    db.add(Charge(account_id=account.id, year=current_year, amount=Decimal("1000.00")))
+    db.add(Payment(account_id=account.id, date=dt.date(current_year, 1, 1), amount=Decimal("250.00")))
+    db.flush()
+    reallocate_member_charges(account)
+
+    account2 = _make_account(db, person, garage, "dash4")
+    db.add(Charge(account_id=account2.id, year=current_year - 1, amount=Decimal("800.00")))
+    db.add(Payment(account_id=account2.id, date=dt.date(current_year - 1, 6, 1), amount=Decimal("800.00")))
+    db.flush()
+    reallocate_member_charges(account2)
+
+    make_user(db, "board105", "pass12345", role=RoleEnum.BOARD)
+    db.commit()
+    login(client, "board105", "pass12345")
+
+    resp = client.get("/dashboard")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert "Собираемость" in body
+    assert f"{current_year} — 25,00%" in body
+    assert f"{current_year - 1} — 100,00%" in body
+
+
+def test_dashboard_hides_collection_rate_when_nothing_charged(app, db, client):
+    make_user(db, "board106", "pass12345", role=RoleEnum.BOARD)
+    db.commit()
+    login(client, "board106", "pass12345")
+
+    resp = client.get("/dashboard")
+    assert resp.status_code == 200
+    assert "Собираемость" not in resp.get_data(as_text=True)

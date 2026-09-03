@@ -29,6 +29,7 @@ def create_app(config_class=Config):
 
     os.makedirs(os.path.dirname(app.config["SQLALCHEMY_DATABASE_URI"].replace("sqlite:///", "")), exist_ok=True)
     os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
+    os.makedirs(app.config["DVR_SNAPSHOT_FOLDER"], exist_ok=True)
     # 0o700: только сам процесс приложения может читать/писать сюда — здесь
     # лежат приватные ключи клиентских mTLS-сертификатов банка (см.
     # config.py: BANK_CERTS_FOLDER, app/bank_api/sberbank.py). В отличие от
@@ -138,6 +139,7 @@ def create_app(config_class=Config):
     from .news import bp as news_bp
     from .wiki import bp as wiki_bp
     from .setup_wizard import bp as setup_wizard_bp
+    from .surveillance import bp as surveillance_bp
 
     app.register_blueprint(main_bp)
     app.register_blueprint(garages_bp)
@@ -159,6 +161,7 @@ def create_app(config_class=Config):
     app.register_blueprint(news_bp)
     app.register_blueprint(wiki_bp)
     app.register_blueprint(setup_wizard_bp)
+    app.register_blueprint(surveillance_bp)
 
     @app.route("/")
     def index():

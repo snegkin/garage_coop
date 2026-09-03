@@ -1,0 +1,163 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Видеонаблюдение") }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h3 class="mb-0">{{ _("Видеонаблюдение") }}</h3>
+  {% if current_user and is_chairman() %}
+  <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addRecorderModal">+ {{ _("Добавить регистратор") }}</button>
+  {% endif %}
+</div>
+
+{% if not recorders %}
+<p class="text-muted">{{ _("Регистраторы видеонаблюдения ещё не добавлены.") }}</p>
+{% endif %}
+
+{% for recorder in recorders %}
+<div class="mb-4">
+  <div class="d-flex justify-content-between align-items-center mb-2">
+    <h5 class="mb-0">{{ recorder.name }}</h5>
+    {% if current_user and is_chairman() %}
+    <form method="post" action="{{ url_for('surveillance.delete_recorder', recorder_id=recorder.id) }}" onsubmit="return confirm('{{ _('Удалить регистратор и все его камеры? Сохранённые кадры на диске тоже будут удалены.') }}')">
+      <button class="btn btn-sm btn-outline-danger btn-icon-square" title="{{ _('Удалить регистратор') }}">×</button>
+    </form>
+    {% endif %}
+  </div>
+  {% if not recorder.cameras %}
+  <p class="text-muted small">{{ _("У этого регистратора ещё нет камер.") }}</p>
+  {% else %}
+  <div class="row g-3">
+    {% for camera in recorder.cameras %}
+    <div class="col-sm-6 col-md-4 col-lg-3">
+      <div class="card h-100">
+        {% if camera.last_snapshot_at %}
+        <img src="{{ url_for('surveillance.snapshot', camera_id=camera.id) }}?t={{ camera.last_snapshot_at.timestamp()|int }}"
+             class="card-img-top js-dvr-frame" data-camera-id="{{ camera.id }}" alt="{{ camera.label }}"
+             style="aspect-ratio:4/3; object-fit:cover; background:#000;">
+        {% else %}
+        <div class="card-img-top d-flex align-items-center justify-content-center text-white-50 small"
+             style="aspect-ratio:4/3; background:#222;">{{ _("Кадр пока не получен") }}</div>
+        {% endif %}
+        <div class="card-body py-2">
+          <div class="small">{{ camera.label }}</div>
+          {% if camera.last_snapshot_at %}
+          <div class="text-muted small">{{ _("обновлено") }} <span data-utc-datetime="{{ camera.last_snapshot_at.isoformat() }}Z">{{ camera.last_snapshot_at.strftime('%H:%M:%S') }}</span></div>
+          {% endif %}
+          {% if camera.last_error %}
+          <div class="text-danger small" title="{{ camera.last_error }}">⚠ {{ _("последняя попытка снять кадр не удалась") }}</div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
+{% endfor %}
+
+{% if current_user and is_chairman() %}
+<div class="modal fade" id="addRecorderModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <form method="post" action="{{ url_for('surveillance.create_recorder') }}">
+        <div class="modal-header">
+          <h5 class="modal-title">{{ _("Новый регистратор") }}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">{{ _("Название") }}</label>
+            <input class="form-control" name="name" placeholder="{{ _('например: Регистратор — въезд') }}" required>
+          </div>
+          <div class="row g-2 mb-3">
+            <div class="col-8">
+              <label class="form-label">{{ _("Адрес (IP или домен)") }}</label>
+              <input class="form-control" name="host" placeholder="192.168.1.20" required>
+            </div>
+            <div class="col-4">
+              <label class="form-label">{{ _("Порт RTSP") }}</label>
+              <input class="form-control" type="number" name="port" value="554">
+            </div>
+          </div>
+          <div class="row g-2 mb-3">
+            <div class="col-6">
+              <label class="form-label">{{ _("Логин") }}</label>
+              <input class="form-control" name="username" autocomplete="off">
+            </div>
+            <div class="col-6">
+              <label class="form-label">{{ _("Пароль") }}</label>
+              <input class="form-control" type="password" name="password" autocomplete="new-password">
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">{{ _("Комментарий") }}</label>
+            <input class="form-control" name="comment">
+          </div>
+
+          <hr>
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <label class="form-label mb-0">{{ _("Камеры") }}</label>
+            <button type="button" class="btn btn-sm btn-outline-primary" id="addCameraRowBtn">+ {{ _("Добавить камеру") }}</button>
+          </div>
+          <p class="text-muted small">{{ _("Номер камеры и номер потока — как в пути RTSP регистратора (channel=N_stream=M.sdp); поток 0 обычно основной (высокое разрешение), 1 и далее — дополнительные.") }}</p>
+          <div id="cameraRowsContainer"></div>
+        </div>
+        <div class="modal-footer d-flex justify-content-end">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+          <button class="btn btn-primary">{{ _("Сохранить") }}</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<template id="cameraRowTemplate">
+  <div class="row g-2 align-items-center camera-row mb-2">
+    <div class="col-5">
+      <input class="form-control form-control-sm" name="camera_label" placeholder="{{ _('название, напр. Въезд') }}">
+    </div>
+    <div class="col-3">
+      <input class="form-control form-control-sm" type="number" name="camera_channel" placeholder="{{ _('номер камеры') }}" required>
+    </div>
+    <div class="col-3">
+      <input class="form-control form-control-sm" type="number" name="camera_stream" placeholder="{{ _('номер потока') }}" value="0">
+    </div>
+    <div class="col-1 text-end">
+      <button type="button" class="btn btn-sm btn-outline-danger btn-icon-square remove-camera-row" title="{{ _('Удалить') }}">✕</button>
+    </div>
+  </div>
+</template>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  const container = document.getElementById("cameraRowsContainer");
+  const template = document.getElementById("cameraRowTemplate");
+  const addBtn = document.getElementById("addCameraRowBtn");
+  if (!container || !template || !addBtn) return;
+
+  function addRow() {
+    const node = template.content.cloneNode(true);
+    node.querySelector(".remove-camera-row").addEventListener("click", function (e) {
+      e.target.closest(".camera-row").remove();
+    });
+    container.appendChild(node);
+  }
+
+  addBtn.addEventListener("click", addRow);
+  addRow();  // хотя бы одна строка сразу — большинство регистраторов настраивают минимум с одной камерой
+});
+</script>
+{% endif %}
+
+<script>
+// Превью обновляются на диске раз в минуту (cron, см. scripts/dvr_snapshot.py)
+// — периодически перезапрашиваем те же кадры с новым cache-busting
+// параметром, без перезагрузки всей страницы.
+setInterval(function () {
+  document.querySelectorAll(".js-dvr-frame").forEach(function (img) {
+    var url = new URL(img.src, window.location.href);
+    url.searchParams.set("t", Date.now());
+    img.src = url.toString();
+  });
+}, 60000);
+</script>
+{% endblock %}

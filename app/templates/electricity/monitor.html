@@ -172,7 +172,9 @@
 <div class="card">
   <div class="card-body">
     <div class="text-muted small mb-2">{{ _("Прокрутка колеса мыши — масштаб, перетаскивание — сдвиг по времени.") }}</div>
-    <canvas id="powerHistoryChart" height="90"></canvas>
+    <div style="position:relative; height:300px;">
+      <canvas id="powerHistoryChart"></canvas>
+    </div>
     <p id="historyChartEmpty" class="text-muted small mb-0 d-none">{{ _("Нет данных за выбранный период.") }}</p>
   </div>
 </div>
@@ -316,6 +318,13 @@
     type: "line",
     data: { datasets: [] },
     options: {
+      // Высота графика задаётся контейнером (см. CSS-обёртку canvas выше)
+      // фиксированным пикселем, а не соотношением сторон canvas — иначе на
+      // мобильном в портретной ориентации график становился крайне низким
+      // (ширина маленькая => при фиксированном aspectRatio высота съезжала
+      // пропорционально ей, а не оставалась удобной для чтения).
+      responsive: true,
+      maintainAspectRatio: false,
       animation: false,
       normalized: true,
       interaction: { mode: "nearest", axis: "x", intersect: false },

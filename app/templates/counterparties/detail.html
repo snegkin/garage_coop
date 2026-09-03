@@ -279,7 +279,8 @@
             </div>
             <div class="col-6">
               <label class="form-label">{{ _("Сумма, ₽") }}</label>
-              <input class="form-control" type="text" inputmode="decimal" name="amount" required>
+              <input class="form-control" type="text" inputmode="decimal" name="amount" placeholder="{{ fmt2(-balance) if balance < 0 else _('сумма') }}">
+              {% if balance < 0 %}<div class="form-text">{{ _("Пусто — закрыть весь долг ({amount} ₽).", amount=fmt2(-balance)) }}</div>{% endif %}
             </div>
           </div>
           <div class="mb-3">

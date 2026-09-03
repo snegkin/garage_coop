@@ -84,5 +84,5 @@ def sync_user_role(person) -> None:
         from . import audit
         audit.record(
             "role.change", entity_type="user", entity_id=user.id,
-            summary=f"Роль «{user.username}» ({person.full_name}) изменена: {old_role.value} → {user.role.value}",
+            summary=f"Роль «{user.username}» ({person.short_name}) изменена: {old_role.value} → {user.role.value}",
         )

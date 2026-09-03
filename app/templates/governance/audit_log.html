@@ -28,7 +28,11 @@
           <span class="text-muted">{{ _("аноним/неизвестно") }}</span>
         {% endif %}
       </td>
-      <td>{{ entry.summary }}</td>
+      <td>
+        {{ entry.summary }}
+        {% set link = audit_entity_url(entry.entity_type, entry.entity_id) %}
+        {% if link %}<a href="{{ link }}" title="{{ _('Открыть карточку') }}">↗</a>{% endif %}
+      </td>
     </tr>
     {% else %}
     <tr><td colspan="3" class="text-muted">{{ _("Записей пока нет.") }}</td></tr>

@@ -1627,6 +1627,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
 
         # dashboard.html — % собираемости
         "Собираемость": "Collection rate",
+
+        # governance/audit_log.html — ссылка на карточку сущности записи
+        "Открыть карточку": "Open record",
     }
 }
 

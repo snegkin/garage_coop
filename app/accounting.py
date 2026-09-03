@@ -171,7 +171,19 @@ def reallocate_garage_charges(garage: Garage) -> None:
     по обеим сторонам). Вызывается после добавления любого нового начисления
     или платежа на гараж — идемпотентна, ничего не портит при повторном вызове,
     и на первом же вызове сама «доразносит» всю уже существующую историю.
+
+    expire() в начале — на случай, если garage.charges/.payments уже были
+    прочитаны (и закэшированы в identity map) РАНЬШЕ в этом же запросе,
+    например balance() в обработчике «пустая сумма = закрыть весь долг» —
+    до того, как сюда добавили новый Charge/Payment через присвоение
+    garage_id напрямую (не через relationship-атрибут, значит и не через
+    autoflush-бэкреф). Без expire() свежедобавленная запись осталась бы
+    невидна в этих коллекциях здесь и не попала бы в разнесение — тот же
+    класс бага, что чинили в finance._delete_penalties_bulk (протухшая
+    relationship-коллекция), только зеркальный случай: после add()+flush(),
+    а не delete()+flush().
     """
+    database.db_session.expire(garage, ["charges", "payments"])
     charges = sorted(garage.charges, key=charge_sort_date)
     payments = sorted(garage.payments, key=lambda p: p.date)
     _reallocate_fifo(charges, payments)
@@ -186,7 +198,12 @@ def reallocate_member_charges(account: MemberAccount) -> None:
     accounting.penalty мог точно посчитать непогашенный остаток каждого
     конкретного начисления на каждый день просрочки. Вызывается после
     добавления любого нового начисления или платежа на счёт члена.
+
+    expire() — см. docstring reallocate_garage_charges() выше, тот же риск
+    (в частности finance.add_member_payment тоже читает balance() раньше в
+    том же запросе, если сумма платежа не указана явно).
     """
+    database.db_session.expire(account, ["charges", "payments"])
     charges = sorted(account.charges, key=charge_sort_date)
     payments = sorted(account.payments, key=lambda p: p.date)
     _reallocate_fifo(charges, payments)
@@ -400,7 +417,19 @@ def reallocate_counterparty_expenses(counterparty: Counterparty) -> None:
     эффективной суммы и идёт FIFO. Так исходный платёж и сторно к нему
     остаются двумя отдельными видимыми строками в истории, но на баланс и
     на статус «оплачено/не оплачено» у расходов влияют как единое целое.
+
+    expire() в начале — см. docstring reallocate_garage_charges() выше:
+    counterparty.payments/.expenses могли быть прочитаны раньше в этом же
+    запросе (например counterparty_balance() в обработчике «пустая сумма =
+    закрыть весь долг» в add_payment) ДО того, как pay_counterparty()/
+    reverse_counterparty_payment() добавили новый CounterpartyPayment через
+    присвоение counterparty_id напрямую — без expire() этот платёж не был
+    бы виден здесь и остался бы неразнесённым (баг, из-за которого плашка
+    «не оплачено» не исчезала даже после явной оплаты — пока пользователь
+    не открывал платёж на правку и не сохранял его ещё раз, что попадало
+    уже в новый запрос со свежими коллекциями).
     """
+    database.db_session.expire(counterparty, ["payments", "expenses"])
     expenses = sorted(counterparty.expenses, key=lambda e: e.date)
 
     reversal_totals: dict[int, Decimal] = {}

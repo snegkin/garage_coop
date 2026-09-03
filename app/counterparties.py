@@ -142,11 +142,15 @@ def detail(counterparty_id):
     # прикрепления скана платёжки — см. add_payment/_reference_statement_line
     # docstring ниже. Строка, уже привязанная к правящемуся сейчас платежу
     # (last_payment), тоже входит в список — иначе форма правки не смогла бы
-    # показать текущий выбор как selected.
+    # показать текущий выбор как selected. Строка, привязанная к платежу,
+    # который с тех пор сторнирован (payment.reversed_by), в список
+    # "занятых" не входит — см. _resolve_statement_line.
     already_referenced = {
-        line_id for (line_id,) in database.db_session.query(CounterpartyPayment.bank_statement_line_id)
+        p.bank_statement_line_id
+        for p in database.db_session.query(CounterpartyPayment)
         .filter(CounterpartyPayment.bank_statement_line_id.isnot(None))
         .all()
+        if not p.reversed_by
     }
     if last_payment is not None and last_payment.bank_statement_line_id is not None:
         already_referenced.discard(last_payment.bank_statement_line_id)
@@ -214,6 +218,13 @@ def _resolve_statement_line(f, exclude_payment_id: int | None = None) -> tuple[B
     Возвращает (строка_или_None, текст_ошибки_или_None). exclude_payment_id —
     id платежа, который сейчас правится (его же текущая привязка не считается
     конфликтом при повторном сохранении без изменений).
+
+    Платёж, который был сторнирован (payment.reversed_by), в конфликт не
+    считается — сторно означает, что этот платёж не состоялся/оказался
+    ошибочным, и одна и та же строка выписки должна снова стать доступна
+    для привязки к новому, правильному платежу (см. reverse_payment: сторно
+    не трогает bank_statement_line_id исходного платежа, он остаётся
+    у уже недействующей записи).
     """
     raw = f.get("bank_statement_line_id")
     if not raw:
@@ -223,7 +234,11 @@ def _resolve_statement_line(f, exclude_payment_id: int | None = None) -> tuple[B
         return None, _("Строка выписки не найдена.")
     if line.direction != "debit":
         return None, _("Сослаться можно только на списание (расход) в выписке, не на зачисление.")
-    conflict_query = database.db_session.query(CounterpartyPayment).filter(CounterpartyPayment.bank_statement_line_id == line.id)
+    conflict_query = (
+        database.db_session.query(CounterpartyPayment)
+        .filter(CounterpartyPayment.bank_statement_line_id == line.id)
+        .filter(~CounterpartyPayment.reversed_by.any())
+    )
     if exclude_payment_id is not None:
         conflict_query = conflict_query.filter(CounterpartyPayment.id != exclude_payment_id)
     conflict = conflict_query.first()

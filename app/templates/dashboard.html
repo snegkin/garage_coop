@@ -9,7 +9,7 @@
   <a class="btn btn-primary btn-sm" href="{{ url_for('setup_wizard.index') }}">{{ _("Открыть мастер настройки") }}</a>
 </div>
 {% endif %}
-<div class="row g-3">
+<div class="row g-3 mb-3">
   {% if stats.coop_balance is defined %}
   <div class="col-md-3">
     <div class="card"><div class="card-body">
@@ -19,6 +19,15 @@
     </div></div>
   </div>
   {% endif %}
+  <div class="col-md-3">
+    <a class="text-decoration-none" href="{{ url_for('finance.member_accounts') }}">
+      <div class="card h-100"><div class="card-body">
+        <div class="text-muted">{{ _("Долги перед кооперативом") }}</div>
+        <div class="fs-2 {{ 'text-danger' if stats.total_debt < 0 else '' }}">{{ fmt2(-stats.total_debt) }} ₽</div>
+        <div class="text-muted small">{{ _("{n} счетов с долгом", n=stats.accounts_in_debt) if stats.accounts_in_debt else _("нет должников") }}</div>
+      </div></div>
+    </a>
+  </div>
   <div class="col-md-3">
     <div class="card"><div class="card-body">
       <div class="text-muted">{{ _("Гаражей") }}</div>
@@ -42,6 +51,64 @@
       <div class="text-muted">{{ _("Последний годовой отчёт") }}</div>
       <div class="fs-5">{{ stats.last_report.year if stats.last_report else "—" }}</div>
     </div></div>
+  </div>
+</div>
+
+{% set has_pending = (is_chairman() and pending_pd_count > 0) or pending_votes_count > 0 or pending_proposals_count > 0 %}
+<div class="row g-3">
+  {% if has_pending %}
+  <div class="col-md-6">
+    <div class="card h-100">
+      <div class="card-body">
+        <h5 class="card-title">{{ _("Требует внимания") }}</h5>
+        <ul class="list-group list-group-flush">
+          {% if is_chairman() and pending_pd_count > 0 %}
+          <li class="list-group-item d-flex justify-content-between align-items-center px-0">
+            <a href="{{ url_for('persons.list_persons') }}">{{ _("Изменения анкетных данных ждут одобрения") }}</a>
+            <span class="badge bg-danger rounded-pill">{{ pending_pd_count }}</span>
+          </li>
+          {% endif %}
+          {% if pending_votes_count > 0 %}
+          <li class="list-group-item d-flex justify-content-between align-items-center px-0">
+            <a href="{{ url_for('voting.list_votes') }}">{{ _("Открытые голосования без вашего бюллетеня") }}</a>
+            <span class="badge bg-info rounded-pill">{{ pending_votes_count }}</span>
+          </li>
+          {% endif %}
+          {% if pending_proposals_count > 0 %}
+          <li class="list-group-item d-flex justify-content-between align-items-center px-0">
+            <a href="{{ url_for('proposals.list_proposals') }}">{{ _("Предложения членов кооператива ждут решения правления") }}</a>
+            <span class="badge bg-warning text-dark rounded-pill">{{ pending_proposals_count }}</span>
+          </li>
+          {% endif %}
+        </ul>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+  <div class="{{ 'col-md-6' if has_pending else 'col-md-12' }}">
+    <div class="card h-100">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <h5 class="card-title mb-0">{{ _("Недавняя активность") }}</h5>
+          <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('governance.audit_log') }}">{{ _("Весь журнал") }}</a>
+        </div>
+        {% if recent_activity %}
+        <ul class="list-group list-group-flush">
+          {% for entry in recent_activity %}
+          <li class="list-group-item px-0">
+            <div class="small text-muted">
+              {{ fmt_date(entry.created_at) }} {{ entry.created_at.strftime("%H:%M") }}
+              {% if entry.actor_username %} · {{ entry.actor_username }}{% endif %}
+            </div>
+            <div>{{ entry.summary }}</div>
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <p class="text-muted mb-0">{{ _("Записей пока нет.") }}</p>
+        {% endif %}
+      </div>
+    </div>
   </div>
 </div>
 {% endblock %}

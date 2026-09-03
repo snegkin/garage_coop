@@ -1,0 +1,104 @@
+"""
+Панель кооператива (/dashboard) для правления/председателя — сводка долгов
+(app.main._debt_summary), блок «Требует внимания» (использует уже
+посчитанные в контекст-процессоре pending_pd_count/pending_votes_count/
+pending_proposals_count, см. app/__init__.py) и недавняя активность
+(последние записи журнала аудита).
+"""
+import datetime as dt
+from decimal import Decimal
+
+from app import audit
+from app.models import RoleEnum, FeeType, MemberAccount, Charge, Payment
+
+from tests.conftest import make_person, make_garage, make_ownership, make_user, login
+
+
+def _make_account(db, person, garage, code, is_archived=False):
+    fee_type = FeeType(code=code, name="Членский взнос")
+    db.add(fee_type)
+    db.flush()
+    account = MemberAccount(
+        person_id=person.id, garage_id=garage.id, fee_type_id=fee_type.id,
+        account_number=f"D{code}", is_archived=is_archived,
+    )
+    db.add(account)
+    db.flush()
+    return account
+
+
+def test_dashboard_shows_total_debt_and_account_count(app, db, client):
+    person = make_person(db, full_name="Должников Должник Должникович")
+    garage = make_garage(db, number="70")
+    make_ownership(db, garage, person)
+    account = _make_account(db, person, garage, "dash1")
+    db.add(Charge(account_id=account.id, year=2026, amount=Decimal("1000.00")))
+    db.add(Payment(account_id=account.id, date=dt.date(2026, 1, 1), amount=Decimal("400.00")))
+    make_user(db, "board100", "pass12345", role=RoleEnum.BOARD)
+    db.commit()
+    login(client, "board100", "pass12345")
+
+    resp = client.get("/dashboard")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert "600,00" in body  # долг 1000 - 400 = 600
+    assert "1 счетов с долгом" in body or "1 счет" in body or ">1<" in body
+
+
+def test_dashboard_ignores_archived_accounts_in_debt(app, db, client):
+    person = make_person(db, full_name="Архивников Ар Хивович")
+    garage = make_garage(db, number="71")
+    make_ownership(db, garage, person)
+    account = _make_account(db, person, garage, "dash2", is_archived=True)
+    db.add(Charge(account_id=account.id, year=2026, amount=Decimal("5000.00")))
+    make_user(db, "board101", "pass12345", role=RoleEnum.BOARD)
+    db.commit()
+    login(client, "board101", "pass12345")
+
+    resp = client.get("/dashboard")
+    assert resp.status_code == 200
+    assert "нет должников" in resp.get_data(as_text=True)
+
+
+def test_dashboard_shows_no_debtors_when_none(app, db, client):
+    make_user(db, "board102", "pass12345", role=RoleEnum.BOARD)
+    db.commit()
+    login(client, "board102", "pass12345")
+
+    resp = client.get("/dashboard")
+    assert resp.status_code == 200
+    assert "нет должников" in resp.get_data(as_text=True)
+
+
+def test_dashboard_shows_recent_activity(app, db, client):
+    make_user(db, "chair100", "pass12345", role=RoleEnum.CHAIRMAN)
+    db.commit()
+    audit.record("payment.create", entity_type="member_account", entity_id=1, summary="Тестовая запись журнала аудита №1")
+    db.commit()
+    login(client, "chair100", "pass12345")
+
+    resp = client.get("/dashboard")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert "Тестовая запись журнала аудита №1" in body
+    assert "Недавняя активность" in body
+
+
+def test_dashboard_hides_pending_section_when_nothing_pending(app, db, client):
+    make_user(db, "board103", "pass12345", role=RoleEnum.BOARD)
+    db.commit()
+    login(client, "board103", "pass12345")
+
+    resp = client.get("/dashboard")
+    assert resp.status_code == 200
+    assert "Требует внимания" not in resp.get_data(as_text=True)
+
+
+def test_dashboard_debt_card_links_to_member_accounts(app, db, client):
+    make_user(db, "board104", "pass12345", role=RoleEnum.BOARD)
+    db.commit()
+    login(client, "board104", "pass12345")
+
+    resp = client.get("/dashboard")
+    assert resp.status_code == 200
+    assert 'href="/finance/member-accounts"' in resp.get_data(as_text=True)

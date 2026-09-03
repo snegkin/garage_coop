@@ -11,7 +11,7 @@
         {% if due_date_this_year %}
           <p class="mb-1">{{ _("В этом году") }}: <strong>{{ fmt_date(due_date_this_year) }}</strong></p>
           <p class="text-muted small mb-0">{{ _("Пеня начисляется на начисления, не оплаченные к этой дате. Изменить срок можно в реквизитах кооператива.") }}</p>
-          <p class="text-muted small mb-0">{{ _("Пеня по сегодняшний день пересчитывается автоматически при каждом открытии этой страницы или панели кооператива — отдельно ничего нажимать не нужно.") }}</p>
+          <p class="text-muted small mb-0">{{ _("Начисляется автоматически раз в месяц по расписанию (cron), не при заходе на сайт — см. scripts/accrue_penalty.py.") }}</p>
         {% else %}
           <p class="text-danger mb-1">{{ _("Срок оплаты не настроен.") }}</p>
           <a class="btn btn-sm btn-primary" href="{{ url_for('cooperative.edit') }}">{{ _("Задать в реквизитах") }}</a>

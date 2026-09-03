@@ -32,6 +32,7 @@ from .permissions import is_board
 from .models import WikiPage, WikiAttachment, RoleEnum
 from .uploads import save_upload
 from .garages import ALLOWED_PHOTO_EXT
+from .news_format import render_html
 
 bp = Blueprint("wiki", __name__, url_prefix="/wiki")
 
@@ -149,6 +150,15 @@ def _sync_inline_attachments(page: WikiPage, body_text: str):
     for att in list(page.attachments):
         if att.id not in referenced_ids:
             database.db_session.delete(att)
+
+
+@bp.route("/preview", methods=["POST"])
+@roles_required(RoleEnum.BOARD)
+def preview():
+    """AJAX-предпросмотр markdown из тулбара формы страницы вики — см.
+    news.py: preview, тот же приём (тот же render_html, что и у новостей —
+    вики использует тот же markdown-рендер)."""
+    return jsonify(html=render_html(request.form.get("body", "")))
 
 
 @bp.route("/attachments/upload", methods=["POST"])

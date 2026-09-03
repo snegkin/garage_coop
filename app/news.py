@@ -82,6 +82,17 @@ def _sync_inline_attachments(item: News, body_text: str):
             database.db_session.delete(att)
 
 
+@bp.route("/preview", methods=["POST"])
+@roles_required(RoleEnum.BOARD)
+def preview():
+    """AJAX-предпросмотр markdown из тулбара формы новости (см.
+    news/form.html) — рендерит текущий текст textarea ровно тем же
+    render_html(), что и итоговая опубликованная статья (не отдельный
+    JS-рендерер markdown — рискует разойтись с настоящим выводом), без
+    сохранения черновика."""
+    return jsonify(html=render_html(request.form.get("body", "")))
+
+
 @bp.route("/attachments/upload", methods=["POST"])
 @roles_required(RoleEnum.BOARD)
 def upload_inline_attachment():

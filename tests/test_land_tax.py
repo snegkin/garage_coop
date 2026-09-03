@@ -336,3 +336,35 @@ def test_no_ownerships_still_calculates(app, db):
     result = compute_land_tax(2026)
     assert result is not None
     assert garage.id in result
+
+
+# ---------------------------------------------------------------------------
+# Cooperative.rental_price_per_sqm — справочная стоимость аренды 1 м²
+# (та же формула, что и у налога в целом: кадастровая стоимость / площадь ×
+# ставка налога — раньше ставка налога по ошибке не учитывалась вовсе,
+# считалась голая стоимость метра земли без неё).
+# ---------------------------------------------------------------------------
+
+def test_rental_price_per_sqm_applies_tax_rate():
+    coop = Cooperative(
+        full_name="Т", inn="1", kpp="1", ogrn="1",
+        cadastral_value=Decimal("5000000"), cadastral_area=Decimal("800"),
+        land_tax_rate_percent=Decimal("1.5"),
+    )
+    # 5 000 000 / 800 = 6250 ₽/м² — сама стоимость земли без ставки;
+    # 6250 × 1.5% = 93.75 ₽/м² — и есть искомая справочная величина.
+    assert coop.rental_price_per_sqm == Decimal("93.75")
+
+
+def test_rental_price_per_sqm_uses_configured_rate_not_hardcoded():
+    coop = Cooperative(
+        full_name="Т", inn="1", kpp="1", ogrn="1",
+        cadastral_value=Decimal("5000000"), cadastral_area=Decimal("800"),
+        land_tax_rate_percent=Decimal("2.0"),
+    )
+    assert coop.rental_price_per_sqm == Decimal("125.00")
+
+
+def test_rental_price_per_sqm_none_without_cadastral_data():
+    coop = Cooperative(full_name="Т", inn="1", kpp="1", ogrn="1", land_tax_rate_percent=Decimal("1.5"))
+    assert coop.rental_price_per_sqm is None

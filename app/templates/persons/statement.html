@@ -229,10 +229,12 @@
         <span class="sig-role">{{ _("Председатель") }}</span><span class="sig-blank"></span>
         {% if chairman %}<span class="sig-name">/{{ chairman.short_name }}/</span>{% endif %}
       </div>
+      {% if accountant %}
       <div class="signature-line">
         <span class="sig-role">{{ _("Бухгалтер") }}</span><span class="sig-blank"></span>
-        {% if accountant %}<span class="sig-name">/{{ accountant.short_name }}/</span>{% endif %}
+        <span class="sig-name">/{{ accountant.short_name }}/</span>
       </div>
+      {% endif %}
     </div>
     <div class="stamp-place">{{ _("М.П.") }}</div>
   </div>

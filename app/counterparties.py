@@ -14,6 +14,7 @@ from .models import (
 from .accounting import (
     counterparty_balance, reallocate_counterparty_expenses, pay_counterparty,
     expense_paid_amount, edit_counterparty_payment, reverse_counterparty_payment,
+    delete_counterparty_payment_reversal,
 )
 from .uploads import save_upload
 
@@ -398,6 +399,36 @@ def reverse_payment(counterparty_id, payment_id):
     )
     database.db_session.commit()
     flash(_("Отменяющая проводка добавлена."), "success")
+    return redirect(url_for("counterparties.detail", counterparty_id=counterparty.id))
+
+
+@bp.route("/<int:counterparty_id>/payments/<int:payment_id>/delete-reversal", methods=["POST"])
+@roles_required(RoleEnum.CHAIRMAN)
+def delete_reversal(counterparty_id, payment_id):
+    """
+    Удаление сторно-проводки, внесённой по ошибке (не тот платёж, не та
+    дата и т.п.) — возвращает исходный платёж в действующее состояние.
+    Сам исходный платёж не трогается и остаётся в истории. Только
+    председатель — как и удаление обычного платежа (finance.
+    delete_member_payment), это более необратимое действие, чем сторно
+    (которое как раз доступно всему правлению).
+    """
+    counterparty = database.db_session.get(Counterparty, counterparty_id)
+    reversal = database.db_session.get(CounterpartyPayment, payment_id)
+    if counterparty is None or reversal is None or reversal.counterparty_id != counterparty.id:
+        abort(404)
+    if reversal.reverses_payment_id is None:
+        flash(_("Это не сторно-проводка — её нельзя удалить этой кнопкой."), "danger")
+        return redirect(url_for("counterparties.detail", counterparty_id=counterparty.id))
+
+    audit.record(
+        "counterparty_payment.delete_reversal", entity_type="counterparty", entity_id=counterparty.id,
+        summary=f"Удалено сторно платежа #{reversal.reverses_payment_id} — {counterparty.name}, "
+                f"{audit.format_amount(-reversal.amount)}",
+    )
+    delete_counterparty_payment_reversal(reversal)
+    database.db_session.commit()
+    flash(_("Сторно удалено — исходный платёж снова действует."), "success")
     return redirect(url_for("counterparties.detail", counterparty_id=counterparty.id))
 
 

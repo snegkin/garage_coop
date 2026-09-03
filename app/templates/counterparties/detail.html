@@ -127,6 +127,11 @@
           {% if not p.reversed_by %}
           <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#reversePaymentModal{{ p.id }}">{{ _("Сторно") }}</button>
           {% endif %}
+        {% elif is_chairman() %}
+          <form method="post" action="{{ url_for('counterparties.delete_reversal', counterparty_id=counterparty.id, payment_id=p.id) }}"
+                onsubmit="return confirm('{{ _('Удалить это сторно? Исходный платёж снова станет действующим.') }}')">
+            <button class="btn btn-sm btn-outline-danger">{{ _("Удалить") }}</button>
+          </form>
         {% endif %}
       </td>
     </tr>

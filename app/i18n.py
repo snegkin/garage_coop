@@ -1637,6 +1637,11 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         # counterparties/detail.html — автоподстановка счёта по строке выписки
         "Подставлен автоматически по выбранной строке выписки — чтобы изменить, сначала очистите поле «Строка выписки банка».":
             "Filled in automatically from the selected statement line — to change it, first clear the \"Bank statement line\" field.",
+
+        # counterparties.py — удаление сторно-проводки
+        "Удалить это сторно? Исходный платёж снова станет действующим.": "Delete this reversal? The original payment will become active again.",
+        "Это не сторно-проводка — её нельзя удалить этой кнопкой.": "This is not a reversal entry — it can't be deleted with this button.",
+        "Сторно удалено — исходный платёж снова действует.": "Reversal deleted — the original payment is active again.",
     }
 }
 

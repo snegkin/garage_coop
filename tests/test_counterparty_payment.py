@@ -206,6 +206,112 @@ def test_reverse_adjusting_payment_refunds_balance(app, db, client):
     assert database.db_session.get(BankAccount, account.id).balance == Decimal("10000.00")
 
 
+def test_delete_reversal_restores_balance_and_original_payment(app, db, client):
+    """Удаление сторно, внесённого по ошибке, должно вернуть состояние
+    ровно к тому, что было до него: баланс счёта — как после исходного
+    платежа (не как до него), исходный платёж — снова действующим."""
+    counterparty = make_counterparty(db)
+    account = make_bank_account(db)
+    expense = Expense(counterparty_id=counterparty.id, date=dt.date(2026, 1, 1), amount=Decimal("700.00"))
+    db.add(expense)
+    db.flush()
+    make_user(db, "chair67", "pass12345", role=RoleEnum.CHAIRMAN)
+    db.commit()
+    login(client, "chair67", "pass12345")
+
+    client.post(f"/counterparties/{counterparty.id}/payments/new", data={
+        "date": "2026-01-15", "amount": "700.00", "bank_account_id": str(account.id),
+        "adjust_balance": "on",
+    })
+    db.expire_all()
+    payment = db.query(CounterpartyPayment).filter_by(counterparty_id=counterparty.id).one()
+    assert database.db_session.get(BankAccount, account.id).balance == Decimal("9300.00")
+
+    client.post(f"/counterparties/{counterparty.id}/payments/{payment.id}/reverse", data={"date": "2026-01-16"})
+    db.expire_all()
+    reversal = db.query(CounterpartyPayment).filter_by(reverses_payment_id=payment.id).one()
+    assert database.db_session.get(BankAccount, account.id).balance == Decimal("10000.00")
+
+    from app.accounting import expense_paid_amount
+    assert expense_paid_amount(expense) == Decimal("0.00")  # сторно отменило оплату расхода
+
+    resp = client.post(f"/counterparties/{counterparty.id}/payments/{reversal.id}/delete-reversal")
+    assert resp.status_code == 302
+    db.expire_all()
+
+    assert db.query(CounterpartyPayment).filter_by(id=reversal.id).first() is None
+    assert database.db_session.get(CounterpartyPayment, payment.id) is not None  # исходный платёж остался
+    assert database.db_session.get(BankAccount, account.id).balance == Decimal("9300.00")  # как после исходного платежа
+    assert expense_paid_amount(expense) == Decimal("700.00")  # расход снова оплачен
+
+
+def test_delete_reversal_requires_chairman(app, db, client):
+    counterparty = make_counterparty(db)
+    make_user(db, "board68", "pass12345", role=RoleEnum.BOARD)
+    db.commit()
+    login(client, "board68", "pass12345")
+
+    client.post(f"/counterparties/{counterparty.id}/payments/new", data={"date": "2026-01-15", "amount": "700.00"})
+    db.expire_all()
+    payment = db.query(CounterpartyPayment).filter_by(counterparty_id=counterparty.id).one()
+    client.post(f"/counterparties/{counterparty.id}/payments/{payment.id}/reverse", data={"date": "2026-01-16"})
+    db.expire_all()
+    reversal = db.query(CounterpartyPayment).filter_by(reverses_payment_id=payment.id).one()
+
+    resp = client.post(f"/counterparties/{counterparty.id}/payments/{reversal.id}/delete-reversal")
+    assert resp.status_code == 302
+    db.expire_all()
+    assert db.query(CounterpartyPayment).filter_by(id=reversal.id).first() is not None  # не удалено — доступ запрещён
+
+
+def test_delete_reversal_rejects_non_reversal_payment(app, db, client):
+    counterparty = make_counterparty(db)
+    make_user(db, "chair69", "pass12345", role=RoleEnum.CHAIRMAN)
+    db.commit()
+    login(client, "chair69", "pass12345")
+
+    client.post(f"/counterparties/{counterparty.id}/payments/new", data={"date": "2026-01-15", "amount": "700.00"})
+    db.expire_all()
+    payment = db.query(CounterpartyPayment).filter_by(counterparty_id=counterparty.id).one()
+
+    resp = client.post(f"/counterparties/{counterparty.id}/payments/{payment.id}/delete-reversal")
+    assert resp.status_code == 302
+    db.expire_all()
+    assert db.query(CounterpartyPayment).filter_by(id=payment.id).first() is not None  # не удалено
+
+
+def test_delete_reversal_makes_original_payment_occupy_the_line_again(app, db, client):
+    """После удаления сторно исходный платёж снова действует и снова
+    законно "занимает" строку выписки — сослаться на неё для НОВОГО платежа
+    (другому контрагенту) больше нельзя, как и до сторно."""
+    counterparty = make_counterparty(db)
+    other_counterparty = make_counterparty(db, name="ООО Другой")
+    account = make_bank_account(db)
+    line = make_statement_line(db, account, amount=Decimal("700.00"))
+    make_user(db, "chair70", "pass12345", role=RoleEnum.CHAIRMAN)
+    db.commit()
+    login(client, "chair70", "pass12345")
+
+    client.post(f"/counterparties/{counterparty.id}/payments/new", data={
+        "date": "2026-01-15", "amount": "700.00", "bank_statement_line_id": str(line.id),
+    })
+    db.expire_all()
+    payment = db.query(CounterpartyPayment).filter_by(counterparty_id=counterparty.id).one()
+    client.post(f"/counterparties/{counterparty.id}/payments/{payment.id}/reverse", data={"date": "2026-01-16"})
+    db.expire_all()
+    reversal = db.query(CounterpartyPayment).filter_by(reverses_payment_id=payment.id).one()
+
+    client.post(f"/counterparties/{counterparty.id}/payments/{reversal.id}/delete-reversal")
+    db.expire_all()
+
+    resp = client.post(f"/counterparties/{other_counterparty.id}/payments/new", data={
+        "date": "2026-01-17", "amount": "700.00", "bank_statement_line_id": str(line.id),
+    })
+    assert resp.status_code == 302
+    db.expire_all()
+    assert db.query(CounterpartyPayment).filter_by(counterparty_id=other_counterparty.id).count() == 0
+
+
 def test_add_payment_empty_amount_closes_debt_in_full(app, db, client):
     """Пустое поле суммы — как и на карточке лицевого счёта (finance.
     add_member_payment) — закрывает весь долг перед контрагентом целиком,

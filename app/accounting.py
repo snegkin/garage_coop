@@ -613,6 +613,32 @@ def reverse_counterparty_payment(payment: CounterpartyPayment, date, comment: st
     return reversal
 
 
+def delete_counterparty_payment_reversal(reversal: CounterpartyPayment) -> None:
+    """
+    Удаляет сторно-проводку, внесённую по ошибке (не тот платёж, не та
+    дата и т.п.) — возвращает состояние ровно к тому, что было до неё:
+    исходный платёж (reversal.reverses_payment_id) снова считается
+    действующим в полной сумме, разнесение по расходам пересчитывается
+    заново. Исходный платёж при этом не трогается и остаётся в истории.
+
+    reversal.amount отрицательна (см. reverse_counterparty_payment — это
+    -payment.amount), и при её создании на баланс счёта был начислен ПОЛОЖИТЕЛЬНЫЙ
+    payment.amount (деньги «вернулись»). При удалении нужно отыграть этот
+    эффект назад — прибавить к балансу саму reversal.amount (отрицательную),
+    что численно и есть вычитание payment.amount, т.е. деньги снова
+    считаются списанными, как до сторно.
+    """
+    if reversal.reverses_payment_id is None:
+        raise ValueError("delete_counterparty_payment_reversal() принимает только сторно-запись")
+    if reversal.bank_account is not None and reversal.adjusts_bank_balance:
+        reversal.bank_account.balance = (reversal.bank_account.balance or Decimal("0")) + reversal.amount
+        reversal.bank_account.balance_updated_at = dt.date.today()
+    counterparty = reversal.counterparty
+    database.db_session.delete(reversal)
+    database.db_session.flush()
+    reallocate_counterparty_expenses(counterparty)
+
+
 def get_electricity_settings() -> ElectricitySettings:
     """Единственная запись настроек раздела «Электроэнергия» (прежде всего — поставщик)."""
     settings = database.db_session.query(ElectricitySettings).first()

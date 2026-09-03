@@ -87,10 +87,17 @@ class Cooperative(Base):
 
     @property
     def rental_price_per_sqm(self) -> "Decimal | None":
-        """Справочная стоимость аренды 1 м² = кадастровая стоимость / кадастровая площадь."""
+        """
+        Справочная стоимость аренды 1 м² = земельный налог на 1 м² = (кадастровая
+        стоимость / кадастровая площадь) × ставка налога, а не голая стоимость
+        квадратного метра земли без учёта ставки — та же формула, что и у
+        суммарного земельного налога (accounting.compute_land_tax:
+        total_tax = cadastral_value × land_tax_rate_percent / 100), просто в
+        расчёте на 1 м², без деления по гаражам/коэффициентам.
+        """
         if self.cadastral_value is None or self.cadastral_area is None or self.cadastral_area == 0:
             return None
-        return self.cadastral_value / self.cadastral_area
+        return (self.cadastral_value / self.cadastral_area) * (self.land_tax_rate_percent / Decimal("100"))
 
 
 class BankApiProvider(str, enum.Enum):
@@ -1859,3 +1866,57 @@ class PowerPhaseReading(Base):
     __table_args__ = (
         Index("ix_power_phase_reading_device_ts", "device_id", "ts"),
     )
+
+
+class DvrRecorder(Base):
+    """
+    Видеорегистратор (DVR/NVR) — физическое устройство с несколькими
+    камерами, выставленное наружу по RTSP на нестандартном порту (см.
+    app/surveillance.py). Раздел «Видеонаблюдение» пока показывает только
+    периодически обновляемые превью-кадры (см. DvrCamera), не живое видео.
+    """
+    __tablename__ = "dvr_recorder"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(100))
+    host: Mapped[str] = mapped_column(String(255))
+    port: Mapped[int] = mapped_column(Integer, default=554)
+    username: Mapped[str | None] = mapped_column(String(100))
+    # Шифруется тем же приёмом, что и секреты API банка/токены eWeLink —
+    # см. app/bank_api/crypto.py (общий на все три случая, несмотря на имя
+    # модуля/пакета).
+    password_encrypted: Mapped[str | None] = mapped_column(Text)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    comment: Mapped[str | None] = mapped_column(Text)
+
+    cameras: Mapped[list["DvrCamera"]] = relationship(
+        back_populates="recorder", cascade="all, delete-orphan", order_by="DvrCamera.sort_order",
+    )
+
+
+class DvrCamera(Base):
+    """
+    Одна камера на регистраторе. channel/stream — номер канала и номер
+    потока в RTSP-пути регистратора (`channel={channel}_stream={stream}.sdp`,
+    см. app/surveillance.py:rtsp_url) — у большинства DVR/NVR 0 — основной
+    поток высокого разрешения, 1+ — дополнительные (более низкого
+    разрешения, экономичнее для превью, но выбор потока — на усмотрение
+    председателя при настройке, не задаётся жёстко).
+    """
+    __tablename__ = "dvr_camera"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    recorder_id: Mapped[int] = mapped_column(ForeignKey("dvr_recorder.id", ondelete="CASCADE"), index=True)
+    label: Mapped[str] = mapped_column(String(100))
+    channel: Mapped[int] = mapped_column(Integer)
+    stream: Mapped[int] = mapped_column(Integer, default=0)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    # Заполняются cron-скриптом (scripts/dvr_snapshot.py) на каждой попытке
+    # снять кадр — last_error НЕ очищает последний удачный снимок с диска
+    # (см. surveillance.snapshot_path) — при временной ошибке камера
+    # продолжает показывать последний удачный кадр с пометкой, что он мог
+    # устареть, а не пропадает с экрана вовсе.
+    last_snapshot_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
+    last_error: Mapped[str | None] = mapped_column(Text)
+
+    recorder: Mapped["DvrRecorder"] = relationship(back_populates="cameras")

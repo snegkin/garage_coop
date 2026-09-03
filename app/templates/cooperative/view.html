@@ -54,7 +54,7 @@
   <tr><th>{{ _("Площадь кооператива (кадастровая), м²") }}</th><td>{{ fmt2(coop.cadastral_area) if coop.cadastral_area else "—" }}</td></tr>
   <tr><th>{{ _("Из них, площадь общего пользования, м²") }}</th><td>{{ fmt2(coop.common_area) if coop.common_area else "—" }}</td></tr>
   <tr><th>{{ _("Стоимость земли (кадастровая), ₽") }}</th><td>{{ fmt2(coop.cadastral_value) if coop.cadastral_value else "—" }}</td></tr>
-  <tr><th>{{ _("Стоимость аренды 1 м² (справочная), ₽/м²") }}</th><td>{{ fmt2(coop.rental_price_per_sqm) if coop.rental_price_per_sqm else "—" }}</td></tr>
+  <tr><th title="{{ _('(кадастровая стоимость / кадастровая площадь) × ставка налога') }}">{{ _("Стоимость аренды 1 м² (справочная), ₽/м²") }}</th><td>{{ fmt2(coop.rental_price_per_sqm) if coop.rental_price_per_sqm else "—" }}</td></tr>
   <tr><th>{{ _("Ставка налога, % от кадастровой стоимости") }}</th><td>{{ fmt2(coop.land_tax_rate_percent) }}%</td></tr>
   <tr><th>{{ _("% банка за зачисление") }}</th><td>{{ (fmt2(coop.bank_fee_percent) ~ "%") if coop.bank_fee_percent is not none else "—" }}</td></tr>
 </table>

@@ -1550,6 +1550,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Площадь кооператива (кадастровая), м²": "Cooperative area (cadastral), m²",
         "Полная площадь кооператива (по документам), м²": "Full cooperative area (per documents), m²",
         "Стоимость аренды 1 м² (справочная), ₽/м²": "Rental value per m² (reference), RUB/m²",
+        "(кадастровая стоимость / кадастровая площадь) × ставка налога": "(cadastral value / cadastral area) × tax rate",
         "Стоимость земли (кадастровая), ₽": "Land value (cadastral), RUB",
         "Текущая площадь на кадастровой карте, уменьшается при приватизации.":
             "Current area on the cadastral map, decreases as plots are privatized.",
@@ -1574,6 +1575,33 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
 
         # pd4 print
         "Дата платежа": "Payment date",
+
+        # app/surveillance.py, surveillance/view.html
+        "Видеонаблюдение": "Video surveillance",
+        "Добавить регистратор": "Add recorder",
+        "Регистраторы видеонаблюдения ещё не добавлены.": "No video recorders added yet.",
+        "Удалить регистратор и все его камеры? Сохранённые кадры на диске тоже будут удалены.":
+            "Delete the recorder and all its cameras? Saved frames on disk will also be deleted.",
+        "Удалить регистратор": "Delete recorder",
+        "У этого регистратора ещё нет камер.": "This recorder has no cameras yet.",
+        "Кадр пока не получен": "No frame received yet",
+        "последняя попытка снять кадр не удалась": "last snapshot attempt failed",
+        "Новый регистратор": "New recorder",
+        "например: Регистратор — въезд": "e.g. Recorder — entrance",
+        "Адрес (IP или домен)": "Address (IP or domain)",
+        "Порт RTSP": "RTSP port",
+        "Камеры": "Cameras",
+        "Добавить камеру": "Add camera",
+        "Номер камеры и номер потока — как в пути RTSP регистратора (channel=N_stream=M.sdp); поток 0 обычно основной (высокое разрешение), 1 и далее — дополнительные.":
+            "Camera number and stream number — as in the recorder's RTSP path (channel=N_stream=M.sdp); stream 0 is usually the main (high-resolution) one, 1 and up are substreams.",
+        "название, напр. Въезд": "name, e.g. Entrance",
+        "номер камеры": "camera number",
+        "номер потока": "stream number",
+        "Укажите название и адрес регистратора.": "Enter the recorder's name and address.",
+        "Порт должен быть числом.": "Port must be a number.",
+        "Камера {n}": "Camera {n}",
+        "Регистратор добавлен.": "Recorder added.",
+        "Регистратор удалён.": "Recorder deleted.",
     }
 }
 

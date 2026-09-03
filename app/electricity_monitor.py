@@ -20,7 +20,6 @@ flow, приложение зарегистрировано на dev.ewelink.cc)
 кодом, 3) выбирает дом (family) — без family_id список устройств не
 получить (save_family).
 """
-import ast
 import datetime as dt
 import secrets
 
@@ -32,12 +31,12 @@ from .i18n import translate as _
 from .auth import roles_required
 from .models import RoleEnum, EWeLinkAccount, PowerPhaseDevice, PowerPhaseReading
 from .bank_api import crypto
-from .ewelink import EWeLinkClient, EWeLinkTokens, EWeLinkApiError, EWeLinkAuthError, PhaseSnapshot, parse_phase_snapshot
+from .ewelink import EWeLinkClient, EWeLinkTokens, EWeLinkApiError, EWeLinkAuthError
 
 bp = Blueprint("electricity_monitor", __name__, url_prefix="/electricity")
 
 HISTORY_HOURS = 24 * 7  # период по умолчанию для графика при первом открытии страницы (см. view())
-MAX_CHART_POINTS = 1500  # точек на устройство в ответе history_data() — при 30 днях с опросом раз в 5 минут сырых точек ~8600, а за более старую историю (raw_params накопится) может быть больше; без ограничения график будет тормозить
+MAX_CHART_POINTS = 1500  # точек на устройство в ответе history_data() — при 30 днях с опросом раз в 5 минут сырых точек ~8600, а за более старую историю может быть больше; без ограничения график будет тормозить
 OAUTH_STATE_SESSION_KEY = "ewelink_oauth_state"
 
 
@@ -139,32 +138,6 @@ def _callback_redirect_uri() -> str:
     return url_for("electricity_monitor.oauth_callback", _external=True)
 
 
-def _parse_kwh_from_reading(reading: PowerPhaseReading | None) -> PhaseSnapshot | None:
-    """
-    Расход за сегодня/за месяц (dayKwh/monthKwh) не хранится отдельными
-    колонками — raw_params и так пишется поллером на каждый опрос (см.
-    scripts/poll_ewelink.py) и уже содержит их целиком, просто без
-    масштабирования и без выделения в отдельные поля (см.
-    PhaseSnapshot.raw_params в app/ewelink/client.py). Здесь просто парсим
-    их обратно тем же parse_phase_snapshot(), которым они и были один раз
-    уже разобраны при опросе, — не заводим для этого отдельное поле в БД.
-
-    raw_params хранится как str(dict) (Python repr, см. models.py:
-    PowerPhaseReading.raw_params) — НЕ JSON, поэтому ast.literal_eval, а не
-    json.loads. None, если показаний ещё нет или raw_params не разобрать
-    (например, пустая строка на старых записях до появления этого поля).
-    """
-    if reading is None or not reading.raw_params:
-        return None
-    try:
-        params = ast.literal_eval(reading.raw_params)
-    except (ValueError, SyntaxError):
-        return None
-    if not isinstance(params, dict):
-        return None
-    return parse_phase_snapshot({"params": params})
-
-
 @bp.route("/")
 @roles_required(RoleEnum.BOARD)
 def view():
@@ -187,15 +160,8 @@ def view():
     power_values = [r.power_w for r in latest_by_device.values() if r and r.power_w is not None]
     total_power = sum(power_values) if power_values else None
 
-    # day_kwh/month_kwh — извлекаются из raw_params того же последнего
-    # показания (см. _parse_kwh_from_reading), не отдельный живой запрос к
-    # eWeLink и не отдельные колонки в БД.
-    kwh_by_device = {
-        device.id: _parse_kwh_from_reading(latest_by_device.get(device.id))
-        for device in devices
-    }
-    day_kwh_values = [s.day_kwh for s in kwh_by_device.values() if s and s.day_kwh is not None]
-    month_kwh_values = [s.month_kwh for s in kwh_by_device.values() if s and s.month_kwh is not None]
+    day_kwh_values = [r.day_kwh for r in latest_by_device.values() if r and r.day_kwh is not None]
+    month_kwh_values = [r.month_kwh for r in latest_by_device.values() if r and r.month_kwh is not None]
     total_day_kwh = sum(day_kwh_values) if day_kwh_values else None
     total_month_kwh = sum(month_kwh_values) if month_kwh_values else None
 
@@ -238,7 +204,6 @@ def view():
         devices_json=devices_json,
         latest_by_device=latest_by_device,
         total_power=total_power,
-        kwh_by_device=kwh_by_device,
         total_day_kwh=total_day_kwh,
         total_month_kwh=total_month_kwh,
         history_hours_default=HISTORY_HOURS,

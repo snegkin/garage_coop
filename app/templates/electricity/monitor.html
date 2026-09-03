@@ -63,31 +63,36 @@
       <div class="card-body">
         <div class="d-flex justify-content-between align-items-start">
           <div class="text-muted">{{ device.label }}</div>
-          {% if reading %}
-            {% if reading.is_online %}
-            <span class="badge bg-success">{{ _("онлайн") }}</span>
+          <div class="text-end">
+            {% if reading %}
+              {% if reading.is_online %}
+              <span class="badge bg-success">{{ _("онлайн") }}</span>
+              {% else %}
+              <span class="badge bg-secondary">{{ _("офлайн") }}</span>
+              {% endif %}
+              {% if reading.switch_on is not none and not reading.switch_on %}
+              <span class="badge bg-danger" title="{{ _('Реле отключено — питание на этой фазе снято.') }}">{{ _("реле выкл") }}</span>
+              {% endif %}
             {% else %}
-            <span class="badge bg-secondary">{{ _("офлайн") }}</span>
+            <span class="badge bg-secondary">{{ _("нет данных") }}</span>
             {% endif %}
-          {% else %}
-          <span class="badge bg-secondary">{{ _("нет данных") }}</span>
-          {% endif %}
+          </div>
         </div>
         {% if reading and reading.power_w is not none %}
         <div class="fs-2">{{ fmt2(reading.power_w / 1000) }} {{ _("кВт") }}</div>
         <div class="text-muted small">
           {% if reading.voltage_v is not none %}{{ fmt2(reading.voltage_v) }} {{ _("В") }}{% endif %}
           {% if reading.current_a is not none %} · {{ fmt2(reading.current_a) }} {{ _("А") }}{% endif %}
+          - {{ _("обновлено") }} {{ reading.ts.strftime('%H:%M:%S') }}
+          {% if reading.sled_online is not none %} · {{ _("LED") }} {{ _("вкл") if reading.sled_online else _("выкл") }}{% endif %}
         </div>
-        <div class="text-muted small">{{ _("обновлено") }} {{ reading.ts.strftime('%H:%M:%S') }}</div>
         {% else %}
         <p class="text-muted mb-0">{{ _("Показаний пока нет.") }}</p>
         {% endif %}
-        {% set kwh = kwh_by_device.get(device.id) %}
-        {% if kwh and (kwh.day_kwh is not none or kwh.month_kwh is not none) %}
+        {% if reading and (reading.day_kwh is not none or reading.month_kwh is not none) %}
         <div class="text-muted small mt-1">
-          {% if kwh.day_kwh is not none %}{{ _("сегодня") }} {{ fmt2(kwh.day_kwh) }} {{ _("кВт·ч") }}{% endif %}
-          {% if kwh.month_kwh is not none %} · {{ _("месяц") }} {{ fmt2(kwh.month_kwh) }} {{ _("кВт·ч") }}{% endif %}
+          {% if reading.day_kwh is not none %}{{ _("сегодня") }} {{ fmt2(reading.day_kwh) }} {{ _("кВт·ч") }}{% endif %}
+          {% if reading.month_kwh is not none %} · {{ _("месяц") }} {{ fmt2(reading.month_kwh) }} {{ _("кВт·ч") }}{% endif %}
         </div>
         {% endif %}
       </div>

@@ -98,8 +98,11 @@ def main() -> int:
                 power_w=snapshot.power_w,
                 voltage_v=snapshot.voltage_v,
                 current_a=snapshot.current_a,
+                day_kwh=snapshot.day_kwh,
+                month_kwh=snapshot.month_kwh,
                 is_online=snapshot.is_online,
-                raw_params=str(snapshot.raw_params),
+                sled_online=snapshot.sled_online,
+                switch_on=snapshot.switch_on,
             ))
             saved += 1
 

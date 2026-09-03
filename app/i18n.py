@@ -1608,6 +1608,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Закрыть": "Close",
         "Не удалось построить предпросмотр.": "Couldn't build the preview.",
         "Текст пока пуст.": "The text is empty so far.",
+
+        # base.html — лайтбокс для картинок в новостях/вики
+        "Предыдущее изображение": "Previous image",
+        "Следующее изображение": "Next image",
     }
 }
 

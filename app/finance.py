@@ -84,11 +84,14 @@ def member_accounts():
         .all()
     )
     rows = [(a, _balance(a)) for a in accs]
+    # Кнопка «Пеня» (Удалить/Списать) над таблицей — только если есть что
+    # удалять/списывать, см. write_off_all_penalties/delete_all_penalties.
+    has_unpaid_penalty = any(a.fee_type.is_penalty and bal < 0 for a, bal in rows)
     all_persons = database.db_session.query(Person).order_by(Person.full_name).all()
     all_garages = database.db_session.query(Garage).order_by(Garage.number).all()
     all_fee_types = database.db_session.query(FeeType).order_by(FeeType.name).all()
     return render_template(
-        "finance/member_accounts.html", rows=rows,
+        "finance/member_accounts.html", rows=rows, has_unpaid_penalty=has_unpaid_penalty,
         all_persons=all_persons, all_garages=all_garages, all_fee_types=all_fee_types,
     )
 
@@ -614,33 +617,31 @@ def write_off_penalty(account_id):
 
 
 # ---------------------------------------------------------------------------
-# Те же два действия (списать/удалить пеню), но сразу по ВСЕМ пенным счетам
-# человека одним нажатием — кнопка на карточке персоны (persons/detail.html),
-# рядом с таблицей его лицевых счетов, а не по одному на каждой карточке
-# счёта. Логика/уровни доступа совпадают с одиночными действиями выше
-# (write_off_penalty) и с delete_member_charge — просто применены в цикле.
+# Те же два действия (списать/удалить пеню), но сразу по НЕСКОЛЬКИМ пенным
+# счетам одним нажатием — кнопка «Пеня» рядом с таблицей, а не по одному на
+# каждой карточке счёта. Два места, где она есть: карточка персоны
+# (persons/detail.html — только счета этого человека) и общий список
+# лицевых счетов (finance/member_accounts.html — вообще все пенные счета
+# кооператива, самая широкая версия действия). Логика/уровни доступа
+# совпадают с одиночными действиями выше (write_off_penalty) и с
+# delete_member_charge — просто применены в цикле; общее ядро цикла
+# вынесено в _write_off_penalties_bulk/_delete_penalties_bulk ниже, чтобы
+# не дублировать между «по одному человеку» и «по всем счетам».
 # ---------------------------------------------------------------------------
 
-@bp.route("/persons/<int:person_id>/write-off-penalties", methods=["POST"])
-@login_required
-def write_off_person_penalties(person_id):
-    person = database.db_session.get(Person, person_id)
-    if person is None:
-        abort(404)
-    if not is_privileged():
-        abort(403)
-
-    reason = (request.form.get("reason") or "").strip()
-    if not reason:
-        flash(_("Укажите причину списания (мировое соглашение, отказ от взыскания и т.п.)."), "danger")
-        return redirect(url_for("persons.detail", person_id=person.id))
-
-    accounts = (
+def _penalty_accounts_query():
+    return (
         database.db_session.query(MemberAccount)
         .join(FeeType, MemberAccount.fee_type_id == FeeType.id)
-        .filter(MemberAccount.person_id == person.id, FeeType.is_penalty.is_(True))
-        .all()
+        .filter(FeeType.is_penalty.is_(True))
     )
+
+
+def _write_off_penalties_bulk(accounts: list[MemberAccount], reason: str) -> tuple[int, Decimal]:
+    """Гасит непогашенную пеню по каждому счёту из accounts (см.
+    _write_off_penalty_account), не коммитит — вызывающий коммитит сам.
+    Возвращает (число счетов, на которые реально что-то списали, суммарно
+    списанное)."""
     total = Decimal("0")
     written_off = 0
     for account in accounts:
@@ -648,29 +649,13 @@ def write_off_person_penalties(person_id):
         if amount is not None:
             total += amount
             written_off += 1
-
-    if written_off == 0:
-        flash(_("Непогашенной пени не найдено — списывать нечего."), "warning")
-        return redirect(url_for("persons.detail", person_id=person.id))
-
-    database.db_session.commit()
-    flash(_("Списана пеня по {n} счетам на сумму {total} ₽.", n=written_off, total=total), "success")
-    return redirect(url_for("persons.detail", person_id=person.id))
+    return written_off, total
 
 
-@bp.route("/persons/<int:person_id>/delete-penalties", methods=["POST"])
-@roles_required(RoleEnum.CHAIRMAN)
-def delete_person_penalties(person_id):
-    person = database.db_session.get(Person, person_id)
-    if person is None:
-        abort(404)
-
-    accounts = (
-        database.db_session.query(MemberAccount)
-        .join(FeeType, MemberAccount.fee_type_id == FeeType.id)
-        .filter(MemberAccount.person_id == person.id, FeeType.is_penalty.is_(True))
-        .all()
-    )
+def _delete_penalties_bulk(accounts: list[MemberAccount]) -> tuple[int, int]:
+    """Удаляет все начисления пени по каждому счёту из accounts, не коммитит.
+    Возвращает (удалено начислений, пропущено — начисление оказалось
+    источником зачёта между счетами, см. delete_member_charge)."""
     deleted = 0
     skipped = 0
     for account in accounts:
@@ -695,7 +680,43 @@ def delete_person_penalties(person_id):
         if touched:
             database.db_session.flush()
             reallocate_member_charges(account)
+    return deleted, skipped
 
+
+@bp.route("/persons/<int:person_id>/write-off-penalties", methods=["POST"])
+@login_required
+def write_off_person_penalties(person_id):
+    person = database.db_session.get(Person, person_id)
+    if person is None:
+        abort(404)
+    if not is_privileged():
+        abort(403)
+
+    reason = (request.form.get("reason") or "").strip()
+    if not reason:
+        flash(_("Укажите причину списания (мировое соглашение, отказ от взыскания и т.п.)."), "danger")
+        return redirect(url_for("persons.detail", person_id=person.id))
+
+    accounts = _penalty_accounts_query().filter(MemberAccount.person_id == person.id).all()
+    written_off, total = _write_off_penalties_bulk(accounts, reason)
+    if written_off == 0:
+        flash(_("Непогашенной пени не найдено — списывать нечего."), "warning")
+        return redirect(url_for("persons.detail", person_id=person.id))
+
+    database.db_session.commit()
+    flash(_("Списана пеня по {n} счетам на сумму {total} ₽.", n=written_off, total=total), "success")
+    return redirect(url_for("persons.detail", person_id=person.id))
+
+
+@bp.route("/persons/<int:person_id>/delete-penalties", methods=["POST"])
+@roles_required(RoleEnum.CHAIRMAN)
+def delete_person_penalties(person_id):
+    person = database.db_session.get(Person, person_id)
+    if person is None:
+        abort(404)
+
+    accounts = _penalty_accounts_query().filter(MemberAccount.person_id == person.id).all()
+    deleted, skipped = _delete_penalties_bulk(accounts)
     if deleted == 0:
         flash(_("Начисленной пени не найдено — удалять нечего."), "warning")
         return redirect(url_for("persons.detail", person_id=person.id))
@@ -710,6 +731,54 @@ def delete_person_penalties(person_id):
         msg += " " + _("Пропущено (часть зачёта между счетами): {n}.", n=skipped)
     flash(msg, "success")
     return redirect(url_for("persons.detail", person_id=person.id))
+
+
+@bp.route("/member-accounts/write-off-penalties", methods=["POST"])
+@login_required
+def write_off_all_penalties():
+    """Как write_off_person_penalties, но без фильтра по человеку — сразу по
+    ВСЕМ пенным счетам кооператива. Кнопка на общем списке лицевых счетов
+    (finance/member_accounts.html)."""
+    if not is_privileged():
+        abort(403)
+
+    reason = (request.form.get("reason") or "").strip()
+    if not reason:
+        flash(_("Укажите причину списания (мировое соглашение, отказ от взыскания и т.п.)."), "danger")
+        return redirect(url_for("finance.member_accounts"))
+
+    accounts = _penalty_accounts_query().all()
+    written_off, total = _write_off_penalties_bulk(accounts, reason)
+    if written_off == 0:
+        flash(_("Непогашенной пени не найдено — списывать нечего."), "warning")
+        return redirect(url_for("finance.member_accounts"))
+
+    database.db_session.commit()
+    flash(_("Списана пеня по {n} счетам на сумму {total} ₽.", n=written_off, total=total), "success")
+    return redirect(url_for("finance.member_accounts"))
+
+
+@bp.route("/member-accounts/delete-penalties", methods=["POST"])
+@roles_required(RoleEnum.CHAIRMAN)
+def delete_all_penalties():
+    """Как delete_person_penalties, но без фильтра по человеку — сразу по ВСЕМ
+    пенным счетам кооператива."""
+    accounts = _penalty_accounts_query().all()
+    deleted, skipped = _delete_penalties_bulk(accounts)
+    if deleted == 0:
+        flash(_("Начисленной пени не найдено — удалять нечего."), "warning")
+        return redirect(url_for("finance.member_accounts"))
+
+    audit.record(
+        "penalty.delete_all", entity_type="cooperative",
+        summary=f"Удалено начислений пени (по всем счетам кооператива): {deleted}",
+    )
+    database.db_session.commit()
+    msg = _("Удалено начислений пени: {n}.", n=deleted)
+    if skipped:
+        msg += " " + _("Пропущено (часть зачёта между счетами): {n}.", n=skipped)
+    flash(msg, "success")
+    return redirect(url_for("finance.member_accounts"))
 
 
 @bp.route("/member-accounts/new", methods=["POST"])

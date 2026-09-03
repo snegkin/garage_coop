@@ -9,6 +9,26 @@
     <a class="btn btn-primary btn-sm" href="{{ url_for('finance.mass_charge') }}">{{ _("Массовое начисление") }}</a>
     <a class="btn btn-primary btn-sm" href="{{ url_for('finance.account_format') }}">{{ _("Формат номеров") }}</a>
     {% endif %}
+    {% if is_privileged() and has_unpaid_penalty %}
+    <div class="btn-group">
+      <button class="btn btn-sm btn-outline-danger dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+        {{ _("Пеня") }}
+      </button>
+      <ul class="dropdown-menu dropdown-menu-end">
+        <li>
+          <button type="button" class="dropdown-item" data-bs-toggle="modal" data-bs-target="#writeOffAllPenaltiesModal">{{ _("Списать") }}</button>
+        </li>
+        {% if is_chairman() %}
+        <li>
+          <form method="post" action="{{ url_for('finance.delete_all_penalties') }}"
+                onsubmit="return confirm('{{ _('Удалить ВСЕ начисления пени по ВСЕМ счетам кооператива? Без компенсирующего платежа — начисления пропадут без следа, в отличие от «Списать».') }}')">
+            <button class="dropdown-item text-danger">{{ _("Удалить") }}</button>
+          </form>
+        </li>
+        {% endif %}
+      </ul>
+    </div>
+    {% endif %}
   </div>
 </div>
 <p class="text-muted small">{{ _("Земельный налог, членские взносы и пени по ним — отдельный счёт на каждого собственника по каждому гаражу.") }}</p>
@@ -83,4 +103,30 @@
     </div>
   </div>
 </div>
+
+{% if is_privileged() and has_unpaid_penalty %}
+<div class="modal fade" id="writeOffAllPenaltiesModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" action="{{ url_for('finance.write_off_all_penalties') }}">
+        <div class="modal-header">
+          <h5 class="modal-title">{{ _("Списать пеню по всем счетам") }}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <p class="text-muted small">{{ _("Погашается непогашенная пеня сразу по ВСЕМ пенным счетам кооператива — компенсирующим платежом на каждый счёт (реальных денег не движется), с одной и той же причиной.") }}</p>
+          <div class="mb-3">
+            <label class="form-label">{{ _("Причина") }}</label>
+            <input class="form-control form-control-sm" name="reason" placeholder="{{ _('например: мировое соглашение от 01.09.2026') }}" autofocus required>
+          </div>
+        </div>
+        <div class="modal-footer d-flex justify-content-end">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+          <button class="btn btn-danger">{{ _("Списать") }}</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
 {% endblock %}

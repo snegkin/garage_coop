@@ -115,6 +115,21 @@ def test_add_document_creates_document_linked_to_counterparty(db, client):
     assert doc is not None
     assert doc.counterparty_id == counterparty.id
     assert doc.file_path is not None
+    # Документы контрагента — всегда внутренние, без права выбора в форме.
+    assert doc.is_internal is True
+
+
+def test_add_document_form_has_no_internal_checkbox(db, client):
+    """Раз выбора нет (см. предыдущий тест) — сам чекбокс не должен вводить
+    в заблуждение видимостью в разметке формы."""
+    _make_board(db)
+    counterparty = _make_counterparty(db)
+    db.commit()
+
+    login(client, "board1", "pass1234")
+    resp = client.get(f"/counterparties/{counterparty.id}")
+    assert resp.status_code == 200
+    assert 'name="is_internal"' not in resp.get_data(as_text=True)
 
 
 def test_only_board_can_add_document_to_counterparty(db, client):

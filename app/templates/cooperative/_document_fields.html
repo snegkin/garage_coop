@@ -39,7 +39,13 @@
   <label class="form-label">{{ _("Комментарий") }}</label>
   <textarea class="form-control" name="comment">{{ doc.comment or '' if doc is defined else '' }}</textarea>
 </div>
+{% if all_counterparties %}
+{# Форма документа на карточке КОНКРЕТНОГО контрагента (counterparties/detail.html)
+   не передаёт all_counterparties — этот partial переиспользуется и там; в этом
+   случае документ всегда внутренний (см. counterparties.add_document/_save_document),
+   выбора нет — чекбокс не показываем, чтобы не создавать иллюзию выбора. #}
 <div class="form-check mb-3">
   <input class="form-check-input" type="checkbox" name="is_internal" id="isInternalDocument" {{ "checked" if doc is defined and doc and doc.is_internal else '' }}>
   <label class="form-check-label" for="isInternalDocument">{{ _("Внутренний документ (виден только правлению)") }}</label>
 </div>
+{% endif %}

@@ -147,5 +147,30 @@ def test_new_document_types_are_valid_enum_values():
     assert {"invoice", "statement", "certificate", "estimate", "report"} <= values
 
 
+def test_edit_form_does_not_render_none_for_unset_number(app, db, client):
+    """Document.number необязателен (None, если не заполнен при создании) —
+    форма правки не должна выводить туда буквальный текст "None"
+    (голое {{ doc.number }} без or '' в _document_fields.html). Кнопка
+    «Изменить»/модалка правки рендерится только для документов с файлом
+    (см. cooperative/view.html: {% for d in docs if d.file_path %}) — файл
+    в тесте нужен, иначе модалки вообще не будет в ответе."""
+    doc = Document(doc_type=DocumentType.OTHER, date=dt.date(2026, 1, 1), title="Без номера", file_path="docs/x.pdf")
+    db.add(doc)
+    db.flush()
+    assert doc.number is None
+    db.commit()
+    _make_board(db)
+    login(client, "board1", "pass1234")
+
+    resp = client.get("/cooperative/")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert f'id="editDocumentModal{doc.id}"' in body
+    modal_start = body.index(f'id="editDocumentModal{doc.id}"')
+    modal_chunk = body[modal_start:modal_start + 2000]
+    assert 'name="number" value="None"' not in modal_chunk
+    assert 'name="number" value=""' in modal_chunk
+
+
 def database_query_first_by_title(db, title):
     return db.query(Document).filter_by(title=title).first()

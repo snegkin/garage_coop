@@ -9,7 +9,7 @@
 </div>
 <div class="mb-3">
   <label class="form-label">{{ _("Номер") }}</label>
-  <input class="form-control" name="number" value="{{ doc.number if doc is defined and doc else '' }}">
+  <input class="form-control" name="number" value="{{ (doc.number or '') if doc is defined and doc else '' }}">
 </div>
 <div class="mb-3">
   <label class="form-label">{{ _("Дата") }}</label>

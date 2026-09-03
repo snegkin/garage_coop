@@ -467,6 +467,7 @@ def pay_counterparty(
     document_id: int | None = None,
     comment: str | None = None,
     adjust_balance: bool = True,
+    bank_statement_line_id: int | None = None,
 ) -> CounterpartyPayment:
     """
     Оплата контрагенту: создаёт CounterpartyPayment, при указанном
@@ -478,7 +479,10 @@ def pay_counterparty(
     раньше, до появления этой записи в системе, баланс их уже не
     содержит) — счёт можно по-прежнему указать (для отчётности, откуда
     платили), просто его баланс не трогаем; см. CounterpartyPayment.
-    adjusts_bank_balance. Коммит — на вызывающей стороне (как и у
+    adjusts_bank_balance. bank_statement_line_id — альтернатива document_id:
+    вместо прикреплённого скана платёжки можно сослаться на уже
+    загруженную строку выписки банка (уникальность — на уровне роута, не
+    здесь). Коммит — на вызывающей стороне (как и у
     reallocate_garage_charges).
     """
     payment = CounterpartyPayment(
@@ -487,6 +491,7 @@ def pay_counterparty(
         date=date,
         amount=amount,
         document_id=document_id,
+        bank_statement_line_id=bank_statement_line_id,
         comment=comment,
         adjusts_bank_balance=adjust_balance if bank_account is not None else False,
     )
@@ -507,6 +512,7 @@ def edit_counterparty_payment(
     document_id: int | None = None,
     comment: str | None = None,
     adjust_balance: bool = True,
+    bank_statement_line_id: int | None = None,
 ) -> None:
     """
     Правка уже внесённого платежа (например, ошиблись в сумме при вводе).
@@ -519,6 +525,12 @@ def edit_counterparty_payment(
     счёта не «поплыл» при повторных правках. Используется только для
     последнего платежа контрагента — ограничение накладывается на уровне
     роута (app/counterparties.py), не здесь.
+
+    bank_statement_line_id — в отличие от document_id (обновляется только
+    если передан, т.к. приходит из необязательной загрузки файла),
+    выставляется безусловно, как и bank_account: приходит из <select>,
+    который всегда возвращает текущее состояние формы, включая явный
+    выбор «не указана».
     """
     if payment.bank_account is not None and payment.adjusts_bank_balance:
         payment.bank_account.balance = (payment.bank_account.balance or Decimal("0")) + payment.amount
@@ -529,6 +541,7 @@ def edit_counterparty_payment(
     payment.adjusts_bank_balance = adjust_balance if bank_account is not None else False
     if document_id is not None:
         payment.document_id = document_id
+    payment.bank_statement_line_id = bank_statement_line_id
     payment.comment = comment
 
     if bank_account is not None and adjust_balance:

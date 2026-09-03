@@ -456,6 +456,16 @@ class CounterpartyPayment(Base):
     date: Mapped[dt.date] = mapped_column(Date, index=True)
     amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
     document_id: Mapped[int | None] = mapped_column(ForeignKey("document.id", ondelete="SET NULL"), index=True)
+    # Альтернатива document_id — вместо прикрепления скана платёжного
+    # поручения можно сослаться на уже загруженную строку выписки банка
+    # (BankStatementLine, direction == "debit") как на подтверждение факта
+    # платежа. Одна строка выписки может быть привязана только к одному
+    # платежу — проверяется на уровне роута (app/counterparties.py), не
+    # здесь (как и у matched_payment_id на самой BankStatementLine — тот же
+    # принцип для зачислений от членов).
+    bank_statement_line_id: Mapped[int | None] = mapped_column(
+        ForeignKey("bank_statement_line.id", ondelete="SET NULL"), index=True,
+    )
     comment: Mapped[str | None] = mapped_column(Text)
     # По умолчанию True — обычный случай, платёж вносится сразу и реально
     # списывается со счёта (см. pay_counterparty). False — платёж вносится
@@ -485,6 +495,7 @@ class CounterpartyPayment(Base):
 
     counterparty: Mapped["Counterparty"] = relationship(back_populates="payments")
     bank_account: Mapped["BankAccount | None"] = relationship()
+    bank_statement_line: Mapped["BankStatementLine | None"] = relationship()
     allocations: Mapped[list["ExpenseAllocation"]] = relationship(
         back_populates="payment", cascade="all, delete-orphan"
     )

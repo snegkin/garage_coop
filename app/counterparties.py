@@ -9,7 +9,7 @@ from .i18n import translate as _, parse_decimal, parse_optional_decimal as _pars
 from .auth import roles_required
 from .models import (
     Counterparty, Expense, CounterpartyPayment, ReconciliationAct,
-    BankAccount, Document, DocumentType, RoleEnum,
+    BankAccount, BankStatementLine, Document, DocumentType, RoleEnum,
 )
 from .accounting import (
     counterparty_balance, reallocate_counterparty_expenses, pay_counterparty,
@@ -130,7 +130,25 @@ def detail(counterparty_id):
 
     expense_paid = {e.id: expense_paid_amount(e) for e in expenses}
     originals = [p for p in counterparty.payments if p.reverses_payment_id is None]
-    last_payment_id = max(originals, key=lambda p: (p.date, p.id)).id if originals else None
+    last_payment = max(originals, key=lambda p: (p.date, p.id)) if originals else None
+    last_payment_id = last_payment.id if last_payment else None
+
+    # Строки выписки банка (списания), на которые ещё можно сослаться вместо
+    # прикрепления скана платёжки — см. add_payment/_reference_statement_line
+    # docstring ниже. Строка, уже привязанная к правящемуся сейчас платежу
+    # (last_payment), тоже входит в список — иначе форма правки не смогла бы
+    # показать текущий выбор как selected.
+    already_referenced = {
+        line_id for (line_id,) in database.db_session.query(CounterpartyPayment.bank_statement_line_id)
+        .filter(CounterpartyPayment.bank_statement_line_id.isnot(None))
+        .all()
+    }
+    if last_payment is not None and last_payment.bank_statement_line_id is not None:
+        already_referenced.discard(last_payment.bank_statement_line_id)
+    statement_lines_query = database.db_session.query(BankStatementLine).filter(BankStatementLine.direction == "debit")
+    if already_referenced:
+        statement_lines_query = statement_lines_query.filter(~BankStatementLine.id.in_(already_referenced))
+    referenceable_statement_lines = statement_lines_query.order_by(BankStatementLine.operation_date.desc()).all()
 
     return render_template(
         "counterparties/detail.html",
@@ -144,6 +162,7 @@ def detail(counterparty_id):
         bank_accounts=bank_accounts,
         expense_paid=expense_paid,
         last_payment_id=last_payment_id,
+        referenceable_statement_lines=referenceable_statement_lines,
         today=dt.date.today(),
     )
 
@@ -179,6 +198,32 @@ def add_expense(counterparty_id):
     return redirect(url_for("counterparties.detail", counterparty_id=counterparty.id))
 
 
+def _resolve_statement_line(f, exclude_payment_id: int | None = None) -> tuple[BankStatementLine | None, str | None]:
+    """
+    Разбирает bank_statement_line_id из формы платежа контрагенту —
+    альтернатива прикреплению скана платёжки (см. add_payment/edit_payment):
+    можно вместо этого сослаться на уже загруженную строку выписки банка.
+    Возвращает (строка_или_None, текст_ошибки_или_None). exclude_payment_id —
+    id платежа, который сейчас правится (его же текущая привязка не считается
+    конфликтом при повторном сохранении без изменений).
+    """
+    raw = f.get("bank_statement_line_id")
+    if not raw:
+        return None, None
+    line = database.db_session.get(BankStatementLine, int(raw))
+    if line is None:
+        return None, _("Строка выписки не найдена.")
+    if line.direction != "debit":
+        return None, _("Сослаться можно только на списание (расход) в выписке, не на зачисление.")
+    conflict_query = database.db_session.query(CounterpartyPayment).filter(CounterpartyPayment.bank_statement_line_id == line.id)
+    if exclude_payment_id is not None:
+        conflict_query = conflict_query.filter(CounterpartyPayment.id != exclude_payment_id)
+    conflict = conflict_query.first()
+    if conflict is not None:
+        return None, _("Эта строка выписки уже привязана к другому платежу.")
+    return line, None
+
+
 @bp.route("/<int:counterparty_id>/payments/new", methods=["POST"])
 @roles_required(RoleEnum.BOARD)
 def add_payment(counterparty_id):
@@ -204,6 +249,11 @@ def add_payment(counterparty_id):
         flash(_("Сумма платежа должна быть больше нуля."), "danger")
         return redirect(url_for("counterparties.detail", counterparty_id=counterparty.id))
 
+    statement_line, error = _resolve_statement_line(f)
+    if error:
+        flash(error, "danger")
+        return redirect(url_for("counterparties.detail", counterparty_id=counterparty.id))
+
     bank_account_id = f.get("bank_account_id")
     bank_account = database.db_session.get(BankAccount, int(bank_account_id)) if bank_account_id else None
     document_id = _save_document(
@@ -218,6 +268,7 @@ def add_payment(counterparty_id):
         document_id=document_id,
         comment=f.get("comment") or None,
         adjust_balance=bool(f.get("adjust_balance")),
+        bank_statement_line_id=statement_line.id if statement_line else None,
     )
     audit.record(
         "counterparty_payment.create", entity_type="counterparty", entity_id=counterparty.id,
@@ -256,6 +307,11 @@ def edit_payment(counterparty_id, payment_id):
         return redirect(url_for("counterparties.detail", counterparty_id=counterparty.id))
 
     f = request.form
+    statement_line, error = _resolve_statement_line(f, exclude_payment_id=payment.id)
+    if error:
+        flash(error, "danger")
+        return redirect(url_for("counterparties.detail", counterparty_id=counterparty.id))
+
     bank_account_id = f.get("bank_account_id")
     bank_account = database.db_session.get(BankAccount, int(bank_account_id)) if bank_account_id else None
     document_id = _save_document(
@@ -270,6 +326,7 @@ def edit_payment(counterparty_id, payment_id):
         document_id=document_id,
         comment=f.get("comment") or None,
         adjust_balance=bool(f.get("adjust_balance")),
+        bank_statement_line_id=statement_line.id if statement_line else None,
     )
     audit.record(
         "counterparty_payment.edit", entity_type="counterparty_payment", entity_id=payment.id,

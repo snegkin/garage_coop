@@ -263,7 +263,8 @@ def add_member_charge(account_id):
     reallocate_member_charges(account)
     audit.record(
         "charge.create", entity_type="member_account", entity_id=account.id,
-        summary=f"Начисление {amount} на счёт {account.account_number} ({account.person.full_name}), {year} год",
+        summary=f"Начисление {audit.format_amount(amount)} на счёт {account.account_number} "
+                f"({account.person.short_name}), {year} год",
     )
     database.db_session.commit()
     new_balance = _balance(account)
@@ -312,8 +313,8 @@ def edit_member_charge(account_id, charge_id):
     reallocate_member_charges(account)
     audit.record(
         "charge.edit", entity_type="member_account", entity_id=account.id,
-        summary=f"Начисление на счёте {account.account_number} ({account.person.full_name}) изменено: "
-                f"{old_amount} → {amount} ₽, {year} год",
+        summary=f"Начисление на счёте {account.account_number} ({account.person.short_name}) изменено: "
+                f"{audit.format_amount(old_amount)} → {audit.format_amount(amount)}, {year} год",
     )
     database.db_session.commit()
     flash(_("Начисление изменено."), "success")
@@ -354,8 +355,8 @@ def delete_member_charge(account_id, charge_id):
 
     audit.record(
         "charge.delete", entity_type="member_account", entity_id=account.id,
-        summary=f"Удалено начисление {charge.amount} ₽ за {charge.year} год на счёте {account.account_number} "
-                f"({account.person.full_name})",
+        summary=f"Удалено начисление {audit.format_amount(charge.amount)} за {charge.year} год на счёте "
+                f"{account.account_number} ({account.person.short_name})",
     )
     database.db_session.delete(charge)
     database.db_session.flush()
@@ -412,7 +413,8 @@ def add_member_payment(account_id):
     reallocate_member_charges(account)
     audit.record(
         "payment.create", entity_type="member_account", entity_id=account.id,
-        summary=f"Платёж {amount} на счёт {account.account_number} ({account.person.full_name}) от {date}",
+        summary=f"Платёж {audit.format_amount(amount)} на счёт {account.account_number} "
+                f"({account.person.short_name}) от {audit.format_date(date)}",
     )
     database.db_session.commit()
     new_balance = _balance(account)
@@ -452,8 +454,8 @@ def delete_member_payment(account_id, payment_id):
 
     audit.record(
         "payment.delete", entity_type="member_account", entity_id=account.id,
-        summary=f"Удалён платёж {payment.amount} ₽ от {payment.date} на счёте {account.account_number} "
-                f"({account.person.full_name})",
+        summary=f"Удалён платёж {audit.format_amount(payment.amount)} от {audit.format_date(payment.date)} "
+                f"на счёте {account.account_number} ({account.person.short_name})",
     )
     database.db_session.delete(payment)
     database.db_session.flush()
@@ -491,8 +493,9 @@ def cancel_transfer(account_id, payment_id):
     audit.record(
         "member_account.transfer_cancel", entity_type="member_account", entity_id=target.id,
         summary=(
-            f"Отменён зачёт {payment.amount} ₽ на счёт {target.account_number} ({target.person.full_name})"
-            + (f" со счёта {source.account_number} ({source.person.full_name})" if source else "")
+            f"Отменён зачёт {audit.format_amount(payment.amount)} на счёт {target.account_number} "
+            f"({target.person.short_name})"
+            + (f" со счёта {source.account_number} ({source.person.short_name})" if source else "")
         ),
     )
     database.db_session.delete(payment)
@@ -576,8 +579,8 @@ def transfer_member_account_funds(account_id):
     audit.record(
         "member_account.transfer", entity_type="member_account", entity_id=source.id,
         summary=(
-            f"Зачёт {amount} со счёта {source.account_number} ({source.person.full_name}) "
-            f"на счёт {target.account_number} ({target.person.full_name})"
+            f"Зачёт {audit.format_amount(amount)} со счёта {source.account_number} ({source.person.short_name}) "
+            f"на счёт {target.account_number} ({target.person.short_name})"
         ) + (f": {reason}" if reason else ""),
     )
     database.db_session.commit()
@@ -617,7 +620,8 @@ def _write_off_penalty_account(account: MemberAccount, reason: str) -> Decimal |
     reallocate_member_charges(account)
     audit.record(
         "penalty.write_off", entity_type="member_account", entity_id=account.id,
-        summary=f"Списана пеня {amount} на счёте {account.account_number} ({account.person.full_name}): {reason}",
+        summary=f"Списана пеня {audit.format_amount(amount)} на счёте {account.account_number} "
+                f"({account.person.short_name}): {reason}",
     )
     return amount
 
@@ -764,7 +768,7 @@ def delete_person_penalties(person_id):
 
     audit.record(
         "penalty.delete_all", entity_type="person", entity_id=person.id,
-        summary=f"Удалено начислений пени: {deleted} — {person.full_name}",
+        summary=f"Удалено начислений пени: {deleted} — {person.short_name}",
     )
     database.db_session.commit()
     msg = _("Удалено начислений пени: {n}.", n=deleted)
@@ -869,7 +873,8 @@ def delete_member_account(account_id):
         abort(404)
     audit.record(
         "member_account.delete", entity_type="member_account", entity_id=account.id,
-        summary=f"Удалён счёт {account.account_number} ({account.person.full_name}, гараж {account.garage.number}, {account.fee_type.name})",
+        summary=f"Удалён счёт {account.account_number} ({account.person.short_name}, "
+                f"гараж {account.garage.number}, {account.fee_type.name})",
     )
     database.db_session.delete(account)
     database.db_session.commit()
@@ -1107,7 +1112,8 @@ def mass_charge():
         if charged_rows:
             audit.record(
                 "charge.mass_create", entity_type="fee_type", entity_id=fee_type.id,
-                summary=f"Массовое начисление «{fee_type.name}» за {year} год: {len(charged_rows)} счетов на сумму {sum((a for _n,_g,a in charged_rows), Decimal('0'))}",
+                summary=f"Массовое начисление «{fee_type.name}» за {year} год: {len(charged_rows)} счетов "
+                        f"на сумму {audit.format_amount(sum((a for _n, _g, a in charged_rows), Decimal('0')))}",
             )
         database.db_session.commit()
         results = {

@@ -1026,7 +1026,7 @@ def add_charge(garage_id):
     reallocate_garage_charges(garage)
     audit.record(
         "charge.create", entity_type="garage", entity_id=garage.id,
-        summary=f"Начисление {f['amount']} на гараж №{garage.number}, {f['year']} год",
+        summary=f"Начисление {audit.format_amount(charge.amount)} на гараж №{garage.number}, {f['year']} год",
     )
     database.db_session.commit()
     flash(_("Начисление добавлено."), "success")
@@ -1055,7 +1055,8 @@ def add_payment(garage_id):
     reallocate_garage_charges(garage)
     audit.record(
         "payment.create", entity_type="garage", entity_id=garage.id,
-        summary=f"Платёж {f['amount']} на гараж №{garage.number} от {f['date']}",
+        summary=f"Платёж {audit.format_amount(payment.amount)} на гараж №{garage.number} "
+                f"от {audit.format_date(payment.date)}",
     )
     database.db_session.commit()
     flash(_("Платёж зарегистрирован."), "success")

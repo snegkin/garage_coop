@@ -447,7 +447,7 @@ def archive_person(person_id):
     person.archived_by_user_id = g.user.id
     audit.record(
         "person.archive", entity_type="person", entity_id=person.id,
-        summary=f"Человек «{person.full_name}» отправлен в архив" + (f": {reason}" if reason else ""),
+        summary=f"Человек «{person.short_name}» отправлен в архив" + (f": {reason}" if reason else ""),
     )
     database.db_session.commit()
     flash(_("Человек отправлен в архив."), "success")
@@ -473,7 +473,7 @@ def unarchive_person(person_id):
     person.archived_by_user_id = None
     audit.record(
         "person.unarchive", entity_type="person", entity_id=person.id,
-        summary=f"Человек «{person.full_name}» возвращён из архива",
+        summary=f"Человек «{person.short_name}» возвращён из архива",
     )
     database.db_session.commit()
     flash(_("Человек возвращён из архива."), "success")
@@ -555,7 +555,7 @@ def reset_password(person_id):
     user.password_hash = generate_password_hash(request.form["password"])
     audit.record(
         "account.password_reset", entity_type="user", entity_id=user.id,
-        summary=f"Правление сбросило пароль пользователю «{user.username}» ({person.full_name})",
+        summary=f"Правление сбросило пароль пользователю «{user.username}» ({person.short_name})",
     )
     database.db_session.commit()
     flash(_("Пароль обновлён."), "success")
@@ -588,7 +588,7 @@ def change_username(person_id):
     user.username = new_username
     audit.record(
         "account.username_change", entity_type="user", entity_id=user.id,
-        summary=f"Логин «{old_username}» ({person.full_name}) изменён на «{new_username}»",
+        summary=f"Логин «{old_username}» ({person.short_name}) изменён на «{new_username}»",
     )
     database.db_session.commit()
     flash(_("Логин обновлён."), "success")
@@ -608,7 +608,7 @@ def toggle_active(person_id):
     user.is_active = not user.is_active
     audit.record(
         "account.toggle_active", entity_type="user", entity_id=user.id,
-        summary=f"Доступ пользователю «{user.username}» ({person.full_name}) {'включён' if user.is_active else 'отключён'}",
+        summary=f"Доступ пользователю «{user.username}» ({person.short_name}) {'включён' if user.is_active else 'отключён'}",
     )
     database.db_session.commit()
     flash(_("Доступ включён.") if user.is_active else _("Доступ отключён."), "success")

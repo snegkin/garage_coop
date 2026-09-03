@@ -180,14 +180,16 @@ def add_expense(counterparty_id):
         abort(404)
 
     f = request.form
+    expense_date = dt.date.fromisoformat(f["date"])
+    expense_amount = parse_decimal(f["amount"])
     document_id = _save_document(
         "document_file", "document_title",
         _("Счёт от {name}", name=counterparty.name), counterparty,
     )
     database.db_session.add(Expense(
         counterparty_id=counterparty.id,
-        date=dt.date.fromisoformat(f["date"]),
-        amount=parse_decimal(f["amount"]),
+        date=expense_date,
+        amount=expense_amount,
         category=f.get("category") or None,
         description=f.get("description") or None,
         document_id=document_id,
@@ -196,7 +198,8 @@ def add_expense(counterparty_id):
     reallocate_counterparty_expenses(counterparty)
     audit.record(
         "expense.create", entity_type="counterparty", entity_id=counterparty.id,
-        summary=f"Расход {f['amount']} — {counterparty.name}, {f['date']}",
+        summary=f"Расход {audit.format_amount(expense_amount)} — {counterparty.name}, "
+                f"{audit.format_date(expense_date)}",
     )
     database.db_session.commit()
     flash(_("Расход добавлен."), "success")
@@ -259,6 +262,7 @@ def add_payment(counterparty_id):
         flash(error, "danger")
         return redirect(url_for("counterparties.detail", counterparty_id=counterparty.id))
 
+    payment_date = dt.date.fromisoformat(f["date"])
     bank_account_id = f.get("bank_account_id")
     bank_account = database.db_session.get(BankAccount, int(bank_account_id)) if bank_account_id else None
     document_id = _save_document(
@@ -267,7 +271,7 @@ def add_payment(counterparty_id):
     )
     pay_counterparty(
         counterparty=counterparty,
-        date=dt.date.fromisoformat(f["date"]),
+        date=payment_date,
         amount=amount,
         bank_account=bank_account,
         document_id=document_id,
@@ -277,7 +281,8 @@ def add_payment(counterparty_id):
     )
     audit.record(
         "counterparty_payment.create", entity_type="counterparty", entity_id=counterparty.id,
-        summary=f"Платёж контрагенту {amount} — {counterparty.name}, {f['date']}",
+        summary=f"Платёж контрагенту {audit.format_amount(amount)} — {counterparty.name}, "
+                f"{audit.format_date(payment_date)}",
     )
     database.db_session.commit()
     flash(_("Платёж добавлен."), "success")
@@ -317,6 +322,7 @@ def edit_payment(counterparty_id, payment_id):
         flash(error, "danger")
         return redirect(url_for("counterparties.detail", counterparty_id=counterparty.id))
 
+    edited_amount = parse_decimal(f["amount"])
     bank_account_id = f.get("bank_account_id")
     bank_account = database.db_session.get(BankAccount, int(bank_account_id)) if bank_account_id else None
     document_id = _save_document(
@@ -326,7 +332,7 @@ def edit_payment(counterparty_id, payment_id):
     edit_counterparty_payment(
         payment=payment,
         date=dt.date.fromisoformat(f["date"]),
-        amount=parse_decimal(f["amount"]),
+        amount=edited_amount,
         bank_account=bank_account,
         document_id=document_id,
         comment=f.get("comment") or None,
@@ -335,7 +341,8 @@ def edit_payment(counterparty_id, payment_id):
     )
     audit.record(
         "counterparty_payment.edit", entity_type="counterparty_payment", entity_id=payment.id,
-        summary=f"Изменён платёж контрагенту #{payment.id} — {counterparty.name}, новая сумма {f['amount']}",
+        summary=f"Изменён платёж контрагенту #{payment.id} — {counterparty.name}, "
+                f"новая сумма {audit.format_amount(edited_amount)}",
     )
     database.db_session.commit()
     flash(_("Платёж изменён."), "success")
@@ -372,7 +379,7 @@ def reverse_payment(counterparty_id, payment_id):
     )
     audit.record(
         "counterparty_payment.reverse", entity_type="counterparty_payment", entity_id=payment.id,
-        summary=f"Сторно платежа #{payment.id} — {counterparty.name}, дата сторно {reverse_date.isoformat()}",
+        summary=f"Сторно платежа #{payment.id} — {counterparty.name}, дата сторно {audit.format_date(reverse_date)}",
     )
     database.db_session.commit()
     flash(_("Отменяющая проводка добавлена."), "success")

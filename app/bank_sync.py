@@ -309,7 +309,8 @@ def sync_account_balance(account: BankAccount) -> tuple[str, str]:
     _persist_rotated_refresh_token(cred, client)
     audit.record(
         "bank_api.balance_sync", entity_type="bank_account", entity_id=account.id,
-        summary=f"Баланс счёта {account.bank_name} {account.checking_account} обновлён из банка: {info.amount} ₽",
+        summary=f"Баланс счёта {account.bank_name} {account.checking_account} обновлён из банка: "
+                f"{audit.format_amount(info.amount)}",
     )
     database.db_session.commit()
     return "success", _("Баланс обновлён из банка: {amount} ₽").format(amount=info.amount)
@@ -477,7 +478,8 @@ def sync_account_statement(account: BankAccount, date_from: dt.date, date_to: dt
     audit.record(
         "bank_api.statement_sync", entity_type="bank_account", entity_id=account.id,
         summary=f"Загружена выписка счёта {account.bank_name} {account.checking_account} за "
-                f"{date_from}—{date_to}: {added} новых операций, {auto_allocated} разнесено автоматически, "
+                f"{audit.format_date(date_from)}—{audit.format_date(date_to)}: {added} новых операций, "
+                f"{auto_allocated} разнесено автоматически, "
                 f"{direct + parametric} сопоставлено с реестром ({direct} прямых, {parametric} параметрических)",
     )
     database.db_session.commit()
@@ -598,7 +600,7 @@ def allocate_statement_line(account_id, line_id):
     line.matched_payment_id = payment.id
     audit.record(
         "bank_api.statement_line_allocate", entity_type="bank_account", entity_id=account.id,
-        summary=f"Операция выписки ({resolved_number}, {line.amount} ₽) разнесена платежом вручную",
+        summary=f"Операция выписки ({resolved_number}, {audit.format_amount(line.amount)}) разнесена платежом вручную",
     )
     database.db_session.commit()
     return respond(True, _("Платёж разнесён."), account_number=resolved_number)
@@ -803,7 +805,8 @@ def send_charge_registry(account_id):
     _persist_rotated_refresh_token(cred, client)
     audit.record(
         "bank_api.charge_registry_send", entity_type="bank_account", entity_id=account.id,
-        summary=f"Отправлен реестр начислений за «{period}»: {batch.charges_count} начислений на {batch.total_amount} ₽",
+        summary=f"Отправлен реестр начислений за «{period}»: {batch.charges_count} начислений "
+                f"на {audit.format_amount(batch.total_amount)}",
     )
     database.db_session.commit()
     flash(_("Реестр начислений отправлен в банк."), "success")
@@ -1477,7 +1480,7 @@ def allocate_payment_registry_entry(account_id, entry_id):
     entry.matched_payment_id = payment.id
     audit.record(
         "bank_api.payment_registry_allocate", entity_type="bank_account", entity_id=account.id,
-        summary=f"Запись реестра платежей ({resolved_number}, {entry.amount} ₽) разнесена платежом",
+        summary=f"Запись реестра платежей ({resolved_number}, {audit.format_amount(entry.amount)}) разнесена платежом",
     )
     database.db_session.commit()
     return respond(True, _("Платёж разнесён."), account_number=resolved_number)

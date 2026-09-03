@@ -19,9 +19,7 @@
     {% if images %}
     <div class="d-flex flex-wrap gap-2 mt-4">
       {% for att in images %}
-      <a href="{{ url_for('news.attachment', attachment_id=att.id, original_filename=att.original_filename) }}" target="_blank">
-        <img src="{{ url_for('news.attachment', attachment_id=att.id, original_filename=att.original_filename) }}" alt="" style="max-height:220px;border-radius:.375rem">
-      </a>
+      <img class="js-lightbox" src="{{ url_for('news.attachment', attachment_id=att.id, original_filename=att.original_filename) }}" alt="" style="max-height:220px;border-radius:.375rem">
       {% endfor %}
     </div>
     {% endif %}

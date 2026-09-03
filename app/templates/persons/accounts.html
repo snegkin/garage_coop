@@ -9,7 +9,7 @@
 </div>
 
 <table class="table bg-body sortable" id="accountTable">
-  <thead><tr><th>{{ _("Логин") }}</th><th>{{ _("Роль") }}</th><th>{{ _("Человек") }}</th><th>{{ _("Статус") }}</th><th class="no-sort"></th></tr></thead>
+  <thead><tr><th>{{ _("Логин") }}</th><th>{{ _("Роль") }}</th><th>{{ _("Человек") }}</th><th>{{ _("Статус") }}</th><th class="no-sort text-end">{{ _("Привязка") }}</th></tr></thead>
   <tbody>
     {% for user in users %}
     <tr data-filter-text="{{ (user.username ~ ' ' ~ (user.person.full_name if user.person else '') ~ ' ' ~ (user.role.value|lower) ~ ' ' ~ ('активна' if user.is_active else 'отключена'))|lower }}">
@@ -23,17 +23,23 @@
         {% endif %}
       </td>
       <td>
-        {% if user.is_active %}<span class="badge bg-success">{{ _("доступ активен") }}</span>
-        {% else %}<span class="badge bg-secondary">{{ _("доступ отключён") }}</span>{% endif %}
+        <div class="d-flex align-items-center gap-2">
+          {% if user.is_active %}<span class="badge bg-success">{{ _("доступ активен") }}</span>
+          {% else %}<span class="badge bg-secondary">{{ _("доступ отключён") }}</span>{% endif %}
+          <form method="post" action="{{ url_for('persons.toggle_account_active', user_id=user.id) }}">
+            <button class="btn btn-sm btn-outline-{{ 'danger' if user.is_active else 'success' }} btn-icon-square"
+                    title="{{ _('Отключить доступ') if user.is_active else _('Включить доступ') }}">⏻</button>
+          </form>
+        </div>
       </td>
-      <td>
+      <td class="text-end">
         {% if user.person %}
         <form method="post" action="{{ url_for('persons.unlink_account', user_id=user.id) }}" onsubmit="return confirm('{{ _("Отвязать эту учётную запись от человека?") }}')">
           <button class="btn btn-sm btn-primary">{{ _("Отвязать") }}</button>
         </form>
         {% else %}
-        <form method="post" action="{{ url_for('persons.link_account', user_id=user.id) }}" class="d-flex gap-2">
-          <select name="person_id" class="form-select form-select-sm" data-searchable required>
+        <form method="post" action="{{ url_for('persons.link_account', user_id=user.id) }}" class="d-flex gap-2 justify-content-end">
+          <select name="person_id" class="form-select form-select-sm" data-searchable required style="max-width:260px">
             <option value="">— {{ _("выберите человека") }} —</option>
             {% for p in unlinked_persons %}<option value="{{ p.id }}">{{ p.full_name }}</option>{% endfor %}
           </select>

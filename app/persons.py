@@ -595,6 +595,21 @@ def change_username(person_id):
     return redirect(url_for("persons.detail", person_id=person.id))
 
 
+def _toggle_user_active(user: User) -> None:
+    """Общая часть toggle_active (по person_id, с карточки человека) и
+    toggle_account_active (по user_id, со страницы /persons/accounts —
+    единственное место, откуда можно включить/отключить служебную учётную
+    запись без привязанного человека, например «chairman» из seed.py: у
+    неё просто нет карточки персоны, откуда иначе можно было бы её
+    отключить)."""
+    user.is_active = not user.is_active
+    person_note = f" ({user.person.short_name})" if user.person else ""
+    audit.record(
+        "account.toggle_active", entity_type="user", entity_id=user.id,
+        summary=f"Доступ пользователю «{user.username}»{person_note} {'включён' if user.is_active else 'отключён'}",
+    )
+
+
 @bp.route("/<int:person_id>/account/toggle-active", methods=["POST"])
 @roles_required(RoleEnum.BOARD)
 def toggle_active(person_id):
@@ -605,11 +620,7 @@ def toggle_active(person_id):
     if user is None:
         abort(404)
 
-    user.is_active = not user.is_active
-    audit.record(
-        "account.toggle_active", entity_type="user", entity_id=user.id,
-        summary=f"Доступ пользователю «{user.username}» ({person.short_name}) {'включён' if user.is_active else 'отключён'}",
-    )
+    _toggle_user_active(user)
     database.db_session.commit()
     flash(_("Доступ включён.") if user.is_active else _("Доступ отключён."), "success")
     return redirect(url_for("persons.detail", person_id=person.id))
@@ -671,6 +682,19 @@ def unlink_account(user_id):
     user.person_id = None
     database.db_session.commit()
     flash(_("Учётная запись отвязана от человека."), "success")
+    return redirect(url_for("persons.accounts_list"))
+
+
+@bp.route("/accounts/<int:user_id>/toggle-active", methods=["POST"])
+@roles_required(RoleEnum.CHAIRMAN)
+def toggle_account_active(user_id):
+    user = database.db_session.get(User, user_id)
+    if user is None:
+        abort(404)
+
+    _toggle_user_active(user)
+    database.db_session.commit()
+    flash(_("Доступ включён.") if user.is_active else _("Доступ отключён."), "success")
     return redirect(url_for("persons.accounts_list"))
 
 

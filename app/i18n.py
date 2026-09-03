@@ -1630,6 +1630,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
 
         # governance/audit_log.html — ссылка на карточку сущности записи
         "Открыть карточку": "Open record",
+
+        # persons/accounts.html — заголовок колонки привязки/отвязки
+        "Привязка": "Link",
     }
 }
 

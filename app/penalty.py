@@ -301,6 +301,15 @@ def accrue_penalties(target_date: dt.date | None = None) -> dict:
     повторный запуск на ту же (или более раннюю) дату не создаёт дублей —
     досчитывает только новые дни с прошлого запуска. Коммитит сама.
 
+    Вызывается ТОЛЬКО скриптом scripts/accrue_penalty.py по cron (раз в
+    месяц, см. README.md) — раньше запускалась ещё и тихо на каждом
+    открытии дашборда/страницы «Пеня», но от этого отказались: начисления
+    происходили неочевидно для правления (просто открыл страницу — и уже
+    что-то начислилось) и раздували историю начислений построчно почти на
+    каждый день, если в систему заходили часто. Раз в месяц — то же самое
+    итоговое начисление (день-в-день, ставка та же), но одной строкой на
+    начисление за период, а не десятками.
+
     Возвращает словарь с результатами или {"error": "no_due_date" / "no_key_rate"}.
     """
     target_date = target_date or dt.date.today()
@@ -372,14 +381,6 @@ def accrue_penalties(target_date: dt.date | None = None) -> dict:
 def view():
     coop = database.db_session.query(Cooperative).first()
     due_date_this_year = dues_due_date(coop, dt.date.today().year) if coop else None
-
-    # Тихий автоматический пересчёт «на лету» — по сегодняшний день, без
-    # flash-сообщений (см. accrue_penalties: дёшево при повторных вызовах,
-    # т.к. penalty_calculated_through у каждого начисления уже почти
-    # актуален — досчитывает обычно 0-1 новый день). Кнопка ниже на
-    # странице — для явного пересчёта на произвольную (например, прошлую)
-    # дату, для этого автопересчёт не нужен и не заменяет её.
-    accrue_penalties(dt.date.today())
 
     rates = database.db_session.query(KeyRate).order_by(KeyRate.effective_date.desc()).all()
 

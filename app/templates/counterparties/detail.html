@@ -180,7 +180,7 @@
 </div>
 
 <div class="d-flex justify-content-between align-items-center mb-2">
-  <h5 class="mb-0">{{ _("Документы") }}</h5>
+  <h5 class="mb-0" id="documentsSection">{{ _("Документы") }}</h5>
   <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#addDocumentModal">+ {{ _("Добавить") }}</button>
 </div>
 <div class="mb-4">
@@ -198,7 +198,25 @@
       <td>{{ doc_type_label(d.doc_type.value) }}</td>
       <td>{{ d.number or "—" }}</td>
       <td>{{ d.title }}</td>
-      <td>{% if d.file_path %}<a href="{{ url_for('cooperative.download_document', doc_id=d.id) }}">{{ _("скачать") }}</a>{% else %}—{% endif %}</td>
+      <td class="no-sort">
+        {% if d.file_path %}
+          <div class="btn-group" role="group">
+            <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+              {{ _("Действия") }}
+            </button>
+            <ul class="dropdown-menu dropdown-menu-end">
+              <li><a class="dropdown-item" href="{{ url_for('cooperative.download_document', doc_id=d.id) }}">{{ _("Скачать") }}</a></li>
+              <li><button class="dropdown-item" data-bs-toggle="modal" data-bs-target="#editCounterpartyDocumentModal{{ d.id }}">{{ _("Изменить") }}</button></li>
+              <li><hr class="dropdown-divider"></li>
+              <li>
+                <form method="post" action="{{ url_for('cooperative.delete_document', doc_id=d.id) }}" class="d-inline" onsubmit="return confirm('{{ _('Удалить документ?') }}')">
+                  <button class="dropdown-item text-danger">{{ _("Удалить") }}</button>
+                </form>
+              </li>
+            </ul>
+          </div>
+        {% else %}—{% endif %}
+      </td>
     </tr>
     {% else %}
     <tr><td colspan="5" class="text-muted">{{ _("Документов, связанных с этим контрагентом, пока нет.") }}</td></tr>
@@ -504,6 +522,30 @@
     </div>
   </div>
 </div>
+
+<!-- Модалки: редактирование документов контрагента -->
+{% for d in documents if d.file_path %}
+<div class="modal fade" id="editCounterpartyDocumentModal{{ d.id }}" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <form method="post" action="{{ url_for('cooperative.edit_document', doc_id=d.id) }}" enctype="multipart/form-data">
+        <div class="modal-header">
+          <h5 class="modal-title">{{ _("Редактирование документа") }}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          {% set doc = d %}
+          {% include "cooperative/_document_fields.html" with context %}
+        </div>
+        <div class="modal-footer d-flex justify-content-end">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+          <button class="btn btn-primary">{{ _("Сохранить") }}</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endfor %}
 
 <script>
 // Поле "Счёт списания" и "Строка выписки банка" в формах платежа контрагенту

@@ -120,6 +120,42 @@ def test_delete_person_penalties_deletes_all_charges(app, db, client):
     assert len(entries) == 1
 
 
+def test_delete_person_penalties_with_partial_payment_does_not_break_fk(app, db, client):
+    """Регрессия: счёт с НЕСКОЛЬКИМИ начислениями и уже частично разнесённым
+    платежом — _delete_penalties_bulk считывает account.charges в память
+    ДО удаления (для цикла по начислениям); после delete()+flush() эта же
+    закешированная коллекция раньше оставалась «протухшей» (SQLAlchemy не
+    обновляет её сама только из-за flush), и reallocate_member_charges,
+    читая account.charges заново, пытался разнести платёж по уже удалённому
+    начислению — INSERT INTO charge_allocation падал на внешнем ключе.
+    Просто на "все начисления сразу" (без платежей) это не ловилось: без
+    платежей разносить попросту нечего. Нужен явный db_session.expire()."""
+    person = make_person(db, full_name="Регрессов Ре Грессович")
+    garage = make_garage(db, number="95")
+    make_ownership(db, garage, person)
+    fee_type = FeeType(code="penalty_fk_regression", name="Пеня по взносу", is_penalty=True)
+    db.add(fee_type)
+    db.flush()
+    account = MemberAccount(person_id=person.id, garage_id=garage.id, fee_type_id=fee_type.id, account_number="П9501")
+    db.add(account)
+    db.flush()
+    db.add(Charge(account_id=account.id, year=2025, amount=Decimal("100.00")))
+    db.add(Charge(account_id=account.id, year=2026, amount=Decimal("50.00")))
+    db.add(Payment(account_id=account.id, date=dt.date(2026, 1, 1), amount=Decimal("30.00")))
+    make_user(db, "chair86", "pass12345", role=RoleEnum.CHAIRMAN)
+    db.commit()
+    login(client, "chair86", "pass12345")
+
+    resp = client.post(f"/finance/persons/{person.id}/delete-penalties")
+    assert resp.status_code == 302
+    db.expire_all()
+
+    assert db.query(Charge).filter_by(account_id=account.id).count() == 0
+    # Платёж остаётся (удаляются только начисления) — реаллокация просто
+    # больше не находит, к чему его разнести.
+    assert db.query(Payment).filter_by(account_id=account.id).count() == 1
+
+
 def test_delete_person_penalties_requires_chairman(app, db, client):
     person, accounts = _setup_person_with_penalties(db)
     make_user(db, "acc80", "pass12345", role=RoleEnum.ACCOUNTANT)

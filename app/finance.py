@@ -679,6 +679,14 @@ def _delete_penalties_bulk(accounts: list[MemberAccount]) -> tuple[int, int]:
             touched = True
         if touched:
             database.db_session.flush()
+            # account.charges уже был загружен в память строкой выше
+            # (charges = list(account.charges)) — сам по себе flush() не
+            # обновляет эту закешированную коллекцию, она по-прежнему
+            # содержит только что удалённые объекты. reallocate_member_charges
+            # читает именно account.charges — без expire() он попытался бы
+            # разнести платежи по уже удалённым начислениям и упал бы на
+            # внешнем ключе (IntegrityError на INSERT INTO charge_allocation).
+            database.db_session.expire(account, ["charges"])
             reallocate_member_charges(account)
     return deleted, skipped
 

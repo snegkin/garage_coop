@@ -112,7 +112,13 @@
         {% if p.reverses_payment_id and p.reverses %}<div class="text-muted small">{{ _("сторно платежа от {date}", date=fmt_date(p.reverses.date)) }}</div>{% endif %}
         {% if p.reverses_payment_id is none and p.reversed_by %}<div class="text-muted small">{{ _("отменён проводкой от {date}", date=fmt_date(p.reversed_by[0].date)) }}</div>{% endif %}
       </td>
-      <td>{% if p.document_id %}<a href="{{ url_for('cooperative.download_document', doc_id=p.document_id) }}">{{ _("скачать") }}</a>{% else %}—{% endif %}</td>
+      <td>
+        {% if p.document_id %}
+        <a href="{{ url_for('cooperative.download_document', doc_id=p.document_id) }}">{{ _("скачать") }}</a>
+        {% elif p.bank_statement_line %}
+        <a href="{{ url_for('bank_sync.statement', account_id=p.bank_statement_line.bank_account_id, date_from=p.bank_statement_line.operation_date.isoformat(), date_to=p.bank_statement_line.operation_date.isoformat()) }}#stmt-line-{{ p.bank_statement_line.id }}" title="{{ _('Строка выписки банка') }}">{{ _("по выписке") }}</a>
+        {% else %}—{% endif %}
+      </td>
       <td class="text-nowrap">
         {% if p.reverses_payment_id is none %}
           {% if p.id == last_payment_id %}
@@ -305,6 +311,16 @@
           <div class="mb-3">
             <label class="form-label">{{ _("Платёжный документ") }}</label>
             <input class="form-control" type="file" name="document_file">
+            <div class="form-text">{{ _("Скан платёжки — или, вместо прикрепления файла, можно сослаться на уже загруженную строку выписки банка ниже.") }}</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">{{ _("Или строка выписки банка") }}</label>
+            <select class="form-select" name="bank_statement_line_id" data-searchable data-placeholder="{{ _('— не указана —') }}">
+              <option value=""></option>
+              {% for line in referenceable_statement_lines %}
+              <option value="{{ line.id }}">{{ fmt_date(line.operation_date) }} — {{ fmt2(line.amount) }} ₽ — {{ line.counterparty_name or "—" }}{% if line.payment_purpose %} — {{ line.payment_purpose[:60] }}{% endif %}</option>
+              {% endfor %}
+            </select>
           </div>
         </div>
         <div class="modal-footer d-flex justify-content-end">
@@ -360,6 +376,16 @@
           <div class="mb-3">
             <label class="form-label">{{ _("Платёжный документ") }}</label>
             <input class="form-control" type="file" name="document_file">
+            <div class="form-text">{{ _("Скан платёжки — или, вместо прикрепления файла, можно сослаться на уже загруженную строку выписки банка ниже.") }}</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">{{ _("Или строка выписки банка") }}</label>
+            <select class="form-select" name="bank_statement_line_id" data-searchable data-placeholder="{{ _('— не указана —') }}">
+              <option value=""></option>
+              {% for line in referenceable_statement_lines %}
+              <option value="{{ line.id }}" {{ "selected" if p.bank_statement_line_id == line.id }}>{{ fmt_date(line.operation_date) }} — {{ fmt2(line.amount) }} ₽ — {{ line.counterparty_name or "—" }}{% if line.payment_purpose %} — {{ line.payment_purpose[:60] }}{% endif %}</option>
+              {% endfor %}
+            </select>
           </div>
         </div>
         <div class="modal-footer d-flex justify-content-end">

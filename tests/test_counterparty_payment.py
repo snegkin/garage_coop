@@ -12,7 +12,7 @@ import datetime as dt
 from decimal import Decimal
 
 from app import database
-from app.models import RoleEnum, Counterparty, BankAccount, CounterpartyPayment, Expense
+from app.models import RoleEnum, Counterparty, BankAccount, BankStatementLine, CounterpartyPayment, Expense
 
 from tests.conftest import make_user, login
 
@@ -29,6 +29,15 @@ def make_bank_account(db, bank_name="Сбербанк", checking_account="407038
     db.add(acc)
     db.flush()
     return acc
+
+
+def make_statement_line(db, bank_account, direction="debit", amount=Decimal("500.00"), operation_date=dt.date(2026, 1, 10), **kwargs):
+    line = BankStatementLine(
+        bank_account_id=bank_account.id, direction=direction, amount=amount, operation_date=operation_date, **kwargs,
+    )
+    db.add(line)
+    db.flush()
+    return line
 
 
 def test_add_payment_with_default_checkbox_deducts_balance(app, db, client):
@@ -255,3 +264,133 @@ def test_payments_table_marks_backdated_entries(app, db, client):
     resp = client.get(f"/counterparties/{counterparty.id}")
     assert resp.status_code == 200
     assert "задним числом" in resp.get_data(as_text=True)
+
+
+# ---------------------------------------------------------------------------
+# Ссылка на строку выписки банка вместо прикрепления платёжного поручения
+# ---------------------------------------------------------------------------
+
+def test_add_payment_references_debit_statement_line(app, db, client):
+    counterparty = make_counterparty(db)
+    account = make_bank_account(db)
+    line = make_statement_line(db, account, direction="debit", amount=Decimal("500.00"))
+    make_user(db, "board61", "pass12345", role=RoleEnum.BOARD)
+    db.commit()
+    login(client, "board61", "pass12345")
+
+    resp = client.post(f"/counterparties/{counterparty.id}/payments/new", data={
+        "date": "2026-01-10", "amount": "500.00", "bank_statement_line_id": str(line.id),
+    })
+    assert resp.status_code == 302
+    db.expire_all()
+
+    payment = db.query(CounterpartyPayment).filter_by(counterparty_id=counterparty.id).one()
+    assert payment.bank_statement_line_id == line.id
+    assert payment.document_id is None
+
+
+def test_add_payment_rejects_credit_statement_line(app, db, client):
+    """Сослаться можно только на списание — зачисление (деньги, пришедшие НА
+    счёт) не может быть подтверждением платежа, ушедшего контрагенту."""
+    counterparty = make_counterparty(db)
+    account = make_bank_account(db)
+    line = make_statement_line(db, account, direction="credit", amount=Decimal("500.00"))
+    make_user(db, "board62", "pass12345", role=RoleEnum.BOARD)
+    db.commit()
+    login(client, "board62", "pass12345")
+
+    resp = client.post(f"/counterparties/{counterparty.id}/payments/new", data={
+        "date": "2026-01-10", "amount": "500.00", "bank_statement_line_id": str(line.id),
+    })
+    assert resp.status_code == 302
+    db.expire_all()
+    assert db.query(CounterpartyPayment).filter_by(counterparty_id=counterparty.id).count() == 0
+
+
+def test_add_payment_rejects_already_referenced_statement_line(app, db, client):
+    counterparty_a = make_counterparty(db, name="ООО Первый")
+    counterparty_b = make_counterparty(db, name="ООО Второй")
+    account = make_bank_account(db)
+    line = make_statement_line(db, account, direction="debit", amount=Decimal("500.00"))
+    make_user(db, "board63", "pass12345", role=RoleEnum.BOARD)
+    db.commit()
+    login(client, "board63", "pass12345")
+
+    client.post(f"/counterparties/{counterparty_a.id}/payments/new", data={
+        "date": "2026-01-10", "amount": "500.00", "bank_statement_line_id": str(line.id),
+    })
+    db.expire_all()
+    assert db.query(CounterpartyPayment).filter_by(counterparty_id=counterparty_a.id).one().bank_statement_line_id == line.id
+
+    resp = client.post(f"/counterparties/{counterparty_b.id}/payments/new", data={
+        "date": "2026-01-10", "amount": "500.00", "bank_statement_line_id": str(line.id),
+    })
+    assert resp.status_code == 302
+    db.expire_all()
+    assert db.query(CounterpartyPayment).filter_by(counterparty_id=counterparty_b.id).count() == 0
+
+
+def test_edit_payment_can_keep_its_own_referenced_statement_line(app, db, client):
+    """Повторное сохранение формы правки с той же строкой выписки — не
+    должно упереться в «уже привязана к другому платежу» (это тот же самый
+    платёж)."""
+    counterparty = make_counterparty(db)
+    account = make_bank_account(db)
+    line = make_statement_line(db, account, direction="debit", amount=Decimal("500.00"))
+    make_user(db, "board64", "pass12345", role=RoleEnum.BOARD)
+    db.commit()
+    login(client, "board64", "pass12345")
+
+    client.post(f"/counterparties/{counterparty.id}/payments/new", data={
+        "date": "2026-01-10", "amount": "500.00", "bank_statement_line_id": str(line.id),
+    })
+    db.expire_all()
+    payment = db.query(CounterpartyPayment).filter_by(counterparty_id=counterparty.id).one()
+
+    resp = client.post(f"/counterparties/{counterparty.id}/payments/{payment.id}/edit", data={
+        "date": "2026-01-10", "amount": "500.00", "bank_statement_line_id": str(line.id),
+    })
+    assert resp.status_code == 302
+    db.expire_all()
+    assert database.db_session.get(CounterpartyPayment, payment.id).bank_statement_line_id == line.id
+
+
+def test_edit_payment_can_clear_referenced_statement_line(app, db, client):
+    counterparty = make_counterparty(db)
+    account = make_bank_account(db)
+    line = make_statement_line(db, account, direction="debit", amount=Decimal("500.00"))
+    make_user(db, "board65", "pass12345", role=RoleEnum.BOARD)
+    db.commit()
+    login(client, "board65", "pass12345")
+
+    client.post(f"/counterparties/{counterparty.id}/payments/new", data={
+        "date": "2026-01-10", "amount": "500.00", "bank_statement_line_id": str(line.id),
+    })
+    db.expire_all()
+    payment = db.query(CounterpartyPayment).filter_by(counterparty_id=counterparty.id).one()
+
+    resp = client.post(f"/counterparties/{counterparty.id}/payments/{payment.id}/edit", data={
+        "date": "2026-01-10", "amount": "500.00",
+    })
+    assert resp.status_code == 302
+    db.expire_all()
+    assert database.db_session.get(CounterpartyPayment, payment.id).bank_statement_line_id is None
+
+
+def test_payments_table_links_to_referenced_statement_line(app, db, client):
+    counterparty = make_counterparty(db)
+    account = make_bank_account(db)
+    line = make_statement_line(db, account, direction="debit", amount=Decimal("500.00"))
+    make_user(db, "board66", "pass12345", role=RoleEnum.BOARD)
+    db.commit()
+    login(client, "board66", "pass12345")
+
+    client.post(f"/counterparties/{counterparty.id}/payments/new", data={
+        "date": "2026-01-10", "amount": "500.00", "bank_statement_line_id": str(line.id),
+    })
+
+    resp = client.get(f"/counterparties/{counterparty.id}")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert "по выписке" in body
+    assert f"#stmt-line-{line.id}" in body

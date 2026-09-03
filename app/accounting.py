@@ -466,13 +466,20 @@ def pay_counterparty(
     bank_account: BankAccount | None = None,
     document_id: int | None = None,
     comment: str | None = None,
+    adjust_balance: bool = True,
 ) -> CounterpartyPayment:
     """
     Оплата контрагенту: создаёт CounterpartyPayment, при указанном
-    bank_account сразу списывает эту сумму с его фактического баланса
-    (BankAccount.balance — вносится вручную, банк не подключён напрямую),
-    и пересчитывает разнесение платежей по расходам этого контрагента.
-    Коммит — на вызывающей стороне (как и у reallocate_garage_charges).
+    bank_account и adjust_balance=True (по умолчанию) сразу списывает эту
+    сумму с его фактического баланса (BankAccount.balance — вносится
+    вручную, банк не подключён напрямую), и пересчитывает разнесение
+    платежей по расходам этого контрагента. adjust_balance=False — платёж
+    вносится задним числом только для истории (деньги реально списались
+    раньше, до появления этой записи в системе, баланс их уже не
+    содержит) — счёт можно по-прежнему указать (для отчётности, откуда
+    платили), просто его баланс не трогаем; см. CounterpartyPayment.
+    adjusts_bank_balance. Коммит — на вызывающей стороне (как и у
+    reallocate_garage_charges).
     """
     payment = CounterpartyPayment(
         counterparty_id=counterparty.id,
@@ -481,9 +488,10 @@ def pay_counterparty(
         amount=amount,
         document_id=document_id,
         comment=comment,
+        adjusts_bank_balance=adjust_balance if bank_account is not None else False,
     )
     database.db_session.add(payment)
-    if bank_account is not None:
+    if bank_account is not None and adjust_balance:
         bank_account.balance = (bank_account.balance or Decimal("0")) - amount
         bank_account.balance_updated_at = date
     database.db_session.flush()
@@ -498,26 +506,32 @@ def edit_counterparty_payment(
     bank_account: BankAccount | None,
     document_id: int | None = None,
     comment: str | None = None,
+    adjust_balance: bool = True,
 ) -> None:
     """
     Правка уже внесённого платежа (например, ошиблись в сумме при вводе).
-    Если платёж был привязан к счёту, сначала возвращает старую сумму
-    на старый счёт, затем списывает новую сумму с нового (может быть тем
-    же самым) счёта — чтобы баланс счёта не «поплыл» при повторных правках.
-    Используется только для последнего платежа контрагента — ограничение
-    накладывается на уровне роута (app/counterparties.py), не здесь.
+    Если платёж СВОИМ прошлым сохранением реально изменил баланс счёта
+    (payment.adjusts_bank_balance — не сам факт, что счёт был указан:
+    задним числом внесённый платёж мог быть привязан к счёту без списания,
+    см. pay_counterparty), сначала возвращает старую сумму на старый счёт;
+    затем, если у новой версии adjust_balance=True и указан счёт, списывает
+    новую сумму с нового (может быть тем же самым) счёта — чтобы баланс
+    счёта не «поплыл» при повторных правках. Используется только для
+    последнего платежа контрагента — ограничение накладывается на уровне
+    роута (app/counterparties.py), не здесь.
     """
-    if payment.bank_account is not None:
+    if payment.bank_account is not None and payment.adjusts_bank_balance:
         payment.bank_account.balance = (payment.bank_account.balance or Decimal("0")) + payment.amount
 
     payment.date = date
     payment.amount = amount
     payment.bank_account_id = bank_account.id if bank_account else None
+    payment.adjusts_bank_balance = adjust_balance if bank_account is not None else False
     if document_id is not None:
         payment.document_id = document_id
     payment.comment = comment
 
-    if bank_account is not None:
+    if bank_account is not None and adjust_balance:
         bank_account.balance = (bank_account.balance or Decimal("0")) - amount
         bank_account.balance_updated_at = date
 
@@ -533,8 +547,11 @@ def reverse_counterparty_payment(payment: CounterpartyPayment, date, comment: st
     трогается (виден в истории как есть — он реально был), рядом
     создаётся новая запись с отрицательной суммой, которая компенсирует
     его эффект на баланс контрагента и возвращает деньги на счёт списания
-    (если он был указан). Один платёж можно сторнировать только один раз —
-    проверка на уровне роута (app/counterparties.py).
+    (если он был указан и исходный платёж реально его уменьшал — см.
+    payment.adjusts_bank_balance; для платежа, внесённого задним числом без
+    списания, возврат тоже не трогает баланс — симметрично). Один платёж
+    можно сторнировать только один раз — проверка на уровне роута
+    (app/counterparties.py).
     """
     reversal = CounterpartyPayment(
         counterparty_id=payment.counterparty_id,
@@ -543,9 +560,10 @@ def reverse_counterparty_payment(payment: CounterpartyPayment, date, comment: st
         amount=-payment.amount,
         reverses_payment_id=payment.id,
         comment=comment,
+        adjusts_bank_balance=payment.adjusts_bank_balance,
     )
     database.db_session.add(reversal)
-    if payment.bank_account is not None:
+    if payment.bank_account is not None and payment.adjusts_bank_balance:
         payment.bank_account.balance = (payment.bank_account.balance or Decimal("0")) + payment.amount
         payment.bank_account.balance_updated_at = date
     database.db_session.flush()

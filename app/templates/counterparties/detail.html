@@ -101,7 +101,12 @@
         {% if p.reverses_payment_id %}<span class="badge bg-secondary ms-1">{{ _("сторно") }}</span>{% endif %}
       </td>
       <td data-sort-value="{{ p.amount }}">{{ fmt2(p.amount) }} ₽</td>
-      <td>{{ p.bank_account.bank_name ~ " (" ~ p.bank_account.checking_account ~ ")" if p.bank_account else "—" }}</td>
+      <td>
+        {{ p.bank_account.bank_name ~ " (" ~ p.bank_account.checking_account ~ ")" if p.bank_account else "—" }}
+        {% if p.bank_account_id and not p.adjusts_bank_balance %}
+        <div class="text-muted small" title="{{ _('Платёж внесён задним числом для истории — баланс счёта на его сумму не менялся.') }}">{{ _("задним числом") }}</div>
+        {% endif %}
+      </td>
       <td>
         {{ p.comment or "—" }}
         {% if p.reverses_payment_id and p.reverses %}<div class="text-muted small">{{ _("сторно платежа от {date}", date=fmt_date(p.reverses.date)) }}</div>{% endif %}
@@ -287,6 +292,11 @@
             </select>
             <div class="form-text">{{ _("Если выбран счёт, при сохранении сумма спишется с его баланса.") }}</div>
           </div>
+          <div class="form-check mb-3">
+            <input class="form-check-input" type="checkbox" name="adjust_balance" id="adjustBalanceNew" checked>
+            <label class="form-check-label" for="adjustBalanceNew">{{ _("Списать эту сумму со счёта сейчас") }}</label>
+            <div class="form-text">{{ _("Снимите галку, если платёж вносится задним числом только для истории — деньги уже были списаны со счёта раньше, до этой записи в системе, и повторно уменьшать баланс не нужно.") }}</div>
+          </div>
           <div class="mb-3">
             <label class="form-label">{{ _("Комментарий") }}</label>
             <textarea class="form-control" name="comment"></textarea>
@@ -336,6 +346,11 @@
               <option value="{{ acc.id }}" {{ "selected" if p.bank_account_id == acc.id }}>{{ acc.bank_name }} ({{ acc.checking_account }})</option>
               {% endfor %}
             </select>
+          </div>
+          <div class="form-check mb-3">
+            <input class="form-check-input" type="checkbox" name="adjust_balance" id="adjustBalance{{ p.id }}" {{ "checked" if p.adjusts_bank_balance }}>
+            <label class="form-check-label" for="adjustBalance{{ p.id }}">{{ _("Списать эту сумму со счёта сейчас") }}</label>
+            <div class="form-text">{{ _("Снимите галку, если платёж вносится задним числом только для истории — деньги уже были списаны со счёта раньше, до этой записи в системе, и повторно уменьшать баланс не нужно.") }}</div>
           </div>
           <div class="mb-3">
             <label class="form-label">{{ _("Комментарий") }}</label>

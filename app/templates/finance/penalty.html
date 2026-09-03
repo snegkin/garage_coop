@@ -18,38 +18,6 @@
         {% endif %}
       </div>
     </div>
-  </div>
-
-  <div class="col-md-6">
-    <div class="mb-3">
-      <h5>{{ _("Ключевая ставка ЦБ РФ") }}</h5>
-    </div>
-    <div class="mb-3">
-      <input class="form-control" data-table-filter-for="keyRatesTable" placeholder="{{ _('Поиск по дате или ставке...') }}">
-    </div>
-
-    <table class="table table-sm bg-body sortable" id="keyRatesTable" data-page-size="20">
-      <thead><tr><th>{{ _("Действует с") }}</th><th>{{ _("Ставка, %") }}</th><th>{{ _("Источник") }}</th><th class="no-sort"></th></tr></thead>
-      <tbody>
-        {% for r in rates %}
-        <tr data-filter-text="{{ (fmt_date(r.effective_date) ~ ' ' ~ fmt2(r.rate_percent) ~ ' ' ~ ('вручную' if r.is_manual else 'cbr.ru'))|lower }}">
-          <td data-sort-value="{{ r.effective_date }}">{{ fmt_date(r.effective_date) }}</td>
-          <td data-sort-value="{{ r.rate_percent }}">{{ fmt2(r.rate_percent) }}</td>
-          <td>{{ _("вручную") if r.is_manual else "cbr.ru" }}</td>
-          <td>
-            <form method="post" action="{{ url_for('penalty.delete_key_rate', rate_id=r.id) }}" onsubmit="return confirm('{{ _("Удалить эту запись ставки?") }}')">
-              <button class="btn btn-sm btn-outline-danger btn-icon-square" title="{{ _('Удалить') }}">×</button>
-            </form>
-          </td>
-        </tr>
-        {% else %}
-        <tr><td colspan="4" class="text-muted">{{ _("Ставка ещё не загружена.") }}</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    <nav class="d-none mb-3" data-pager-for="keyRatesTable">
-      <ul class="pagination pagination-sm mb-0"></ul>
-    </nav>
 
     <div class="card bg-body mb-3">
       <div class="card-body">
@@ -89,6 +57,38 @@
         </form>
       </div>
     </div>
+  </div>
+
+  <div class="col-md-6">
+    <div class="mb-3">
+      <h5>{{ _("Ключевая ставка ЦБ РФ") }}</h5>
+    </div>
+    <div class="mb-3">
+      <input class="form-control" data-table-filter-for="keyRatesTable" placeholder="{{ _('Поиск по дате или ставке...') }}">
+    </div>
+
+    <table class="table table-sm bg-body sortable" id="keyRatesTable" data-page-size="20">
+      <thead><tr><th>{{ _("Действует с") }}</th><th>{{ _("Ставка, %") }}</th><th>{{ _("Источник") }}</th><th class="no-sort"></th></tr></thead>
+      <tbody>
+        {% for r in rates %}
+        <tr data-filter-text="{{ (fmt_date(r.effective_date) ~ ' ' ~ fmt2(r.rate_percent) ~ ' ' ~ ('вручную' if r.is_manual else 'cbr.ru'))|lower }}">
+          <td data-sort-value="{{ r.effective_date }}">{{ fmt_date(r.effective_date) }}</td>
+          <td data-sort-value="{{ r.rate_percent }}">{{ fmt2(r.rate_percent) }}</td>
+          <td>{{ _("вручную") if r.is_manual else "cbr.ru" }}</td>
+          <td>
+            <form method="post" action="{{ url_for('penalty.delete_key_rate', rate_id=r.id) }}" onsubmit="return confirm('{{ _("Удалить эту запись ставки?") }}')">
+              <button class="btn btn-sm btn-outline-danger btn-icon-square" title="{{ _('Удалить') }}">×</button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" class="text-muted">{{ _("Ставка ещё не загружена.") }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <nav class="d-none mb-3" data-pager-for="keyRatesTable">
+      <ul class="pagination pagination-sm mb-0"></ul>
+    </nav>
   </div>
 </div>
 {% endblock %}

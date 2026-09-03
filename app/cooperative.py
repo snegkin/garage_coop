@@ -20,15 +20,19 @@ bp = Blueprint("cooperative", __name__, url_prefix="/cooperative")
 @login_required
 def view():
     coop = database.db_session.query(Cooperative).first()
-    # Загружаем документы — рядовые участники видят только не-внутренние
+    # Загружаем документы — рядовые участники видят только не-внутренние.
+    # Документы, привязанные к контрагенту (Document.counterparty_id), сюда
+    # не попадают — они показываются в карточке соответствующего контрагента
+    # (см. counterparties.detail), чтобы не дублировать список в двух местах.
     from .permissions import is_board
-    query = database.db_session.query(Document).order_by(Document.date.desc())
+    query = database.db_session.query(Document).filter(Document.counterparty_id.is_(None)).order_by(Document.date.desc())
     if not is_board():
         query = query.filter(Document.is_internal.is_(False))
     docs = query.all()
     chairman = database.db_session.query(Person).filter(Person.is_chairman.is_(True)).first()
-    # Контрагент у документа — поле для правления (форма документа, фильтр
-    # в списке); рядовым участникам эта справочная информация не показывается.
+    # Контрагент у документа — поле для правления в форме нового/редактируемого
+    # документа (чтобы сразу привязать документ к контрагенту и убрать его
+    # из этого списка); рядовым участникам эта справочная информация не показывается.
     all_counterparties = database.db_session.query(Counterparty).order_by(Counterparty.name).all() if is_board() else []
     return render_template(
         "cooperative/view.html", coop=coop, coop_balance=cooperative_balance(),
@@ -184,6 +188,16 @@ def create_document():
     return redirect(url_for("cooperative.view") + "#documentsSection")
 
 
+def _document_list_redirect(counterparty_id):
+    """Документ показывается либо в общем списке (/cooperative/), либо в
+    карточке контрагента, к которому привязан (counterparty_id) — редирект
+    после изменения/удаления ведёт туда, где документ теперь (или был) виден,
+    независимо от того, с какой из двух страниц пришёл запрос."""
+    if counterparty_id:
+        return redirect(url_for("counterparties.detail", counterparty_id=counterparty_id) + "#documentsSection")
+    return redirect(url_for("cooperative.view") + "#documentsSection")
+
+
 @bp.route("/documents/<int:doc_id>/edit", methods=["POST"])
 @roles_required(RoleEnum.BOARD)
 def edit_document(doc_id):
@@ -198,7 +212,11 @@ def edit_document(doc_id):
     doc.title = f["title"]
     doc.comment = f.get("comment") or None
     doc.is_internal = bool(f.get("is_internal"))
-    doc.counterparty_id = int(f["counterparty_id"]) if f.get("counterparty_id") else None
+    # Поле "Контрагент" есть в форме только на странице /cooperative/ (там,
+    # где all_counterparties передан в шаблон) — на карточке контрагента его
+    # нет вовсе, и отсутствие ключа в форме не должно отвязывать документ.
+    if "counterparty_id" in f:
+        doc.counterparty_id = int(f["counterparty_id"]) if f.get("counterparty_id") else None
 
     file_storage = request.files.get("file")
     if file_storage and file_storage.filename:
@@ -212,7 +230,7 @@ def edit_document(doc_id):
 
     database.db_session.commit()
     flash(_("Документ обновлён."), "success")
-    return redirect(url_for("cooperative.view") + "#documentsSection")
+    return _document_list_redirect(doc.counterparty_id)
 
 
 @bp.route("/documents/<int:doc_id>/file")
@@ -235,6 +253,7 @@ def delete_document(doc_id):
     doc = database.db_session.get(Document, doc_id)
     if doc is None:
         abort(404)
+    counterparty_id = doc.counterparty_id
     if doc.file_path:
         full_path = os.path.join(current_app.config["UPLOAD_FOLDER"], doc.file_path)
         if os.path.exists(full_path):
@@ -242,4 +261,4 @@ def delete_document(doc_id):
     database.db_session.delete(doc)
     database.db_session.commit()
     flash(_("Документ удалён."), "success")
-    return redirect(url_for("cooperative.view") + "#documentsSection")
+    return _document_list_redirect(counterparty_id)

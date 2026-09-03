@@ -77,38 +77,21 @@
 {% endif %}
 
 <div class="row g-2 mb-3">
-  <div class="{% if is_board() and all_counterparties %}col-md-8{% else %}col-12{% endif %}">
+  <div class="col-12">
     <input class="form-control" data-table-filter-for="documentsTable" placeholder="{{ _('Поиск по названию, номеру или типу...') }}">
   </div>
-  {% if is_board() and all_counterparties %}
-  <div class="col-md-4">
-    <select class="form-select" data-select-filter-for="documentsTable" data-select-filter-attr="data-counterparty-id">
-      <option value="">{{ _("Все контрагенты") }}</option>
-      {% for c in all_counterparties %}
-      <option value="{{ c.id }}">{{ c.name }}</option>
-      {% endfor %}
-    </select>
-  </div>
-  {% endif %}
 </div>
 
 <table class="table table-hover bg-body sortable" id="documentsTable" data-page-size="20">
-  <thead><tr><th>{{ _("Дата") }}</th><th>{{ _("Тип") }}</th><th>{{ _("№") }}</th><th>{{ _("Название") }}</th>{% if is_board() %}<th>{{ _("Контрагент") }}</th>{% endif %}<th class="no-sort">{{ _("Файл") }}</th>{% if is_board() %}<th>{{ _("Доступ") }}</th>{% endif %}</tr></thead>
+  <thead><tr><th>{{ _("Дата") }}</th><th>{{ _("Тип") }}</th><th>{{ _("№") }}</th><th>{{ _("Название") }}</th><th class="no-sort">{{ _("Файл") }}</th>{% if is_board() %}<th>{{ _("Доступ") }}</th>{% endif %}</tr></thead>
   <tbody>
     {% for d in docs %}
     {% set access_text = (_("внутренний") if d.is_internal else _("общедоступный")) if is_board() else "" %}
-    <tr data-filter-text="{{ ((d.number or '') ~ ' ' ~ d.title ~ ' ' ~ doc_type_label(d.doc_type.value) ~ ' ' ~ access_text)|lower }}" data-counterparty-id="{{ d.counterparty_id or '' }}">
+    <tr data-filter-text="{{ ((d.number or '') ~ ' ' ~ d.title ~ ' ' ~ doc_type_label(d.doc_type.value) ~ ' ' ~ access_text)|lower }}">
       <td data-sort-value="{{ d.date }}">{{ fmt_date(d.date) }}</td>
       <td>{{ doc_type_label(d.doc_type.value) }}</td>
       <td>{{ d.number or "—" }}</td>
       <td>{{ d.title }}</td>
-      {% if is_board() %}
-      <td>
-        {% if d.counterparty %}
-        <a href="{{ url_for('counterparties.detail', counterparty_id=d.counterparty.id) }}">{{ d.counterparty.name }}</a>
-        {% else %}—{% endif %}
-      </td>
-      {% endif %}
       <td class="no-sort">
         {% if d.file_path %}
           <div class="btn-group" role="group">
@@ -141,7 +124,7 @@
       {% endif %}
     </tr>
     {% else %}
-    <tr><td colspan="{% if is_board() %}7{% else %}5{% endif %}" class="text-muted">{{ _("Документов пока нет.") }}</td></tr>
+    <tr><td colspan="{% if is_board() %}6{% else %}5{% endif %}" class="text-muted">{{ _("Документов пока нет.") }}</td></tr>
     {% endfor %}
   </tbody>
 </table>

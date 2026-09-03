@@ -6,6 +6,7 @@ data-table-filter-for / data-pager-for, см. app/templates/base.html) и
 контрагенту (Document.counterparty_id, см. tests/test_document_counterparty.py
 для самой привязки).
 """
+import datetime as dt
 import io
 
 from app.models import RoleEnum, Counterparty, Document, DocumentType
@@ -130,6 +131,66 @@ def test_add_document_form_has_no_internal_checkbox(db, client):
     resp = client.get(f"/counterparties/{counterparty.id}")
     assert resp.status_code == 200
     assert 'name="is_internal"' not in resp.get_data(as_text=True)
+
+
+def test_documents_section_has_actions_dropdown_with_edit_and_delete(db, client):
+    _make_board(db)
+    counterparty = _make_counterparty(db)
+    db.commit()
+
+    login(client, "board1", "pass1234")
+    resp = client.post(f"/counterparties/{counterparty.id}/documents/new", data={
+        "doc_type": DocumentType.ACT.value,
+        "date": "2026-01-01",
+        "title": "Договор оказания услуг",
+        "file": (io.BytesIO(b"file contents"), "contract.pdf"),
+    }, content_type="multipart/form-data")
+    assert resp.status_code == 302
+    doc = db.query(Document).filter_by(title="Договор оказания услуг").first()
+
+    resp = client.get(f"/counterparties/{counterparty.id}")
+    body = resp.get_data(as_text=True)
+    assert f'id="editCounterpartyDocumentModal{doc.id}"' in body
+    assert f'action="/cooperative/documents/{doc.id}/edit"' in body
+    assert f'action="/cooperative/documents/{doc.id}/delete"' in body
+
+
+def test_edit_document_from_counterparty_page_keeps_counterparty_link(db, client):
+    """Форма правки документа на карточке контрагента не содержит поля
+    counterparty_id (оно есть только в форме на /cooperative/, см.
+    cooperative/_document_fields.html) — отсутствие ключа в POST не должно
+    отвязывать документ от контрагента (см. app/cooperative.py:edit_document)."""
+    _make_board(db)
+    counterparty = _make_counterparty(db)
+    doc = Document(doc_type=DocumentType.ACT, date=dt.date(2026, 1, 1), title="Акт", counterparty_id=counterparty.id)
+    db.add(doc)
+    db.commit()
+
+    login(client, "board1", "pass1234")
+    resp = client.post(f"/cooperative/documents/{doc.id}/edit", data={
+        "doc_type": DocumentType.ACT.value,
+        "date": "2026-01-01",
+        "title": "Акт сверки (правка)",
+    })
+    assert resp.status_code == 302
+    assert resp.headers["Location"].endswith(f"/counterparties/{counterparty.id}#documentsSection")
+    db.refresh(doc)
+    assert doc.title == "Акт сверки (правка)"
+    assert doc.counterparty_id == counterparty.id
+
+
+def test_delete_document_from_counterparty_page_redirects_back(db, client):
+    _make_board(db)
+    counterparty = _make_counterparty(db)
+    doc = Document(doc_type=DocumentType.ACT, date=dt.date(2026, 1, 1), title="Акт", counterparty_id=counterparty.id)
+    db.add(doc)
+    db.commit()
+
+    login(client, "board1", "pass1234")
+    resp = client.post(f"/cooperative/documents/{doc.id}/delete")
+    assert resp.status_code == 302
+    assert resp.headers["Location"].endswith(f"/counterparties/{counterparty.id}#documentsSection")
+    assert db.query(Document).filter_by(id=doc.id).first() is None
 
 
 def test_only_board_can_add_document_to_counterparty(db, client):

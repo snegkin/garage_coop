@@ -79,6 +79,31 @@ def test_edit_document_can_change_and_clear_counterparty(db, client):
     db.refresh(doc)
     assert doc.counterparty_id == c2.id
 
+    # На /cooperative/ поле "Контрагент" в форме есть всегда (в отличие от
+    # формы на карточке контрагента, см. app/cooperative.py:edit_document) —
+    # выбор "— не указан —" отправляет пустую строку, а не пропускает ключ.
+    resp = client.post(f"/cooperative/documents/{doc.id}/edit", data={
+        "doc_type": DocumentType.ACT.value,
+        "date": "2026-01-01",
+        "title": "Акт",
+        "counterparty_id": "",
+    })
+    assert resp.status_code == 302
+    db.refresh(doc)
+    assert doc.counterparty_id is None
+
+
+def test_edit_document_without_counterparty_field_keeps_existing_link(db, client):
+    """Форма на карточке контрагента не содержит поле counterparty_id вовсе
+    (в отличие от формы на /cooperative/, см. предыдущий тест) — отсутствие
+    ключа должно оставлять привязку как есть, а не отвязывать документ."""
+    _make_board(db)
+    counterparty = _make_counterparty(db)
+    doc = Document(doc_type=DocumentType.ACT, date=dt.date(2026, 1, 1), title="Акт", counterparty_id=counterparty.id)
+    db.add(doc)
+    db.commit()
+
+    login(client, "board1", "pass1234")
     resp = client.post(f"/cooperative/documents/{doc.id}/edit", data={
         "doc_type": DocumentType.ACT.value,
         "date": "2026-01-01",
@@ -86,7 +111,7 @@ def test_edit_document_can_change_and_clear_counterparty(db, client):
     })
     assert resp.status_code == 302
     db.refresh(doc)
-    assert doc.counterparty_id is None
+    assert doc.counterparty_id == counterparty.id
 
 
 def test_expense_attachment_auto_links_document_to_counterparty(app, db, client):
@@ -110,7 +135,10 @@ def test_expense_attachment_auto_links_document_to_counterparty(app, db, client)
     assert doc.is_internal is True
 
 
-def test_documents_list_shows_counterparty_filter_for_board(db, client):
+def test_documents_with_counterparty_are_hidden_from_cooperative_list(db, client):
+    """Документ, привязанный к контрагенту, показывается только в его
+    карточке (см. tests/test_counterparty_detail_page.py) — не дублируется
+    в общем списке на /cooperative/."""
     _make_board(db)
     counterparty = _make_counterparty(db)
     doc = Document(doc_type=DocumentType.ACT, date=dt.date(2026, 1, 1), title="Акт сверки", counterparty_id=counterparty.id)
@@ -121,24 +149,16 @@ def test_documents_list_shows_counterparty_filter_for_board(db, client):
     resp = client.get("/cooperative/")
     assert resp.status_code == 200
     body = resp.get_data(as_text=True)
-    assert 'data-select-filter-for="documentsTable"' in body
-    assert counterparty.name in body
-    assert f'data-counterparty-id="{counterparty.id}"' in body
+    assert "Акт сверки" not in body
 
 
-def test_documents_list_hides_counterparty_filter_for_member(db, client):
-    person = make_person(db, full_name="Member One")
-    make_user(db, "member1", "pass1234", role=RoleEnum.MEMBER, person=person)
-    counterparty = _make_counterparty(db)
-    doc = Document(doc_type=DocumentType.ACT, date=dt.date(2026, 1, 1), title="Акт сверки", is_internal=False, counterparty_id=counterparty.id)
+def test_documents_without_counterparty_shown_on_cooperative_list(db, client):
+    _make_board(db)
+    doc = Document(doc_type=DocumentType.CHARTER, date=dt.date(2026, 1, 1), title="Устав кооператива")
     db.add(doc)
     db.commit()
 
-    login(client, "member1", "pass1234")
+    login(client, "board1", "pass1234")
     resp = client.get("/cooperative/")
     assert resp.status_code == 200
-    body = resp.get_data(as_text=True)
-    # Весь блок с select обёрнут в {% if is_board() and all_counterparties %}
-    # (см. cooperative/view.html) — для остальных ролей его не должно быть
-    # в разметке вовсе, не только "визуально скрыт".
-    assert 'data-select-filter-for="documentsTable"' not in body
+    assert "Устав кооператива" in resp.get_data(as_text=True)

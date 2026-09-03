@@ -818,6 +818,28 @@ def edit_electricity_meter(garage_id, meter_id):
     return redirect(url_for("garages.detail", garage_id=garage_id, tab="account"))
 
 
+@bp.route("/<int:garage_id>/electricity/meter/<int:meter_id>/delete", methods=["POST"])
+@roles_required(RoleEnum.BOARD)
+def delete_electricity_meter(garage_id, meter_id):
+    garage = database.db_session.get(Garage, garage_id)
+    if garage is None:
+        abort(404)
+
+    meter = database.db_session.get(ElectricityMeter, meter_id)
+    if meter is None or meter.garage_id != garage_id:
+        abort(404)
+
+    if meter.readings:
+        flash(_("Нельзя удалить счётчик, по которому уже есть показания."), "danger")
+        return redirect(url_for("garages.detail", garage_id=garage_id, tab="account"))
+
+    audit.record("electricity_meter.delete", f"Удалён счётчик гаража №{garage.number}: {meter.meter_number}", entity_type="garage", entity_id=garage.id)
+    database.db_session.delete(meter)
+    database.db_session.commit()
+    flash(_("Счётчик удалён."), "success")
+    return redirect(url_for("garages.detail", garage_id=garage_id, tab="account"))
+
+
 @bp.route("/<int:garage_id>/electricity/reading/add", methods=["POST"])
 @login_required
 def add_electricity_reading(garage_id):

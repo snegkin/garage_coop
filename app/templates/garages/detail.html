@@ -395,12 +395,11 @@
       <tr>
         <th></th>
         <td class="text-end">
-          <button type="button" class="btn btn-sm btn-outline-primary me-1" data-bs-toggle="modal" data-bs-target="#editMeterModal" title="{{ _('Изменить параметры') }}">
-            ✎ {{ _("Изменить") }}
-          </button>
-          <button type="button" class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#replaceMeterModal" title="{{ _('Заменить прибор учета') }}">
-            🔄 {{ _("Заменить") }}
-          </button>
+          <div class="d-flex gap-1 justify-content-end">
+            <button type="button" class="btn btn-sm btn-outline-primary btn-icon-square" data-bs-toggle="modal" data-bs-target="#editMeterModal" title="{{ _('Изменить параметры') }}">✎</button>
+            <button type="button" class="btn btn-sm btn-outline-primary btn-icon-square" data-bs-toggle="modal" data-bs-target="#replaceMeterModal" title="{{ _('Заменить прибор учета') }}">🔄</button>
+            <button type="button" class="btn btn-sm btn-outline-danger btn-icon-square" data-bs-toggle="modal" data-bs-target="#removeMeterModal" title="{{ _('Удалить счётчик') }}">✕</button>
+          </div>
         </td>
       </tr>
       {% endif %}
@@ -523,6 +522,26 @@
             <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
             <button type="submit" form="editMeterForm" class="btn btn-primary">{{ _("Сохранить") }}</button>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal fade" id="removeMeterModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <form method="post" action="{{ url_for('garages.delete_electricity_meter', garage_id=garage.id, meter_id=current_meter.id) }}">
+            <div class="modal-header">
+              <h5 class="modal-title">{{ _("Удалить счётчик") }}</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+              <p class="text-muted small">{{ _("Удалить счётчик можно, только если по нему ещё нет показаний.") }}</p>
+            </div>
+            <div class="modal-footer d-flex justify-content-end">
+              <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+              <button class="btn btn-danger">{{ _("Удалить") }}</button>
+            </div>
+          </form>
         </div>
       </div>
     </div>

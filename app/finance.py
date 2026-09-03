@@ -558,27 +558,19 @@ def transfer_member_account_funds(account_id):
 # отдельный сценарий, не то, о чём просили.
 # ---------------------------------------------------------------------------
 
-@bp.route("/member-accounts/<int:account_id>/write-off-penalty", methods=["POST"])
-@login_required
-def write_off_penalty(account_id):
-    account = database.db_session.get(MemberAccount, account_id)
-    if account is None:
-        abort(404)
-    if not is_privileged():
-        abort(403)
+def _write_off_penalty_account(account: MemberAccount, reason: str) -> Decimal | None:
+    """Погашающий платёж на всю непогашенную пеню счёта — общая часть между
+    write_off_penalty (один счёт, со страницы счёта) и
+    write_off_person_penalties (сразу все пенные счета человека, со страницы
+    персоны). Не коммитит — вызывающий делает это сам, обычно после цикла по
+    нескольким счетам. Возвращает списанную сумму или None, если счёт не
+    «пеня» либо непогашенной пени на нём нет (вызывающий сам решает, что
+    в этом случае показать пользователю)."""
     if not account.fee_type.is_penalty:
-        flash(_("Списание доступно только для счетов пени."), "danger")
-        return redirect(url_for("finance.member_account_detail", account_id=account.id))
-
+        return None
     current_balance = _balance(account)
     if current_balance >= 0:
-        flash(_("По этому счёту нет непогашенной пени — списывать нечего."), "warning")
-        return redirect(url_for("finance.member_account_detail", account_id=account.id))
-
-    reason = (request.form.get("reason") or "").strip()
-    if not reason:
-        flash(_("Укажите причину списания (мировое соглашение, отказ от взыскания и т.п.)."), "danger")
-        return redirect(url_for("finance.member_account_detail", account_id=account.id))
+        return None
 
     amount = -current_balance
     database.db_session.add(Payment(
@@ -591,9 +583,133 @@ def write_off_penalty(account_id):
         "penalty.write_off", entity_type="member_account", entity_id=account.id,
         summary=f"Списана пеня {amount} на счёте {account.account_number} ({account.person.full_name}): {reason}",
     )
+    return amount
+
+
+@bp.route("/member-accounts/<int:account_id>/write-off-penalty", methods=["POST"])
+@login_required
+def write_off_penalty(account_id):
+    account = database.db_session.get(MemberAccount, account_id)
+    if account is None:
+        abort(404)
+    if not is_privileged():
+        abort(403)
+    if not account.fee_type.is_penalty:
+        flash(_("Списание доступно только для счетов пени."), "danger")
+        return redirect(url_for("finance.member_account_detail", account_id=account.id))
+
+    reason = (request.form.get("reason") or "").strip()
+    if not reason:
+        flash(_("Укажите причину списания (мировое соглашение, отказ от взыскания и т.п.)."), "danger")
+        return redirect(url_for("finance.member_account_detail", account_id=account.id))
+
+    amount = _write_off_penalty_account(account, reason)
+    if amount is None:
+        flash(_("По этому счёту нет непогашенной пени — списывать нечего."), "warning")
+        return redirect(url_for("finance.member_account_detail", account_id=account.id))
+
     database.db_session.commit()
     flash(_("Пеня списана."), "success")
     return redirect(url_for("finance.member_account_detail", account_id=account.id))
+
+
+# ---------------------------------------------------------------------------
+# Те же два действия (списать/удалить пеню), но сразу по ВСЕМ пенным счетам
+# человека одним нажатием — кнопка на карточке персоны (persons/detail.html),
+# рядом с таблицей его лицевых счетов, а не по одному на каждой карточке
+# счёта. Логика/уровни доступа совпадают с одиночными действиями выше
+# (write_off_penalty) и с delete_member_charge — просто применены в цикле.
+# ---------------------------------------------------------------------------
+
+@bp.route("/persons/<int:person_id>/write-off-penalties", methods=["POST"])
+@login_required
+def write_off_person_penalties(person_id):
+    person = database.db_session.get(Person, person_id)
+    if person is None:
+        abort(404)
+    if not is_privileged():
+        abort(403)
+
+    reason = (request.form.get("reason") or "").strip()
+    if not reason:
+        flash(_("Укажите причину списания (мировое соглашение, отказ от взыскания и т.п.)."), "danger")
+        return redirect(url_for("persons.detail", person_id=person.id))
+
+    accounts = (
+        database.db_session.query(MemberAccount)
+        .join(FeeType, MemberAccount.fee_type_id == FeeType.id)
+        .filter(MemberAccount.person_id == person.id, FeeType.is_penalty.is_(True))
+        .all()
+    )
+    total = Decimal("0")
+    written_off = 0
+    for account in accounts:
+        amount = _write_off_penalty_account(account, reason)
+        if amount is not None:
+            total += amount
+            written_off += 1
+
+    if written_off == 0:
+        flash(_("Непогашенной пени не найдено — списывать нечего."), "warning")
+        return redirect(url_for("persons.detail", person_id=person.id))
+
+    database.db_session.commit()
+    flash(_("Списана пеня по {n} счетам на сумму {total} ₽.", n=written_off, total=total), "success")
+    return redirect(url_for("persons.detail", person_id=person.id))
+
+
+@bp.route("/persons/<int:person_id>/delete-penalties", methods=["POST"])
+@roles_required(RoleEnum.CHAIRMAN)
+def delete_person_penalties(person_id):
+    person = database.db_session.get(Person, person_id)
+    if person is None:
+        abort(404)
+
+    accounts = (
+        database.db_session.query(MemberAccount)
+        .join(FeeType, MemberAccount.fee_type_id == FeeType.id)
+        .filter(MemberAccount.person_id == person.id, FeeType.is_penalty.is_(True))
+        .all()
+    )
+    deleted = 0
+    skipped = 0
+    for account in accounts:
+        charges = list(account.charges)
+        if not charges:
+            continue
+        touched = False
+        for charge in charges:
+            # Как и в delete_member_charge — начисление-источник зачёта между
+            # счетами трогать нельзя, связь рвётся только через
+            # «Отменить зачёт» на платеже. Для пенных счетов это в
+            # действительности не встречается (зачёт заводится между
+            # обычными счетами), но проверка на всякий случай — дешёвая и
+            # предотвращает молчаливую порчу данных, если это когда-то
+            # изменится.
+            if database.db_session.query(Payment).filter_by(offset_charge_id=charge.id).first() is not None:
+                skipped += 1
+                continue
+            database.db_session.delete(charge)
+            deleted += 1
+            touched = True
+        if touched:
+            database.db_session.flush()
+            reallocate_member_charges(account)
+
+    if deleted == 0:
+        flash(_("Начисленной пени не найдено — удалять нечего."), "warning")
+        return redirect(url_for("persons.detail", person_id=person.id))
+
+    audit.record(
+        "penalty.delete_all", entity_type="person", entity_id=person.id,
+        summary=f"Удалено начислений пени: {deleted} — {person.full_name}",
+    )
+    database.db_session.commit()
+    msg = _("Удалено начислений пени: {n}.", n=deleted)
+    if skipped:
+        msg += " " + _("Пропущено (часть зачёта между счетами): {n}.", n=skipped)
+    flash(msg, "success")
+    return redirect(url_for("persons.detail", person_id=person.id))
 
 
 @bp.route("/member-accounts/new", methods=["POST"])

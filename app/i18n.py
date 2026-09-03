@@ -1602,6 +1602,12 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Камера {n}": "Camera {n}",
         "Регистратор добавлен.": "Recorder added.",
         "Регистратор удалён.": "Recorder deleted.",
+
+        # news/form.html, wiki/form.html — предпросмотр markdown
+        "Предпросмотр": "Preview",
+        "Закрыть": "Close",
+        "Не удалось построить предпросмотр.": "Couldn't build the preview.",
+        "Текст пока пуст.": "The text is empty so far.",
     }
 }
 

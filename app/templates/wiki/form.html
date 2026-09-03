@@ -33,6 +33,7 @@
         <button type="button" class="btn btn-outline-secondary" data-md-link title="{{ _('Ссылка') }}">&#128279;</button>
         <button type="button" class="btn btn-outline-secondary" id="wiki-insert-image-btn" title="{{ _('Вставить картинку') }}">&#128247;</button>
         <input type="file" id="wiki-image-input" accept="image/jpeg,image/png,image/webp,image/gif" class="d-none">
+        <button type="button" class="btn btn-outline-secondary" id="wiki-preview-btn" title="{{ _('Предпросмотр') }}">&#128065; {{ _("Предпросмотр") }}</button>
       </div>
     </div>
     <textarea id="wiki-body" class="form-control" name="body" rows="14" required>{{ page.body if page else '' }}</textarea>
@@ -50,6 +51,24 @@
     <a class="btn btn-outline-secondary" href="{{ url_for('wiki.list_pages') }}">{{ _("Отмена") }}</a>
   </div>
 </form>
+
+<div class="modal fade" id="wikiPreviewModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">{{ _("Предпросмотр") }}</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="card-text" id="wikiPreviewBody"></div>
+        <div class="text-danger small d-none" id="wikiPreviewError"></div>
+      </div>
+      <div class="modal-footer d-flex justify-content-end">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _("Закрыть") }}</button>
+      </div>
+    </div>
+  </div>
+</div>
 
 <script>
 (function () {
@@ -139,6 +158,46 @@
         .finally(function () {
           insertImageBtn.disabled = false;
           imageInput.value = "";
+        });
+    });
+  }
+
+  // Предпросмотр — рендерит ТЕКУЩИЙ текст textarea (не сохранённую версию)
+  // тем же render_html(), что и опубликованная страница (см. wiki.py:
+  // preview) — не отдельный JS-рендерер markdown, чтобы предпросмотр не
+  // мог разойтись с настоящим выводом.
+  var previewBtn = document.getElementById("wiki-preview-btn");
+  var previewModalEl = document.getElementById("wikiPreviewModal");
+  var previewBody = document.getElementById("wikiPreviewBody");
+  var previewError = document.getElementById("wikiPreviewError");
+  if (previewBtn && previewModalEl && window.bootstrap) {
+    previewBtn.addEventListener("click", function () {
+      previewError.classList.add("d-none");
+      previewBody.innerHTML = "";
+      var csrfMeta = document.querySelector('meta[name="csrf-token"]');
+      var formData = new FormData();
+      formData.append("body", textarea.value);
+
+      fetch("{{ url_for('wiki.preview') }}", {
+        method: "POST",
+        headers: csrfMeta ? { "X-CSRFToken": csrfMeta.getAttribute("content") } : {},
+        body: formData,
+      })
+        .then(function (r) { return r.json().then(function (data) { return { ok: r.ok, data: data }; }); })
+        .then(function (result) {
+          if (!result.ok) {
+            previewError.textContent = result.data.error || "{{ _('Не удалось построить предпросмотр.') }}";
+            previewError.classList.remove("d-none");
+            return;
+          }
+          previewBody.innerHTML = result.data.html || "<p class=\"text-muted\">{{ _('Текст пока пуст.') }}</p>";
+        })
+        .catch(function () {
+          previewError.textContent = "{{ _('Не удалось построить предпросмотр.') }}";
+          previewError.classList.remove("d-none");
+        })
+        .finally(function () {
+          bootstrap.Modal.getOrCreateInstance(previewModalEl).show();
         });
     });
   }

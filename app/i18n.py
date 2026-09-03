@@ -1619,6 +1619,11 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "С долгом": "In debt",
         "Итоговый баланс": "Total balance",
         "Без учёта архивных счетов (закрытых при смене собственника гаража).": "Excludes archived accounts (closed on garage ownership transfer).",
+
+        # garages/list.html, persons/list.html — подсветка строк + легенда
+        "Нет счётчика электричества": "No electricity meter",
+        "Есть комментарий": "Has a comment",
+        "Ожидает одобрения изменений": "Awaiting approval of changes",
     }
 }
 

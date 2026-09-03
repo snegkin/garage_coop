@@ -135,13 +135,22 @@ def _archive_owner_accounts_and_reuse(garage: Garage, new_person_id: int) -> Non
 @bp.route("/")
 @roles_required(RoleEnum.BOARD)
 def list_garages():
-    garages = database.db_session.query(Garage).order_by(Garage.number).all()
+    garages = (
+        database.db_session.query(Garage)
+        .options(joinedload(Garage.meters))
+        .order_by(Garage.number)
+        .all()
+    )
     all_persons = database.db_session.query(Person).order_by(Person.full_name).all()
     preselect_person_id = request.args.get("new_person_id", type=int)
     balances = {garage.id: (balance(garage) if garage else None) for garage in garages}
+    # Подсветка строки в списке (см. garages/list.html) — не отдельная
+    # колонка, чтобы не занимать место под то, что нужно только иногда.
+    has_meter = {garage.id: (_current_meter(garage) is not None) for garage in garages}
     return render_template(
         "garages/list.html", garages=garages, all_persons=all_persons,
         preselect_person_id=preselect_person_id, balances=balances,
+        has_meter=has_meter, any_no_meter=(False in has_meter.values()),
     )
 
 

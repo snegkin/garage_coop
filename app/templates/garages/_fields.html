@@ -5,11 +5,11 @@
 </div>
 <div class="mb-3">
   <label class="form-label">{{ _("Площадь, м²") }}</label>
-  <input class="form-control" type="number" step="0.01" name="area_sqm" value="{{ garage.area_sqm if garage else '' }}" required>
+  <input class="form-control" type="text" inputmode="decimal" name="area_sqm" value="{{ garage.area_sqm if garage else '' }}" required>
 </div>
 <div class="mb-3">
   <label class="form-label">{{ _("Коэффициент начисления") }}</label>
-  <input class="form-control" type="number" step="0.01" min="0" name="coefficient" value="{{ garage.coefficient if garage else '1' }}">
+  <input class="form-control" type="text" inputmode="decimal" name="coefficient" value="{{ garage.coefficient if garage else '1' }}">
   <div class="form-text">{{ _("Множитель для начислений на этот гараж — напр. 2 для двойного, 0.5 для маленького. По умолчанию 1.") }}</div>
 </div>
 <div class="mb-3">
@@ -27,7 +27,7 @@
 </div>
 <div class="mb-3">
   <label class="form-label">{{ _("Площадь приватизированного участка, м²") }}</label>
-  <input class="form-control" type="number" step="0.01" min="0" name="privatized_land_area" value="{{ (garage.privatized_land_area or '') if garage else '' }}">
+  <input class="form-control" type="text" inputmode="decimal" name="privatized_land_area" value="{{ (garage.privatized_land_area or '') if garage else '' }}">
   <div class="form-text">{{ _("Используется для расчёта земельного налога — заполняется, если земля приватизирована.") }}</div>
 </div>
 <div class="mb-3">

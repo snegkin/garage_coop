@@ -28,7 +28,7 @@ import xml.etree.ElementTree as ET
 from flask import Blueprint, render_template, request, redirect, url_for, flash
 
 from . import database
-from .i18n import translate as _
+from .i18n import translate as _, parse_decimal
 from .auth import roles_required
 from .models import Charge, Cooperative, FeeType, KeyRate, MemberAccount, RoleEnum
 from .accounting import dues_due_date, penalty_sibling_account, reallocate_member_charges
@@ -431,7 +431,7 @@ def fetch_key_rate():
 def add_manual_key_rate():
     f = request.form
     effective_date = dt.date.fromisoformat(f["effective_date"])
-    rate_percent = Decimal(f["rate_percent"].replace(",", "."))
+    rate_percent = parse_decimal(f["rate_percent"])
 
     row = database.db_session.query(KeyRate).filter_by(effective_date=effective_date).first()
     if row is None:

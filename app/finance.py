@@ -6,7 +6,7 @@ from sqlalchemy import or_
 
 from . import database
 from . import audit
-from .i18n import translate as _, fmt2
+from .i18n import translate as _, fmt2, parse_decimal
 from .auth import login_required, roles_required
 from .permissions import can_view_member_account, is_board, is_privileged
 from .models import (
@@ -214,7 +214,7 @@ def add_member_charge(account_id):
     f = request.form
     try:
         year = int(f["year"])
-        amount = Decimal(f["amount"])
+        amount = parse_decimal(f["amount"])
     except (KeyError, ValueError, InvalidOperation):
         return respond(False, _("Проверьте год и сумму начисления."))
     if amount <= 0:
@@ -260,7 +260,7 @@ def edit_member_charge(account_id, charge_id):
     f = request.form
     try:
         year = int(f["year"])
-        amount = Decimal(f["amount"])
+        amount = parse_decimal(f["amount"])
     except (KeyError, ValueError, InvalidOperation):
         flash(_("Проверьте год и сумму начисления."), "danger")
         return redirect(url_for("finance.member_account_detail", account_id=account.id))
@@ -355,7 +355,7 @@ def add_member_payment(account_id):
     amount_raw = (f.get("amount") or "").strip()
     if amount_raw:
         try:
-            amount = Decimal(amount_raw)
+            amount = parse_decimal(amount_raw)
         except InvalidOperation:
             return respond(False, _("Проверьте сумму платежа."))
     else:
@@ -494,7 +494,7 @@ def transfer_member_account_funds(account_id):
     f = request.form
     try:
         target_id = int(f["target_account_id"])
-        amount = Decimal(f["amount"])
+        amount = parse_decimal(f["amount"])
     except (KeyError, ValueError, InvalidOperation):
         flash(_("Проверьте выбранный счёт и сумму."), "danger")
         return redirect(url_for("finance.member_account_detail", account_id=source.id))
@@ -811,7 +811,7 @@ def mass_charge():
         elif strategy == "coefficient":
             fee_type_id = int(f["fee_type_id"])
             fee_type = database.db_session.get(FeeType, fee_type_id)
-            base_amount = Decimal(f["base_amount"])
+            base_amount = parse_decimal(f["base_amount"])
             if fee_type is not None and fee_type.code == "land_tax":
                 # Земельный налог начисляется по-разному в зависимости от
                 # того, приватизирован ли участок под конкретным гаражом
@@ -819,7 +819,7 @@ def mass_charge():
                 # стратегии «land_tax» ниже) — поэтому для этого вида взноса
                 # форма даёт вторую сумму, для гаражей с приватизированной
                 # землёй, а не одну общую на всех.
-                base_amount_privatized = Decimal(f.get("base_amount_privatized") or "0")
+                base_amount_privatized = parse_decimal(f.get("base_amount_privatized") or "0")
                 garage_amounts = {
                     garage.id: (base_amount_privatized if garage.land_privatized else base_amount) * garage.coefficient
                     for garage in garages
@@ -829,7 +829,7 @@ def mass_charge():
         else:  # "total_area"
             fee_type_id = int(f["fee_type_id"])
             fee_type = database.db_session.get(FeeType, fee_type_id)
-            total_amount = Decimal(f["total_amount"])
+            total_amount = parse_decimal(f["total_amount"])
             if total_area > 0:
                 garage_amounts = {garage.id: total_amount * (garage.area_sqm / total_area) for garage in garages}
             else:

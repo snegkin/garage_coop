@@ -1,12 +1,11 @@
 import datetime as dt
-from decimal import Decimal, InvalidOperation
 
 from flask import Blueprint, render_template, request, redirect, url_for, flash, abort, current_app
 from werkzeug.utils import secure_filename
 
 from . import database
 from . import audit
-from .i18n import translate as _
+from .i18n import translate as _, parse_decimal, parse_optional_decimal as _parse_decimal
 from .auth import roles_required
 from .models import (
     Counterparty, Expense, CounterpartyPayment, ReconciliationAct,
@@ -19,15 +18,6 @@ from .accounting import (
 from .uploads import save_upload
 
 bp = Blueprint("counterparties", __name__, url_prefix="/counterparties")
-
-
-def _parse_decimal(raw):
-    if not raw:
-        return None
-    try:
-        return Decimal(raw)
-    except InvalidOperation:
-        return None
 
 
 def _save_document(
@@ -173,7 +163,7 @@ def add_expense(counterparty_id):
     database.db_session.add(Expense(
         counterparty_id=counterparty.id,
         date=dt.date.fromisoformat(f["date"]),
-        amount=Decimal(f["amount"]),
+        amount=parse_decimal(f["amount"]),
         category=f.get("category") or None,
         description=f.get("description") or None,
         document_id=document_id,
@@ -206,7 +196,7 @@ def add_payment(counterparty_id):
     pay_counterparty(
         counterparty=counterparty,
         date=dt.date.fromisoformat(f["date"]),
-        amount=Decimal(f["amount"]),
+        amount=parse_decimal(f["amount"]),
         bank_account=bank_account,
         document_id=document_id,
         comment=f.get("comment") or None,
@@ -257,7 +247,7 @@ def edit_payment(counterparty_id, payment_id):
     edit_counterparty_payment(
         payment=payment,
         date=dt.date.fromisoformat(f["date"]),
-        amount=Decimal(f["amount"]),
+        amount=parse_decimal(f["amount"]),
         bank_account=bank_account,
         document_id=document_id,
         comment=f.get("comment") or None,

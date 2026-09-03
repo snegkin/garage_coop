@@ -41,7 +41,7 @@ from decimal import Decimal
 from flask import Blueprint, render_template, request, redirect, url_for, flash, g, current_app
 
 from . import database
-from .i18n import translate as _
+from .i18n import translate as _, parse_decimal
 from .auth import login_required, roles_required
 from .permissions import is_board, is_chairman
 from .models import (
@@ -392,7 +392,7 @@ def add_question(vote_id):
     max_order = max((q.order for q in vote.questions), default=-1)
     database.db_session.add(VoteQuestion(
         vote_id=vote.id, order=max_order + 1, text=f["text"],
-        majority_threshold=Decimal(f.get("majority_threshold") or "0.5"),
+        majority_threshold=parse_decimal(f.get("majority_threshold") or "0.5"),
     ))
     database.db_session.commit()
     flash(_("Вопрос добавлен."), "success")

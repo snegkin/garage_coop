@@ -10,7 +10,7 @@ from flask import (
 
 from . import database
 from . import audit
-from .i18n import translate as _
+from .i18n import translate as _, parse_decimal
 from .auth import login_required, roles_required
 from .permissions import is_board, is_owner_or_board, is_chairman, is_privileged, can_view_member_account
 from .models import (
@@ -152,12 +152,12 @@ def create():
         f = request.form
         garage = Garage(
             number=f["number"],
-            area_sqm=Decimal(f["area_sqm"]),
-            coefficient=Decimal(f["coefficient"]) if f.get("coefficient") else Decimal("1"),
+            area_sqm=parse_decimal(f["area_sqm"]),
+            coefficient=parse_decimal(f["coefficient"]) if f.get("coefficient") else Decimal("1"),
             land_privatized=bool(f.get("land_privatized")),
             cadastral_number=f.get("cadastral_number") or None,
             land_cadastral_number=f.get("land_cadastral_number") or None,
-            privatized_land_area=Decimal(f["privatized_land_area"]) if f.get("privatized_land_area") else None,
+            privatized_land_area=parse_decimal(f["privatized_land_area"]) if f.get("privatized_land_area") else None,
             comment=f.get("comment") or None,
         )
         database.db_session.add(garage)
@@ -175,7 +175,7 @@ def create():
             if not person_id:
                 continue
             try:
-                share = Decimal(share_raw) if share_raw else Decimal("1")  # пусто -> вся доля (100%)
+                share = parse_decimal(share_raw) if share_raw else Decimal("1")  # пусто -> вся доля (100%)
             except InvalidOperation:
                 continue
             if not (0 < share <= 1):
@@ -429,12 +429,12 @@ def edit(garage_id):
     if request.method == "POST":
         f = request.form
         garage.number = f["number"]
-        garage.area_sqm = Decimal(f["area_sqm"])
-        garage.coefficient = Decimal(f["coefficient"]) if f.get("coefficient") else Decimal("1")
+        garage.area_sqm = parse_decimal(f["area_sqm"])
+        garage.coefficient = parse_decimal(f["coefficient"]) if f.get("coefficient") else Decimal("1")
         garage.land_privatized = bool(f.get("land_privatized"))
         garage.cadastral_number = f.get("cadastral_number") or None
         garage.land_cadastral_number = f.get("land_cadastral_number") or None
-        garage.privatized_land_area = Decimal(f["privatized_land_area"]) if f.get("privatized_land_area") else None
+        garage.privatized_land_area = parse_decimal(f["privatized_land_area"]) if f.get("privatized_land_area") else None
         garage.comment = f.get("comment") or None
         database.db_session.commit()
         flash(_("Изменения сохранены."), "success")
@@ -450,7 +450,7 @@ def add_owner(garage_id):
     person_id = int(request.form["person_id"])
     comment = (request.form.get("comment") or "").strip() or None
     try:
-        share = Decimal(request.form["share"] or "1")
+        share = parse_decimal(request.form["share"] or "1")
     except InvalidOperation:
         flash(_("Доля должна быть числом (например 0.5)."), "danger")
         return redirect(url_for("garages.detail", garage_id=garage_id))
@@ -498,7 +498,7 @@ def update_owner_share(garage_id, ownership_id):
         abort(404)
 
     try:
-        share = Decimal(request.form["share"])
+        share = parse_decimal(request.form["share"])
     except (InvalidOperation, KeyError):
         flash(_("Доля должна быть числом (например 0.5)."), "danger")
         return redirect(url_for("garages.detail", garage_id=garage_id))
@@ -769,7 +769,7 @@ def add_electricity_meter(garage_id):
         meter_number=f["meter_number"],
         installed_date=dt.date.fromisoformat(installed) if installed else None,
         sealed_date=dt.date.fromisoformat(sealed) if sealed else None,
-        initial_reading=Decimal(initial_reading) if initial_reading else None,
+        initial_reading=parse_decimal(initial_reading) if initial_reading else None,
         meter_seal_number=f.get("meter_seal_number") or None,
         breaker_seal_number=f.get("breaker_seal_number") or None,
         comment=f.get("comment") or None,
@@ -799,7 +799,7 @@ def edit_electricity_meter(garage_id, meter_id):
     meter.meter_number = f["meter_number"]
     meter.installed_date = dt.date.fromisoformat(installed) if installed else None
     meter.sealed_date = dt.date.fromisoformat(sealed) if sealed else None
-    meter.initial_reading = Decimal(initial_reading) if initial_reading else None
+    meter.initial_reading = parse_decimal(initial_reading) if initial_reading else None
     meter.meter_seal_number = f.get("meter_seal_number") or None
     meter.breaker_seal_number = f.get("breaker_seal_number") or None
     meter.comment = f.get("comment") or None
@@ -824,7 +824,7 @@ def add_electricity_reading(garage_id):
         return redirect(url_for("garages.detail", garage_id=garage_id))
 
     f = request.form
-    reading_value = Decimal(f["reading"])
+    reading_value = parse_decimal(f["reading"])
     reading_date = dt.date.today()
 
     # предыдущее показание этого счётчика (по дате) — или начальные показания счётчика, если это первая запись
@@ -908,7 +908,7 @@ def edit_last_reading(garage_id):
 
     f = request.form
     try:
-        new_value = Decimal(f["reading"])
+        new_value = parse_decimal(f["reading"])
     except InvalidOperation:
         flash(_("Некорректное значение показаний."), "danger")
         return redirect(url_for("garages.detail", garage_id=garage_id, tab="account"))
@@ -1010,7 +1010,7 @@ def add_charge(garage_id):
         garage_id=garage.id,
         fee_type_id=int(f["fee_type_id"]),
         year=int(f["year"]),
-        amount=Decimal(f["amount"]),
+        amount=parse_decimal(f["amount"]),
     )
     database.db_session.add(charge)
     database.db_session.flush()
@@ -1037,7 +1037,7 @@ def add_payment(garage_id):
     payment = Payment(
         garage_id=garage.id,
         date=dt.date.fromisoformat(f["date"]),
-        amount=Decimal(f["amount"]),
+        amount=parse_decimal(f["amount"]),
         payer_person_id=int(f["payer_person_id"]) if f.get("payer_person_id") else None,
         comment=f.get("comment") or None,
     )

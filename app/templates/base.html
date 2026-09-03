@@ -151,6 +151,27 @@
 </div>
 
 <script>
+// Как parse_decimal в app/i18n.py на сервере — разбирает дробное число,
+// введённое пользователем, принимая и точку, и запятую как разделитель
+// дробной части (fmt2 выводит суммы с запятой для ru-локали — это тот же
+// текст нужно уметь скопировать обратно в поле ввода). Используется в
+// JS-превью, которые повторяют серверный расчёт до отправки формы —
+// голый parseFloat() останавливается на запятой и даёт неверный результат.
+function parseDecimalInput(raw) {
+  if (raw === null || raw === undefined) return NaN;
+  let text = String(raw).trim().replace(/[\s ]/g, "");
+  const lastComma = text.lastIndexOf(",");
+  const lastDot = text.lastIndexOf(".");
+  if (lastComma !== -1 && lastDot !== -1) {
+    text = lastComma > lastDot ? text.replace(/\./g, "").replace(",", ".") : text.replace(/,/g, "");
+  } else if (lastComma !== -1) {
+    text = (text.split(",").length - 1) > 1 ? text.replace(/,/g, "") : text.replace(",", ".");
+  } else if (lastDot !== -1 && (text.split(".").length - 1) > 1) {
+    text = text.replace(/\./g, "");
+  }
+  return parseFloat(text);
+}
+
 // Прогрессивное улучшение: любой <select data-searchable> превращается в
 // текстовое поле с выпадающим списком, отфильтрованным по вводу — для
 // длинных списков (люди, гаражи), где обычный select неудобно листать.

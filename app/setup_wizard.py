@@ -24,7 +24,7 @@ from decimal import Decimal, InvalidOperation
 from flask import Blueprint, render_template, request, redirect, url_for, flash, abort, Response, g
 
 from . import database
-from .i18n import translate as _
+from .i18n import translate as _, parse_decimal, parse_optional_decimal as _parse_decimal
 from .auth import roles_required
 from .permissions import sync_user_role
 from .models import (
@@ -39,15 +39,6 @@ from .garages import _ensure_member_accounts
 from .governance import _current_term
 
 bp = Blueprint("setup_wizard", __name__, url_prefix="/setup")
-
-
-def _parse_decimal(raw):
-    if not raw:
-        return None
-    try:
-        return Decimal(raw)
-    except InvalidOperation:
-        return None
 
 
 def wizard_status() -> dict:
@@ -207,7 +198,7 @@ def tariff_step():
     if request.method == "POST":
         f = request.form
         database.db_session.add(ElectricityTariff(
-            rate=Decimal(f["rate"]),
+            rate=parse_decimal(f["rate"]),
             effective_date=dt.date.fromisoformat(f["effective_date"]),
             comment=f.get("comment") or None,
         ))
@@ -249,7 +240,7 @@ def meter_step():
             year=year,
             month=month,
             reading_date=dt.date(year, month, 1),
-            reading=Decimal(f["reading"]),
+            reading=parse_decimal(f["reading"]),
             tariff_id=tariff.id,
             comment=f.get("comment") or _("Начальные показания (внесены через мастер первого запуска)"),
         ))
@@ -596,7 +587,7 @@ def garages_import():
             skipped_invalid += 1
             continue
         try:
-            area_sqm = Decimal(area_raw)
+            area_sqm = parse_decimal(area_raw)
         except InvalidOperation:
             skipped_invalid += 1
             continue
@@ -629,7 +620,7 @@ def garages_import():
             person = _find_or_create_person_by_name(owner_full_name, person_cache)
             owner_share_raw = values.get("owner_share") or ""
             try:
-                share = Decimal(owner_share_raw) if owner_share_raw else Decimal("1")
+                share = parse_decimal(owner_share_raw) if owner_share_raw else Decimal("1")
             except InvalidOperation:
                 share = Decimal("1")
             if not (0 < share <= 1):

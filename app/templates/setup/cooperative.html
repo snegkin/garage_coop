@@ -42,11 +42,11 @@
   <div class="row">
     <div class="col-md-4 mb-3">
       <label class="form-label">{{ _("Площадь кооператива, м²") }}</label>
-      <input class="form-control" type="number" step="0.01" name="total_area" value="{{ coop.total_area or '' }}">
+      <input class="form-control" type="text" inputmode="decimal" name="total_area" value="{{ coop.total_area or '' }}">
     </div>
     <div class="col-md-4 mb-3">
       <label class="form-label">{{ _("Площадь общего пользования, м²") }}</label>
-      <input class="form-control" type="number" step="0.01" name="common_area" value="{{ coop.common_area or '' }}">
+      <input class="form-control" type="text" inputmode="decimal" name="common_area" value="{{ coop.common_area or '' }}">
     </div>
   </div>
   <div class="row">

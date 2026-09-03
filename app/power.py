@@ -4,7 +4,7 @@ from decimal import Decimal
 from flask import Blueprint, render_template, request, redirect, url_for, flash, current_app
 
 from . import database
-from .i18n import translate as _
+from .i18n import translate as _, parse_decimal
 from .auth import roles_required
 from .models import Counterparty, ElectricityTariff, MasterMeterReading, Document, DocumentType, RoleEnum, Expense, BankAccount
 from .accounting import get_electricity_settings, current_tariff, pay_counterparty, reallocate_counterparty_expenses, expense_paid_amount, counterparty_balance
@@ -96,7 +96,7 @@ def save_supplier():
 def add_tariff():
     f = request.form
     database.db_session.add(ElectricityTariff(
-        rate=Decimal(f["rate"]),
+        rate=parse_decimal(f["rate"]),
         effective_date=dt.date.fromisoformat(f["effective_date"]),
         comment=f.get("comment") or None,
     ))
@@ -141,7 +141,7 @@ def add_master_reading():
         year=year,
         month=month,
         reading_date=dt.date(year, month, 1),
-        reading=Decimal(f["reading"]),
+        reading=parse_decimal(f["reading"]),
         tariff_id=tariff.id,
         comment=f.get("comment") or None,
         document_id=document_id,

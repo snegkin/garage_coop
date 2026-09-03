@@ -54,6 +54,26 @@ def test_edit_member_charge_updates_amount_and_reallocates(app, db, client):
     assert balance(account) == Decimal("300.00")
 
 
+def test_edit_member_charge_accepts_comma_decimal_separator(app, db, client):
+    """fmt2 выводит суммы с запятой (ru-локаль) — значит и ввести обратно
+    скопированное число с запятой (плюс пробел-разделитель тысяч) нужно
+    уметь, см. parse_decimal в app/i18n.py."""
+    account = _setup_account(db)
+    charge = Charge(account_id=account.id, year=2026, amount=Decimal("1000.00"))
+    db.add(charge)
+    make_user(db, "board15", "pass12345", role=RoleEnum.BOARD)
+    db.commit()
+    login(client, "board15", "pass12345")
+
+    resp = client.post(
+        f"/finance/member-accounts/{account.id}/charges/{charge.id}/edit",
+        data={"year": "2026", "amount": "1 234,56"},
+    )
+    assert resp.status_code == 302
+    db.expire_all()
+    assert database.db_session.get(Charge, charge.id).amount == Decimal("1234.56")
+
+
 def test_edit_member_charge_rejects_invalid_amount(app, db, client):
     account = _setup_account(db)
     charge = Charge(account_id=account.id, year=2026, amount=Decimal("500.00"))

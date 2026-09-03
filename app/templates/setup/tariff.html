@@ -18,7 +18,7 @@
 <form method="post" class="bg-body p-4 rounded border" style="max-width:500px">
   <div class="mb-3">
     <label class="form-label">{{ _("Ставка, ₽/кВт·ч") }}</label>
-    <input class="form-control" type="number" step="0.0001" min="0" name="rate" required>
+    <input class="form-control" type="text" inputmode="decimal" name="rate" required>
   </div>
   <div class="mb-3">
     <label class="form-label">{{ _("Действует с") }}</label>

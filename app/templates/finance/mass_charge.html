@@ -54,8 +54,8 @@
             <label class="form-check-label" for="strategyCoefficient"><strong>{{ _("По коэффициенту гаража") }}</strong></label>
             <div class="form-text">{{ _("Указанная сумма начисляется на каждый гараж, умноженная на его коэффициент, и делится между собственниками по их доле. Например, взнос 1000 ₽: у гаража с коэффициентом 2 начислится 2000 ₽, с коэффициентом 0.5 — 500 ₽ (и далее по долям собственников).") }}</div>
           </div>
-          <input class="form-control mt-2 strategy-field strategy-field-coefficient" name="base_amount" placeholder="{{ _('сумма на гараж (до коэффициента), напр. 1000') }}">
-          <input class="form-control mt-2 strategy-field strategy-field-coefficient d-none" name="base_amount_privatized" id="baseAmountPrivatizedInput" placeholder="{{ _('сумма на гараж с приватизированной землёй (до коэффициента), напр. 500') }}">
+          <input class="form-control mt-2 strategy-field strategy-field-coefficient" inputmode="decimal" name="base_amount" placeholder="{{ _('сумма на гараж (до коэффициента), напр. 1000') }}">
+          <input class="form-control mt-2 strategy-field strategy-field-coefficient d-none" inputmode="decimal" name="base_amount_privatized" id="baseAmountPrivatizedInput" placeholder="{{ _('сумма на гараж с приватизированной землёй (до коэффициента), напр. 500') }}">
           <div class="form-text land-tax-coefficient-hint d-none">{{ _("Для земельного налога — отдельная сумма для гаражей, земля под которыми приватизирована (обычно меньше: без доли в стандартной площади под гараж, только доля в общей территории).") }}</div>
         </div>
 
@@ -67,7 +67,7 @@
             <label class="form-check-label" for="strategyArea"><strong>{{ _("От общей суммы, по площади") }}</strong></label>
             <div class="form-text">{{ _("Указанная общая сумма делится между гаражами пропорционально их площади, а внутри гаража — между собственниками по их доле.") }}</div>
           </div>
-          <input class="form-control mt-2 strategy-field strategy-field-total_area" name="total_amount" placeholder="{{ _('общая сумма, напр. 100000') }}">
+          <input class="form-control mt-2 strategy-field strategy-field-total_area" inputmode="decimal" name="total_amount" placeholder="{{ _('общая сумма, напр. 100000') }}">
         </div>
 
         <div class="col-12"><hr></div>
@@ -174,11 +174,11 @@ function updatePreview() {
   var description = "";
 
   if (strategy === "coefficient") {
-    var baseAmount = parseFloat(document.querySelector("input[name='base_amount']").value) || 0;
+    var baseAmount = parseDecimalInput(document.querySelector("input[name='base_amount']").value) || 0;
     var feeTypeOption = document.getElementById("feeTypeSelect").selectedOptions[0];
     var isLandTaxFeeType = !!feeTypeOption && feeTypeOption.dataset.code === "land_tax";
     if (isLandTaxFeeType) {
-      var baseAmountPrivatized = parseFloat(document.querySelector("input[name='base_amount_privatized']").value) || 0;
+      var baseAmountPrivatized = parseDecimalInput(document.querySelector("input[name='base_amount_privatized']").value) || 0;
       description = "<strong>Методика:</strong> сумма × коэффициент гаража — разная сумма для приватизированной и неприватизированной земли под гаражом, деление по долям собственников.<br>";
       description += "<em>Сумма (не приватизировано): " + baseAmount + " ₽, сумма (приватизировано): " + baseAmountPrivatized + " ₽</em><br><br>";
       rows += "<thead><tr><th>Гараж</th><th>Приватиз.</th><th>Коэфф.</th><th>Сумма</th></tr></thead><tbody>";
@@ -200,7 +200,7 @@ function updatePreview() {
       rows += "</tbody>";
     }
   } else if (strategy === "total_area") {
-    var totalAmount = parseFloat(document.querySelector("input[name='total_amount']").value) || 0;
+    var totalAmount = parseDecimalInput(document.querySelector("input[name='total_amount']").value) || 0;
     var totalArea = selectedGarages.reduce(function(sum, g) { return sum + g.area; }, 0);
     description = "<strong>Методика:</strong> общая сумма делится пропорционально площади гаражей.<br>";
     description += "<em>Общая сумма: " + totalAmount + " ₽, общая площадь: " + totalArea.toFixed(2) + " м²</em><br><br>";

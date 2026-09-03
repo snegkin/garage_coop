@@ -187,6 +187,23 @@ def add_payment(counterparty_id):
         abort(404)
 
     f = request.form
+    amount_raw = (f.get("amount") or "").strip()
+    if amount_raw:
+        amount = parse_decimal(amount_raw)
+    else:
+        # Пустое поле — закрыть текущий долг полностью (см. placeholder в
+        # форме, показывающий именно эту сумму); если долга нет, пустое
+        # поле ничего не означает — сумму нужно указать явно. Тот же приём,
+        # что и у finance.add_member_payment.
+        current_balance = counterparty_balance(counterparty)
+        if current_balance >= 0:
+            flash(_("Укажите сумму платежа — задолженности перед контрагентом нет, чтобы закрыть её пустым полем."), "danger")
+            return redirect(url_for("counterparties.detail", counterparty_id=counterparty.id))
+        amount = -current_balance
+    if amount <= 0:
+        flash(_("Сумма платежа должна быть больше нуля."), "danger")
+        return redirect(url_for("counterparties.detail", counterparty_id=counterparty.id))
+
     bank_account_id = f.get("bank_account_id")
     bank_account = database.db_session.get(BankAccount, int(bank_account_id)) if bank_account_id else None
     document_id = _save_document(
@@ -196,7 +213,7 @@ def add_payment(counterparty_id):
     pay_counterparty(
         counterparty=counterparty,
         date=dt.date.fromisoformat(f["date"]),
-        amount=parse_decimal(f["amount"]),
+        amount=amount,
         bank_account=bank_account,
         document_id=document_id,
         comment=f.get("comment") or None,
@@ -204,7 +221,7 @@ def add_payment(counterparty_id):
     )
     audit.record(
         "counterparty_payment.create", entity_type="counterparty", entity_id=counterparty.id,
-        summary=f"Платёж контрагенту {f['amount']} — {counterparty.name}, {f['date']}",
+        summary=f"Платёж контрагенту {amount} — {counterparty.name}, {f['date']}",
     )
     database.db_session.commit()
     flash(_("Платёж добавлен."), "success")

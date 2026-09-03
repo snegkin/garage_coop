@@ -197,6 +197,50 @@ def test_reverse_adjusting_payment_refunds_balance(app, db, client):
     assert database.db_session.get(BankAccount, account.id).balance == Decimal("10000.00")
 
 
+def test_add_payment_empty_amount_closes_debt_in_full(app, db, client):
+    """Пустое поле суммы — как и на карточке лицевого счёта (finance.
+    add_member_payment) — закрывает весь долг перед контрагентом целиком,
+    без списания со счёта (adjust_balance не отмечен в этом запросе)."""
+    counterparty = make_counterparty(db)
+    db.add(Expense(counterparty_id=counterparty.id, date=dt.date(2026, 1, 1), amount=Decimal("2500.00")))
+    db.flush()
+    make_user(db, "board58", "pass12345", role=RoleEnum.BOARD)
+    db.commit()
+    login(client, "board58", "pass12345")
+
+    resp = client.post(f"/counterparties/{counterparty.id}/payments/new", data={"date": "2026-02-01", "amount": ""})
+    assert resp.status_code == 302
+    db.expire_all()
+
+    payment = db.query(CounterpartyPayment).filter_by(counterparty_id=counterparty.id).one()
+    assert payment.amount == Decimal("2500.00")
+
+
+def test_add_payment_empty_amount_without_debt_is_rejected(app, db, client):
+    counterparty = make_counterparty(db)
+    make_user(db, "board59", "pass12345", role=RoleEnum.BOARD)
+    db.commit()
+    login(client, "board59", "pass12345")
+
+    resp = client.post(f"/counterparties/{counterparty.id}/payments/new", data={"date": "2026-02-01", "amount": ""})
+    assert resp.status_code == 302
+    db.expire_all()
+    assert db.query(CounterpartyPayment).filter_by(counterparty_id=counterparty.id).count() == 0
+
+
+def test_add_payment_form_shows_debt_amount_placeholder(app, db, client):
+    counterparty = make_counterparty(db)
+    db.add(Expense(counterparty_id=counterparty.id, date=dt.date(2026, 1, 1), amount=Decimal("1234.56")))
+    db.flush()
+    make_user(db, "board60", "pass12345", role=RoleEnum.BOARD)
+    db.commit()
+    login(client, "board60", "pass12345")
+
+    resp = client.get(f"/counterparties/{counterparty.id}")
+    assert resp.status_code == 200
+    assert 'placeholder="1234,56"' in resp.get_data(as_text=True)
+
+
 def test_payments_table_marks_backdated_entries(app, db, client):
     counterparty = make_counterparty(db)
     account = make_bank_account(db)

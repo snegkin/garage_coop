@@ -307,6 +307,47 @@ def test_payments_table_marks_backdated_entries(app, db, client):
 # Ссылка на строку выписки банка вместо прикрепления платёжного поручения
 # ---------------------------------------------------------------------------
 
+def test_statement_line_dropdown_shows_bank_and_account_id_for_js(app, db, client):
+    """При нескольких банковских счетах в списке "Строка выписки банка"
+    нужно видеть, какому счёту принадлежит строка (иначе непонятно, какие
+    строки чьи) — и data-bank-account-id, по которому JS в detail.html
+    подставляет "Счёт списания" автоматически при выборе строки."""
+    counterparty = make_counterparty(db)
+    account_a = make_bank_account(db, bank_name="Сбербанк", checking_account="40703810000000000001")
+    account_b = make_bank_account(db, bank_name="Тинькофф", checking_account="40703810000000000002")
+    line_a = make_statement_line(db, account_a, amount=Decimal("500.00"))
+    line_b = make_statement_line(db, account_b, amount=Decimal("700.00"))
+    make_user(db, "board60b", "pass12345", role=RoleEnum.BOARD)
+    db.commit()
+    login(client, "board60b", "pass12345")
+
+    resp = client.get(f"/counterparties/{counterparty.id}")
+    html = resp.get_data(as_text=True)
+    assert "Сбербанк (40703810000000000001)" in html
+    assert "Тинькофф (40703810000000000002)" in html
+    assert f'data-bank-account-id="{account_a.id}"' in html
+    assert f'data-bank-account-id="{account_b.id}"' in html
+    assert "data-account-lock-hint" in html
+
+
+def test_statement_line_dropdown_exposes_amount_and_inn_for_autoselect_js(app, db, client):
+    """data-amount/data-counterparty-inn на каждом <option> — по ним JS в
+    detail.html (addPaymentModal 'shown.bs.modal') пытается сам выбрать
+    подходящую строку выписки при открытии формы нового платежа."""
+    counterparty = make_counterparty(db, inn="7701234567")
+    account = make_bank_account(db)
+    line = make_statement_line(db, account, amount=Decimal("500.00"), counterparty_inn="7701234567")
+    make_user(db, "board60c", "pass12345", role=RoleEnum.BOARD)
+    db.commit()
+    login(client, "board60c", "pass12345")
+
+    resp = client.get(f"/counterparties/{counterparty.id}")
+    html = resp.get_data(as_text=True)
+    assert 'data-amount="500.00"' in html
+    assert 'data-counterparty-inn="7701234567"' in html
+    assert "counterpartyInn = \"7701234567\"" in html
+
+
 def test_add_payment_references_debit_statement_line(app, db, client):
     counterparty = make_counterparty(db)
     account = make_bank_account(db)

@@ -287,6 +287,11 @@ function enhanceSearchableSelect(select) {
       list.style.display = "none";
     });
   }
+  // select.value могут менять и снаружи (программно, не кликом по списку —
+  // например автоподбор строки выписки в counterparties/detail.html) — раз
+  // после этого принято диспатчить "change" (как и клик по пункту списка
+  // делает сам), тем же событием синхронизируем видимый текст поля.
+  select.addEventListener("change", setInputFromSelect);
 
   setInputFromSelect();
 }

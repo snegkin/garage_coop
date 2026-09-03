@@ -298,6 +298,7 @@
               {% endfor %}
             </select>
             <div class="form-text">{{ _("Если выбран счёт, при сохранении сумма спишется с его баланса.") }}</div>
+            <div class="form-text d-none" data-account-lock-hint>{{ _("Подставлен автоматически по выбранной строке выписки — чтобы изменить, сначала очистите поле «Строка выписки банка».") }}</div>
           </div>
           <div class="form-check mb-3">
             <input class="form-check-input" type="checkbox" name="adjust_balance" id="adjustBalanceNew" checked>
@@ -318,7 +319,7 @@
             <select class="form-select" name="bank_statement_line_id" data-searchable data-placeholder="{{ _('— не указана —') }}">
               <option value=""></option>
               {% for line in referenceable_statement_lines %}
-              <option value="{{ line.id }}">{{ fmt_date(line.operation_date) }} — {{ fmt2(line.amount) }} ₽ — {{ line.counterparty_name or "—" }}{% if line.payment_purpose %} — {{ line.payment_purpose[:60] }}{% endif %}</option>
+              <option value="{{ line.id }}" data-bank-account-id="{{ line.bank_account_id }}" data-amount="{{ line.amount }}" data-counterparty-inn="{{ line.counterparty_inn or '' }}">{{ fmt_date(line.operation_date) }} — {{ fmt2(line.amount) }} ₽ — {{ line.bank_account.bank_name }} ({{ line.bank_account.checking_account }}) — {{ line.counterparty_name or "—" }}{% if line.payment_purpose %} — {{ line.payment_purpose[:60] }}{% endif %}</option>
               {% endfor %}
             </select>
           </div>
@@ -363,6 +364,7 @@
               <option value="{{ acc.id }}" {{ "selected" if p.bank_account_id == acc.id }}>{{ acc.bank_name }} ({{ acc.checking_account }})</option>
               {% endfor %}
             </select>
+            <div class="form-text d-none" data-account-lock-hint>{{ _("Подставлен автоматически по выбранной строке выписки — чтобы изменить, сначала очистите поле «Строка выписки банка».") }}</div>
           </div>
           <div class="form-check mb-3">
             <input class="form-check-input" type="checkbox" name="adjust_balance" id="adjustBalance{{ p.id }}" {{ "checked" if p.adjusts_bank_balance }}>
@@ -383,7 +385,7 @@
             <select class="form-select" name="bank_statement_line_id" data-searchable data-placeholder="{{ _('— не указана —') }}">
               <option value=""></option>
               {% for line in referenceable_statement_lines %}
-              <option value="{{ line.id }}" {{ "selected" if p.bank_statement_line_id == line.id }}>{{ fmt_date(line.operation_date) }} — {{ fmt2(line.amount) }} ₽ — {{ line.counterparty_name or "—" }}{% if line.payment_purpose %} — {{ line.payment_purpose[:60] }}{% endif %}</option>
+              <option value="{{ line.id }}" data-bank-account-id="{{ line.bank_account_id }}" data-amount="{{ line.amount }}" data-counterparty-inn="{{ line.counterparty_inn or '' }}" {{ "selected" if p.bank_statement_line_id == line.id }}>{{ fmt_date(line.operation_date) }} — {{ fmt2(line.amount) }} ₽ — {{ line.bank_account.bank_name }} ({{ line.bank_account.checking_account }}) — {{ line.counterparty_name or "—" }}{% if line.payment_purpose %} — {{ line.payment_purpose[:60] }}{% endif %}</option>
               {% endfor %}
             </select>
           </div>
@@ -497,4 +499,77 @@
     </div>
   </div>
 </div>
+
+<script>
+// Поле "Счёт списания" и "Строка выписки банка" в формах платежа контрагенту
+// (новый платёж + правка последнего) — строка выписки уже знает свой
+// банковский счёт (data-bank-account-id на каждом <option>), поэтому при её
+// выборе счёт подставляется автоматически и блокируется от ручного
+// изменения, пока строка не будет очищена — иначе можно было бы случайно
+// сослаться на выписку одного банка, а списание указать с другого.
+document.addEventListener("DOMContentLoaded", function () {
+  document.querySelectorAll('form').forEach(function (form) {
+    var lineSelect = form.querySelector('select[name="bank_statement_line_id"]');
+    var accountSelect = form.querySelector('select[name="bank_account_id"]');
+    if (!lineSelect || !accountSelect) return;
+    var hint = form.querySelector('[data-account-lock-hint]');
+
+    function applyLineSelection() {
+      var opt = lineSelect.options[lineSelect.selectedIndex];
+      var bankAccountId = opt ? opt.dataset.bankAccountId : "";
+      var locked = !!(lineSelect.value && bankAccountId);
+      accountSelect.disabled = locked;
+      if (hint) hint.classList.toggle("d-none", !locked);
+      if (locked) accountSelect.value = bankAccountId;
+    }
+
+    lineSelect.addEventListener("change", applyLineSelection);
+    // disabled-поле не попадает в submit — на миг снимаем блокировку прямо
+    // перед отправкой формы, значение к этому моменту уже подставлено выше.
+    form.addEventListener("submit", function () { accountSelect.disabled = false; });
+    applyLineSelection();
+  });
+
+  // Автоподбор строки выписки при открытии формы НОВОГО платежа — по ИНН
+  // контрагента (если указан) и/или по сумме (введённой вручную либо
+  // подставленной как "закрыть весь долг" через placeholder поля "Сумма").
+  // Подставляет выбор, только если он однозначен — при нескольких
+  // кандидатах без точного совпадения по сумме ничего не выбираем, решает
+  // человек. Правки существующих платежей не трогаем — там уже есть свой
+  // осознанный выбор (или explicit "не указана").
+  var newPaymentModalEl = document.getElementById("addPaymentModal");
+  if (newPaymentModalEl) {
+    var counterpartyInn = "{{ counterparty.inn or '' }}";
+
+    function parseAmount(raw) {
+      if (!raw) return null;
+      var n = parseFloat(String(raw).replace(/\s/g, "").replace(",", "."));
+      return isNaN(n) ? null : n.toFixed(2);
+    }
+
+    newPaymentModalEl.addEventListener("shown.bs.modal", function () {
+      var lineSelect = newPaymentModalEl.querySelector('select[name="bank_statement_line_id"]');
+      var amountInput = newPaymentModalEl.querySelector('input[name="amount"]');
+      if (!lineSelect || lineSelect.value) return;  // уже что-то выбрано — не перевыбираем
+
+      var candidates = Array.from(lineSelect.options).filter(function (o) { return o.value; });
+      var byInn = counterpartyInn ? candidates.filter(function (o) { return o.dataset.counterpartyInn === counterpartyInn; }) : [];
+      var pool = byInn.length ? byInn : candidates;
+
+      var targetAmount = parseAmount(amountInput.value) || parseAmount(amountInput.placeholder);
+      var match = null;
+      if (targetAmount) {
+        var byAmount = pool.filter(function (o) { return parseAmount(o.dataset.amount) === targetAmount; });
+        if (byAmount.length === 1) match = byAmount[0];
+      }
+      if (!match && byInn.length === 1) match = byInn[0];
+
+      if (match) {
+        lineSelect.value = match.value;
+        lineSelect.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+    });
+  }
+});
+</script>
 {% endblock %}

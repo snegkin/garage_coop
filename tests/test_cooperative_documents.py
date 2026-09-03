@@ -172,5 +172,32 @@ def test_edit_form_does_not_render_none_for_unset_number(app, db, client):
     assert 'name="number" value=""' in modal_chunk
 
 
+def test_documents_table_access_column_is_sortable_and_searchable(app, db, client):
+    """Столбец «Доступ» (внутренний/общедоступный) раньше был no-sort и не
+    входил в data-filter-text — не сортировался и не находился поиском,
+    тот же класс бага, что уже правили для статуса разнесения в выписке
+    (см. bank_statement.html)."""
+    doc = _make_document(db, is_internal=True, title="Внутренний документ")
+    db.commit()
+    _make_board(db)
+    login(client, "board1", "pass1234")
+
+    resp = client.get("/cooperative/")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+
+    # Заголовок столбца «Доступ» больше не no-sort — ищем именно
+    # <th>Доступ</th>, а не <th class="no-sort">Доступ</th>.
+    assert "<th>Доступ</th>" in body
+    assert 'class="no-sort">Доступ' not in body
+
+    # Статус доступа попадает в data-filter-text строки документа.
+    row_idx = body.index("Внутренний документ")
+    row_chunk = body[max(0, row_idx - 500):row_idx]
+    filter_attr_start = row_chunk.rindex('data-filter-text="')
+    filter_attr = row_chunk[filter_attr_start:]
+    assert "внутренний" in filter_attr
+
+
 def database_query_first_by_title(db, title):
     return db.query(Document).filter_by(title=title).first()

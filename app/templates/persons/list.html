@@ -23,18 +23,39 @@
   <input class="form-control" id="personFilterInput" placeholder="{{ _('Поиск по ФИО, телефону, email...') }}">
 </div>
 
+{% if pending_by_person or persons|selectattr("comment")|list %}
+<div class="d-flex gap-3 mb-2 small flex-wrap">
+  {% if pending_by_person %}
+  <span class="d-inline-flex align-items-center gap-1">
+    <span class="d-inline-block rounded" style="width:14px;height:14px;background-color:var(--bs-warning-bg-subtle);border:1px solid var(--bs-warning-border-subtle);"></span>
+    {{ _("Ожидает одобрения изменений") }}
+  </span>
+  {% endif %}
+  {% if persons|selectattr("comment")|list %}
+  <span class="d-inline-flex align-items-center gap-1">
+    <span class="d-inline-block rounded" style="width:14px;height:14px;background-color:var(--bs-info-bg-subtle);border:1px solid var(--bs-info-border-subtle);"></span>
+    {{ _("Есть комментарий") }}
+  </span>
+  {% endif %}
+</div>
+{% endif %}
+
 <table class="table table-hover bg-body sortable" id="personsTable">
   <thead><tr><th>{{ _("ФИО") }}</th><th>{{ _("Телефоны") }}</th><th>{{ _("Email") }}</th><th>{{ _("Баланс") }}</th></tr></thead>
   <tbody>
     {% for p in persons %}
+    {% set row_classes = [] %}
+    {% if p.comment %}{% set _x = row_classes.append("table-info") %}{% endif %}
+    {% if p.id in pending_by_person %}{% set _x = row_classes.append("table-warning") %}{% endif %}
     <tr onclick="window.location='{{ url_for('persons.detail', person_id=p.id) }}'" style="cursor:pointer"
         data-filter-text="{{ (p.full_name ~ ' ' ~ p.phones|map(attribute='number')|join(' ') ~ ' ' ~ (p.email or '') ~ ' ' ~ (balances[p.id]|string))|lower }}"
-        {% if p.id in pending_by_person %}class="table-warning"{% endif %}>
+        class="{{ row_classes|join(' ') }}">
       <td>
         {{ p.full_name }}
         {% if p.id in pending_by_person %}
         <span class="badge bg-warning text-dark ms-1" title="Ожидают одобрения">⚠</span>
         {% endif %}
+        {% if p.comment %}<span class="text-info" title="{{ p.comment }}">✎</span>{% endif %}
       </td>
       <td onclick="event.stopPropagation()">{{ phones_html(p.phones) }}</td>
       <td onclick="event.stopPropagation()">{{ email_link(p.email) }}</td>

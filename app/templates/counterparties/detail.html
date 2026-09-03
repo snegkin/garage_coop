@@ -199,13 +199,14 @@
       <td>{{ d.number or "—" }}</td>
       <td>{{ d.title }}</td>
       <td class="no-sort">
-        {% if d.file_path %}
           <div class="btn-group" role="group">
             <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
               {{ _("Действия") }}
             </button>
             <ul class="dropdown-menu dropdown-menu-end">
+              {% if d.file_path %}
               <li><a class="dropdown-item" href="{{ url_for('cooperative.download_document', doc_id=d.id) }}">{{ _("Скачать") }}</a></li>
+              {% endif %}
               <li><button class="dropdown-item" data-bs-toggle="modal" data-bs-target="#editCounterpartyDocumentModal{{ d.id }}">{{ _("Изменить") }}</button></li>
               <li><hr class="dropdown-divider"></li>
               <li>
@@ -215,7 +216,6 @@
               </li>
             </ul>
           </div>
-        {% else %}—{% endif %}
       </td>
     </tr>
     {% else %}
@@ -524,7 +524,7 @@
 </div>
 
 <!-- Модалки: редактирование документов контрагента -->
-{% for d in documents if d.file_path %}
+{% for d in documents %}
 <div class="modal fade" id="editCounterpartyDocumentModal{{ d.id }}" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg modal-dialog-scrollable">
     <div class="modal-content">

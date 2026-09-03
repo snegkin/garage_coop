@@ -105,6 +105,9 @@ def test_expense_attachment_auto_links_document_to_counterparty(app, db, client)
     doc = db.query(Document).order_by(Document.id.desc()).first()
     assert doc is not None
     assert doc.counterparty_id == counterparty.id
+    # Документы, прикреплённые через расчёты с контрагентом, — всегда
+    # внутренние (не для рядовых членов), см. _save_document.
+    assert doc.is_internal is True
 
 
 def test_documents_list_shows_counterparty_filter_for_board(db, client):

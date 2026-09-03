@@ -26,12 +26,17 @@ def _save_document(
 ) -> int | None:
     """Сохраняет прикреплённый файл (если есть) как Document, возвращает document_id или None.
     Документ сразу привязывается к контрагенту (Document.counterparty_id) — чтобы
-    его можно было найти фильтром по контрагенту в общем списке документов."""
+    его можно было найти фильтром по контрагенту в общем списке документов.
+    is_internal=True всегда — документы по расчётам с контрагентом (счета,
+    акты, платёжки) не для рядовых членов кооператива, только для правления."""
     file_path = save_upload(request.files.get(file_key), current_app.config["UPLOAD_FOLDER"])
     if not file_path:
         return None
     title = request.form.get(title_key) or default_title
-    doc = Document(doc_type=doc_type, date=dt.date.today(), title=title, file_path=file_path, counterparty_id=counterparty.id)
+    doc = Document(
+        doc_type=doc_type, date=dt.date.today(), title=title, file_path=file_path,
+        counterparty_id=counterparty.id, is_internal=True,
+    )
     database.db_session.add(doc)
     database.db_session.flush()
     return doc.id
@@ -426,7 +431,7 @@ def add_document(counterparty_id):
         file_path=file_path,
         file_name=secure_filename(file_storage.filename) if file_storage and file_storage.filename else None,
         comment=f.get("comment") or None,
-        is_internal=bool(f.get("is_internal")),
+        is_internal=True,  # документы по расчётам с контрагентом — только для правления, без выбора (см. _document_fields.html)
         counterparty_id=counterparty.id,
     ))
     database.db_session.commit()

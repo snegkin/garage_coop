@@ -74,6 +74,38 @@ def create_fee_type():
 # Лицевые счета членов кооператива (земельный налог, взносы, пени — по гаражу и виду взноса)
 # ---------------------------------------------------------------------------
 
+def _account_stats(rows: list[tuple[MemberAccount, Decimal]]) -> dict:
+    """Статистика по видам счетов для finance/member_accounts.html — считается
+    из уже посчитанных балансов (rows), без отдельных SQL-запросов: баланс
+    каждого счёта и так вычисляется для таблицы.
+
+    Архивные счета (закрываются при смене собственника гаража, см. миграцию
+    archive member accounts on ownership transfer) в статистику не входят —
+    тот же смысл "долга", что и на дашборде (main.py:_debt_summary)."""
+    by_type: dict[int, dict] = {}
+    for account, balance in rows:
+        if account.is_archived:
+            continue
+        ft = account.fee_type
+        stat = by_type.setdefault(ft.id, {
+            "name": ft.name, "count": 0, "debt_count": 0,
+            "total_debt": Decimal("0"), "total_balance": Decimal("0"),
+        })
+        stat["count"] += 1
+        stat["total_balance"] += balance
+        if balance < 0:
+            stat["debt_count"] += 1
+            stat["total_debt"] += balance
+    by_type_list = sorted(by_type.values(), key=lambda s: s["name"])
+    return {
+        "by_type": by_type_list,
+        "total_count": sum(s["count"] for s in by_type_list),
+        "total_debt_accounts": sum(s["debt_count"] for s in by_type_list),
+        "total_debt": sum((s["total_debt"] for s in by_type_list), Decimal("0")),
+        "total_balance": sum((s["total_balance"] for s in by_type_list), Decimal("0")),
+    }
+
+
 @bp.route("/member-accounts")
 @roles_required(RoleEnum.BOARD)
 def member_accounts():
@@ -93,6 +125,7 @@ def member_accounts():
     return render_template(
         "finance/member_accounts.html", rows=rows, has_unpaid_penalty=has_unpaid_penalty,
         all_persons=all_persons, all_garages=all_garages, all_fee_types=all_fee_types,
+        account_stats=_account_stats(rows),
     )
 
 

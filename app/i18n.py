@@ -1612,6 +1612,13 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         # base.html — лайтбокс для картинок в новостях/вики
         "Предыдущее изображение": "Previous image",
         "Следующее изображение": "Next image",
+
+        # finance/member_accounts.html — статистика по видам счетов
+        "Статистика по видам счетов": "Statistics by fee type",
+        "Счетов": "Accounts",
+        "С долгом": "In debt",
+        "Итоговый баланс": "Total balance",
+        "Без учёта архивных счетов (закрытых при смене собственника гаража).": "Excludes archived accounts (closed on garage ownership transfer).",
     }
 }
 

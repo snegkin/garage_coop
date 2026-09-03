@@ -34,8 +34,8 @@
   <tbody>
     {% for g in garages %}
     {% set row_classes = [] %}
-    {% if g.comment %}{% set _x = row_classes.append("table-info") %}{% endif %}
-    {% if not has_meter[g.id] %}{% set _x = row_classes.append("table-warning") %}{% endif %}
+    {% if g.comment %}{% set _x = row_classes.append("table-info-subtle") %}{% endif %}
+    {% if not has_meter[g.id] %}{% set _x = row_classes.append("table-warning-subtle") %}{% endif %}
     <tr onclick="window.location='{{ url_for('garages.detail', garage_id=g.id) }}'" style="cursor:pointer" data-filter-text="{{ (g.number ~ ' ' ~ (g.ownerships|map(attribute='person.full_name')|join(' ')))|lower }}"
         class="{{ row_classes|join(' ') }}">
       <td data-sort-value="{{ g.number }}">

@@ -321,6 +321,12 @@ table.sortable thead th:not(.no-sort)::after { content: "⇅"; opacity: .35; mar
 table.sortable thead th.sort-asc::after { content: "↑"; opacity: 1; }
 table.sortable thead th.sort-desc::after { content: "↓"; opacity: 1; }
 table.table-labels th.table-label { white-space: normal; word-break: break-word; width: 380px; }
+/* .table-warning/.table-info у Bootstrap используют захардкоженный при сборке
+   цвет светлой темы, который не меняется по [data-bs-theme="dark"] — в отличие
+   от --bs-*-bg-subtle. Эти классы дают тот же фон, что и квадратики легенды,
+   и одинаково подстраиваются под тему. */
+tr.table-warning-subtle { --bs-table-bg: var(--bs-warning-bg-subtle); --bs-table-border-color: var(--bs-warning-border-subtle); }
+tr.table-info-subtle { --bs-table-bg: var(--bs-info-bg-subtle); --bs-table-border-color: var(--bs-info-border-subtle); }
 .card-text img { max-width: 100%; height: auto; border-radius: .375rem; }
 /* Одиночная картинка на своей строке markdown (`![](url)` отдельным абзацем)
    оборачивается JS в .content-image-group — так она центрируется даже одна;

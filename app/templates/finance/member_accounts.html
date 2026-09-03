@@ -61,6 +61,48 @@
   <ul class="pagination pagination-sm mb-0"></ul>
 </nav>
 
+{% if account_stats.by_type %}
+<div class="card mb-4">
+  <div class="card-body">
+    <h5 class="card-title">{{ _("Статистика по видам счетов") }}</h5>
+    <div class="table-responsive">
+      <table class="table table-sm mb-0">
+        <thead>
+          <tr>
+            <th>{{ _("Вид взноса") }}</th>
+            <th class="text-end">{{ _("Счетов") }}</th>
+            <th class="text-end">{{ _("С долгом") }}</th>
+            <th class="text-end">{{ _("Долг") }}</th>
+            <th class="text-end">{{ _("Итоговый баланс") }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for s in account_stats.by_type %}
+          <tr>
+            <td>{{ s.name }}</td>
+            <td class="text-end">{{ s.count }}</td>
+            <td class="text-end">{{ s.debt_count }}</td>
+            <td class="text-end {{ 'text-danger' if s.total_debt < 0 }}">{{ fmt2(-s.total_debt) }} ₽</td>
+            <td class="text-end {{ 'text-danger' if s.total_balance < 0 else 'text-success' }}">{{ fmt2(s.total_balance) }} ₽</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr class="fw-bold border-top">
+            <td>{{ _("Итого") }}</td>
+            <td class="text-end">{{ account_stats.total_count }}</td>
+            <td class="text-end">{{ account_stats.total_debt_accounts }}</td>
+            <td class="text-end {{ 'text-danger' if account_stats.total_debt < 0 }}">{{ fmt2(-account_stats.total_debt) }} ₽</td>
+            <td class="text-end {{ 'text-danger' if account_stats.total_balance < 0 else 'text-success' }}">{{ fmt2(account_stats.total_balance) }} ₽</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+    <p class="text-muted small mb-0 mt-2">{{ _("Без учёта архивных счетов (закрытых при смене собственника гаража).") }}</p>
+  </div>
+</div>
+{% endif %}
+
 <div class="modal fade" id="createMemberAccountModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg">
     <div class="modal-content">

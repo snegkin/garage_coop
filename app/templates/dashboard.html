@@ -85,9 +85,9 @@
 </div>
 
 {% set has_pending = (is_chairman() and pending_pd_count > 0) or pending_votes_count > 0 or pending_proposals_count > 0 %}
-<div class="row g-3">
-  {% if has_pending %}
-  <div class="col-md-6">
+{% if has_pending %}
+<div class="row g-3 mb-3">
+  <div class="col-12">
     <div class="card h-100">
       <div class="card-body">
         <h5 class="card-title">{{ _("Требует внимания") }}</h5>
@@ -114,8 +114,11 @@
       </div>
     </div>
   </div>
-  {% endif %}
-  <div class="{{ 'col-md-6' if has_pending else 'col-md-12' }}">
+</div>
+{% endif %}
+
+<div class="row g-3">
+  <div class="col-md-6">
     <div class="card h-100">
       <div class="card-body">
         <div class="d-flex justify-content-between align-items-center mb-2">
@@ -136,6 +139,37 @@
         </ul>
         {% else %}
         <p class="text-muted mb-0">{{ _("Записей пока нет.") }}</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="card h-100">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <h5 class="card-title mb-0">{{ _("Письма") }}</h5>
+          <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('mailbox.inbox') }}">{{ _("Вся почта") }}</a>
+        </div>
+        {% if not mail_preview.is_configured %}
+        <p class="text-muted mb-0">{{ _("Почта ещё не настроена.") }}</p>
+        {% elif mail_preview.error %}
+        <p class="text-danger small mb-0">{{ _("Не удалось подключиться к почте.") }}</p>
+        {% elif mail_preview.messages %}
+        <ul class="list-group list-group-flush">
+          {% for m in mail_preview.messages %}
+          <li class="list-group-item px-0">
+            <a href="{{ url_for('mailbox.view_message', uid=m.uid) }}" class="d-block text-decoration-none">
+              <div class="d-flex justify-content-between">
+                <span class="{{ 'fw-semibold' if m.seen is false }}">{{ m.from_name or m.from_addr or "—" }}</span>
+                <span class="small text-muted">{{ m.date.strftime("%d.%m.%Y %H:%M") if m.date else "—" }}</span>
+              </div>
+              <div class="{{ 'fw-semibold' if m.seen is false }}">{{ m.subject }}</div>
+            </a>
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <p class="text-muted mb-0">{{ _("Входящих писем нет.") }}</p>
         {% endif %}
       </div>
     </div>

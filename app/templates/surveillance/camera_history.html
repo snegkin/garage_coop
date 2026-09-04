@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}{{ _("История: {label}", label=camera.label) }}{% endblock %}
+{% block content %}
+<a href="{{ url_for('surveillance.view') }}" class="d-inline-block mb-3">&larr; {{ _("Ко всем регистраторам") }}</a>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div>
+    <h3 class="mb-0">{{ camera.label }}</h3>
+    <div class="text-muted small">{{ camera.recorder.name }}</div>
+  </div>
+</div>
+
+{% if not frames %}
+<p class="text-muted">{{ _("За последние сутки кадров пока нет.") }}</p>
+{% else %}
+<p class="text-muted small">{{ _("{n} кадров за последние сутки, самый новый — первым.", n=frames|length) }}</p>
+<div class="row g-3">
+  {% for filename, ts in frames %}
+  <div class="col-6 col-sm-4 col-md-3 col-lg-2">
+    <div class="card h-100">
+      <img src="{{ url_for('surveillance.camera_history_frame', camera_id=camera.id, filename=filename) }}"
+           class="card-img-top js-lightbox" loading="lazy" alt="{{ camera.label }} — {{ fmt_date(ts) }} {{ ts.strftime('%H:%M:%S') }}"
+           style="aspect-ratio:4/3; object-fit:cover; background:#000; cursor:zoom-in;">
+      <div class="card-body py-1 px-2 text-center">
+        <span class="small text-muted" data-utc-datetime="{{ ts.isoformat() }}Z">{{ fmt_date(ts) }} {{ ts.strftime('%H:%M:%S') }}</span>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+{% endblock %}

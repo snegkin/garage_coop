@@ -17,9 +17,18 @@ scripts/dvr_snapshot.py) — просмотр живого видео по кл�
 (канал регистратора и номер потока — у большинства DVR 0 это основной
 поток высокого разрешения, 1+ — дополнительные более низкого разрешения).
 Регистратор выставлен наружу на нестандартном порту.
+
+Помимо "живого" кадра (snapshot_path — один файл на камеру, перезаписывается
+каждый прогон) scripts/dvr_snapshot.py откладывает КАЖДЫЙ снятый кадр ещё и в
+историю (history_dir — по файлу на снимок, имя = отметка времени UTC),
+глубиной HISTORY_RETENTION_HOURS (см. сам скрипт: обрезка старых файлов —
+там же, при каждом прогоне). Галерея истории по камере — camera_history()
+ниже, тем же общим лайтбоксом, что и остальные картинки в приложении (см.
+base.html: initLightbox, класс "js-lightbox").
 """
 import datetime as dt
 import os
+import re
 import shutil
 from urllib.parse import quote
 
@@ -32,6 +41,11 @@ from .models import RoleEnum, DvrRecorder, DvrCamera
 from .bank_api import crypto
 
 bp = Blueprint("surveillance", __name__, url_prefix="/surveillance")
+
+# Имя файла кадра истории — отметка времени UTC, см. scripts/dvr_snapshot.py.
+# Тот же паттерн используется здесь для защиты camera_history_frame() от
+# path traversal (никаких "../" и т.п. — только это конкретное имя).
+HISTORY_FRAME_NAME_RE = re.compile(r"^\d{8}_\d{6}\.jpg$")
 
 
 def rtsp_url(recorder: DvrRecorder, camera: DvrCamera) -> str:
@@ -52,6 +66,12 @@ def snapshot_dir(recorder_id: int) -> str:
 
 def snapshot_path(recorder_id: int, camera_id: int) -> str:
     return os.path.join(snapshot_dir(recorder_id), f"camera_{camera_id}.jpg")
+
+
+def history_dir(recorder_id: int, camera_id: int) -> str:
+    """Папка с историей кадров одной камеры (по файлу на снимок) — отдельно
+    от "живого" snapshot_path, который всего один и перезаписывается."""
+    return os.path.join(current_app.config["DVR_SNAPSHOT_FOLDER"], str(recorder_id), "history", f"camera_{camera_id}")
 
 
 @bp.route("/")
@@ -77,6 +97,41 @@ def snapshot(camera_id):
     # смены cache-busting параметра в src (see surveillance/view.html) при
     # повторном показе того же <img>.
     return send_file(path, mimetype="image/jpeg", max_age=0)
+
+
+@bp.route("/cameras/<int:camera_id>/history")
+def camera_history(camera_id):
+    """Галерея кадров камеры за последние сутки (см. history_dir,
+    scripts/dvr_snapshot.py — там же обрезка старше HISTORY_RETENTION_HOURS).
+    Общедоступно, как и остальной раздел — см. docstring модуля."""
+    camera = database.db_session.get(DvrCamera, camera_id)
+    if camera is None:
+        abort(404)
+    dir_path = history_dir(camera.recorder_id, camera.id)
+    frames = []
+    if os.path.isdir(dir_path):
+        for name in os.listdir(dir_path):
+            try:
+                ts = dt.datetime.strptime(name, "%Y%m%d_%H%M%S.jpg")
+            except ValueError:
+                continue  # посторонний файл в папке — пропускаем, не падаем
+            frames.append((name, ts))
+    frames.sort(key=lambda pair: pair[1], reverse=True)
+    return render_template("surveillance/camera_history.html", camera=camera, frames=frames)
+
+
+@bp.route("/cameras/<int:camera_id>/history/<filename>")
+def camera_history_frame(camera_id, filename):
+    camera = database.db_session.get(DvrCamera, camera_id)
+    if camera is None:
+        abort(404)
+    if not HISTORY_FRAME_NAME_RE.match(filename):  # защита от path traversal — только ожидаемое имя файла
+        abort(404)
+    path = os.path.join(history_dir(camera.recorder_id, camera.id), filename)
+    if not os.path.exists(path):
+        abort(404)
+    # Кадры истории неизменны после создания (в отличие от "живого" snapshot) — кэш браузера безопасен.
+    return send_file(path, mimetype="image/jpeg", max_age=3600)
 
 
 @bp.route("/recorders/new", methods=["POST"])
@@ -217,6 +272,7 @@ def edit_recorder(recorder_id):
             snap_path = snapshot_path(recorder.id, cam_id)
             if os.path.exists(snap_path):
                 os.remove(snap_path)
+            shutil.rmtree(history_dir(recorder.id, cam_id), ignore_errors=True)
 
     database.db_session.commit()
     flash(_("Регистратор изменён."), "success")

@@ -250,6 +250,30 @@ def test_connection_error_shows_flash_not_500(db, client, monkeypatch):
     assert "Connection refused" in settings.last_error
 
 
+def test_non_ascii_username_shows_flash_not_generic_form_error(db, client, monkeypatch):
+    """Регресс: до фикса UnicodeEncodeError (подкласс ValueError) из
+    login() с кириллическим логином проскакивал мимо MailError и попадал в
+    общий обработчик форм (app/errors.py) — страница почты вообще
+    переставала открываться, пользователь видел не относящееся к делу
+    "проверьте правильность заполнения формы"."""
+    _make_board(db)
+    _make_settings(db, username="логин@пример.рф")
+
+    class FakeConnBadLogin:
+        def login(self, user, password):
+            raise UnicodeEncodeError("ascii", user, 0, 1, "ordinal not in range(128)")
+
+    import imaplib
+    monkeypatch.setattr(imaplib, "IMAP4_SSL", lambda *a, **kw: FakeConnBadLogin())
+    login(client, "board1", "pass1234")
+
+    resp = client.get("/mailbox/", follow_redirects=True)
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert "Не удалось подключиться" in body
+    assert "Проверьте правильность заполнения формы" not in body
+
+
 def test_view_message_and_download_attachment(db, client, monkeypatch):
     _make_board(db)
     _make_settings(db)

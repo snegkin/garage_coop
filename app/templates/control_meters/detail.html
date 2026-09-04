@@ -12,14 +12,13 @@
   </div>
 
   <div class="col-md-8 col-lg-9">
-    {% if breadcrumbs %}
     <nav class="small text-muted mb-2">
+      <a href="{{ url_for('power.view') }}" class="text-muted">{{ _("Ввод") }}</a> /
       {% for b in breadcrumbs %}
       <a href="{{ url_for('control_meters.detail', node_id=b.id) }}" class="text-muted">{{ b.name }}</a> /
       {% endfor %}
       <span>{{ node.name }}</span>
     </nav>
-    {% endif %}
 
     <div class="d-flex justify-content-between align-items-start mb-3">
       <div>

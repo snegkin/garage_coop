@@ -50,6 +50,20 @@ def test_parse_message_decodes_subject_and_addresses():
     assert detail.date == dt.datetime(2026, 9, 4, 12, 0, tzinfo=dt.timezone(dt.timedelta(hours=3)))
 
 
+def test_decode_idn_address_decodes_punycode_domain():
+    assert mail_client.decode_idn_address("pravlenie@xn----dtbbg1boax0b.xn--p1ai") == "pravlenie@гм-восход.рф"
+
+
+def test_decode_idn_address_leaves_ascii_domain_as_is():
+    assert mail_client.decode_idn_address("member@example.com") == "member@example.com"
+
+
+def test_decode_idn_address_handles_missing_or_malformed_input():
+    assert mail_client.decode_idn_address(None) == ""
+    assert mail_client.decode_idn_address("") == ""
+    assert mail_client.decode_idn_address("не-адрес-без-собаки") == "не-адрес-без-собаки"
+
+
 def test_parse_message_extracts_both_bodies():
     msg = _make_test_email()
     detail = mail_client._parse_message("1", msg.as_bytes())

@@ -90,10 +90,10 @@ def _reply_prefill(detail: MessageDetail) -> tuple[str, str, str]:
     """(to, subject, body) для «Ответить» — получатель - отправитель
     оригинала, тема с «Re:» (без дублирования, если оно уже есть), тело -
     пустая первая строка для ответа + цитата оригинала с «> »."""
-    to = detail.from_addr or ""
+    to = detail.from_addr or ""  # реальный адрес получателя ответа — НЕ декодировать, это значение поля формы, а не подпись для человека
     subject = detail.subject if detail.subject.lower().startswith("re:") else _("Re: {subject}", subject=detail.subject)
     when = detail.date.strftime("%d.%m.%Y %H:%M") if detail.date else ""
-    who = detail.from_name or detail.from_addr or ""
+    who = detail.from_name or mail_client.decode_idn_address(detail.from_addr)
     header = _("{when} {who} писал(а):", when=when, who=who) if (when or who) else _("Исходное письмо:")
     quoted = "\n".join("> " + line for line in _plain_text_of(detail).splitlines())
     body = "\n\n" + header + "\n" + quoted + "\n"
@@ -110,13 +110,15 @@ def _forward_prefill(detail: MessageDetail) -> tuple[str, str, str]:
     subject = detail.subject if detail.subject.lower().startswith("fwd:") else _("Fwd: {subject}", subject=detail.subject)
     when = detail.date.strftime("%d.%m.%Y %H:%M") if detail.date else "—"
     who = detail.from_name or ""
-    from_line = f"{who} <{detail.from_addr}>" if who and detail.from_addr else (detail.from_addr or who or "—")
+    from_addr_display = mail_client.decode_idn_address(detail.from_addr)
+    from_line = f"{who} <{from_addr_display}>" if who and from_addr_display else (from_addr_display or who or "—")
+    to_display = ", ".join(mail_client.decode_idn_address(a) for a in detail.to_addrs) or "—"
     body = (
         "\n\n---------- " + _("Пересланное сообщение") + " ----------\n"
         + _("От") + f": {from_line}\n"
         + _("Дата") + f": {when}\n"
         + _("Тема") + f": {detail.subject}\n"
-        + _("Кому") + f": {', '.join(detail.to_addrs) or '—'}\n\n"
+        + _("Кому") + f": {to_display}\n\n"
         + _plain_text_of(detail)
     )
     if detail.attachments:
@@ -178,7 +180,12 @@ def view_message(uid):
         return redirect(url_for("mailbox.inbox"))
 
     folder = _folder_from_request(settings)
-    allow_images = request.args.get("allow_images") == "1"
+    # Внешние картинки показываются по умолчанию — ГСК не нужна защита от
+    # трекинг-пикселей (не публичная организация, нет причин ожидать
+    # целенаправленной слежки за прочтением писем правлением). ?allow_images=0
+    # оставлен как обратный переключатель — сама защита в mail_html.py не
+    # убрана, просто дефолт другой.
+    allow_images = request.args.get("allow_images", "1") == "1"
     try:
         with mail_client.get_incoming_client(settings) as client:
             detail = client.get_message(uid, folder=folder)

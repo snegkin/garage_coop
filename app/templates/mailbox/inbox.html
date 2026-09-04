@@ -67,7 +67,7 @@
     <tr class="{{ 'fw-semibold' if supports_flags and m.seen is false }}">
       <td onclick="window.location='{{ url_for('mailbox.view_message', uid=m.uid, folder=folder) }}'" style="cursor:pointer">
         {% if supports_flags and m.seen is false %}<span class="badge bg-primary badge-sm">{{ _("новое") }}</span>{% endif %}
-        {% if is_sent %}{{ m.to_addr or "—" }}{% else %}{{ m.from_name or m.from_addr or "—" }}{% endif %}
+        {% if is_sent %}{{ m.to_addr|decode_idn_address if m.to_addr else "—" }}{% else %}{{ m.from_name or (m.from_addr|decode_idn_address if m.from_addr else "—") }}{% endif %}
       </td>
       <td onclick="window.location='{{ url_for('mailbox.view_message', uid=m.uid, folder=folder) }}'" style="cursor:pointer">{{ m.subject }}</td>
       <td class="text-muted small" onclick="window.location='{{ url_for('mailbox.view_message', uid=m.uid, folder=folder) }}'" style="cursor:pointer">{{ m.date.strftime("%d.%m.%Y %H:%M") if m.date else "—" }}</td>

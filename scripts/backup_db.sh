@@ -20,6 +20,17 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 cd "$PROJECT_DIR"
 
+# .env НЕ подхватывается python-dotenv (см. .env.example) — приложение читает
+# os.environ напрямую. backup_db.py берёт DATABASE_PATH/BACKUP_DIR из
+# окружения (см. сам скрипт) — если они переопределены в .env (БД не в
+# стандартном instance/coop.db), без этого блока бэкап тихо снимался бы не
+# с той БД (тот же приём, что и в poll_ewelink.sh).
+if [ -f "$PROJECT_DIR/.env" ]; then
+    set -a
+    . "$PROJECT_DIR/.env"
+    set +a
+fi
+
 LOG_DIR="$PROJECT_DIR/instance/logs"
 LOG_FILE="$LOG_DIR/backup_db.log"
 LOCK_FILE="$PROJECT_DIR/instance/backup_db.lock"

@@ -129,7 +129,7 @@
           {% if p.id == last_payment_id %}
           <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#editPaymentModal{{ p.id }}">{{ _("Изменить") }}</button>
           {% elif not p.reversed_by %}
-          <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#editPaymentDetailsModal{{ p.id }}">{{ _("Дата/комментарий") }}</button>
+          <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#editPaymentDetailsModal{{ p.id }}">{{ _("Изменить") }}</button>
           {% endif %}
           {% if not p.reversed_by %}
           <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#reversePaymentModal{{ p.id }}">{{ _("Сторно") }}</button>

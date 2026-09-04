@@ -4,8 +4,11 @@
 {% set is_owner = current_user.person_id and current_user.person_id in garage.ownerships|map(attribute='person_id')|list %}
 {% set _active_tab = request.args.get('tab', 'info') %}
 
-{# Навигация: предыдущий / следующий гараж #}
-{% if prev_garage or next_garage %}
+{# Навигация: предыдущий / следующий гараж — только для правления: рядовой
+   собственник видит эту страницу лишь для своих гаражей, а переход по
+   соседнему id почти всегда упрётся в 403 (см. garages.detail:
+   is_owner_or_board), кнопки только сбивали бы с толку #}
+{% if is_board() and (prev_garage or next_garage) %}
 <nav class="d-flex justify-content-between mb-3" aria-label="Навигация по гаражам">
   {% if prev_garage %}
   <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('garages.detail', garage_id=prev_garage.id, tab=_active_tab) }}">

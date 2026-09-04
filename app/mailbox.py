@@ -16,7 +16,7 @@ HTML-тело письма рендерится в песочнице (iframe sa
 """
 import io
 
-from flask import Blueprint, render_template, request, redirect, url_for, flash, abort, send_file
+from flask import Blueprint, render_template, request, redirect, url_for, flash, abort, send_file, jsonify
 
 from . import database
 from . import audit
@@ -24,7 +24,7 @@ from .i18n import translate as _
 from .auth import roles_required
 from .models import RoleEnum, MailboxSettings, MailProtocol, MailEncryption
 from . import mail_client
-from .mail_client import MailError
+from .mail_client import MailError, DEFAULT_FOLDER
 from .mail_html import render_email_body
 from .bank_api import crypto
 
@@ -57,27 +57,50 @@ def _record_connection_error(settings: MailboxSettings, exc: MailError) -> None:
     database.db_session.commit()
 
 
+def _sent_folder_available(settings: MailboxSettings) -> bool:
+    return settings.incoming_protocol == MailProtocol.IMAP and bool(settings.sent_folder)
+
+
+def _folder_from_request(settings: MailboxSettings) -> str:
+    """Папка — только «Входящие» или (для IMAP, если настроена)
+    «Отправленные», никогда произвольная строка из query — так UI не даёт
+    зайти в папку, которую сам же не показывает и для которой не строит
+    ссылки (в частности для POP3, где папок нет вовсе)."""
+    requested = request.values.get("folder", DEFAULT_FOLDER)
+    if requested == settings.sent_folder and _sent_folder_available(settings):
+        return requested
+    return DEFAULT_FOLDER
+
+
 @bp.route("/")
 @roles_required(RoleEnum.BOARD)
 def inbox():
     settings = _get_or_create_settings()
     if not _is_configured(settings):
-        return render_template("mailbox/inbox.html", settings=settings, is_configured=False, page=None)
+        return render_template(
+            "mailbox/inbox.html", settings=settings, is_configured=False, page=None,
+            folder=DEFAULT_FOLDER, sent_folder_available=False,
+        )
 
+    folder = _folder_from_request(settings)
     page_num = request.args.get("page", 1, type=int)
     page_size = _page_size_from_request()
 
     try:
         with mail_client.get_incoming_client(settings) as client:
-            page = client.list_messages(page=page_num, page_size=page_size)
+            page = client.list_messages(page=page_num, page_size=page_size, folder=folder)
             supports_flags = client.supports_flags
     except MailError as exc:
         _record_connection_error(settings, exc)
         flash(_("Не удалось подключиться к почте: {error}", error=str(exc)), "danger")
-        return render_template("mailbox/inbox.html", settings=settings, is_configured=True, page=None)
+        return render_template(
+            "mailbox/inbox.html", settings=settings, is_configured=True, page=None, folder=folder,
+            sent_folder_available=_sent_folder_available(settings),
+        )
 
     return render_template(
-        "mailbox/inbox.html", settings=settings, is_configured=True, page=page,
+        "mailbox/inbox.html", settings=settings, is_configured=True, page=page, folder=folder,
+        sent_folder_available=_sent_folder_available(settings),
         page_size=page_size, page_size_choices=PAGE_SIZE_CHOICES, supports_flags=supports_flags,
     )
 
@@ -90,18 +113,19 @@ def view_message(uid):
         flash(_("Почта ещё не настроена."), "warning")
         return redirect(url_for("mailbox.inbox"))
 
+    folder = _folder_from_request(settings)
     allow_images = request.args.get("allow_images") == "1"
     try:
         with mail_client.get_incoming_client(settings) as client:
-            detail = client.get_message(uid)
+            detail = client.get_message(uid, folder=folder)
     except MailError as exc:
         _record_connection_error(settings, exc)
         flash(_("Не удалось открыть письмо: {error}", error=str(exc)), "danger")
-        return redirect(url_for("mailbox.inbox"))
+        return redirect(url_for("mailbox.inbox", folder=folder))
 
     body_srcdoc, had_blocked_images = render_email_body(detail, allow_remote_images=allow_images)
     return render_template(
-        "mailbox/message.html", detail=detail, body_srcdoc=body_srcdoc,
+        "mailbox/message.html", detail=detail, body_srcdoc=body_srcdoc, folder=folder,
         had_blocked_images=had_blocked_images, allow_images=allow_images,
     )
 
@@ -113,18 +137,42 @@ def download_attachment(uid, index):
     if not _is_configured(settings):
         abort(404)
 
+    folder = _folder_from_request(settings)
     try:
         with mail_client.get_incoming_client(settings) as client:
-            part, data = client.get_attachment(uid, index)
+            part, data = client.get_attachment(uid, index, folder=folder)
     except MailError as exc:
         _record_connection_error(settings, exc)
         flash(_("Не удалось скачать вложение: {error}", error=str(exc)), "danger")
-        return redirect(url_for("mailbox.view_message", uid=uid))
+        return redirect(url_for("mailbox.view_message", uid=uid, folder=folder))
 
     return send_file(
         io.BytesIO(data), mimetype=part.content_type or "application/octet-stream",
         as_attachment=True, download_name=part.filename,
     )
+
+
+@bp.route("/messages/<uid>/delete", methods=["POST"])
+@roles_required(RoleEnum.BOARD)
+def delete_message(uid):
+    settings = _get_or_create_settings()
+    if not _is_configured(settings):
+        flash(_("Почта ещё не настроена."), "warning")
+        return redirect(url_for("mailbox.inbox"))
+
+    folder = _folder_from_request(settings)
+    try:
+        with mail_client.get_incoming_client(settings) as client:
+            client.delete_message(uid, folder=folder)
+    except MailError as exc:
+        _record_connection_error(settings, exc)
+        flash(_("Не удалось удалить письмо: {error}", error=str(exc)), "danger")
+        return redirect(url_for("mailbox.view_message", uid=uid, folder=folder))
+
+    audit.record("mailbox.message_delete", f"Удалено письмо из папки «{folder}»")
+    database.db_session.commit()
+    flash(_("Письмо удалено."), "success")
+    return redirect(url_for("mailbox.inbox", folder=folder))
 
 
 @bp.route("/compose", methods=["GET", "POST"])
@@ -136,6 +184,12 @@ def compose():
         return redirect(url_for("mailbox.inbox"))
 
     if request.method == "POST":
+        # Отправляется через fetch (см. mailbox/compose.html) — при ошибке
+        # (например опечатка в адресе) страница НЕ перезагружается, поэтому
+        # выбранные файлы в <input type="file"> не сбрасываются (браузер
+        # безусловно очищает их при любой навигации/повторном рендере
+        # формы — восстановить значение поля файла программно нельзя даже
+        # через JS, только сам пользователь может выбрать файл заново).
         f = request.form
         to_raw = f.get("to", "").strip()
         subject = f.get("subject", "").strip()
@@ -143,8 +197,7 @@ def compose():
         to_addrs = [a.strip() for a in to_raw.split(",") if a.strip()]
 
         if not to_addrs or not subject:
-            flash(_("Укажите получателя и тему письма."), "danger")
-            return render_template("mailbox/compose.html", to=to_raw, subject=subject, body=body)
+            return jsonify(ok=False, error=_("Укажите получателя и тему письма.")), 400
 
         attachments = []
         for file_storage in request.files.getlist("attachments"):
@@ -156,13 +209,12 @@ def compose():
             mail_client.send_message(settings, to_addrs=to_addrs, subject=subject, body_text=body, attachments=attachments)
         except MailError as exc:
             _record_connection_error(settings, exc)
-            flash(_("Не удалось отправить письмо: {error}", error=str(exc)), "danger")
-            return render_template("mailbox/compose.html", to=to_raw, subject=subject, body=body)
+            return jsonify(ok=False, error=_("Не удалось отправить письмо: {error}", error=str(exc))), 400
 
         audit.record("mailbox.message_sent", f"Отправлено письмо на {', '.join(to_addrs)}: «{subject}»")
         database.db_session.commit()
-        flash(_("Письмо отправлено."), "success")
-        return redirect(url_for("mailbox.inbox"))
+        flash(_("Письмо отправлено."), "success")  # подхватится при переходе на inbox из JS
+        return jsonify(ok=True, redirect=url_for("mailbox.inbox"))
 
     return render_template("mailbox/compose.html", to="", subject="", body="")
 
@@ -196,6 +248,7 @@ def save_settings():
 
     settings.username = f.get("username", "").strip() or None
     settings.from_name = f.get("from_name", "").strip() or None
+    settings.sent_folder = f.get("sent_folder", "").strip() or None
 
     password = f.get("password", "")
     if password:

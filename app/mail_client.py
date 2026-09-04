@@ -38,6 +38,7 @@ from .bank_api import crypto
 from .models import MailboxSettings, MailEncryption, MailProtocol
 
 CONNECT_TIMEOUT = 15  # секунд — иначе зависший сервер повесит HTTP-воркер на неопределённое время
+DEFAULT_FOLDER = "INBOX"
 
 
 class MailError(Exception):
@@ -51,6 +52,7 @@ class MessageSummary:
     subject: str
     from_name: str | None
     from_addr: str | None
+    to_addr: str | None         # первый адресат (для отображения в папке "Отправленные" — там свой from почти всегда одинаков и малополезен в списке)
     date: dt.datetime | None
     seen: bool | None           # None у POP3 — там нет флагов вовсе
 
@@ -324,13 +326,16 @@ class IncomingMailClient(abc.ABC):
     def close(self) -> None: ...
 
     @abc.abstractmethod
-    def list_messages(self, page: int, page_size: int = 25) -> MessagePage: ...
+    def list_messages(self, page: int, page_size: int = 25, folder: str = DEFAULT_FOLDER) -> MessagePage: ...
 
     @abc.abstractmethod
-    def get_message(self, uid: str) -> MessageDetail: ...
+    def get_message(self, uid: str, folder: str = DEFAULT_FOLDER) -> MessageDetail: ...
 
     @abc.abstractmethod
-    def get_attachment(self, uid: str, index: int) -> tuple[AttachmentPart, bytes]: ...
+    def get_attachment(self, uid: str, index: int, folder: str = DEFAULT_FOLDER) -> tuple[AttachmentPart, bytes]: ...
+
+    @abc.abstractmethod
+    def delete_message(self, uid: str, folder: str = DEFAULT_FOLDER) -> None: ...
 
 
 _FLAGS_RE = re.compile(rb"FLAGS \(([^)]*)\)")
@@ -343,12 +348,8 @@ class ImapMailClient(IncomingMailClient):
     def __init__(self, settings: MailboxSettings):
         self.settings = settings
         self.conn = _connect_imap(settings)
-        try:
-            typ, _data = self.conn.select("INBOX")
-        except imaplib.IMAP4.error as exc:
-            raise MailError(f"IMAP: не удалось открыть INBOX: {exc}") from exc
-        if typ != "OK":
-            raise MailError("IMAP: не удалось открыть папку INBOX")
+        self._selected_folder: str | None = None
+        self._ensure_selected(DEFAULT_FOLDER)  # заодно проверка, что подключение реально работает, не только login
 
     def close(self) -> None:
         try:
@@ -360,7 +361,23 @@ class ImapMailClient(IncomingMailClient):
         except Exception:
             pass
 
-    def list_messages(self, page: int, page_size: int = 25) -> MessagePage:
+    def _ensure_selected(self, folder: str) -> None:
+        """SELECT нужен один раз на папку за время жизни соединения — эта
+        функция не даёт слать лишний SELECT, если предыдущая операция уже
+        открыла ту же папку (список/письмо/вложение/удаление на одной
+        странице обычно работают с одной и той же папкой)."""
+        if self._selected_folder == folder:
+            return
+        try:
+            typ, _data = self.conn.select(f'"{folder}"')
+        except imaplib.IMAP4.error as exc:
+            raise MailError(f"IMAP: не удалось открыть папку «{folder}»: {exc}") from exc
+        if typ != "OK":
+            raise MailError(f"IMAP: не удалось открыть папку «{folder}» — возможно, она не существует")
+        self._selected_folder = folder
+
+    def list_messages(self, page: int, page_size: int = 25, folder: str = DEFAULT_FOLDER) -> MessagePage:
+        self._ensure_selected(folder)
         try:
             typ, data = self.conn.uid("search", None, "ALL")
         except imaplib.IMAP4.error as exc:
@@ -377,7 +394,7 @@ class ImapMailClient(IncomingMailClient):
         messages: list[MessageSummary] = []
         for uid in page_uids:
             try:
-                typ, fdata = self.conn.uid("fetch", uid, "(FLAGS BODY.PEEK[HEADER.FIELDS (SUBJECT FROM DATE)])")
+                typ, fdata = self.conn.uid("fetch", uid, "(FLAGS BODY.PEEK[HEADER.FIELDS (SUBJECT FROM TO DATE)])")
             except imaplib.IMAP4.error as exc:
                 raise MailError(f"IMAP FETCH: {exc}") from exc
             if typ != "OK" or not fdata or not isinstance(fdata[0], tuple):
@@ -387,13 +404,16 @@ class ImapMailClient(IncomingMailClient):
             seen = bool(flags_match) and b"\\Seen" in flags_match.group(1).split()
             msg = email.message_from_bytes(header_bytes, policy=email.policy.default)
             from_name, from_addr = _address_from_header(msg, "from")
+            to_addrs = _addr_list_from_header(msg, "to")
             messages.append(MessageSummary(
                 uid=uid.decode(), subject=str(msg.get("subject", "")).strip() or "(без темы)",
-                from_name=from_name, from_addr=from_addr, date=_parse_date(msg), seen=seen,
+                from_name=from_name, from_addr=from_addr, to_addr=(to_addrs[0] if to_addrs else None),
+                date=_parse_date(msg), seen=seen,
             ))
         return MessagePage(messages=messages, total=total, page=page, page_size=page_size)
 
-    def _fetch_raw(self, uid: str) -> bytes:
+    def _fetch_raw(self, uid: str, folder: str) -> bytes:
+        self._ensure_selected(folder)
         try:
             typ, data = self.conn.uid("fetch", uid.encode(), "(RFC822)")
         except imaplib.IMAP4.error as exc:
@@ -402,14 +422,24 @@ class ImapMailClient(IncomingMailClient):
             raise MailError("Письмо не найдено — возможно, было удалено на сервере")
         return data[0][1]
 
-    def get_message(self, uid: str) -> MessageDetail:
-        return _parse_message(uid, self._fetch_raw(uid))
+    def get_message(self, uid: str, folder: str = DEFAULT_FOLDER) -> MessageDetail:
+        return _parse_message(uid, self._fetch_raw(uid, folder))
 
-    def get_attachment(self, uid: str, index: int) -> tuple[AttachmentPart, bytes]:
-        result = _extract_attachment(self._fetch_raw(uid), index)
+    def get_attachment(self, uid: str, index: int, folder: str = DEFAULT_FOLDER) -> tuple[AttachmentPart, bytes]:
+        result = _extract_attachment(self._fetch_raw(uid, folder), index)
         if result is None:
             raise MailError("Вложение не найдено")
         return result
+
+    def delete_message(self, uid: str, folder: str = DEFAULT_FOLDER) -> None:
+        self._ensure_selected(folder)
+        try:
+            typ, _data = self.conn.uid("store", uid.encode(), "+FLAGS", "(\\Deleted)")
+            if typ != "OK":
+                raise MailError("IMAP: не удалось пометить письмо к удалению")
+            self.conn.expunge()
+        except imaplib.IMAP4.error as exc:
+            raise MailError(f"IMAP: {exc}") from exc
 
 
 class Pop3MailClient(IncomingMailClient):
@@ -422,10 +452,17 @@ class Pop3MailClient(IncomingMailClient):
         self._supports_top = True
 
     def close(self) -> None:
+        # DELE (см. delete_message) помечает письмо к удалению, но реально
+        # удаляет только успешный QUIT в этой же сессии (RFC 1939) — именно
+        # поэтому close() здесь ровно один раз за время жизни клиента.
         try:
             self.conn.quit()
         except Exception:
             pass
+
+    def _check_folder(self, folder: str) -> None:
+        if folder != DEFAULT_FOLDER:
+            raise MailError("POP3: папки не поддерживаются протоколом — доступен только единственный ящик")
 
     def _fetch_raw(self, num: int) -> bytes:
         try:
@@ -434,7 +471,8 @@ class Pop3MailClient(IncomingMailClient):
             raise MailError(f"POP3 RETR: {exc}") from exc
         return b"\r\n".join(lines)
 
-    def list_messages(self, page: int, page_size: int = 25) -> MessagePage:
+    def list_messages(self, page: int, page_size: int = 25, folder: str = DEFAULT_FOLDER) -> MessagePage:
+        self._check_folder(folder)
         try:
             count, _size = self.conn.stat()
         except poplib.error_proto as exc:
@@ -458,20 +496,31 @@ class Pop3MailClient(IncomingMailClient):
                 header_bytes = self._fetch_raw(num)
             msg = email.message_from_bytes(header_bytes, policy=email.policy.default)
             from_name, from_addr = _address_from_header(msg, "from")
+            to_addrs = _addr_list_from_header(msg, "to")
             messages.append(MessageSummary(
                 uid=str(num), subject=str(msg.get("subject", "")).strip() or "(без темы)",
-                from_name=from_name, from_addr=from_addr, date=_parse_date(msg), seen=None,
+                from_name=from_name, from_addr=from_addr, to_addr=(to_addrs[0] if to_addrs else None),
+                date=_parse_date(msg), seen=None,
             ))
         return MessagePage(messages=messages, total=total, page=page, page_size=page_size)
 
-    def get_message(self, uid: str) -> MessageDetail:
+    def get_message(self, uid: str, folder: str = DEFAULT_FOLDER) -> MessageDetail:
+        self._check_folder(folder)
         return _parse_message(uid, self._fetch_raw(int(uid)))
 
-    def get_attachment(self, uid: str, index: int) -> tuple[AttachmentPart, bytes]:
+    def get_attachment(self, uid: str, index: int, folder: str = DEFAULT_FOLDER) -> tuple[AttachmentPart, bytes]:
+        self._check_folder(folder)
         result = _extract_attachment(self._fetch_raw(int(uid)), index)
         if result is None:
             raise MailError("Вложение не найдено")
         return result
+
+    def delete_message(self, uid: str, folder: str = DEFAULT_FOLDER) -> None:
+        self._check_folder(folder)
+        try:
+            self.conn.dele(int(uid))
+        except poplib.error_proto as exc:
+            raise MailError(f"POP3 DELE: {exc}") from exc
 
 
 def get_incoming_client(settings: MailboxSettings) -> IncomingMailClient:
@@ -497,6 +546,39 @@ def test_smtp_connection(settings: MailboxSettings) -> None:
 # ---------------------------------------------------------------------------
 # Отправка
 # ---------------------------------------------------------------------------
+
+def _save_to_sent_folder(settings: MailboxSettings, raw: bytes) -> None:
+    """SMTP сам не сохраняет копию отправленного письма никуда (это не его
+    задача — сохранением в "Отправленные" в обычном почтовом клиенте
+    занимается IMAP APPEND отдельным запросом после успешной отправки).
+    Только для IMAP (POP3 не пишущий протокол, папок у него нет вовсе) и
+    только если председатель указал имя папки в настройках.
+
+    Best-effort: ошибка здесь НЕ должна ронять всю отправку — письмо уже
+    реально ушло получателю к этому моменту, отсутствие копии в
+    "Отправленные" — второстепенная проблема, не повод показывать
+    пользователю "не удалось отправить письмо"."""
+    if settings.incoming_protocol != MailProtocol.IMAP or not settings.sent_folder:
+        return
+    try:
+        conn = _connect_imap(settings)
+    except MailError:
+        return
+    try:
+        folder = settings.sent_folder
+        typ, _data = conn.append(f'"{folder}"', "(\\Seen)", None, raw)
+        if typ != "OK":
+            # Папки ещё нет — создаём и пробуем ещё раз один раз.
+            conn.create(f'"{folder}"')
+            conn.append(f'"{folder}"', "(\\Seen)", None, raw)
+    except Exception:
+        pass
+    finally:
+        try:
+            conn.logout()
+        except Exception:
+            pass
+
 
 def send_message(
     settings: MailboxSettings,
@@ -529,3 +611,5 @@ def send_message(
             conn.quit()
         except Exception:
             pass
+
+    _save_to_sent_folder(settings, msg.as_bytes())

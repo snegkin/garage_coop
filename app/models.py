@@ -2026,5 +2026,15 @@ class MailboxSettings(Base):
     password_encrypted: Mapped[str | None] = mapped_column(Text)
     from_name: Mapped[str | None] = mapped_column(String(255))
 
+    # Папка "Отправленные" (IMAP) — SMTP сам не сохраняет копию письма
+    # никуда, поэтому после отправки мы сами дописываем её сюда через IMAP
+    # APPEND (см. mail_client.send_message: _save_to_sent_folder). Имя
+    # папки у разных провайдеров разное ("Sent", "Отправленные", "[Gmail]/
+    # Sent Mail") — председатель указывает его сам, автоопределение не
+    # делаем (соответствует общему принципу — без привязки к провайдеру).
+    # NULL/пусто — копии в "Отправленные" не сохраняются. У POP3 нет
+    # папок вовсе — поле игнорируется для этого протокола.
+    sent_folder: Mapped[str | None] = mapped_column(String(255), default="Sent")
+
     last_error: Mapped[str | None] = mapped_column(Text)
     last_checked_at: Mapped[dt.datetime | None] = mapped_column(DateTime)

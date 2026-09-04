@@ -102,19 +102,47 @@ class FakeImapConn:
     """Минимальный двойник imaplib.IMAP4 — поддерживает ровно те вызовы,
     которые делает ImapMailClient."""
 
-    def __init__(self, messages: dict[int, bytes]):
-        self._messages = messages  # uid -> raw bytes
+    def __init__(self, messages: dict[int, bytes], folders: dict[str, dict] | None = None):
+        self._messages = messages  # uid -> raw bytes (текущая выбранная папка)
+        self.selected_folder = None
+        self.expunged = False
+        # Для теста сохранения в "Отправленные": folders — доп. папки вида
+        # {"Sent": {"exists": True/False, "appended": [...]}}
+        self.folders = folders if folders is not None else {}
 
     def login(self, user, password):
         return ("OK", [b"logged in"])
 
     def select(self, folder):
+        self.selected_folder = folder.strip('"')
         return ("OK", [b"1"])
+
+    def append(self, mailbox, flags, date_time, message):
+        name = mailbox.strip('"')
+        info = self.folders.setdefault(name, {"exists": True, "appended": []})
+        if not info.get("exists", True):
+            return ("NO", [b"[TRYCREATE] No such mailbox"])
+        info["appended"].append(message)
+        return ("OK", [b"APPEND completed"])
+
+    def create(self, mailbox):
+        name = mailbox.strip('"')
+        self.folders.setdefault(name, {"exists": True, "appended": []})["exists"] = True
+        return ("OK", [b"CREATE completed"])
+
+    def expunge(self):
+        self.expunged = True
+        return ("OK", [b""])
 
     def uid(self, command, *args):
         if command == "search":
             uids = " ".join(str(u) for u in sorted(self._messages)).encode()
             return ("OK", [uids])
+        if command == "store":
+            uid = int(args[0].decode() if isinstance(args[0], bytes) else args[0])
+            if "\\Deleted" in args[2]:
+                self._messages.pop(uid, None)
+            return ("OK", [b"FLAGS (\\Deleted)"])
         if command == "fetch":
             uid = int(args[0].decode() if isinstance(args[0], bytes) else args[0])
             spec = args[1] if len(args) > 1 else ""
@@ -177,6 +205,85 @@ def test_imap_get_message_not_found_raises_mail_error(monkeypatch):
             client.get_message("999")
 
 
+def test_imap_delete_message_marks_deleted_and_expunges(monkeypatch):
+    msgs = {5: _make_test_email(with_inline_image=False, with_attachment=False).as_bytes()}
+    fake = FakeImapConn(msgs)
+    monkeypatch.setattr(mail_client, "_connect_imap", lambda settings: fake)
+
+    with mail_client.get_incoming_client(_imap_settings()) as client:
+        client.delete_message("5")
+
+    assert fake.expunged is True
+    assert 5 not in msgs
+
+
+def test_imap_list_messages_selects_requested_folder(monkeypatch):
+    fake = FakeImapConn({})
+    monkeypatch.setattr(mail_client, "_connect_imap", lambda settings: fake)
+
+    with mail_client.get_incoming_client(_imap_settings()) as client:
+        client.list_messages(page=1, folder="Sent")
+
+    assert fake.selected_folder == "Sent"
+
+
+def test_send_message_saves_copy_to_sent_folder(monkeypatch):
+    fake_imap = FakeImapConn({})
+    monkeypatch.setattr(mail_client, "_connect_imap", lambda settings: fake_imap)
+    fake_smtp = FakeSmtpConn()
+    monkeypatch.setattr(mail_client, "_connect_smtp", lambda settings: fake_smtp)
+
+    settings = _imap_settings()
+    settings.sent_folder = "Sent"
+    mail_client.send_message(settings, to_addrs=["a@example.com"], subject="Тест", body_text="Текст")
+
+    assert "Sent" in fake_imap.folders
+    assert len(fake_imap.folders["Sent"]["appended"]) == 1
+
+
+def test_send_message_creates_sent_folder_if_missing(monkeypatch):
+    fake_imap = FakeImapConn({}, folders={"Sent": {"exists": False, "appended": []}})
+    monkeypatch.setattr(mail_client, "_connect_imap", lambda settings: fake_imap)
+    fake_smtp = FakeSmtpConn()
+    monkeypatch.setattr(mail_client, "_connect_smtp", lambda settings: fake_smtp)
+
+    settings = _imap_settings()
+    settings.sent_folder = "Sent"
+    mail_client.send_message(settings, to_addrs=["a@example.com"], subject="Тест", body_text="Текст")
+
+    assert fake_imap.folders["Sent"]["exists"] is True
+    assert len(fake_imap.folders["Sent"]["appended"]) == 1
+
+
+def test_send_message_without_sent_folder_configured_does_not_append(monkeypatch):
+    fake_imap = FakeImapConn({})
+    monkeypatch.setattr(mail_client, "_connect_imap", lambda settings: fake_imap)
+    fake_smtp = FakeSmtpConn()
+    monkeypatch.setattr(mail_client, "_connect_smtp", lambda settings: fake_smtp)
+
+    settings = _imap_settings()
+    settings.sent_folder = None
+    mail_client.send_message(settings, to_addrs=["a@example.com"], subject="Тест", body_text="Текст")
+
+    assert fake_imap.folders == {}
+
+
+def test_send_message_sent_folder_failure_does_not_fail_send(monkeypatch):
+    """Best-effort: копия в "Отправленные" не сохранилась — письмо всё
+    равно считается успешно отправленным (получателю оно уже ушло)."""
+    def boom_connect(settings):
+        raise mail_client.MailError("IMAP unreachable")
+
+    monkeypatch.setattr(mail_client, "_connect_imap", boom_connect)
+    fake_smtp = FakeSmtpConn()
+    monkeypatch.setattr(mail_client, "_connect_smtp", lambda settings: fake_smtp)
+
+    settings = _imap_settings()
+    settings.sent_folder = "Sent"
+    mail_client.send_message(settings, to_addrs=["a@example.com"], subject="Тест", body_text="Текст")
+    assert len(fake_smtp.sent) == 1
+
+
 # ---------------------------------------------------------------------------
 # POP3
 # ---------------------------------------------------------------------------
@@ -185,6 +292,7 @@ class FakePop3Conn:
     def __init__(self, messages: list[bytes], supports_top: bool = True):
         self._messages = messages  # индекс 0 -> номер 1
         self._supports_top = supports_top
+        self.deleted = []
 
     def user(self, name):
         pass
@@ -205,6 +313,9 @@ class FakePop3Conn:
     def retr(self, num):
         raw = self._messages[num - 1]
         return (b"+OK", raw.split(b"\r\n"), len(raw))
+
+    def dele(self, num):
+        self.deleted.append(num)
 
     def quit(self):
         pass
@@ -248,6 +359,28 @@ def test_pop3_get_message(monkeypatch):
     with mail_client.get_incoming_client(_pop3_settings()) as client:
         detail = client.get_message("1")
         assert detail.subject == "Целиком"
+
+
+def test_pop3_delete_message_calls_dele(monkeypatch):
+    raws = [_make_test_email(with_inline_image=False, with_attachment=False).as_bytes()]
+    fake = FakePop3Conn(raws)
+    monkeypatch.setattr(mail_client, "_connect_pop3", lambda settings: fake)
+
+    with mail_client.get_incoming_client(_pop3_settings()) as client:
+        client.delete_message("1")
+
+    assert fake.deleted == [1]
+
+
+def test_pop3_rejects_non_inbox_folder(monkeypatch):
+    fake = FakePop3Conn([])
+    monkeypatch.setattr(mail_client, "_connect_pop3", lambda settings: fake)
+
+    with mail_client.get_incoming_client(_pop3_settings()) as client:
+        with pytest.raises(MailError):
+            client.list_messages(page=1, folder="Sent")
+        with pytest.raises(MailError):
+            client.delete_message("1", folder="Sent")
 
 
 # ---------------------------------------------------------------------------

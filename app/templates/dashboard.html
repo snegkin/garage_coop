@@ -28,7 +28,10 @@
         {% if stats.collection_rates %}
           <div class="text-muted small text-end">{{ _("Собираемость") }}:</div>
           {% for year, rate in stats.collection_rates %}
-          <div class="text-muted small text-end">· {{ year }} — {{ fmt2(rate) }}%</div>
+          <div class="text-muted small d-flex justify-content-end gap-1">
+            <span style="min-width:3em">{{ year }}</span>
+            <span style="min-width:3.5em" class="text-end">{{ fmt2(rate) }}%</span>
+          </div>
           {% endfor %}
         {% endif %}
       </div></div>

@@ -153,9 +153,17 @@
           }
           var markdown = "![](" + result.data.url + ")";
           var value = textarea.value;
-          textarea.value = value.slice(0, cursorPos) + markdown + value.slice(cursorPos);
+          var before = value.slice(0, cursorPos);
+          var after = value.slice(cursorPos);
+          // Картинка должна оказаться в отдельном абзаце — иначе markdown
+          // склеит её с соседним текстом через <br>, и такой абзац уже не
+          // распознаётся как "только картинка" для оформления галереей
+          // (см. groupContentImages в base.html).
+          var prefix = (before.length === 0 || /\n\n$/.test(before)) ? "" : (/\n$/.test(before) ? "\n" : "\n\n");
+          var suffix = (after.length === 0 || /^\n\n/.test(after)) ? "" : (/^\n/.test(after) ? "\n" : "\n\n");
+          textarea.value = before + prefix + markdown + suffix + after;
           textarea.focus();
-          textarea.selectionStart = textarea.selectionEnd = cursorPos + markdown.length;
+          textarea.selectionStart = textarea.selectionEnd = cursorPos + prefix.length + markdown.length;
         })
         .catch(function () {
           imageStatus.textContent = "{{ _('Не удалось загрузить файл.') }}";

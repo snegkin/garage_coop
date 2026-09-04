@@ -9,6 +9,7 @@ from .auth import login_required
 from .permissions import is_board
 from .models import (
     Garage, Person, GeneralMeeting, AnnualReport, MemberAccount, Charge, Payment, AuditLog, ChargeAllocation,
+    PowerPhaseDevice,
 )
 from .accounting import cooperative_balance
 from .permissions import is_chairman
@@ -110,4 +111,18 @@ def dashboard():
     )
 
     setup_status = wizard_status() if is_chairman() else None
-    return render_template("dashboard.html", stats=stats, recent_activity=recent_activity, setup_status=setup_status)
+
+    # Для виджета мониторинга электроэнергии на панели — только список
+    # устройств (id/label), сами данные графика подтягивает JS с
+    # electricity_monitor.history_data (см. dashboard.html), чтобы не
+    # дублировать здесь его логику формирования точек.
+    electricity_devices = (
+        database.db_session.query(PowerPhaseDevice)
+        .order_by(PowerPhaseDevice.sort_order, PowerPhaseDevice.id)
+        .all()
+    )
+
+    return render_template(
+        "dashboard.html", stats=stats, recent_activity=recent_activity, setup_status=setup_status,
+        electricity_devices=electricity_devices,
+    )

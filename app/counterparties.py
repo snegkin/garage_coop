@@ -43,6 +43,44 @@ def _save_document(
     return doc.id
 
 
+def _save_expense_documents(
+    file_key: str, title_key: str, default_title: str,
+    counterparty: Counterparty, expense: Expense, doc_type: DocumentType = DocumentType.ACT,
+) -> list[Document]:
+    """Как _save_document, но для расходов — которым иногда нужно сразу
+    несколько подтверждающих документов (см. Expense.documents: например
+    регистрация домена оформляется одним УПД, а аренда ПО веб-панели для
+    его DNS — отдельным, но кооператив ведёт это одной строкой расхода).
+    <input type="file" multiple> — каждый выбранный файл становится своим
+    Document с expense_id. Явный заголовок (title_key) применяется только
+    когда файл один — для нескольких он был бы неотличим на разных
+    документах, вместо этого берётся оригинальное имя каждого файла.
+    Вызывается и при редактировании — тогда только ДОБАВЛЯЕТ новые
+    документы, не трогая уже прикреплённые (у каждого уже есть свои
+    изменить/удалить в общем разделе «Документы», см. detail.html)."""
+    files = [fs for fs in request.files.getlist(file_key) if fs and fs.filename]
+    if not files:
+        return []
+    explicit_title = request.form.get(title_key) or None
+    single = len(files) == 1
+    documents = []
+    for file_storage in files:
+        file_path = save_upload(file_storage, current_app.config["UPLOAD_FOLDER"])
+        if not file_path:
+            continue
+        title = (explicit_title if single else None) or file_storage.filename or default_title
+        doc = Document(
+            doc_type=doc_type, date=dt.date.today(), title=title, file_path=file_path,
+            file_name=secure_filename(file_storage.filename),
+            counterparty_id=counterparty.id, expense_id=expense.id, is_internal=True,
+        )
+        database.db_session.add(doc)
+        documents.append(doc)
+    if documents:
+        database.db_session.flush()
+    return documents
+
+
 @bp.route("/")
 @roles_required(RoleEnum.BOARD)
 def list_counterparties():
@@ -191,19 +229,19 @@ def add_expense(counterparty_id):
     f = request.form
     expense_date = dt.date.fromisoformat(f["date"])
     expense_amount = parse_decimal(f["amount"])
-    document_id = _save_document(
-        "document_file", "document_title",
-        _("Счёт от {name}", name=counterparty.name), counterparty,
-    )
-    database.db_session.add(Expense(
+    expense = Expense(
         counterparty_id=counterparty.id,
         date=expense_date,
         amount=expense_amount,
         category=f.get("category") or None,
         description=f.get("description") or None,
-        document_id=document_id,
-    ))
+    )
+    database.db_session.add(expense)
     database.db_session.flush()
+    _save_expense_documents(
+        "document_file", "document_title",
+        _("Счёт от {name}", name=counterparty.name), counterparty, expense,
+    )
     reallocate_counterparty_expenses(counterparty)
     audit.record(
         "expense.create", entity_type="counterparty", entity_id=counterparty.id,
@@ -226,6 +264,10 @@ def edit_expense(counterparty_id, expense_id):
     идемпотентно и пересчитывается заново при любом изменении — задним
     числом переписывать здесь нечего, в отличие от платежей, где правка
     затрагивает уже списанный баланс счёта.
+
+    Новые файлы (если выбраны) ДОБАВЛЯЮТСЯ к уже прикреплённым документам
+    расхода (см. _save_expense_documents), не заменяют их — у каждого
+    документа уже есть свои изменить/удалить в разделе «Документы» ниже.
     """
     counterparty = database.db_session.get(Counterparty, counterparty_id)
     expense = database.db_session.get(Expense, expense_id)
@@ -237,12 +279,10 @@ def edit_expense(counterparty_id, expense_id):
     expense.amount = parse_decimal(f["amount"])
     expense.category = f.get("category") or None
     expense.description = f.get("description") or None
-    document_id = _save_document(
+    _save_expense_documents(
         "document_file", "document_title",
-        _("Счёт от {name}", name=counterparty.name), counterparty,
+        _("Счёт от {name}", name=counterparty.name), counterparty, expense,
     )
-    if document_id is not None:
-        expense.document_id = document_id
     database.db_session.flush()
     reallocate_counterparty_expenses(counterparty)
     audit.record(

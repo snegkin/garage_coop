@@ -430,7 +430,12 @@ class Counterparty(Base):
 
 class Expense(Base):
     """Расход кооператива в адрес контрагента (снег, дорога, обслуживание и т.д.).
-    document_id — подтверждающий документ (счёт/акт от контрагента)."""
+    documents — подтверждающие документы (счета/акты от контрагента),
+    их может быть НЕСКОЛЬКО на один расход: в жизни услуга иногда
+    оформляется контрагентом сразу двумя УПД (например регистрация домена
+    отдельным документом и аренда ПО веб-панели для его DNS — другим), а
+    кооператив всё равно ведёт это одной строкой расхода. См.
+    Document.expense_id — обратная сторона связи."""
     __tablename__ = "expense"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -439,9 +444,9 @@ class Expense(Base):
     amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
     category: Mapped[str | None] = mapped_column(String(100))
     description: Mapped[str | None] = mapped_column(Text)
-    document_id: Mapped[int | None] = mapped_column(ForeignKey("document.id", ondelete="SET NULL"), index=True)
 
     counterparty: Mapped["Counterparty"] = relationship(back_populates="expenses")
+    documents: Mapped[list["Document"]] = relationship(back_populates="expense", order_by="Document.id")
     allocations: Mapped[list["ExpenseAllocation"]] = relationship(
         back_populates="expense", cascade="all, delete-orphan"
     )
@@ -455,7 +460,7 @@ class CounterpartyPayment(Base):
     CounterpartyPayment.bank_account.balance на сумму платежа — если только
     adjusts_bank_balance не выключен явно (см. ниже).
     document_id — платёжный документ (платёжка/квитанция), в отличие от
-    Expense.document_id (тот — счёт/акт, подтверждающий сам факт задолженности).
+    Expense.documents (те — счета/акты, подтверждающие сам факт задолженности).
     """
     __tablename__ = "counterparty_payment"
 
@@ -588,8 +593,14 @@ class Document(Base):
     comment: Mapped[str | None] = mapped_column(Text)
     is_internal: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     counterparty_id: Mapped[int | None] = mapped_column(ForeignKey("counterparty.id", ondelete="SET NULL"), index=True)
+    # Расход, к которому приложен этот документ (счёт/акт/УПД) — см.
+    # Expense.documents: один расход может ссылаться на несколько
+    # документов (несколько УПД под одну строку расхода). SET NULL — при
+    # удалении расхода сам документ (файл) не пропадает, просто отвязывается.
+    expense_id: Mapped[int | None] = mapped_column(ForeignKey("expense.id", ondelete="SET NULL"), index=True)
 
     counterparty: Mapped["Counterparty | None"] = relationship(back_populates="documents")
+    expense: Mapped["Expense | None"] = relationship(back_populates="documents")
 
 
 class BoardTerm(Base):

@@ -56,6 +56,8 @@ def create_app(config_class=Config):
     app.jinja_env.globals["phones_html"] = contact_format.phones_html
     app.jinja_env.globals["email_link"] = contact_format.email_link
     app.jinja_env.globals["telegram_link"] = contact_format.telegram_link
+    app.jinja_env.globals["vk_link"] = contact_format.vk_link
+    app.jinja_env.globals["max_link"] = contact_format.max_link
     app.jinja_env.globals["linkify_related_person"] = comment_format.linkify_related_person
     # Раскодированный (не-punycode) вид почтового адреса для показа — см.
     # mail_client.decode_idn_address. Фильтр (не global), чтобы работал и

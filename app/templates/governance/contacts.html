@@ -6,7 +6,7 @@
 </div>
 <p class="text-muted small">{{ _("Это открытые данные — по ним можно связаться с правлением по любым вопросам работы кооператива.") }}</p>
 <table class="table table-bordered bg-body">
-  <thead><tr><th>{{ _("ФИО") }}</th><th>{{ _("Роль") }}</th><th>{{ _("Телефон") }}</th><th>{{ _("Email") }}</th><th>{{ _("Telegram") }}</th></tr></thead>
+  <thead><tr><th>{{ _("ФИО") }}</th><th>{{ _("Роль") }}</th><th>{{ _("Телефон") }}</th><th>{{ _("Email") }}</th><th>{{ _("Telegram") }}</th><th>{{ _("VK") }}</th><th>{{ _("MAX") }}</th></tr></thead>
   <tbody>
     {% for m in (current_term.members if current_term else []) %}
     <tr>
@@ -18,9 +18,11 @@
       <td>{{ phones_html(m.person.phones) }}</td>
       <td>{{ email_link(m.person.email) }}</td>
       <td>{{ telegram_link(m.person.telegram) }}</td>
+      <td>{{ vk_link(m.person.vk) }}</td>
+      <td>{{ max_link(m.person.max_messenger) }}</td>
     </tr>
     {% else %}
-    <tr><td colspan="5" class="text-muted">{{ _("Действующего состава правления пока нет.") }}</td></tr>
+    <tr><td colspan="7" class="text-muted">{{ _("Действующего состава правления пока нет.") }}</td></tr>
     {% endfor %}
   </tbody>
 </table>

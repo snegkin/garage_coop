@@ -89,6 +89,8 @@ def _save_from_form(person, f):
     person.residence_address = f.get("residence_address") or None
     person.email = f.get("email") or None
     person.telegram = f.get("telegram") or None
+    person.vk = f.get("vk") or None
+    person.max_messenger = f.get("max") or None
     person.passport_series = f.get("passport_series") or None
     person.passport_number = f.get("passport_number") or None
     issue_date = f.get("passport_issue_date")
@@ -154,6 +156,8 @@ def create():
 _REVISION_FIELDS = [
     ("email", "Email"),
     ("telegram", "Telegram"),
+    ("vk", "VK"),
+    ("max_messenger", "MAX"),
     ("registration_address", "Адрес регистрации"),
     ("residence_address", "Адрес проживания"),
     ("phones", "Телефоны"),
@@ -186,6 +190,8 @@ def _revision_diff_rows(revision, person):
         current = {
             "email": person.email,
             "telegram": person.telegram,
+            "vk": person.vk,
+            "max_messenger": person.max_messenger,
             "registration_address": person.registration_address,
             "residence_address": person.residence_address,
             "phones": sorted(p.number for p in person.phones),
@@ -727,6 +733,8 @@ def _apply_revision(revision):
         return
     person.email = snap.get("email")
     person.telegram = snap.get("telegram")
+    person.vk = snap.get("vk")
+    person.max_messenger = snap.get("max_messenger")
     person.registration_address = snap.get("registration_address")
     person.residence_address = snap.get("residence_address")
     # телефоны

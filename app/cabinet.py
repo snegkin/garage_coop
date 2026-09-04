@@ -46,6 +46,8 @@ def profile():
         current = {
             "email": person.email,
             "telegram": person.telegram,
+            "vk": person.vk,
+            "max_messenger": person.max_messenger,
             "registration_address": person.registration_address,
             "residence_address": person.residence_address,
             "phones": sorted([p.number for p in person.phones]),
@@ -56,6 +58,8 @@ def profile():
         new_data = {
             "email": f.get("email") or None,
             "telegram": f.get("telegram") or None,
+            "vk": f.get("vk") or None,
+            "max_messenger": f.get("max") or None,
             "registration_address": f.get("registration_address") or None,
             "residence_address": f.get("residence_address") or None,
             "phones": sorted([p.strip() for p in f.get("phones", "").split(",") if p.strip()]),
@@ -109,6 +113,8 @@ def profile():
             'full_name': person.full_name,
             'email': snap.get('email'),
             'telegram': snap.get('telegram'),
+            'vk': snap.get('vk'),
+            'max_messenger': snap.get('max_messenger'),
             'registration_address': snap.get('registration_address'),
             'residence_address': snap.get('residence_address'),
             'phones': [Phone(id=-1, number=n) for n in snap.get('phones', [])],

@@ -924,6 +924,8 @@ class Person(Base):
     residence_address: Mapped[str | None] = mapped_column(Text)     # адрес проживания
     email: Mapped[str | None] = mapped_column(String(120))
     telegram: Mapped[str | None] = mapped_column(String(120))
+    vk: Mapped[str | None] = mapped_column(String(120))
+    max_messenger: Mapped[str | None] = mapped_column(String(120))  # мессенджер "MAX" (VK) — имя атрибута не "max", чтобы не затенять builtin
 
     @property
     def short_name(self) -> str:

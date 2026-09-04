@@ -16,6 +16,14 @@
     <label class="form-label">{{ _("Telegram") }}</label>
     <input class="form-control" name="telegram" value="{{ (person.telegram or '') if person else '' }}">
   </div>
+  <div class="col-md-6">
+    <label class="form-label">{{ _("VK") }}</label>
+    <input class="form-control" name="vk" value="{{ (person.vk or '') if person else '' }}">
+  </div>
+  <div class="col-md-6">
+    <label class="form-label">{{ _("MAX") }}</label>
+    <input class="form-control" name="max" value="{{ (person.max_messenger or '') if person else '' }}">
+  </div>
   <div class="col-md-6"></div>
   <div class="col-md-6">
     <label class="form-label">{{ _("Адрес регистрации (прописки)") }}</label>

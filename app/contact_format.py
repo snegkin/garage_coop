@@ -52,3 +52,36 @@ def telegram_link(handle: str | None) -> Markup | str:
     else:
         url = f"https://t.me/{handle.lstrip('@')}"
     return Markup('<a href="{}" target="_blank" rel="noopener">{}</a>').format(url, handle)
+
+
+def vk_link(handle: str | None) -> Markup | str:
+    """
+    Тот же приём, что и telegram_link — handle хранится либо как id/короткое
+    имя ("id12345", "durov"), либо уже полной ссылкой; фиксированная схема
+    vk.com, поэтому произвольная схема в поле не опасна.
+    """
+    if not handle:
+        return "—"
+    handle = handle.strip()
+    if handle.startswith("http://") or handle.startswith("https://"):
+        url = handle
+    else:
+        url = f"https://vk.com/{handle.lstrip('@/')}"
+    return Markup('<a href="{}" target="_blank" rel="noopener">{}</a>').format(url, handle)
+
+
+def max_link(handle: str | None) -> Markup | str:
+    """
+    У мессенджера MAX (VK), в отличие от Telegram/VK, нет надёжно
+    подтверждённой публичной схемы диплинков на профиль — поэтому, в
+    отличие от telegram_link/vk_link, домен не придумываем: ссылкой
+    становится только то, что уже само по себе похоже на полный URL
+    (участник вставил ссылку сам), иначе просто показываем введённый текст
+    (обычно логин/номер) без ссылки.
+    """
+    if not handle:
+        return "—"
+    handle = handle.strip()
+    if handle.startswith("http://") or handle.startswith("https://"):
+        return Markup('<a href="{}" target="_blank" rel="noopener">{}</a>').format(handle, handle)
+    return handle

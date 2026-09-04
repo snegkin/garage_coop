@@ -12,8 +12,8 @@ from app.models import RoleEnum, Person, Phone, BoardTerm, BoardMember
 from tests.conftest import make_user, login
 
 
-def _make_board_with_chairman(db, phone="+79161234567", email="ivanov@example.com", telegram="@ivanov"):
-    person = Person(full_name="Иванов Иван Иванович", email=email, telegram=telegram)
+def _make_board_with_chairman(db, phone="+79161234567", email="ivanov@example.com", telegram="@ivanov", vk="ivanov", max_messenger="ivanov"):
+    person = Person(full_name="Иванов Иван Иванович", email=email, telegram=telegram, vk=vk, max_messenger=max_messenger)
     db.add(person)
     db.flush()
     db.add(Phone(person_id=person.id, number=phone))
@@ -71,6 +71,8 @@ def test_contacts_page_shows_clickable_contact_details(db, client):
     assert 'href="tel:+79161234567"' in body
     assert 'href="mailto:ivanov@example.com"' in body
     assert 'href="https://t.me/ivanov"' in body
+    assert 'href="https://vk.com/ivanov"' in body
+    assert "<td>ivanov</td>" in body  # MAX — без придуманной ссылки, просто текст (не <a>)
 
 
 def test_contacts_page_accessible_to_regular_member(db, client):

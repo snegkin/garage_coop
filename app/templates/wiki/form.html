@@ -170,7 +170,7 @@
   var previewModalEl = document.getElementById("wikiPreviewModal");
   var previewBody = document.getElementById("wikiPreviewBody");
   var previewError = document.getElementById("wikiPreviewError");
-  if (previewBtn && previewModalEl && window.bootstrap) {
+  if (previewBtn && previewModalEl) {
     previewBtn.addEventListener("click", function () {
       previewError.classList.add("d-none");
       previewBody.innerHTML = "";
@@ -197,7 +197,7 @@
           previewError.classList.remove("d-none");
         })
         .finally(function () {
-          bootstrap.Modal.getOrCreateInstance(previewModalEl).show();
+          if (window.bootstrap) bootstrap.Modal.getOrCreateInstance(previewModalEl).show();
         });
     });
   }

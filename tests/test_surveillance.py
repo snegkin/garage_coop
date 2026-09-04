@@ -106,14 +106,15 @@ def test_chairman_sees_management_controls(app, db, client):
     assert f'/surveillance/recorders/{recorder.id}/delete' in body
 
 
-def test_nav_link_visible_to_board_not_to_member(app, db, client):
+def test_nav_link_visible_to_any_logged_in_role(app, db, client):
     """Пункт меню «Видеонаблюдение» перенесён в выпадающее меню
-    «Кооператив» (видно только правлению, см. base.html) — раздел при этом
-    остаётся ОБЩЕДОСТУПНЫМ по прямому URL (нет @login_required/
-    @roles_required на surveillance.view, см. модуль), просто рядовой член
-    больше не видит быстрой ссылки в верхней навигации. Анонимному
-    посетителю ссылка всё ещё показывается отдельно на странице входа —
-    см. test_login_page_has_surveillance_link_for_anonymous ниже."""
+    «Кооператив», но БЕЗ гейта по роли — сам раздел общедоступен по прямому
+    URL (нет @login_required/@roles_required на surveillance.view, см.
+    модуль), поэтому и пункт меню видно любому вошедшему пользователю
+    (правило «права по пунктам меню, по факту декоратора на роуте», см.
+    base.html). Анонимному посетителю ссылка всё ещё показывается отдельно
+    на странице входа — см. test_login_page_has_surveillance_link_for_anonymous
+    ниже."""
     person = make_person(db, full_name="Обычный Человек Человекович")
     make_user(db, "member2", "pass12345", role=RoleEnum.MEMBER, person=person)
     db.commit()
@@ -123,7 +124,7 @@ def test_nav_link_visible_to_board_not_to_member(app, db, client):
     assert resp.status_code in (200, 302)  # рядовой член редиректится в кабинет — nav всё равно есть в base.html
     resp = client.get("/cabinet/garages") if resp.status_code == 302 else resp
     body = resp.get_data(as_text=True)
-    assert '/surveillance/' not in body
+    assert '/surveillance/' in body
 
     # Сама страница при этом открыта напрямую, без каких-либо прав.
     assert client.get("/surveillance/").status_code == 200

@@ -10,12 +10,24 @@ import re
 from markupsafe import Markup
 
 _PHONE_ALLOWED = re.compile(r"[^0-9+]")
+_PHONE_SPLIT = re.compile(r"[,;]+")
 
 
 def phone_link(number: str | None) -> Markup | str:
-    """<a href="tel:...">исходный текст номера</a>; для tel: оставляем только цифры и '+'."""
+    """<a href="tel:...">исходный текст номера</a>; для tel: оставляем только цифры и '+'.
+
+    Counterparty.phone — одно текстовое поле без отдельных строк на каждый
+    номер (в отличие от Person, у которого несколько объектов Phone, см.
+    phones_html) — поэтому несколько номеров туда вводят через запятую/
+    точку с запятой в одну строку. Без разбиения все цифры всех номеров
+    слипались бы в один нерабочий tel: (и выглядели одним "супертелефоном"
+    в ссылке) — здесь каждый номер становится своей отдельной ссылкой.
+    """
     if not number:
         return "—"
+    parts = [p.strip() for p in _PHONE_SPLIT.split(number) if p.strip()]
+    if len(parts) > 1:
+        return Markup(", ").join(phone_link(p) for p in parts)
     digits = _PHONE_ALLOWED.sub("", number)
     if not digits:
         return Markup("{}").format(number)

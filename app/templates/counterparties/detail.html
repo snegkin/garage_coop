@@ -70,7 +70,11 @@
         {% elif paid > 0 %}<span class="badge bg-warning text-dark">{{ fmt2(paid) }} {{ _("из") }} {{ fmt2(e.amount) }} ₽</span>
         {% else %}<span class="badge bg-danger">{{ _("не оплачено") }}</span>{% endif %}
       </td>
-      <td>{% if e.document_id %}<a href="{{ url_for('cooperative.download_document', doc_id=e.document_id) }}">{{ _("скачать") }}</a>{% else %}—{% endif %}</td>
+      <td>
+        {% if e.documents %}
+          {% for doc in e.documents %}<a href="{{ url_for('cooperative.download_document', doc_id=doc.id) }}" title="{{ doc.title }}">{{ _("скачать") }}{% if e.documents|length > 1 %} ({{ loop.index }}){% endif %}</a>{% if not loop.last %}, {% endif %}{% endfor %}
+        {% else %}—{% endif %}
+      </td>
       <td class="no-sort"><button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#editExpenseModal{{ e.id }}">{{ _("Изменить") }}</button></td>
     </tr>
     {% else %}
@@ -282,7 +286,8 @@
           </div>
           <div class="mb-3">
             <label class="form-label">{{ _("Счёт / акт от контрагента") }}</label>
-            <input class="form-control" type="file" name="document_file">
+            <input class="form-control" type="file" name="document_file" multiple>
+            <div class="form-text">{{ _("Можно выбрать сразу несколько файлов — например, когда услуга оформлена контрагентом двумя разными УПД (счёт-фактурами).") }}</div>
           </div>
         </div>
         <div class="modal-footer d-flex justify-content-end">
@@ -326,11 +331,15 @@
           </div>
           <div class="mb-3">
             <label class="form-label">{{ _("Счёт / акт от контрагента") }}</label>
-            {% if e.document_id %}
-            <div class="form-text mb-1">{{ _("Сейчас прикреплён:") }} <a href="{{ url_for('cooperative.download_document', doc_id=e.document_id) }}">{{ _("скачать") }}</a></div>
+            {% if e.documents %}
+            <div class="form-text mb-1">
+              {{ _("Уже прикреплено:") }}
+              {% for doc in e.documents %}<a href="{{ url_for('cooperative.download_document', doc_id=doc.id) }}">{{ doc.title }}</a>{% if not loop.last %}, {% endif %}{% endfor %}
+              — {{ _("изменить название или удалить отдельный файл можно в разделе") }} <a href="#documentsSection">{{ _("«Документы»") }}</a> {{ _("ниже.") }}
+            </div>
             {% endif %}
-            <input class="form-control" type="file" name="document_file">
-            <div class="form-text">{{ _("Оставьте пустым, чтобы не менять уже прикреплённый файл.") }}</div>
+            <input class="form-control" type="file" name="document_file" multiple>
+            <div class="form-text">{{ _("Необязательно — выбранные файлы ДОБАВЯТСЯ к уже прикреплённым, не заменят их. Можно выбрать несколько сразу (например, услуга оформлена двумя разными УПД).") }}</div>
           </div>
         </div>
         <div class="modal-footer d-flex justify-content-end">

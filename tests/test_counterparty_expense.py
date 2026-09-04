@@ -77,11 +77,39 @@ def test_editing_non_last_expense_is_allowed_and_reallocates_payments(db, client
     assert paid_e3 == Decimal("0")
 
 
-def test_edit_expense_keeps_existing_document_when_no_new_file_uploaded(db, client):
+def test_add_expense_with_two_files_creates_two_documents(db, client):
+    """Реальный случай, из-за которого расходу может понадобиться больше
+    одного подтверждающего документа: регистрация домена оформляется одним
+    УПД, аренда ПО веб-панели для его DNS — другим, а кооператив ведёт это
+    одной строкой расхода (см. Expense.documents)."""
     counterparty = make_counterparty(db)
     make_user(db, "board62", "pass12345", role=RoleEnum.BOARD)
     db.commit()
     login(client, "board62", "pass12345")
+
+    resp = client.post(f"/counterparties/{counterparty.id}/expenses/new", data={
+        "date": "2026-01-01", "amount": "1500.00",
+        "document_file": [
+            (io.BytesIO(b"upd domain"), "upd-domain.pdf"),
+            (io.BytesIO(b"upd panel"), "upd-panel.pdf"),
+        ],
+    })
+    assert resp.status_code == 302
+    db.expire_all()
+
+    expense = db.query(Expense).filter_by(counterparty_id=counterparty.id).one()
+    assert len(expense.documents) == 2
+    titles = {d.title for d in expense.documents}
+    assert titles == {"upd-domain.pdf", "upd-panel.pdf"}
+    # оба документа видны и в общем разделе "Документы" контрагента
+    assert set(expense.documents) <= set(counterparty.documents)
+
+
+def test_edit_expense_keeps_existing_documents_when_no_new_file_uploaded(db, client):
+    counterparty = make_counterparty(db)
+    make_user(db, "board62b", "pass12345", role=RoleEnum.BOARD)
+    db.commit()
+    login(client, "board62b", "pass12345")
 
     client.post(f"/counterparties/{counterparty.id}/expenses/new", data={
         "date": "2026-01-01", "amount": "500.00",
@@ -89,18 +117,18 @@ def test_edit_expense_keeps_existing_document_when_no_new_file_uploaded(db, clie
     })
     db.expire_all()
     expense = db.query(Expense).filter_by(counterparty_id=counterparty.id).one()
-    original_document_id = expense.document_id
-    assert original_document_id is not None
+    original_doc_ids = {d.id for d in expense.documents}
+    assert original_doc_ids
 
     resp = client.post(f"/counterparties/{counterparty.id}/expenses/{expense.id}/edit", data={
         "date": "2026-01-01", "amount": "600.00", "category": "",
     })
     assert resp.status_code == 302
     db.expire_all()
-    assert db.get(Expense, expense.id).document_id == original_document_id
+    assert {d.id for d in db.get(Expense, expense.id).documents} == original_doc_ids
 
 
-def test_edit_expense_replaces_document_when_new_file_uploaded(db, client):
+def test_edit_expense_adds_new_document_without_removing_existing_one(db, client):
     counterparty = make_counterparty(db)
     make_user(db, "board63", "pass12345", role=RoleEnum.BOARD)
     db.commit()
@@ -112,14 +140,16 @@ def test_edit_expense_replaces_document_when_new_file_uploaded(db, client):
     })
     db.expire_all()
     expense = db.query(Expense).filter_by(counterparty_id=counterparty.id).one()
-    original_document_id = expense.document_id
+    original_doc_ids = {d.id for d in expense.documents}
 
     client.post(f"/counterparties/{counterparty.id}/expenses/{expense.id}/edit", data={
         "date": "2026-01-01", "amount": "500.00", "category": "",
-        "document_file": (io.BytesIO(b"new file"), "invoice-v2.pdf"),
+        "document_file": (io.BytesIO(b"second upd"), "invoice-2.pdf"),
     })
     db.expire_all()
-    assert db.get(Expense, expense.id).document_id != original_document_id
+    new_doc_ids = {d.id for d in db.get(Expense, expense.id).documents}
+    assert original_doc_ids < new_doc_ids  # старый документ остался, добавился новый
+    assert len(new_doc_ids) == 2
 
 
 def test_edit_expense_writes_audit_log(db, client):

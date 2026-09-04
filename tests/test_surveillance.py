@@ -65,6 +65,7 @@ def test_anonymous_does_not_see_management_controls(app, db, client):
     body = resp.get_data(as_text=True)
     assert "addRecorderModal" not in body
     assert f'/surveillance/recorders/{recorder.id}/delete' not in body
+    assert f'editRecorderModal{recorder.id}' not in body
 
 
 def test_plain_member_does_not_see_management_controls(app, db, client):
@@ -79,6 +80,7 @@ def test_plain_member_does_not_see_management_controls(app, db, client):
     body = resp.get_data(as_text=True)
     assert "addRecorderModal" not in body
     assert f'/surveillance/recorders/{recorder.id}/delete' not in body
+    assert f'editRecorderModal{recorder.id}' not in body
 
 
 def test_board_member_does_not_see_management_controls(app, db, client):
@@ -104,6 +106,8 @@ def test_chairman_sees_management_controls(app, db, client):
     body = resp.get_data(as_text=True)
     assert "addRecorderModal" in body
     assert f'/surveillance/recorders/{recorder.id}/delete' in body
+    assert f'editRecorderModal{recorder.id}' in body
+    assert f'/surveillance/recorders/{recorder.id}/edit' in body
 
 
 def test_nav_link_visible_to_any_logged_in_role(app, db, client):
@@ -237,6 +241,175 @@ def test_anonymous_cannot_create_recorder(client, db):
     assert resp.status_code == 302
     assert "/auth/login" in resp.headers["Location"]
     assert db.query(DvrRecorder).count() == 0
+
+
+# ---------------------------------------------------------------------------
+# Правка регистратора и его камер
+# ---------------------------------------------------------------------------
+
+def test_chairman_edits_recorder_fields(app, db, client):
+    recorder = make_recorder(db, name="Старое имя", host="10.0.0.1", port=554, username="olduser")
+    make_user(db, "chair10", "pass12345", role=RoleEnum.CHAIRMAN)
+    db.commit()
+    login(client, "chair10", "pass12345")
+
+    resp = client.post(f"/surveillance/recorders/{recorder.id}/edit", data={
+        "name": "Новое имя", "host": "10.0.0.2", "port": "8555",
+        "username": "newuser", "password": "", "comment": "уточнили адрес",
+    })
+    assert resp.status_code == 302
+    db.expire_all()
+
+    updated = database.db_session.get(DvrRecorder, recorder.id)
+    assert updated.name == "Новое имя"
+    assert updated.host == "10.0.0.2"
+    assert updated.port == 8555
+    assert updated.username == "newuser"
+    assert updated.comment == "уточнили адрес"
+
+
+def test_edit_recorder_empty_password_does_not_clear_existing_secret(app, db, client):
+    recorder = make_recorder(db, password="original-secret")
+    make_user(db, "chair11", "pass12345", role=RoleEnum.CHAIRMAN)
+    db.commit()
+    login(client, "chair11", "pass12345")
+
+    client.post(f"/surveillance/recorders/{recorder.id}/edit", data={
+        "name": recorder.name, "host": recorder.host, "password": "",
+    })
+    db.expire_all()
+    updated = database.db_session.get(DvrRecorder, recorder.id)
+    assert crypto.decrypt(updated.password_encrypted) == "original-secret"
+
+
+def test_edit_recorder_nonempty_password_replaces_secret(app, db, client):
+    recorder = make_recorder(db, password="original-secret")
+    make_user(db, "chair12", "pass12345", role=RoleEnum.CHAIRMAN)
+    db.commit()
+    login(client, "chair12", "pass12345")
+
+    client.post(f"/surveillance/recorders/{recorder.id}/edit", data={
+        "name": recorder.name, "host": recorder.host, "password": "new-secret",
+    })
+    db.expire_all()
+    updated = database.db_session.get(DvrRecorder, recorder.id)
+    assert crypto.decrypt(updated.password_encrypted) == "new-secret"
+
+
+def test_edit_recorder_updates_existing_camera_by_id_without_recreating_it(app, db, client):
+    """Камера сверяется по id (скрытое поле camera_id) — правка не должна
+    пересоздавать существующую камеру новой строкой (иначе она потеряла бы
+    связь с уже снятым на диске кадром до следующего кадра раз в минуту)."""
+    recorder = make_recorder(db)
+    camera = make_camera(db, recorder, label="Старое название", channel=1, stream=0)
+    make_user(db, "chair13", "pass12345", role=RoleEnum.CHAIRMAN)
+    db.commit()
+    login(client, "chair13", "pass12345")
+
+    resp = client.post(f"/surveillance/recorders/{recorder.id}/edit", data={
+        "name": recorder.name, "host": recorder.host,
+        "camera_id": [str(camera.id)],
+        "camera_label": ["Новое название"],
+        "camera_channel": ["2"],
+        "camera_stream": ["1"],
+    })
+    assert resp.status_code == 302
+    db.expire_all()
+
+    assert database.db_session.query(DvrCamera).filter_by(recorder_id=recorder.id).count() == 1
+    updated_camera = database.db_session.get(DvrCamera, camera.id)
+    assert updated_camera is not None  # тот же id, не новая запись
+    assert updated_camera.label == "Новое название"
+    assert updated_camera.channel == 2
+    assert updated_camera.stream == 1
+
+
+def test_edit_recorder_adds_new_camera_alongside_existing(app, db, client):
+    recorder = make_recorder(db)
+    camera = make_camera(db, recorder, label="Камера 1", channel=1)
+    make_user(db, "chair14", "pass12345", role=RoleEnum.CHAIRMAN)
+    db.commit()
+    login(client, "chair14", "pass12345")
+
+    resp = client.post(f"/surveillance/recorders/{recorder.id}/edit", data={
+        "name": recorder.name, "host": recorder.host,
+        "camera_id": [str(camera.id), ""],
+        "camera_label": ["Камера 1", "Камера 2"],
+        "camera_channel": ["1", "2"],
+        "camera_stream": ["0", "0"],
+    })
+    assert resp.status_code == 302
+    db.expire_all()
+
+    cameras = database.db_session.query(DvrCamera).filter_by(recorder_id=recorder.id).order_by(DvrCamera.sort_order).all()
+    assert len(cameras) == 2
+    assert cameras[0].id == camera.id
+    assert cameras[1].label == "Камера 2" and cameras[1].channel == 2
+
+
+def test_edit_recorder_removes_camera_missing_from_form_and_its_snapshot_file(app, db, client, tmp_path, monkeypatch):
+    monkeypatch.setitem(app.config, "DVR_SNAPSHOT_FOLDER", str(tmp_path))
+    recorder = make_recorder(db)
+    kept = make_camera(db, recorder, label="Оставили", channel=1)
+    removed = make_camera(db, recorder, label="Убрали", channel=2)
+    make_user(db, "chair15", "pass12345", role=RoleEnum.CHAIRMAN)
+    db.commit()
+
+    snap_dir = os.path.join(str(tmp_path), str(recorder.id), "snapshots")
+    os.makedirs(snap_dir, exist_ok=True)
+    removed_snap = os.path.join(snap_dir, f"camera_{removed.id}.jpg")
+    with open(removed_snap, "wb") as fh:
+        fh.write(b"fake-jpeg-bytes")
+
+    login(client, "chair15", "pass12345")
+    resp = client.post(f"/surveillance/recorders/{recorder.id}/edit", data={
+        "name": recorder.name, "host": recorder.host,
+        "camera_id": [str(kept.id)],
+        "camera_label": ["Оставили"],
+        "camera_channel": ["1"],
+        "camera_stream": ["0"],
+    })
+    assert resp.status_code == 302
+    db.expire_all()
+
+    assert database.db_session.get(DvrCamera, kept.id) is not None
+    assert database.db_session.get(DvrCamera, removed.id) is None
+    assert not os.path.exists(removed_snap)
+
+
+def test_edit_recorder_requires_name_and_host(app, db, client):
+    recorder = make_recorder(db, name="Оставить как есть")
+    make_user(db, "chair16", "pass12345", role=RoleEnum.CHAIRMAN)
+    db.commit()
+    login(client, "chair16", "pass12345")
+
+    resp = client.post(f"/surveillance/recorders/{recorder.id}/edit", data={"name": "", "host": recorder.host})
+    assert resp.status_code == 302
+    db.expire_all()
+    assert database.db_session.get(DvrRecorder, recorder.id).name == "Оставить как есть"
+
+
+def test_board_member_cannot_edit_recorder(app, db, client):
+    recorder = make_recorder(db, name="Не трогать")
+    make_user(db, "board9b", "pass12345", role=RoleEnum.BOARD)
+    db.commit()
+    login(client, "board9b", "pass12345")
+
+    resp = client.post(f"/surveillance/recorders/{recorder.id}/edit", data={"name": "Изменено", "host": recorder.host})
+    assert resp.status_code == 302
+    db.expire_all()
+    assert database.db_session.get(DvrRecorder, recorder.id).name == "Не трогать"
+
+
+def test_anonymous_cannot_edit_recorder(client, db):
+    recorder = make_recorder(db, name="Не трогать анонимно")
+    db.commit()
+
+    resp = client.post(f"/surveillance/recorders/{recorder.id}/edit", data={"name": "Изменено", "host": recorder.host})
+    assert resp.status_code == 302
+    assert "/auth/login" in resp.headers["Location"]
+    db.expire_all()
+    assert database.db_session.get(DvrRecorder, recorder.id).name == "Не трогать анонимно"
 
 
 # ---------------------------------------------------------------------------

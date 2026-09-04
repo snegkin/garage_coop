@@ -158,6 +158,11 @@
       <div class="print-org-name">{{ coop.full_name }}</div>
       <div class="print-org-requisites">{{ _("ИНН") }} {{ coop.inn }}{% if coop.kpp %}, {{ _("КПП") }} {{ coop.kpp }}{% endif %}{% if coop.ogrn %}, {{ _("ОГРН") }} {{ coop.ogrn }}{% endif %}</div>
       {% if coop.legal_address %}<div class="print-org-address">{{ coop.legal_address }}</div>{% endif %}
+      {% if coop.email or coop.website %}
+      <div class="print-org-address">
+        {% if coop.email %}{{ coop.email }}{% endif %}{% if coop.email and coop.website %} · {% endif %}{% if coop.website %}{{ coop.website }}{% endif %}
+      </div>
+      {% endif %}
       {% endif %}
     </div>
   </div>

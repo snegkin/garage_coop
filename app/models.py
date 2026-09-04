@@ -51,6 +51,8 @@ class Cooperative(Base):
     ogrn: Mapped[str] = mapped_column(String(15))
     legal_address: Mapped[str | None] = mapped_column(Text)
     postal_address: Mapped[str | None] = mapped_column(Text)
+    email: Mapped[str | None] = mapped_column(String(255))
+    website: Mapped[str | None] = mapped_column(String(255))
 
     registration_date: Mapped[dt.date | None] = mapped_column(Date)
 

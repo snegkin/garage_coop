@@ -9,6 +9,7 @@ edit_counterparty_payment/reverse_counterparty_payment).
 нужно, хотя сам счёт списания по-прежнему можно указать для отчётности.
 """
 import datetime as dt
+import io
 from decimal import Decimal
 
 from app import database
@@ -749,3 +750,90 @@ def test_detail_page_shows_lightweight_edit_button_for_non_last_payment(app, db,
     assert f'data-bs-target="#editPaymentDetailsModal{first_payment.id}"' in body
     assert f'data-bs-target="#editPaymentModal{last_payment.id}"' in body
     assert f'data-bs-target="#editPaymentModal{first_payment.id}"' not in body
+
+
+# ---------------------------------------------------------------------------
+# Открепление платёжного документа (раньше загруженный файл можно было
+# только заменить другим, но не убрать вовсе — см.
+# accounting.edit_counterparty_payment: clear_document)
+# ---------------------------------------------------------------------------
+
+def test_edit_payment_removes_document_when_checkbox_checked(app, db, client):
+    counterparty = make_counterparty(db)
+    make_user(db, "board72", "pass12345", role=RoleEnum.BOARD)
+    db.commit()
+    login(client, "board72", "pass12345")
+
+    client.post(f"/counterparties/{counterparty.id}/payments/new", data={
+        "date": "2026-01-05", "amount": "500.00",
+        "document_file": (io.BytesIO(b"platezhka"), "platezhka.pdf"),
+    })
+    db.expire_all()
+    payment = db.query(CounterpartyPayment).filter_by(counterparty_id=counterparty.id).one()
+    assert payment.document_id is not None
+
+    resp = client.post(f"/counterparties/{counterparty.id}/payments/{payment.id}/edit", data={
+        "date": "2026-01-05", "amount": "500.00", "remove_document": "on",
+    })
+    assert resp.status_code == 302
+    db.expire_all()
+    assert database.db_session.get(CounterpartyPayment, payment.id).document_id is None
+
+
+def test_edit_payment_new_file_wins_over_remove_checkbox(app, db, client):
+    """Если и отмечено «Открепить», и выбран новый файл — новый файл
+    побеждает (маловероятная комбинация, но так безопаснее для UI)."""
+    counterparty = make_counterparty(db)
+    make_user(db, "board73", "pass12345", role=RoleEnum.BOARD)
+    db.commit()
+    login(client, "board73", "pass12345")
+
+    client.post(f"/counterparties/{counterparty.id}/payments/new", data={
+        "date": "2026-01-05", "amount": "500.00",
+        "document_file": (io.BytesIO(b"original"), "original.pdf"),
+    })
+    db.expire_all()
+    payment = db.query(CounterpartyPayment).filter_by(counterparty_id=counterparty.id).one()
+    original_document_id = payment.document_id
+
+    client.post(f"/counterparties/{counterparty.id}/payments/{payment.id}/edit", data={
+        "date": "2026-01-05", "amount": "500.00", "remove_document": "on",
+        "document_file": (io.BytesIO(b"new"), "new.pdf"),
+    })
+    db.expire_all()
+    new_document_id = database.db_session.get(CounterpartyPayment, payment.id).document_id
+    assert new_document_id is not None
+    assert new_document_id != original_document_id
+
+
+def test_edit_payment_without_document_has_no_remove_checkbox(app, db, client):
+    counterparty = make_counterparty(db)
+    make_user(db, "board74", "pass12345", role=RoleEnum.BOARD)
+    db.commit()
+    login(client, "board74", "pass12345")
+
+    client.post(f"/counterparties/{counterparty.id}/payments/new", data={"date": "2026-01-05", "amount": "500.00"})
+    db.expire_all()
+    payment = db.query(CounterpartyPayment).filter_by(counterparty_id=counterparty.id).one()
+
+    resp = client.get(f"/counterparties/{counterparty.id}")
+    assert f'id="removeDocument{payment.id}"' not in resp.get_data(as_text=True)
+
+
+def test_edit_payment_with_document_shows_remove_checkbox_and_link(app, db, client):
+    counterparty = make_counterparty(db)
+    make_user(db, "board75", "pass12345", role=RoleEnum.BOARD)
+    db.commit()
+    login(client, "board75", "pass12345")
+
+    client.post(f"/counterparties/{counterparty.id}/payments/new", data={
+        "date": "2026-01-05", "amount": "500.00",
+        "document_file": (io.BytesIO(b"platezhka"), "platezhka.pdf"),
+    })
+    db.expire_all()
+    payment = db.query(CounterpartyPayment).filter_by(counterparty_id=counterparty.id).one()
+
+    resp = client.get(f"/counterparties/{counterparty.id}")
+    body = resp.get_data(as_text=True)
+    assert f'id="removeDocument{payment.id}"' in body
+    assert f'/documents/{payment.document_id}/file' in body

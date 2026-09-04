@@ -451,6 +451,7 @@ def edit_payment(counterparty_id, payment_id):
         amount=edited_amount,
         bank_account=bank_account,
         document_id=document_id,
+        clear_document=bool(f.get("remove_document")),
         comment=f.get("comment") or None,
         adjust_balance=bool(f.get("adjust_balance")),
         bank_statement_line_id=statement_line.id if statement_line else None,

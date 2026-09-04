@@ -461,6 +461,15 @@
           </div>
           <div class="mb-3">
             <label class="form-label">{{ _("Платёжный документ") }}</label>
+            {% if p.document_id %}
+            <div class="form-text mb-1">
+              {{ _("Сейчас прикреплён:") }} <a href="{{ url_for('cooperative.download_document', doc_id=p.document_id) }}">{{ _("скачать") }}</a>
+            </div>
+            <div class="form-check mb-2">
+              <input class="form-check-input" type="checkbox" name="remove_document" id="removeDocument{{ p.id }}">
+              <label class="form-check-label" for="removeDocument{{ p.id }}">{{ _("Открепить документ") }}</label>
+            </div>
+            {% endif %}
             <input class="form-control" type="file" name="document_file">
             <div class="form-text">{{ _("Скан платёжки — или, вместо прикрепления файла, можно сослаться на уже загруженную строку выписки банка ниже.") }}</div>
           </div>

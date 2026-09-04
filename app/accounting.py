@@ -539,6 +539,7 @@ def edit_counterparty_payment(
     amount: Decimal,
     bank_account: BankAccount | None,
     document_id: int | None = None,
+    clear_document: bool = False,
     comment: str | None = None,
     adjust_balance: bool = True,
     bank_statement_line_id: int | None = None,
@@ -560,6 +561,11 @@ def edit_counterparty_payment(
     выставляется безусловно, как и bank_account: приходит из <select>,
     который всегда возвращает текущее состояние формы, включая явный
     выбор «не указана».
+
+    clear_document — открепить уже прикреплённый документ вообще (чекбокс
+    «Открепить документ» в форме, см. detail.html): без него загруженный
+    когда-то файл нельзя было убрать, только заменить другим. Игнорируется,
+    если тут же загружен новый файл (document_id) — новый файл побеждает.
     """
     if payment.bank_account is not None and payment.adjusts_bank_balance:
         payment.bank_account.balance = (payment.bank_account.balance or Decimal("0")) + payment.amount
@@ -570,6 +576,8 @@ def edit_counterparty_payment(
     payment.adjusts_bank_balance = adjust_balance if bank_account is not None else False
     if document_id is not None:
         payment.document_id = document_id
+    elif clear_document:
+        payment.document_id = None
     payment.bank_statement_line_id = bank_statement_line_id
     payment.comment = comment
 

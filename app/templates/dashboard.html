@@ -130,7 +130,7 @@
           {% for entry in recent_activity %}
           <li class="list-group-item px-0">
             <div class="small text-muted">
-              {{ fmt_date(entry.created_at) }} {{ entry.created_at.strftime("%H:%M") }}
+              <span data-utc-datetime="{{ entry.created_at.isoformat() }}Z">{{ fmt_date(entry.created_at) }} {{ entry.created_at.strftime("%H:%M") }}</span>
               {% if entry.actor_username %} · {{ entry.actor_username }}{% endif %}
             </div>
             <div>{{ entry.summary }}</div>

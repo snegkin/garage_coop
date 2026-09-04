@@ -45,7 +45,7 @@
   <tbody>
     {% for e in events %}
     <tr>
-      <td>{{ e.created_at.strftime('%d.%m.%Y %H:%M') }}</td>
+      <td><span data-utc-datetime="{{ e.created_at.isoformat() }}Z">{{ e.created_at.strftime('%d.%m.%Y %H:%M') }}</span></td>
       <td>
         {% if e.event_type.value == "added" %}<span class="badge bg-success">{{ _("добавлен") }}</span>
         {% elif e.event_type.value == "share_changed" %}<span class="badge bg-info text-dark">{{ _("доля изменена") }}</span>

@@ -172,12 +172,12 @@
       scales: {
         x: {
           type: "time",
-          time: { displayFormats: { minute: "HH:mm", hour: "HH:mm" } },
+          time: { displayFormats: { minute: "HH", hour: "HH" } },
           ticks: { maxRotation: 0 },
         },
         y: { title: { display: true, text: "{{ _('кВт') }}" }, beginAtZero: true },
       },
-      plugins: { legend: { position: "bottom", labels: { boxHeight: 6 } } },
+      plugins: { legend: { display: false } },
     },
   });
 

@@ -615,3 +615,137 @@ def test_payments_table_links_to_referenced_statement_line(app, db, client):
     body = resp.get_data(as_text=True)
     assert "по выписке" in body
     assert f"#stmt-line-{line.id}" in body
+
+
+# ---------------------------------------------------------------------------
+# Облегчённая правка НЕ последнего платежа (только дата/комментарий, без
+# суммы/счёта списания — см. accounting.edit_counterparty_payment_details,
+# counterparties.edit_payment: is_last)
+# ---------------------------------------------------------------------------
+
+def test_editing_non_last_payment_changes_only_date_and_comment(app, db, client):
+    counterparty = make_counterparty(db)
+    account = make_bank_account(db)
+    make_user(db, "board67", "pass12345", role=RoleEnum.BOARD)
+    db.commit()
+    login(client, "board67", "pass12345")
+
+    client.post(f"/counterparties/{counterparty.id}/payments/new", data={
+        "date": "2026-01-05", "amount": "1000.00", "bank_account_id": str(account.id),
+    })
+    client.post(f"/counterparties/{counterparty.id}/payments/new", data={
+        "date": "2026-01-10", "amount": "500.00",
+    })
+    db.expire_all()
+    first_payment = db.query(CounterpartyPayment).filter_by(amount=Decimal("1000.00")).one()
+
+    resp = client.post(f"/counterparties/{counterparty.id}/payments/{first_payment.id}/edit", data={
+        "date": "2026-01-06", "comment": "опечатка в дате",
+        # amount/bank_account_id намеренно тоже отправлены — должны быть проигнорированы
+        "amount": "999999.00", "bank_account_id": "",
+    })
+    assert resp.status_code == 302
+    db.expire_all()
+
+    edited = database.db_session.get(CounterpartyPayment, first_payment.id)
+    assert edited.date == dt.date(2026, 1, 6)
+    assert edited.comment == "опечатка в дате"
+    assert edited.amount == Decimal("1000.00")  # не изменилась
+    assert edited.bank_account_id == account.id  # не изменилась
+
+
+def test_editing_non_last_payment_does_not_touch_bank_balance(app, db, client):
+    counterparty = make_counterparty(db)
+    account = make_bank_account(db)
+    make_user(db, "board68", "pass12345", role=RoleEnum.BOARD)
+    db.commit()
+    login(client, "board68", "pass12345")
+
+    client.post(f"/counterparties/{counterparty.id}/payments/new", data={
+        "date": "2026-01-05", "amount": "1000.00", "bank_account_id": str(account.id),
+    })
+    client.post(f"/counterparties/{counterparty.id}/payments/new", data={
+        "date": "2026-01-10", "amount": "500.00",
+    })
+    db.expire_all()
+    balance_before = database.db_session.get(BankAccount, account.id).balance
+    first_payment = db.query(CounterpartyPayment).filter_by(amount=Decimal("1000.00")).one()
+
+    client.post(f"/counterparties/{counterparty.id}/payments/{first_payment.id}/edit", data={
+        "date": "2026-01-06", "comment": "",
+    })
+    db.expire_all()
+    assert database.db_session.get(BankAccount, account.id).balance == balance_before
+
+
+def test_editing_non_last_payment_reallocates_expenses_on_date_change(app, db, client):
+    """Перенос платежа на другую дату может изменить порядок FIFO-разнесения
+    — пересчёт (reallocate_counterparty_expenses) должен отработать и для
+    облегчённой правки, не только для полной."""
+    counterparty = make_counterparty(db)
+    db.add(Expense(counterparty_id=counterparty.id, date=dt.date(2026, 1, 1), amount=Decimal("100.00")))
+    db.add(Expense(counterparty_id=counterparty.id, date=dt.date(2026, 1, 20), amount=Decimal("100.00")))
+    make_user(db, "board69", "pass12345", role=RoleEnum.BOARD)
+    db.commit()
+
+    login(client, "board69", "pass12345")
+    client.post(f"/counterparties/{counterparty.id}/payments/new", data={"date": "2026-01-05", "amount": "100.00"})
+    client.post(f"/counterparties/{counterparty.id}/payments/new", data={"date": "2026-01-25", "amount": "100.00"})
+    db.expire_all()
+
+    first_payment = db.query(CounterpartyPayment).filter_by(date=dt.date(2026, 1, 5)).one()
+    first_expense = db.query(Expense).filter_by(date=dt.date(2026, 1, 1)).one()
+    second_expense = db.query(Expense).filter_by(date=dt.date(2026, 1, 20)).one()
+    assert sum(a.amount for a in first_expense.allocations) == Decimal("100.00")
+    assert sum(a.amount for a in second_expense.allocations) == Decimal("100.00")
+
+    # Переносим первый платёж на дату ПОСЛЕ второго расхода — теперь по FIFO
+    # он должен закрыть второй расход первым (более ранний по дате).
+    client.post(f"/counterparties/{counterparty.id}/payments/{first_payment.id}/edit", data={
+        "date": "2026-01-30", "comment": "",
+    })
+    db.expire_all()
+    first_expense = database.db_session.get(Expense, first_expense.id)
+    second_expense = database.db_session.get(Expense, second_expense.id)
+    assert sum(a.amount for a in first_expense.allocations) == Decimal("100.00")
+    assert sum(a.amount for a in second_expense.allocations) == Decimal("100.00")
+
+
+def test_reversed_non_last_payment_cannot_be_edited(app, db, client):
+    counterparty = make_counterparty(db)
+    make_user(db, "board70", "pass12345", role=RoleEnum.BOARD)
+    db.commit()
+    login(client, "board70", "pass12345")
+
+    client.post(f"/counterparties/{counterparty.id}/payments/new", data={"date": "2026-01-05", "amount": "100.00"})
+    client.post(f"/counterparties/{counterparty.id}/payments/new", data={"date": "2026-01-10", "amount": "200.00"})
+    db.expire_all()
+    first_payment = db.query(CounterpartyPayment).filter_by(amount=Decimal("100.00")).one()
+    client.post(f"/counterparties/{counterparty.id}/payments/{first_payment.id}/reverse", data={"date": "2026-01-06"})
+    db.expire_all()
+
+    resp = client.post(f"/counterparties/{counterparty.id}/payments/{first_payment.id}/edit", data={
+        "date": "2026-01-07", "comment": "попытка правки",
+    }, follow_redirects=True)
+    assert "уже сторнирован" in resp.get_data(as_text=True)
+    db.expire_all()
+    assert database.db_session.get(CounterpartyPayment, first_payment.id).comment is None
+
+
+def test_detail_page_shows_lightweight_edit_button_for_non_last_payment(app, db, client):
+    counterparty = make_counterparty(db)
+    make_user(db, "board71", "pass12345", role=RoleEnum.BOARD)
+    db.commit()
+    login(client, "board71", "pass12345")
+
+    client.post(f"/counterparties/{counterparty.id}/payments/new", data={"date": "2026-01-05", "amount": "100.00"})
+    client.post(f"/counterparties/{counterparty.id}/payments/new", data={"date": "2026-01-10", "amount": "200.00"})
+    db.expire_all()
+    first_payment = db.query(CounterpartyPayment).filter_by(amount=Decimal("100.00")).one()
+    last_payment = db.query(CounterpartyPayment).filter_by(amount=Decimal("200.00")).one()
+
+    resp = client.get(f"/counterparties/{counterparty.id}")
+    body = resp.get_data(as_text=True)
+    assert f'data-bs-target="#editPaymentDetailsModal{first_payment.id}"' in body
+    assert f'data-bs-target="#editPaymentModal{last_payment.id}"' in body
+    assert f'data-bs-target="#editPaymentModal{first_payment.id}"' not in body

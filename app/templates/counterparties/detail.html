@@ -56,7 +56,7 @@
 </div>
 {% endif %}
 <table class="table table-sm bg-body sortable mb-2" id="expensesTable" data-page-size="15">
-  <thead><tr><th>{{ _("Дата") }}</th><th>{{ _("Категория") }}</th><th>{{ _("Описание") }}</th><th>{{ _("Сумма") }}</th><th>{{ _("Оплачено") }}</th><th class="no-sort">{{ _("Счёт/акт") }}</th></tr></thead>
+  <thead><tr><th>{{ _("Дата") }}</th><th>{{ _("Категория") }}</th><th>{{ _("Описание") }}</th><th>{{ _("Сумма") }}</th><th>{{ _("Оплачено") }}</th><th class="no-sort">{{ _("Счёт/акт") }}</th><th class="no-sort">{{ _("Действия") }}</th></tr></thead>
   <tbody>
     {% for e in expenses %}
     <tr data-filter-text="{{ ((e.category or '') ~ ' ' ~ (e.description or '') ~ ' ' ~ e.amount)|lower }}">
@@ -71,9 +71,10 @@
         {% else %}<span class="badge bg-danger">{{ _("не оплачено") }}</span>{% endif %}
       </td>
       <td>{% if e.document_id %}<a href="{{ url_for('cooperative.download_document', doc_id=e.document_id) }}">{{ _("скачать") }}</a>{% else %}—{% endif %}</td>
+      <td class="no-sort"><button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#editExpenseModal{{ e.id }}">{{ _("Изменить") }}</button></td>
     </tr>
     {% else %}
-    <tr><td colspan="6" class="text-muted">{{ _("Расходов пока нет.") }}</td></tr>
+    <tr><td colspan="7" class="text-muted">{{ _("Расходов пока нет.") }}</td></tr>
     {% endfor %}
   </tbody>
 </table>
@@ -123,6 +124,8 @@
         {% if p.reverses_payment_id is none %}
           {% if p.id == last_payment_id %}
           <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#editPaymentModal{{ p.id }}">{{ _("Изменить") }}</button>
+          {% elif not p.reversed_by %}
+          <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#editPaymentDetailsModal{{ p.id }}">{{ _("Дата/комментарий") }}</button>
           {% endif %}
           {% if not p.reversed_by %}
           <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#reversePaymentModal{{ p.id }}">{{ _("Сторно") }}</button>
@@ -291,6 +294,55 @@
   </div>
 </div>
 
+<!-- Модалки: редактирование расхода (по одной на расход — в отличие от
+     платежей, доступно для любого, не только последнего, см. edit_expense) -->
+{% for e in expenses %}
+<div class="modal fade" id="editExpenseModal{{ e.id }}" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <form method="post" action="{{ url_for('counterparties.edit_expense', counterparty_id=counterparty.id, expense_id=e.id) }}" enctype="multipart/form-data">
+        <div class="modal-header">
+          <h5 class="modal-title">{{ _("Изменить расход") }}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="row g-2 mb-3">
+            <div class="col-6">
+              <label class="form-label">{{ _("Дата") }}</label>
+              <input class="form-control" type="date" name="date" value="{{ e.date }}" required>
+            </div>
+            <div class="col-6">
+              <label class="form-label">{{ _("Сумма, ₽") }}</label>
+              <input class="form-control" type="text" inputmode="decimal" name="amount" value="{{ e.amount }}" required>
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">{{ _("Категория") }}</label>
+            <input class="form-control" name="category" value="{{ e.category or '' }}" placeholder="{{ _('напр. видеонаблюдение, электрика, уборка территории') }}">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">{{ _("Описание") }}</label>
+            <textarea class="form-control" name="description">{{ e.description or "" }}</textarea>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">{{ _("Счёт / акт от контрагента") }}</label>
+            {% if e.document_id %}
+            <div class="form-text mb-1">{{ _("Сейчас прикреплён:") }} <a href="{{ url_for('cooperative.download_document', doc_id=e.document_id) }}">{{ _("скачать") }}</a></div>
+            {% endif %}
+            <input class="form-control" type="file" name="document_file">
+            <div class="form-text">{{ _("Оставьте пустым, чтобы не менять уже прикреплённый файл.") }}</div>
+          </div>
+        </div>
+        <div class="modal-footer d-flex justify-content-end">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+          <button class="btn btn-primary">{{ _("Сохранить") }}</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endfor %}
+
 <!-- Модалка: новый платёж -->
 <div class="modal fade" id="addPaymentModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg">
@@ -411,6 +463,36 @@
               <option value="{{ line.id }}" data-bank-account-id="{{ line.bank_account_id }}" data-amount="{{ line.amount }}" data-counterparty-inn="{{ line.counterparty_inn or '' }}" {{ "selected" if p.bank_statement_line_id == line.id }}>{{ fmt_date(line.operation_date) }} — {{ fmt2(line.amount) }} ₽ — {{ line.bank_account.bank_name }} ({{ line.bank_account.checking_account }}) — {{ line.counterparty_name or "—" }}{% if line.payment_purpose %} — {{ line.payment_purpose[:60] }}{% endif %}</option>
               {% endfor %}
             </select>
+          </div>
+        </div>
+        <div class="modal-footer d-flex justify-content-end">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+          <button class="btn btn-primary">{{ _("Сохранить") }}</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% elif not p.reversed_by %}
+<!-- Не последний платёж — облегчённая правка: только дата/комментарий, без
+     суммы/счёта списания (см. counterparties.edit_payment: is_last). -->
+<div class="modal fade" id="editPaymentDetailsModal{{ p.id }}" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" action="{{ url_for('counterparties.edit_payment', counterparty_id=counterparty.id, payment_id=p.id) }}">
+        <div class="modal-header">
+          <h5 class="modal-title">{{ _("Изменить дату/комментарий платежа") }}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <p class="text-muted small">{{ _("Не последний платёж — сумму и счёт списания менять нельзя (могли уже повлиять на баланс счёта и последующие операции). Если ошиблись в сумме — используйте «Сторно».") }}</p>
+          <div class="mb-3">
+            <label class="form-label">{{ _("Дата") }}</label>
+            <input class="form-control" type="date" name="date" value="{{ p.date }}" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">{{ _("Комментарий") }}</label>
+            <textarea class="form-control" name="comment">{{ p.comment or "" }}</textarea>
           </div>
         </div>
         <div class="modal-footer d-flex justify-content-end">

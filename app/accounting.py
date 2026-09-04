@@ -581,6 +581,22 @@ def edit_counterparty_payment(
     reallocate_counterparty_expenses(payment.counterparty)
 
 
+def edit_counterparty_payment_details(payment: CounterpartyPayment, date, comment: str | None) -> None:
+    """
+    Лёгкая правка НЕ последнего платежа контрагенту — только дата и
+    комментарий, без суммы/счёта списания/документа (см.
+    edit_counterparty_payment — та трогает баланс BankAccount и разрешена
+    только для последнего платежа, ограничение на уровне роута в
+    app/counterparties.py). Дата всё же может сдвинуть порядок FIFO
+    разнесения (reallocate_counterparty_expenses сортирует расходы/платежи
+    по дате), поэтому пересчёт после правки всё равно нужен.
+    """
+    payment.date = date
+    payment.comment = comment
+    database.db_session.flush()
+    reallocate_counterparty_expenses(payment.counterparty)
+
+
 def reverse_counterparty_payment(payment: CounterpartyPayment, date, comment: str | None = None) -> CounterpartyPayment:
     """
     Отменяющая проводка (сторно): для платежа, который реально ушёл в банк,

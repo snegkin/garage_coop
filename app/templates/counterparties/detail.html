@@ -56,7 +56,7 @@
 </div>
 {% endif %}
 <table class="table table-sm bg-body sortable mb-2" id="expensesTable" data-page-size="15">
-  <thead><tr><th>{{ _("Дата") }}</th><th>{{ _("Категория") }}</th><th>{{ _("Описание") }}</th><th>{{ _("Сумма") }}</th><th>{{ _("Оплачено") }}</th><th class="no-sort">{{ _("Счёт/УПД") }}</th><th class="no-sort">{{ _("Действия") }}</th></tr></thead>
+  <thead><tr><th>{{ _("Дата") }}</th><th>{{ _("Категория") }}</th><th>{{ _("Описание") }}</th><th>{{ _("Сумма") }}</th><th>{{ _("Оплачено") }}</th><th class="no-sort text-end">{{ _("Счёт/УПД") }}</th><th class="no-sort text-end">{{ _("Действия") }}</th></tr></thead>
   <tbody>
     {% for e in expenses %}
     <tr data-filter-text="{{ ((e.category or '') ~ ' ' ~ (e.description or '') ~ ' ' ~ e.amount)|lower }}">
@@ -70,12 +70,12 @@
         {% elif paid > 0 %}<span class="badge bg-warning text-dark">{{ fmt2(paid) }} {{ _("из") }} {{ fmt2(e.amount) }} ₽</span>
         {% else %}<span class="badge bg-danger">{{ _("не оплачено") }}</span>{% endif %}
       </td>
-      <td>
+      <td class="text-end">
         {% if e.documents %}
           {% for doc in e.documents %}<a href="{{ url_for('cooperative.download_document', doc_id=doc.id) }}" title="{{ doc.title }}">{{ _("скачать") }}{% if e.documents|length > 1 %} ({{ loop.index }}){% endif %}</a>{% if not loop.last %}, {% endif %}{% endfor %}
         {% else %}—{% endif %}
       </td>
-      <td class="no-sort"><button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#editExpenseModal{{ e.id }}">{{ _("Изменить") }}</button></td>
+      <td class="no-sort text-end"><button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#editExpenseModal{{ e.id }}">{{ _("Изменить") }}</button></td>
     </tr>
     {% else %}
     <tr><td colspan="7" class="text-muted">{{ _("Расходов пока нет.") }}</td></tr>
@@ -97,7 +97,7 @@
 </div>
 {% endif %}
 <table class="table table-sm bg-body sortable mb-2" id="paymentsTable" data-page-size="15">
-  <thead><tr><th>{{ _("Дата") }}</th><th>{{ _("Сумма") }}</th><th>{{ _("Счёт списания") }}</th><th>{{ _("Комментарий") }}</th><th class="no-sort">{{ _("Платёжный документ") }}</th><th class="no-sort">{{ _("Действия") }}</th></tr></thead>
+  <thead><tr><th>{{ _("Дата") }}</th><th>{{ _("Сумма") }}</th><th>{{ _("Счёт списания") }}</th><th>{{ _("Комментарий") }}</th><th class="no-sort text-end">{{ _("Платёжный документ") }}</th><th class="no-sort text-end">{{ _("Действия") }}</th></tr></thead>
   <tbody>
     {% for p in payments %}
     <tr class="{{ 'text-decoration-line-through text-muted' if p.reverses_payment_id is none and p.reversed_by else '' }}" data-filter-text="{{ (p.amount|string ~ ' ' ~ (p.bank_account.bank_name if p.bank_account else '') ~ ' ' ~ (p.comment or ''))|lower }}">
@@ -117,14 +117,14 @@
         {% if p.reverses_payment_id and p.reverses %}<div class="text-muted small">{{ _("сторно платежа от {date}", date=fmt_date(p.reverses.date)) }}</div>{% endif %}
         {% if p.reverses_payment_id is none and p.reversed_by %}<div class="text-muted small">{{ _("отменён проводкой от {date}", date=fmt_date(p.reversed_by[0].date)) }}</div>{% endif %}
       </td>
-      <td>
+      <td class="text-end">
         {% if p.document_id %}
         <a href="{{ url_for('cooperative.download_document', doc_id=p.document_id) }}">{{ _("скачать") }}</a>
         {% elif p.bank_statement_line %}
         <a href="{{ url_for('bank_sync.statement', account_id=p.bank_statement_line.bank_account_id, date_from=p.bank_statement_line.operation_date.isoformat(), date_to=p.bank_statement_line.operation_date.isoformat()) }}#stmt-line-{{ p.bank_statement_line.id }}" title="{{ _('Строка выписки банка') }}">{{ _("по выписке") }}</a>
         {% else %}—{% endif %}
       </td>
-      <td class="text-nowrap">
+      <td class="text-nowrap text-end">
         {% if p.reverses_payment_id is none %}
           {% if p.id == last_payment_id %}
           <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#editPaymentModal{{ p.id }}">{{ _("Изменить") }}</button>
@@ -162,7 +162,7 @@
 </div>
 {% endif %}
 <table class="table table-sm bg-body sortable mb-2" id="actsTable" data-page-size="15">
-  <thead><tr><th>{{ _("Период") }}</th><th>{{ _("Наш баланс") }}</th><th>{{ _("Баланс по данным контрагента") }}</th><th>{{ _("Комментарий") }}</th><th class="no-sort">{{ _("Акт") }}</th></tr></thead>
+  <thead><tr><th>{{ _("Период") }}</th><th>{{ _("Наш баланс") }}</th><th>{{ _("Баланс по данным контрагента") }}</th><th>{{ _("Комментарий") }}</th><th class="no-sort text-end">{{ _("Акт") }}</th></tr></thead>
   <tbody>
     {% for a in acts %}
     <tr data-filter-text="{{ ((a.our_balance|string if a.our_balance is not none else '') ~ ' ' ~ (a.counterparty_balance|string if a.counterparty_balance is not none else '') ~ ' ' ~ (a.comment or ''))|lower }}">
@@ -175,7 +175,7 @@
         {% endif %}
       </td>
       <td>{{ a.comment or "—" }}</td>
-      <td>{% if a.document_id %}<a href="{{ url_for('cooperative.download_document', doc_id=a.document_id) }}">{{ _("скачать") }}</a>{% else %}—{% endif %}</td>
+      <td class="text-end">{% if a.document_id %}<a href="{{ url_for('cooperative.download_document', doc_id=a.document_id) }}">{{ _("скачать") }}</a>{% else %}—{% endif %}</td>
     </tr>
     {% else %}
     <tr><td colspan="5" class="text-muted">{{ _("Актов сверки пока нет.") }}</td></tr>
@@ -197,7 +197,7 @@
 </div>
 {% endif %}
 <table class="table table-sm bg-body sortable mb-2" id="counterpartyDocumentsTable" data-page-size="15">
-  <thead><tr><th>{{ _("Дата") }}</th><th>{{ _("Тип") }}</th><th>{{ _("№") }}</th><th>{{ _("Название") }}</th><th class="no-sort">{{ _("Файл") }}</th></tr></thead>
+  <thead><tr><th>{{ _("Дата") }}</th><th>{{ _("Тип") }}</th><th>{{ _("№") }}</th><th>{{ _("Название") }}</th><th class="no-sort text-end">{{ _("Файл") }}</th></tr></thead>
   <tbody>
     {% for d in documents %}
     <tr data-filter-text="{{ ((d.number or '') ~ ' ' ~ d.title ~ ' ' ~ doc_type_label(d.doc_type.value))|lower }}">
@@ -205,7 +205,7 @@
       <td>{{ doc_type_label(d.doc_type.value) }}</td>
       <td>{{ d.number or "—" }}</td>
       <td>{{ d.title }}</td>
-      <td class="no-sort">
+      <td class="no-sort text-end">
           <div class="btn-group" role="group">
             <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
               {{ _("Действия") }}

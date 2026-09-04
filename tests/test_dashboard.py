@@ -134,6 +134,33 @@ def test_dashboard_shows_collection_rate_for_current_and_previous_year(app, db, 
     assert f"{current_year - 1} — 100,00%" in body
 
 
+def test_dashboard_shows_collection_rate_for_three_years_but_not_older(app, db, client):
+    current_year = dt.date.today().year
+    person = make_person(db, full_name="Три Года Проверяемая")
+    garage = make_garage(db, number="73")
+    make_ownership(db, garage, person)
+
+    for offset, amount, paid in ((0, "1000.00", "1000.00"), (1, "1000.00", "500.00"), (2, "1000.00", "250.00"), (3, "1000.00", "1000.00")):
+        account = _make_account(db, person, garage, f"dash-y{offset}")
+        year = current_year - offset
+        db.add(Charge(account_id=account.id, year=year, amount=Decimal(amount)))
+        db.add(Payment(account_id=account.id, date=dt.date(year, 6, 1), amount=Decimal(paid)))
+        db.flush()
+        reallocate_member_charges(account)
+
+    make_user(db, "board107", "pass12345", role=RoleEnum.BOARD)
+    db.commit()
+    login(client, "board107", "pass12345")
+
+    resp = client.get("/dashboard")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert f"{current_year} — 100,00%" in body
+    assert f"{current_year - 1} — 50,00%" in body
+    assert f"{current_year - 2} — 25,00%" in body
+    assert f"{current_year - 3}" not in body  # только 3 года — за 4-й собираемость не выводится
+
+
 def test_dashboard_hides_collection_rate_when_nothing_charged(app, db, client):
     make_user(db, "board106", "pass12345", role=RoleEnum.BOARD)
     db.commit()

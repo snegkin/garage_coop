@@ -90,16 +90,22 @@ def dashboard():
         return redirect(url_for("cabinet.garages"))
 
     current_year = dt.date.today().year
+    # Собираемость — за текущий год и 2 предыдущих (3 года), только те, где
+    # вообще были начисления (_collection_rate возвращает None, если начислять
+    # было нечего, — год просто пропускается, а не показывается нулём).
+    collection_rates = [
+        (year, rate)
+        for year in (current_year, current_year - 1, current_year - 2)
+        for rate in [_collection_rate(year)]
+        if rate is not None
+    ]
     stats = {
         "garages_count": database.db_session.query(Garage).count(),
         "persons_count": database.db_session.query(Person).count(),
         "last_meeting": database.db_session.query(GeneralMeeting).order_by(GeneralMeeting.date.desc()).first(),
         "last_report": database.db_session.query(AnnualReport).order_by(AnnualReport.year.desc()).first(),
         "coop_balance": cooperative_balance(),
-        "current_year": current_year,
-        "previous_year": current_year - 1,
-        "collection_rate_current": _collection_rate(current_year),
-        "collection_rate_previous": _collection_rate(current_year - 1),
+        "collection_rates": collection_rates,
         **_debt_summary(),
     }
 

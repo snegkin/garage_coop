@@ -13,6 +13,7 @@ from app.accounting import reallocate_member_charges
 from app.models import RoleEnum, FeeType, MemberAccount, Charge, Payment
 
 from tests.conftest import make_person, make_garage, make_ownership, make_user, login
+from tests.test_mailbox import _mock_imap, _make_settings, _test_email
 
 
 def _make_account(db, person, garage, code, is_archived=False):
@@ -174,3 +175,48 @@ def test_dashboard_hides_collection_rate_when_nothing_charged(app, db, client):
     resp = client.get("/dashboard")
     assert resp.status_code == 200
     assert "Собираемость" not in resp.get_data(as_text=True)
+
+
+# ---------------------------------------------------------------------------
+# Виджет «Письма» (превью входящих на панели, см. app/main.py: _mail_preview)
+# ---------------------------------------------------------------------------
+
+def test_dashboard_mail_widget_shows_not_configured_message(app, db, client):
+    make_user(db, "board108", "pass12345", role=RoleEnum.BOARD)
+    db.commit()
+    login(client, "board108", "pass12345")
+
+    resp = client.get("/dashboard")
+    assert resp.status_code == 200
+    assert "Почта ещё не настроена." in resp.get_data(as_text=True)
+
+
+def test_dashboard_mail_widget_lists_recent_messages(app, db, client, monkeypatch):
+    _make_settings(db)
+    _mock_imap(monkeypatch, {1: _test_email(subject="Уникальная тема панели").as_bytes()})
+    make_user(db, "board109", "pass12345", role=RoleEnum.BOARD)
+    db.commit()
+    login(client, "board109", "pass12345")
+
+    resp = client.get("/dashboard")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert "Уникальная тема панели" in body
+    assert "Отправитель" in body
+
+
+def test_dashboard_mail_widget_connection_error_does_not_break_page(app, db, client, monkeypatch):
+    from app import mail_client
+
+    _make_settings(db)
+
+    def boom(settings):
+        raise mail_client.MailError("connection refused")
+    monkeypatch.setattr(mail_client, "_connect_imap", boom)
+    make_user(db, "board110", "pass12345", role=RoleEnum.BOARD)
+    db.commit()
+    login(client, "board110", "pass12345")
+
+    resp = client.get("/dashboard")
+    assert resp.status_code == 200
+    assert "Не удалось подключиться к почте." in resp.get_data(as_text=True)

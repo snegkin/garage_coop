@@ -9,15 +9,39 @@ from .auth import login_required
 from .permissions import is_board
 from .models import (
     Garage, Person, GeneralMeeting, AnnualReport, MemberAccount, Charge, Payment, AuditLog, ChargeAllocation,
-    PowerPhaseDevice,
+    PowerPhaseDevice, MailboxSettings,
 )
 from .accounting import cooperative_balance
 from .permissions import is_chairman
 from .setup_wizard import wizard_status
+from . import mail_client
+from .mail_client import MailError, DEFAULT_FOLDER
 
 bp = Blueprint("main", __name__)
 
 RECENT_ACTIVITY_LIMIT = 8  # последних записей журнала аудита на панели — сама панель, не замена /governance/audit-log
+MAIL_PREVIEW_LIMIT = 5  # последних писем во входящих для виджета на панели — сама панель, не замена /mailbox/
+
+
+def _mail_preview() -> dict:
+    """Последние письма входящих для виджета на панели — живое IMAP/POP3-
+    подключение, как и у самой /mailbox/ (см. mailbox.py), без кэширования
+    в БД. При недоступности почты или отсутствии настройки виджет просто
+    показывает соответствующее сообщение, не ломая дашборд целиком (панель
+    открывают часто, отдельная письмовая подсистема не должна валить её при
+    временной недоступности почтового сервера)."""
+    settings = database.db_session.query(MailboxSettings).first()
+    is_configured = bool(settings and settings.incoming_host and settings.username and settings.password_encrypted)
+    if not is_configured:
+        return {"is_configured": False, "messages": None, "error": None}
+
+    try:
+        with mail_client.get_incoming_client(settings) as client:
+            page = client.list_messages(page=1, page_size=MAIL_PREVIEW_LIMIT, folder=DEFAULT_FOLDER)
+    except MailError as exc:
+        return {"is_configured": True, "messages": None, "error": str(exc)}
+
+    return {"is_configured": True, "messages": page.messages, "error": None}
 
 
 def _debt_summary() -> dict:
@@ -130,5 +154,5 @@ def dashboard():
 
     return render_template(
         "dashboard.html", stats=stats, recent_activity=recent_activity, setup_status=setup_status,
-        electricity_devices=electricity_devices,
+        electricity_devices=electricity_devices, mail_preview=_mail_preview(),
     )

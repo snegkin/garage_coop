@@ -72,7 +72,9 @@
       <td onclick="window.location='{{ url_for('mailbox.view_message', uid=m.uid, folder=folder) }}'" style="cursor:pointer">{{ m.subject }}</td>
       <td class="text-muted small" onclick="window.location='{{ url_for('mailbox.view_message', uid=m.uid, folder=folder) }}'" style="cursor:pointer">{{ m.date.strftime("%d.%m.%Y %H:%M") if m.date else "—" }}</td>
       <td class="no-sort text-end">
-        <form method="post" action="{{ url_for('mailbox.delete_message', uid=m.uid, folder=folder) }}" onsubmit="return confirm('{{ _('Удалить письмо?') }}')">
+        <a class="btn btn-sm btn-outline-primary btn-icon-square" href="{{ url_for('mailbox.compose', reply_to=m.uid, folder=folder) }}" title="{{ _('Ответить') }}">&#8617;</a>
+        <a class="btn btn-sm btn-outline-primary btn-icon-square" href="{{ url_for('mailbox.compose', forward=m.uid, folder=folder) }}" title="{{ _('Переслать') }}">&#8618;</a>
+        <form method="post" action="{{ url_for('mailbox.delete_message', uid=m.uid, folder=folder) }}" onsubmit="return confirm('{{ _('Удалить письмо?') }}')" class="d-inline">
           <button class="btn btn-sm btn-outline-danger btn-icon-square" title="{{ _('Удалить') }}">✕</button>
         </form>
       </td>

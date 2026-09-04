@@ -14,7 +14,17 @@
   </div>
   <div class="mb-3">
     <label class="form-label">{{ _("Текст") }}</label>
-    <textarea class="form-control" name="body" rows="12">{{ body }}</textarea>
+    <div class="btn-toolbar mb-2" role="toolbar" aria-label="{{ _('Форматирование') }}">
+      <div class="btn-group btn-group-sm">
+        <button type="button" class="btn btn-outline-secondary fw-bold" data-md-wrap="**" title="{{ _('Жирный') }}">B</button>
+        <button type="button" class="btn btn-outline-secondary fst-italic" data-md-wrap="*" title="{{ _('Курсив') }}">I</button>
+        <button type="button" class="btn btn-outline-secondary" data-md-prefix="### " title="{{ _('Подзаголовок') }}">H</button>
+        <button type="button" class="btn btn-outline-secondary" data-md-prefix="- " title="{{ _('Список') }}">&bull; {{ _("Список") }}</button>
+        <button type="button" class="btn btn-outline-secondary" data-md-link title="{{ _('Ссылка') }}">&#128279;</button>
+      </div>
+    </div>
+    <textarea id="compose-body" class="form-control" name="body" rows="12">{{ body }}</textarea>
+    <div class="form-text">{{ _("Поддерживается упрощённая разметка: **жирный**, *курсив*, [текст](ссылка), списки (пустая строка, затем строки с «- »), заголовок (### ). Получатель увидит настоящее форматирование — почтовый клиент без поддержки HTML покажет эту разметку как обычный текст.") }}</div>
   </div>
   <div class="mb-3">
     <label class="form-label">{{ _("Вложения") }}</label>
@@ -37,6 +47,53 @@
   var form = document.getElementById("composeForm");
   var errorBox = document.getElementById("composeError");
   var submitBtn = document.getElementById("composeSubmitBtn");
+  var textarea = document.getElementById("compose-body");
+
+  // Тулбар форматирования — тот же приём, что в редакторах новости/вики
+  // (см. news/form.html, wiki/form.html: data-md-wrap/data-md-prefix/data-md-link),
+  // без кнопки вставки картинки — для писем нет своей инфраструктуры
+  // inline-вложений с загрузкой "на лету", как у новостей/вики.
+  function wrapSelection(marker) {
+    var start = textarea.selectionStart, end = textarea.selectionEnd;
+    var value = textarea.value;
+    var selected = value.slice(start, end);
+    textarea.value = value.slice(0, start) + marker + selected + marker + value.slice(end);
+    textarea.focus();
+    textarea.selectionStart = start + marker.length;
+    textarea.selectionEnd = start + marker.length + selected.length;
+  }
+
+  function prefixLines(prefix) {
+    var start = textarea.selectionStart, end = textarea.selectionEnd;
+    var value = textarea.value;
+    var lineStart = value.lastIndexOf("\n", start - 1) + 1;
+    var lineEnd = value.indexOf("\n", end);
+    if (lineEnd === -1) lineEnd = value.length;
+    var block = value.slice(lineStart, lineEnd);
+    var withPrefix = block.length ? block.split("\n").map(function (l) { return prefix + l; }).join("\n") : prefix;
+    textarea.value = value.slice(0, lineStart) + withPrefix + value.slice(lineEnd);
+    textarea.focus();
+  }
+
+  document.querySelectorAll("[data-md-wrap]").forEach(function (btn) {
+    btn.addEventListener("click", function () { wrapSelection(btn.dataset.mdWrap); });
+  });
+  document.querySelectorAll("[data-md-prefix]").forEach(function (btn) {
+    btn.addEventListener("click", function () { prefixLines(btn.dataset.mdPrefix); });
+  });
+  var linkBtn = document.querySelector("[data-md-link]");
+  if (linkBtn) {
+    linkBtn.addEventListener("click", function () {
+      var start = textarea.selectionStart, end = textarea.selectionEnd;
+      var value = textarea.value;
+      var selected = value.slice(start, end) || "{{ _('текст ссылки') }}";
+      var url = window.prompt("{{ _('Адрес ссылки:') }}", "https://");
+      if (!url) return;
+      var replacement = "[" + selected + "](" + url + ")";
+      textarea.value = value.slice(0, start) + replacement + value.slice(end);
+      textarea.focus();
+    });
+  }
 
   form.addEventListener("submit", function (e) {
     e.preventDefault();

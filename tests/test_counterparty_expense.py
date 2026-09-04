@@ -12,7 +12,7 @@ import datetime as dt
 import io
 from decimal import Decimal
 
-from app.models import RoleEnum, Counterparty, Expense, CounterpartyPayment, AuditLog
+from app.models import RoleEnum, Counterparty, Expense, CounterpartyPayment, AuditLog, DocumentType
 
 from tests.conftest import make_user, login
 
@@ -210,3 +210,24 @@ def test_detail_page_shows_edit_button_for_expense(db, client):
     body = resp.get_data(as_text=True)
     assert f'data-bs-target="#editExpenseModal{expense.id}"' in body
     assert f'/counterparties/{counterparty.id}/expenses/{expense.id}/edit' in body
+
+
+def test_expense_document_defaults_to_utd_type(db, client):
+    """Документы, прикреплённые к расходу через форму (см.
+    _save_expense_documents), обычно и есть УПД/счета-фактуры от
+    контрагента — не общий "Акт" (см. DocumentType.UTD)."""
+    counterparty = make_counterparty(db)
+    make_user(db, "board67", "pass12345", role=RoleEnum.BOARD)
+    db.commit()
+    login(client, "board67", "pass12345")
+
+    client.post(f"/counterparties/{counterparty.id}/expenses/new", data={
+        "date": "2026-01-01", "amount": "500.00",
+        "document_file": (io.BytesIO(b"upd"), "upd.pdf"),
+    })
+    db.expire_all()
+    expense = db.query(Expense).filter_by(counterparty_id=counterparty.id).one()
+    assert expense.documents[0].doc_type == DocumentType.UTD
+
+    resp = client.get(f"/counterparties/{counterparty.id}")
+    assert "УПД / счёт-фактура" in resp.get_data(as_text=True)

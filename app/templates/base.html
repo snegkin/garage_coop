@@ -352,7 +352,8 @@ tr.table-info-subtle { --bs-table-bg: var(--bs-info-bg-subtle); --bs-table-borde
 /* Одиночная картинка на своей строке markdown (`![](url)` отдельным абзацем)
    оборачивается JS в .content-image-group — так она центрируется даже одна;
    несколько подряд идущих картинок дополнительно получают --tiled для
-   компактной раскладки плиткой вместо растягивания на всю ширину. */
+   компактной раскладки плиткой вместо растягивания на всю ширину (в вики
+   --tiled включён всегда, даже для одной картинки — см. groupContentImages). */
 .content-image-group { display: flex; flex-wrap: wrap; justify-content: center; gap: .5rem; margin: 1rem 0; }
 .content-image-group img { max-width: 100%; height: auto; border-radius: .375rem; cursor: zoom-in; }
 .content-image-group--tiled img { max-width: 280px; max-height: 280px; width: auto; object-fit: contain; }
@@ -710,9 +711,13 @@ document.addEventListener("submit", function (e) {
 // Markdown-парсер отдаёт одиночную "![](url)" отдельной строкой как
 // <p><img></p> — оборачиваем такие подряд идущие абзацы в .content-image-group,
 // чтобы картинка(и) центрировались; если картинок в группе несколько —
-// вдобавок --tiled для компактной раскладки плиткой.
+// вдобавок --tiled для компактной раскладки плиткой. В вики (маркер
+// .card-text--always-tiled на контейнере, см. wiki/view.html) --tiled
+// добавляется всегда, даже для одиночной картинки — на новости это не
+// распространяется, там раскладка на всю ширину для одной картинки уместнее.
 function groupContentImages() {
   document.querySelectorAll(".card-text").forEach(function (container) {
+    var alwaysTiled = container.classList.contains("card-text--always-tiled");
     var children = Array.prototype.slice.call(container.children);
     var i = 0;
     while (i < children.length) {
@@ -734,7 +739,7 @@ function groupContentImages() {
 
       var group = document.createElement("div");
       group.className = "content-image-group";
-      if (run.length > 1) group.classList.add("content-image-group--tiled");
+      if (alwaysTiled || run.length > 1) group.classList.add("content-image-group--tiled");
       container.insertBefore(group, p);
       run.forEach(function (paragraph) {
         var img = paragraph.children[0];

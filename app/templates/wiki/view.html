@@ -29,7 +29,7 @@
       {{ _("обновлено") }} {{ fmt_date((page.updated_at or page.created_at).date()) }}
       {% if page.updated_by %}({{ page.updated_by.username }}){% endif %}
     </p>
-    <div class="card-text">{{ render_wiki_html(page.body) }}</div>
+    <div class="card-text card-text--always-tiled">{{ render_wiki_html(page.body) }}</div>
 
     {% if is_board() %}
     <div class="d-flex gap-2 mt-4">

@@ -135,6 +135,94 @@ def create_recorder():
     return redirect(url_for("surveillance.view"))
 
 
+@bp.route("/recorders/<int:recorder_id>/edit", methods=["POST"])
+@roles_required(RoleEnum.CHAIRMAN)
+def edit_recorder(recorder_id):
+    """
+    Правит и сам регистратор, и список его камер разом (та же форма, что и
+    создание, см. view.html: editRecorderModal). Пустой пароль — не менять
+    (как везде в приложении для секретов, см. bank_sync/electricity_monitor).
+
+    Камеры сверяются с уже существующими ПО ID (camera_id — скрытое поле
+    каждой строки формы, см. surveillance/_camera_row.html), а не
+    удаляются все разом с созданием заново: иначе неизменившаяся камера
+    теряла бы связь со уже снятым на диске кадром (snapshot_path — по id
+    камеры) до следующего кадра раз в минуту (см. scripts/dvr_snapshot.py).
+    Убранную из формы камеру удаляем вместе с её файлом кадра на диске,
+    если он есть — иначе такие файлы копились бы бесхозными.
+    """
+    recorder = database.db_session.get(DvrRecorder, recorder_id)
+    if recorder is None:
+        abort(404)
+
+    f = request.form
+    name = f.get("name", "").strip()
+    host = f.get("host", "").strip()
+    if not name or not host:
+        flash(_("Укажите название и адрес регистратора."), "danger")
+        return redirect(url_for("surveillance.view"))
+
+    port_raw = f.get("port", "").strip()
+    try:
+        port = int(port_raw) if port_raw else 554
+    except ValueError:
+        flash(_("Порт должен быть числом."), "danger")
+        return redirect(url_for("surveillance.view"))
+
+    recorder.name = name
+    recorder.host = host
+    recorder.port = port
+    recorder.username = f.get("username") or None
+    password = f.get("password", "")
+    if password:
+        recorder.password_encrypted = crypto.encrypt(password)
+    recorder.comment = f.get("comment") or None
+
+    existing_by_id = {c.id: c for c in recorder.cameras}
+    camera_ids = request.form.getlist("camera_id")
+    labels = request.form.getlist("camera_label")
+    channels = request.form.getlist("camera_channel")
+    streams = request.form.getlist("camera_stream")
+
+    seen_ids = set()
+    sort_order = 0
+    for cam_id_raw, label, channel_raw, stream_raw in zip(camera_ids, labels, channels, streams):
+        channel_raw = channel_raw.strip()
+        if not channel_raw:
+            continue  # пустая строка камеры (убрали кнопкой на клиенте, но строка осталась) — пропускаем
+        try:
+            channel = int(channel_raw)
+            stream = int(stream_raw) if stream_raw.strip() else 0
+        except ValueError:
+            continue
+        camera_label = label.strip() or _("Камера {n}", n=sort_order + 1)
+        cam_id = int(cam_id_raw) if cam_id_raw.strip().isdigit() else None
+        if cam_id is not None and cam_id in existing_by_id:
+            camera = existing_by_id[cam_id]
+            camera.label = camera_label
+            camera.channel = channel
+            camera.stream = stream
+            camera.sort_order = sort_order
+            seen_ids.add(cam_id)
+        else:
+            database.db_session.add(DvrCamera(
+                recorder_id=recorder.id, label=camera_label,
+                channel=channel, stream=stream, sort_order=sort_order,
+            ))
+        sort_order += 1
+
+    for cam_id, camera in existing_by_id.items():
+        if cam_id not in seen_ids:
+            database.db_session.delete(camera)
+            snap_path = snapshot_path(recorder.id, cam_id)
+            if os.path.exists(snap_path):
+                os.remove(snap_path)
+
+    database.db_session.commit()
+    flash(_("Регистратор изменён."), "success")
+    return redirect(url_for("surveillance.view"))
+
+
 @bp.route("/recorders/<int:recorder_id>/delete", methods=["POST"])
 @roles_required(RoleEnum.CHAIRMAN)
 def delete_recorder(recorder_id):

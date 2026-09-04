@@ -1,0 +1,20 @@
+{# Одна строка формы "камера" — переиспользуется и для уже существующих
+   камер (в модалке редактирования, camera=DvrCamera), и в <template> для
+   клиентского клонирования новых строк (camera не передан). camera_id —
+   скрытое поле для сверки на сервере (см. surveillance.py: edit_recorder —
+   по нему различаем "обновить существующую" от "добавить новую"). #}
+<div class="row g-2 align-items-center camera-row mb-2">
+  <input type="hidden" name="camera_id" value="{{ camera.id if camera else '' }}">
+  <div class="col-5">
+    <input class="form-control form-control-sm" name="camera_label" placeholder="{{ _('название, напр. Въезд') }}" value="{{ camera.label if camera else '' }}">
+  </div>
+  <div class="col-3">
+    <input class="form-control form-control-sm" type="number" name="camera_channel" placeholder="{{ _('номер камеры') }}" required value="{{ camera.channel if camera else '' }}">
+  </div>
+  <div class="col-3">
+    <input class="form-control form-control-sm" type="number" name="camera_stream" placeholder="{{ _('номер потока') }}" value="{{ camera.stream if camera else 0 }}">
+  </div>
+  <div class="col-1 text-end">
+    <button type="button" class="btn btn-sm btn-outline-danger btn-icon-square remove-camera-row" title="{{ _('Удалить') }}">✕</button>
+  </div>
+</div>

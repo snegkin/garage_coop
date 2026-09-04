@@ -585,9 +585,16 @@ def send_message(
     to_addrs: list[str],
     subject: str,
     body_text: str,
+    body_html: str | None = None,
     attachments: list[tuple[str, str, bytes]] | None = None,
 ) -> None:
-    """attachments — список (filename, content_type, data). Поднимает MailError."""
+    """attachments — список (filename, content_type, data). Поднимает MailError.
+
+    body_html — отрендеренная разметка тулбара формы письма (см. mailbox.py:
+    compose, app/news_format.py: render_html, тот же приём, что и у
+    новостей/вики). set_content()+add_alternative() после него — стандартный
+    способ EmailMessage собрать multipart/alternative (текст — fallback для
+    клиентов без HTML, html — то, что покажет обычный почтовый клиент)."""
     msg = EmailMessage()
     from_addr = settings.username or ""
     msg["From"] = email.utils.formataddr((settings.from_name or "", from_addr))
@@ -596,6 +603,8 @@ def send_message(
     msg["Date"] = email.utils.formatdate(localtime=True)
     msg["Message-ID"] = email.utils.make_msgid()
     msg.set_content(body_text)
+    if body_html:
+        msg.add_alternative(body_html, subtype="html")
 
     for filename, content_type, data in (attachments or []):
         maintype, _sep, subtype = (content_type or "application/octet-stream").partition("/")

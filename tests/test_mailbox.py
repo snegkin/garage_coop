@@ -605,3 +605,86 @@ def test_send_message_appends_copy_to_configured_sent_folder(db, client, monkeyp
 
     client.post("/mailbox/compose", data={"to": "x@example.com", "subject": "s", "body": "b"})
     assert any(name == "Sent" for name, _raw in fake_imap.appended)
+
+
+# ---------------------------------------------------------------------------
+# Ответить / переслать / форматирование (кнопки ответа-пересылки и
+# HTML-версия письма из markdown-тулбара, см. mailbox.py: compose,
+# _reply_prefill/_forward_prefill)
+# ---------------------------------------------------------------------------
+
+def test_compose_reply_prefills_recipient_subject_and_quotes_body(db, client, monkeypatch):
+    _make_board(db)
+    _make_settings(db)
+    _mock_imap(monkeypatch, {1: _test_email(subject="Собрание").as_bytes()})
+    login(client, "board1", "pass1234")
+
+    resp = client.get("/mailbox/compose?reply_to=1")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert 'value="sender@example.com"' in body
+    assert 'value="Re: Собрание"' in body
+    assert "&gt; Текст письма" in body
+
+
+def test_compose_reply_does_not_double_prefix_subject(db, client, monkeypatch):
+    _make_board(db)
+    _make_settings(db)
+    _mock_imap(monkeypatch, {1: _test_email(subject="Re: Собрание").as_bytes()})
+    login(client, "board1", "pass1234")
+
+    resp = client.get("/mailbox/compose?reply_to=1")
+    assert 'value="Re: Собрание"' in resp.get_data(as_text=True)
+
+
+def test_compose_forward_prefills_subject_and_body_without_quote_markers(db, client, monkeypatch):
+    _make_board(db)
+    _make_settings(db)
+    _mock_imap(monkeypatch, {1: _test_email(subject="Собрание").as_bytes()})
+    login(client, "board1", "pass1234")
+
+    resp = client.get("/mailbox/compose?forward=1")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert 'value="Fwd: Собрание"' in body
+    assert 'value=""' in body  # получателя пересылки автор выбирает сам
+    assert "Пересланное сообщение" in body
+    assert "act.pdf" in body  # предупреждение про не перенесённое вложение
+    assert "&gt; Текст письма" not in body  # без цитирования, в отличие от ответа
+
+
+def test_compose_reply_connection_error_shows_flash_not_500(db, client, monkeypatch):
+    _make_board(db)
+    _make_settings(db)
+
+    def boom(settings):
+        raise mail_client.MailError("connection refused")
+    monkeypatch.setattr(mail_client, "_connect_imap", boom)
+    login(client, "board1", "pass1234")
+
+    resp = client.get("/mailbox/compose?reply_to=1", follow_redirects=True)
+    assert resp.status_code == 200
+    assert "Не удалось открыть письмо" in resp.get_data(as_text=True)
+
+
+def test_compose_send_renders_markdown_as_html_alternative(db, client, monkeypatch):
+    """Тулбар форматирования (compose.html) пишет markdown в textarea — на
+    отправке (см. mailbox.py: compose) он рендерится в HTML тем же
+    render_html, что и у новостей/вики, и уходит как html-альтернатива
+    (см. mail_client.send_message), с исходным текстом как plain-fallback."""
+    _make_board(db)
+    _make_settings(db)
+    fake_smtp = _mock_smtp(monkeypatch)
+    login(client, "board1", "pass1234")
+
+    resp = client.post("/mailbox/compose", data={
+        "to": "someone@example.com", "subject": "Тема", "body": "**жирный** текст",
+    })
+    assert resp.get_json()["ok"] is True
+
+    sent = fake_smtp.sent[0]
+    html_part = sent.get_body(preferencelist=("html",))
+    plain_part = sent.get_body(preferencelist=("plain",))
+    assert html_part is not None
+    assert "<strong>жирный</strong>" in html_part.get_content()
+    assert "**жирный** текст" in plain_part.get_content()

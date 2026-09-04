@@ -15,6 +15,9 @@ HTML-тело письма рендерится в песочнице (iframe sa
 внешних картинок (защита от трекинг-пикселей).
 """
 import io
+import re
+
+import bleach
 
 from flask import Blueprint, render_template, request, redirect, url_for, flash, abort, send_file, jsonify
 
@@ -24,8 +27,9 @@ from .i18n import translate as _
 from .auth import roles_required
 from .models import RoleEnum, MailboxSettings, MailProtocol, MailEncryption
 from . import mail_client
-from .mail_client import MailError, DEFAULT_FOLDER
+from .mail_client import MailError, DEFAULT_FOLDER, MessageDetail
 from .mail_html import render_email_body
+from .news_format import render_html
 from .bank_api import crypto
 
 bp = Blueprint("mailbox", __name__, url_prefix="/mailbox")
@@ -59,6 +63,66 @@ def _record_connection_error(settings: MailboxSettings, exc: MailError) -> None:
 
 def _sent_folder_available(settings: MailboxSettings) -> bool:
     return settings.incoming_protocol == MailProtocol.IMAP and bool(settings.sent_folder)
+
+
+def _html_to_text(html: str) -> str:
+    """Грубая конвертация HTML в текст для цитирования оригинала письма,
+    у которого нет text/plain-альтернативы (см. compose(): reply_to/forward).
+    Не претендует на точность — только чтобы в цитате не остались теги,
+    переносы строк расставлены по <br>/</p>, а не всё одним куском."""
+    text = re.sub(r"(?i)<br\s*/?>", "\n", html)
+    text = re.sub(r"(?i)</p\s*>", "\n\n", text)
+    text = bleach.clean(text, tags=[], strip=True)
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
+def _plain_text_of(detail: MessageDetail) -> str:
+    if detail.body_text:
+        return detail.body_text
+    if detail.body_html:
+        return _html_to_text(detail.body_html)
+    return ""
+
+
+def _reply_prefill(detail: MessageDetail) -> tuple[str, str, str]:
+    """(to, subject, body) для «Ответить» — получатель - отправитель
+    оригинала, тема с «Re:» (без дублирования, если оно уже есть), тело -
+    пустая первая строка для ответа + цитата оригинала с «> »."""
+    to = detail.from_addr or ""
+    subject = detail.subject if detail.subject.lower().startswith("re:") else _("Re: {subject}", subject=detail.subject)
+    when = detail.date.strftime("%d.%m.%Y %H:%M") if detail.date else ""
+    who = detail.from_name or detail.from_addr or ""
+    header = _("{when} {who} писал(а):", when=when, who=who) if (when or who) else _("Исходное письмо:")
+    quoted = "\n".join("> " + line for line in _plain_text_of(detail).splitlines())
+    body = "\n\n" + header + "\n" + quoted + "\n"
+    return to, subject, body
+
+
+def _forward_prefill(detail: MessageDetail) -> tuple[str, str, str]:
+    """(to, subject, body) для «Переслать» — получателя правление выбирает
+    само (пусто), тема с «Fwd:», тело — служебный заголовок + текст
+    оригинала БЕЗ цитирования (">"), вложения оригинала не переносятся
+    автоматически (это отдельная непростая механика — переучёт cid/повторная
+    загрузка через IMAP), только упоминаются в тексте, чтобы автор письма не
+    удивился их отсутствию и при необходимости прикрепил вручную."""
+    subject = detail.subject if detail.subject.lower().startswith("fwd:") else _("Fwd: {subject}", subject=detail.subject)
+    when = detail.date.strftime("%d.%m.%Y %H:%M") if detail.date else "—"
+    who = detail.from_name or ""
+    from_line = f"{who} <{detail.from_addr}>" if who and detail.from_addr else (detail.from_addr or who or "—")
+    body = (
+        "\n\n---------- " + _("Пересланное сообщение") + " ----------\n"
+        + _("От") + f": {from_line}\n"
+        + _("Дата") + f": {when}\n"
+        + _("Тема") + f": {detail.subject}\n"
+        + _("Кому") + f": {', '.join(detail.to_addrs) or '—'}\n\n"
+        + _plain_text_of(detail)
+    )
+    if detail.attachments:
+        names = ", ".join(a.filename for a in detail.attachments)
+        body += "\n\n" + _("[Вложения оригинала не пересылаются автоматически: {names} — прикрепите вручную при необходимости.]", names=names)
+    return "", subject, body
 
 
 def _folder_from_request(settings: MailboxSettings) -> str:
@@ -205,8 +269,17 @@ def compose():
                 continue
             attachments.append((file_storage.filename, file_storage.content_type or "application/octet-stream", file_storage.read()))
 
+        # Тело письма пишется в той же упрощённой markdown-разметке, что и
+        # новости/вики (тулбар в compose.html) — на выходе реальный HTML
+        # (жирный/курсив/списки и т.п. в почтовом клиенте получателя), текст
+        # без разметки остаётся как plain-fallback (см. mail_client.send_message).
+        body_html = str(render_html(body)) if body.strip() else None
+
         try:
-            mail_client.send_message(settings, to_addrs=to_addrs, subject=subject, body_text=body, attachments=attachments)
+            mail_client.send_message(
+                settings, to_addrs=to_addrs, subject=subject, body_text=body, body_html=body_html,
+                attachments=attachments,
+            )
         except MailError as exc:
             _record_connection_error(settings, exc)
             return jsonify(ok=False, error=_("Не удалось отправить письмо: {error}", error=str(exc))), 400
@@ -216,7 +289,21 @@ def compose():
         flash(_("Письмо отправлено."), "success")  # подхватится при переходе на inbox из JS
         return jsonify(ok=True, redirect=url_for("mailbox.inbox"))
 
-    return render_template("mailbox/compose.html", to="", subject="", body="")
+    to, subject, body = "", "", ""
+    reply_uid = request.args.get("reply_to")
+    forward_uid = request.args.get("forward")
+    if reply_uid or forward_uid:
+        folder = _folder_from_request(settings)
+        try:
+            with mail_client.get_incoming_client(settings) as client:
+                detail = client.get_message(reply_uid or forward_uid, folder=folder)
+        except MailError as exc:
+            _record_connection_error(settings, exc)
+            flash(_("Не удалось открыть письмо: {error}", error=str(exc)), "danger")
+            return redirect(url_for("mailbox.inbox", folder=folder))
+        to, subject, body = _reply_prefill(detail) if reply_uid else _forward_prefill(detail)
+
+    return render_template("mailbox/compose.html", to=to, subject=subject, body=body)
 
 
 @bp.route("/settings", methods=["POST"])

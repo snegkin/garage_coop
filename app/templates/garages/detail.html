@@ -380,6 +380,16 @@
 <div class="row g-4">
   <div class="col-md-6">
     <h5>{{ _("Текущий счётчик") }}</h5>
+    {% if is_board() %}
+    <p class="text-muted small mb-2">
+      {{ _("Контрольный узел:") }}
+      {% if garage.control_meter %}
+      <a href="{{ url_for('control_meters.detail', node_id=garage.control_meter.id) }}">{{ garage.control_meter.name }}</a>
+      {% else %}
+      {{ _("подключён напрямую к вводу") }}
+      {% endif %}
+    </p>
+    {% endif %}
     {% if current_meter %}
     <table class="table table-bordered bg-body">
       <tr><th style="width:350px">{{ _("Номер счётчика") }}</th><td>{{ current_meter.meter_number }}</td></tr>

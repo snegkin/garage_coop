@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Новый узел") if not node else _("Редактирование узла") }}{% endblock %}
+{% block content %}
+<h3 class="mb-3">{{ _("Новый узел контрольного счётчика") if not node else _("Редактирование узла") }}</h3>
+<form method="post" class="bg-body p-4 rounded border" style="max-width:600px">
+  <div class="mb-3">
+    <label class="form-label">{{ _("Название") }}</label>
+    <input class="form-control" name="name" value="{{ node.name if node else '' }}" placeholder="{{ _('например: ВРУ-2, щит ряда Б') }}" required autofocus>
+  </div>
+
+  <div class="mb-3">
+    <label class="form-label">{{ _("Родительский узел") }}</label>
+    <select class="form-select" name="parent_id">
+      <option value="">{{ _("— нет (узел верхнего уровня, на вводе) —") }}</option>
+      {% for opt_node, depth in parent_options %}
+      <option value="{{ opt_node.id }}"
+        {{ 'selected' if (node and node.parent_id == opt_node.id) or (not node and preselected_parent_id == opt_node.id) }}>
+        {{ "— " * depth }}{{ opt_node.name }}
+      </option>
+      {% endfor %}
+    </select>
+    <div class="form-text">{{ _("Необязательно — без родителя узел подключён напрямую к вводу.") }}</div>
+  </div>
+
+  <div class="mb-3">
+    <label class="form-label">{{ _("Комментарий") }}</label>
+    <textarea class="form-control" name="comment" rows="3">{{ node.comment or '' if node else '' }}</textarea>
+  </div>
+
+  <div class="d-flex justify-content-end gap-2">
+    <button class="btn btn-primary">{{ _("Сохранить") }}</button>
+    <a class="btn btn-outline-secondary" href="{{ url_for('control_meters.detail', node_id=node.id) if node else url_for('control_meters.list_tree') }}">{{ _("Отмена") }}</a>
+  </div>
+</form>
+{% endblock %}

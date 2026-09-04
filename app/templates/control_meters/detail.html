@@ -1,0 +1,206 @@
+{% import "control_meters/_tree.html" as cmtree %}
+{% extends "base.html" %}
+{% block title %}{{ node.name }}{% endblock %}
+{% block content %}
+<a href="{{ url_for('control_meters.list_tree') }}" class="d-inline-block mb-3">&larr; {{ _("Ко всем узлам") }}</a>
+
+<div class="row">
+  <div class="col-md-4 col-lg-3 mb-3">
+    <div class="bg-body p-3 rounded border">
+      {{ cmtree.render_tree(tree, current_node_id=node.id, ancestor_ids=ancestor_ids, reconcile_default=reconcile_default) }}
+    </div>
+  </div>
+
+  <div class="col-md-8 col-lg-9">
+    {% if breadcrumbs %}
+    <nav class="small text-muted mb-2">
+      {% for b in breadcrumbs %}
+      <a href="{{ url_for('control_meters.detail', node_id=b.id) }}" class="text-muted">{{ b.name }}</a> /
+      {% endfor %}
+      <span>{{ node.name }}</span>
+    </nav>
+    {% endif %}
+
+    <div class="d-flex justify-content-between align-items-start mb-3">
+      <div>
+        <h3 class="mb-1">{{ node.name }}</h3>
+        {% if node.comment %}<p class="text-muted small mb-0">{{ node.comment }}</p>{% endif %}
+      </div>
+      <div class="d-flex gap-2">
+        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('control_meters.create', parent_id=node.id) }}">+ {{ _("Дочерний узел") }}</a>
+        <a class="btn btn-sm btn-primary" href="{{ url_for('control_meters.edit', node_id=node.id) }}">{{ _("Изменить") }}</a>
+        <form method="post" action="{{ url_for('control_meters.delete', node_id=node.id) }}" onsubmit="return confirm('{{ _("Удалить узел контрольного счётчика?") }}')">
+          <button class="btn btn-sm btn-outline-danger" {{ 'disabled' if node.children or node.garages }}
+                  title="{{ _('Сначала перенесите/удалите дочерние узлы и отвяжите гаражи.') if (node.children or node.garages) else '' }}">
+            {{ _("Удалить") }}
+          </button>
+        </form>
+      </div>
+    </div>
+
+    <div class="card bg-body mb-4">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <h5 class="card-title mb-0">{{ _("Показания") }}</h5>
+          <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#readingModal">+ {{ _("Внести показания") }}</button>
+        </div>
+        <table class="table table-sm bg-body sortable mb-0">
+          <thead><tr><th>{{ _("Дата") }}</th><th>{{ _("Показания, кВт·ч") }}</th><th>{{ _("Дельта") }}</th><th>{{ _("Комментарий") }}</th><th class="no-sort">{{ _("Действия") }}</th></tr></thead>
+          <tbody>
+            {% for r, delta in readings_with_deltas|reverse %}
+            <tr>
+              <td data-sort-value="{{ r.reading_date.isoformat() }}">{{ fmt_date(r.reading_date) }}</td>
+              <td data-sort-value="{{ r.reading }}">{{ fmt2(r.reading) }}</td>
+              <td>{{ fmt2(delta) if delta is not none else "—" }}</td>
+              <td>{{ r.comment or "—" }}</td>
+              <td class="no-sort">
+                {% if loop.first %}
+                <form method="post" action="{{ url_for('control_meters.delete_reading', node_id=node.id, reading_id=r.id) }}" onsubmit="return confirm('{{ _('Удалить показание?') }}')">
+                  <button class="btn btn-sm btn-outline-danger btn-icon-square" title="{{ _('Удалить') }}">✕</button>
+                </form>
+                {% endif %}
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5" class="text-muted">{{ _("Показаний пока нет.") }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        <p class="text-muted small mt-2 mb-0">{{ _("Удалить можно только самое последнее по дате показание — иначе исказятся уже показанные дельты.") }}</p>
+      </div>
+    </div>
+
+    <div class="card bg-body mb-4">
+      <div class="card-body">
+        <h5 class="card-title">{{ _("Сверка") }}</h5>
+        {% if readings_desc|length >= 2 %}
+        <form method="get" class="d-flex align-items-end gap-2 flex-wrap mb-3">
+          <div>
+            <label class="form-label small mb-0">{{ _("От показания") }}</label>
+            <select class="form-select form-select-sm" name="from_reading_id">
+              {% for r in readings_desc|reverse %}
+              <option value="{{ r.id }}" {{ "selected" if reconciliation and reconciliation.date_from == r.reading_date }}>{{ fmt_date(r.reading_date) }} — {{ fmt2(r.reading) }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <label class="form-label small mb-0">{{ _("До показания") }}</label>
+            <select class="form-select form-select-sm" name="to_reading_id">
+              {% for r in readings_desc %}
+              <option value="{{ r.id }}" {{ "selected" if reconciliation and reconciliation.date_to == r.reading_date }}>{{ fmt_date(r.reading_date) }} — {{ fmt2(r.reading) }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <button class="btn btn-sm btn-outline-secondary">{{ _("Пересчитать") }}</button>
+        </form>
+        {% endif %}
+
+        {% if reconciliation is none %}
+        <p class="text-muted mb-0">{{ _("Недостаточно показаний узла для сверки (нужно минимум два).") }}</p>
+        {% else %}
+        {% include "control_meters/_reconciliation.html" %}
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="row g-4">
+      <div class="col-md-6">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <h5 class="mb-0">{{ _("Подключённые гаражи") }}</h5>
+          <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#attachGarageModal">+ {{ _("Подключить") }}</button>
+        </div>
+        <table class="table table-sm bg-body mb-0">
+          <tbody>
+            {% for g in node.garages|sort(attribute="number") %}
+            <tr>
+              <td><a href="{{ url_for('garages.detail', garage_id=g.id) }}">{{ _("Гараж №{number}", number=g.number) }}</a></td>
+              <td class="text-end">
+                <form method="post" action="{{ url_for('control_meters.detach_garage', node_id=node.id, garage_id=g.id) }}" onsubmit="return confirm('{{ _('Отключить гараж от узла?') }}')">
+                  <button class="btn btn-sm btn-outline-secondary">{{ _("Отключить") }}</button>
+                </form>
+              </td>
+            </tr>
+            {% else %}
+            <tr><td class="text-muted">{{ _("Гаражи не подключены.") }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="col-md-6">
+        <h5 class="mb-2">{{ _("Дочерние узлы") }}</h5>
+        <table class="table table-sm bg-body mb-0">
+          <tbody>
+            {% for child in node.children %}
+            <tr><td><a href="{{ url_for('control_meters.detail', node_id=child.id) }}">{{ child.name }}</a></td></tr>
+            {% else %}
+            <tr><td class="text-muted">{{ _("Дочерних узлов нет.") }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Модалка: внести показания -->
+<div class="modal fade" id="readingModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" action="{{ url_for('control_meters.add_reading', node_id=node.id) }}">
+        <div class="modal-header">
+          <h5 class="modal-title">{{ _("Внести показания узла «{name}»", name=node.name) }}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">{{ _("Дата") }}</label>
+            <input class="form-control" type="date" name="reading_date" value="{{ today.isoformat() }}" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">{{ _("Показания, кВт·ч") }}</label>
+            <input class="form-control" inputmode="decimal" name="reading" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">{{ _("Комментарий") }}</label>
+            <textarea class="form-control" name="comment"></textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+          <button class="btn btn-primary">{{ _("Сохранить") }}</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Модалка: подключить гараж -->
+<div class="modal fade" id="attachGarageModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" action="{{ url_for('control_meters.attach_garage', node_id=node.id) }}">
+        <div class="modal-header">
+          <h5 class="modal-title">{{ _("Подключить гараж к узлу «{name}»", name=node.name) }}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <label class="form-label">{{ _("Гараж") }}</label>
+          <select class="form-select" name="garage_id" data-searchable required>
+            <option value="">{{ _("— выберите —") }}</option>
+            {% for g in attachable_garages %}
+            <option value="{{ g.id }}">
+              {{ _("Гараж №{number}", number=g.number) }}{% if g.control_meter %} ({{ _("сейчас: {name}", name=g.control_meter.name) }}){% endif %}
+            </option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+          <button class="btn btn-primary">{{ _("Подключить") }}</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

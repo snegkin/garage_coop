@@ -13,8 +13,8 @@ from .models import (
 )
 from .accounting import (
     counterparty_balance, reallocate_counterparty_expenses, pay_counterparty,
-    expense_paid_amount, edit_counterparty_payment, reverse_counterparty_payment,
-    delete_counterparty_payment_reversal,
+    expense_paid_amount, edit_counterparty_payment, edit_counterparty_payment_details,
+    reverse_counterparty_payment, delete_counterparty_payment_reversal,
 )
 from .uploads import save_upload
 
@@ -215,6 +215,46 @@ def add_expense(counterparty_id):
     return redirect(url_for("counterparties.detail", counterparty_id=counterparty.id))
 
 
+@bp.route("/<int:counterparty_id>/expenses/<int:expense_id>/edit", methods=["POST"])
+@roles_required(RoleEnum.BOARD)
+def edit_expense(counterparty_id, expense_id):
+    """
+    Правка расхода — в отличие от платежей (см. edit_payment), разрешена
+    для ЛЮБОГО расхода, не только последнего: Expense не трогает баланс
+    банковского счёта (в отличие от CounterpartyPayment), а разнесение
+    платежей по расходам (reallocate_counterparty_expenses) полностью
+    идемпотентно и пересчитывается заново при любом изменении — задним
+    числом переписывать здесь нечего, в отличие от платежей, где правка
+    затрагивает уже списанный баланс счёта.
+    """
+    counterparty = database.db_session.get(Counterparty, counterparty_id)
+    expense = database.db_session.get(Expense, expense_id)
+    if counterparty is None or expense is None or expense.counterparty_id != counterparty.id:
+        abort(404)
+
+    f = request.form
+    expense.date = dt.date.fromisoformat(f["date"])
+    expense.amount = parse_decimal(f["amount"])
+    expense.category = f.get("category") or None
+    expense.description = f.get("description") or None
+    document_id = _save_document(
+        "document_file", "document_title",
+        _("Счёт от {name}", name=counterparty.name), counterparty,
+    )
+    if document_id is not None:
+        expense.document_id = document_id
+    database.db_session.flush()
+    reallocate_counterparty_expenses(counterparty)
+    audit.record(
+        "expense.edit", entity_type="counterparty", entity_id=counterparty.id,
+        summary=f"Изменён расход #{expense.id} — {counterparty.name}, "
+                f"новая сумма {audit.format_amount(expense.amount)}",
+    )
+    database.db_session.commit()
+    flash(_("Расход изменён."), "success")
+    return redirect(url_for("counterparties.detail", counterparty_id=counterparty.id))
+
+
 def _resolve_statement_line(f, exclude_payment_id: int | None = None) -> tuple[BankStatementLine | None, str | None]:
     """
     Разбирает bank_statement_line_id из формы платежа контрагенту —
@@ -313,22 +353,18 @@ def add_payment(counterparty_id):
 @roles_required(RoleEnum.BOARD)
 def edit_payment(counterparty_id, payment_id):
     """
-    Правка платежа — только для случая, когда ошиблись в сумме/дате при
-    вводе. Разрешена только для последнего (по дате, среди не-сторно)
-    платежа контрагента — чтобы не переписывать задним числом историю,
-    для этого есть сторно (см. reverse_payment). Сам платёж не должен быть
-    отменяющей проводкой и не должен быть уже сторнирован.
+    Полная правка (сумма/счёт списания/документ) — только для последнего
+    (по дате, среди не-сторно) платежа контрагента, т.к. это трогает уже
+    списанный баланс банковского счёта и последующие сверки. Для более
+    ранних платежей — облегчённая правка ниже: только дата/комментарий, без
+    влияния на баланс (см. accounting.edit_counterparty_payment_details).
+    В обоих случаях платёж не должен быть отменяющей проводкой и не должен
+    быть уже сторнирован — для этого есть сторно (см. reverse_payment).
     """
     counterparty = database.db_session.get(Counterparty, counterparty_id)
     payment = database.db_session.get(CounterpartyPayment, payment_id)
     if counterparty is None or payment is None or payment.counterparty_id != counterparty.id:
         abort(404)
-
-    originals = [p for p in counterparty.payments if p.reverses_payment_id is None]
-    last_payment = max(originals, key=lambda p: (p.date, p.id)) if originals else None
-    if last_payment is None or payment.id != last_payment.id:
-        flash(_("Редактировать можно только последний платёж контрагенту."), "danger")
-        return redirect(url_for("counterparties.detail", counterparty_id=counterparty.id))
     if payment.reverses_payment_id is not None:
         flash(_("Это отменяющая проводка (сторно) — её нельзя редактировать."), "danger")
         return redirect(url_for("counterparties.detail", counterparty_id=counterparty.id))
@@ -336,7 +372,27 @@ def edit_payment(counterparty_id, payment_id):
         flash(_("Этот платёж уже сторнирован — редактировать его нельзя."), "danger")
         return redirect(url_for("counterparties.detail", counterparty_id=counterparty.id))
 
+    originals = [p for p in counterparty.payments if p.reverses_payment_id is None]
+    last_payment = max(originals, key=lambda p: (p.date, p.id)) if originals else None
+    is_last = last_payment is not None and payment.id == last_payment.id
+
     f = request.form
+
+    if not is_last:
+        # Не последний платёж — сумму/счёт списания/документ не трогаем
+        # (уже могли повлиять на баланс счёта и последующие операции),
+        # только дата и комментарий.
+        edit_counterparty_payment_details(
+            payment=payment, date=dt.date.fromisoformat(f["date"]), comment=f.get("comment") or None,
+        )
+        audit.record(
+            "counterparty_payment.edit", entity_type="counterparty_payment", entity_id=payment.id,
+            summary=f"Изменены дата/комментарий платежа контрагенту #{payment.id} — {counterparty.name}",
+        )
+        database.db_session.commit()
+        flash(_("Платёж изменён."), "success")
+        return redirect(url_for("counterparties.detail", counterparty_id=counterparty.id))
+
     statement_line, error = _resolve_statement_line(f, exclude_payment_id=payment.id)
     if error:
         flash(error, "danger")

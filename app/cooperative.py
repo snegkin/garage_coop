@@ -58,6 +58,8 @@ def edit():
         coop.ogrn = f["ogrn"]
         coop.legal_address = f.get("legal_address") or None
         coop.postal_address = f.get("postal_address") or None
+        coop.email = f.get("email") or None
+        coop.website = f.get("website") or None
         reg_date = f.get("registration_date")
         coop.registration_date = dt.date.fromisoformat(reg_date) if reg_date else None
         coop.total_area = _parse_decimal(f.get("total_area"))

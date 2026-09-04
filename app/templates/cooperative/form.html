@@ -37,6 +37,14 @@
       <label class="form-label">{{ _("Дата регистрации") }}</label>
       <input class="form-control" type="date" name="registration_date" value="{{ coop.registration_date or '' }}">
     </div>
+    <div class="col-md-6">
+      <label class="form-label">{{ _("Email") }}</label>
+      <input class="form-control" type="email" name="email" value="{{ coop.email or '' }}">
+    </div>
+    <div class="col-md-6">
+      <label class="form-label">{{ _("Сайт") }}</label>
+      <input class="form-control" type="text" name="website" value="{{ coop.website or '' }}" placeholder="https://...">
+    </div>
 
     <div class="col-12"><hr></div>
     <div class="col-12"><h5>{{ _("Площади и налоги") }}</h5></div>

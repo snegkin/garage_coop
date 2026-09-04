@@ -30,6 +30,8 @@
     </td>
   </tr>
   <tr><th>{{ _("Дата регистрации") }}</th><td>{{ fmt_date(coop.registration_date) }}</td></tr>
+  <tr><th>{{ _("Email") }}</th><td>{% if coop.email %}<a href="mailto:{{ coop.email }}">{{ coop.email }}</a>{% else %}—{% endif %}</td></tr>
+  <tr><th>{{ _("Сайт") }}</th><td>{% if coop.website %}<a href="{{ coop.website }}" target="_blank" rel="noopener">{{ coop.website }}</a>{% else %}—{% endif %}</td></tr>
   <tr><th>{{ _("Площадь кооператива") }}</th><td>{{ (fmt2(coop.total_area) ~ " м²") if coop.total_area is not none else "—" }}</td></tr>
   <tr><th>{{ _("Площадь под гаражами") }}</th><td>{{ (fmt2(coop.garage_area) ~ " м²") if coop.garage_area is not none else "—" }}</td></tr>
   <tr><th>{{ _("Площадь общего пользования") }}</th><td>{{ (fmt2(coop.common_area) ~ " м²") if coop.common_area is not none else "—" }}</td></tr>

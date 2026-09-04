@@ -63,7 +63,7 @@
       {% endif %}
 
       <span class="wiki-tree-actions ms-auto">
-        <a href="{{ url_for('control_meters.create', parent_id=n.id if not is_root else none) }}" class="btn btn-sm btn-link p-0 text-muted" title="{{ _('Добавить узел верхнего уровня') if is_root else _('Добавить дочерний узел') }}">&#10133;</a>
+        <a href="{{ url_for('control_meters.create', parent_id=n.id if not is_root else none) }}" class="btn btn-sm btn-link p-0 text-muted" title="{{ _('Добавить дочерний узел') }}">&#10133;</a>
         {% if not is_root %}
         <a href="{{ url_for('control_meters.edit', node_id=n.id) }}" class="btn btn-sm btn-link p-0 text-muted" title="{{ _('Изменить') }}">&#9998;</a>
         <form method="post" action="{{ url_for('control_meters.delete', node_id=n.id) }}" class="d-inline"

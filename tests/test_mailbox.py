@@ -342,7 +342,34 @@ def test_view_message_and_download_attachment(db, client, monkeypatch):
     assert resp2.data == b"pdf-bytes"
 
 
-def test_external_images_blocked_by_default_and_shown_on_request(db, client, monkeypatch):
+def test_view_message_decodes_idn_domain_in_from_and_to(db, client, monkeypatch):
+    """From/To в заголовках письма приходят в punycode для не-ASCII доменов
+    ("xn----dtbbg1boax0b.xn--p1ai") — на странице письма показываем
+    человекочитаемый вид (см. mail_client.decode_idn_address)."""
+    msg = EmailMessage(policy=email.policy.default)
+    msg["Subject"] = "Тест IDN"
+    msg["From"] = "sender@xn----dtbbg1boax0b.xn--p1ai"
+    msg["To"] = "pravlenie@xn----dtbbg1boax0b.xn--p1ai"
+    msg["Date"] = "Fri, 04 Sep 2026 12:00:00 +0300"
+    msg.set_content("Текст")
+
+    _make_board(db)
+    _make_settings(db)
+    _mock_imap(monkeypatch, {1: msg.as_bytes()})
+    login(client, "board1", "pass1234")
+
+    resp = client.get("/mailbox/messages/1")
+    body = resp.get_data(as_text=True)
+    assert "гм-восход.рф" in body
+    assert "xn--" not in body
+
+
+def test_external_images_shown_by_default(db, client, monkeypatch):
+    """ГСК — не публичная организация, нет причин защищать правление от
+    трекинг-пикселей в письмах, поэтому внешние картинки показываются сразу
+    (см. mailbox.py: view_message, allow_images по умолчанию "1"), в
+    отличие от типичного почтового клиента. ?allow_images=0 остаётся
+    обратным переключателем — сама защита не удалена, просто дефолт другой."""
     msg = EmailMessage(policy=email.policy.default)
     msg["Subject"] = "С картинкой"
     msg["From"] = "x@example.com"
@@ -356,11 +383,12 @@ def test_external_images_blocked_by_default_and_shown_on_request(db, client, mon
     login(client, "board1", "pass1234")
 
     resp = client.get("/mailbox/messages/1")
-    assert "tracker.example" not in resp.get_data(as_text=True)
-    assert "Показать изображения" in resp.get_data(as_text=True)
+    assert "tracker.example" in resp.get_data(as_text=True)
+    assert "Показать изображения" not in resp.get_data(as_text=True)
 
-    resp2 = client.get("/mailbox/messages/1?allow_images=1")
-    assert "tracker.example" in resp2.get_data(as_text=True)
+    resp2 = client.get("/mailbox/messages/1?allow_images=0")
+    assert "tracker.example" not in resp2.get_data(as_text=True)
+    assert "Показать изображения" in resp2.get_data(as_text=True)
 
 
 # ---------------------------------------------------------------------------
@@ -637,6 +665,28 @@ def test_compose_reply_does_not_double_prefix_subject(db, client, monkeypatch):
     assert 'value="Re: Собрание"' in resp.get_data(as_text=True)
 
 
+def test_compose_reply_to_field_keeps_real_punycode_address(db, client, monkeypatch):
+    """"to" в форме — реальный адрес, на который реально уйдёт письмо, а не
+    подпись для человека: раскодировать домен в этом поле нельзя, иначе на
+    отправке ушёл бы нерабочий (нераскодированный обратно) юникод-домен."""
+    msg = EmailMessage(policy=email.policy.default)
+    msg["Subject"] = "Тест IDN"
+    msg["From"] = "sender@xn----dtbbg1boax0b.xn--p1ai"
+    msg["To"] = "pravlenie@example.com"
+    msg["Date"] = "Fri, 04 Sep 2026 12:00:00 +0300"
+    msg.set_content("Текст")
+
+    _make_board(db)
+    _make_settings(db)
+    _mock_imap(monkeypatch, {1: msg.as_bytes()})
+    login(client, "board1", "pass1234")
+
+    resp = client.get("/mailbox/compose?reply_to=1")
+    body = resp.get_data(as_text=True)
+    assert 'value="sender@xn----dtbbg1boax0b.xn--p1ai"' in body
+    assert "гм-восход.рф" in body  # но в теле-цитате ("... писал(а):") — уже раскодированный, для человека
+
+
 def test_compose_forward_prefills_subject_and_body_without_quote_markers(db, client, monkeypatch):
     _make_board(db)
     _make_settings(db)
@@ -651,6 +701,28 @@ def test_compose_forward_prefills_subject_and_body_without_quote_markers(db, cli
     assert "Пересланное сообщение" in body
     assert "act.pdf" in body  # предупреждение про не перенесённое вложение
     assert "&gt; Текст письма" not in body  # без цитирования, в отличие от ответа
+
+
+def test_compose_forward_decodes_idn_domain_in_quoted_from_and_to(db, client, monkeypatch):
+    """В служебном заголовке пересланного письма (текст в теле, не поле
+    формы "Кому") домены тоже раскодированы — см. mailbox.py:
+    _forward_prefill."""
+    msg = EmailMessage(policy=email.policy.default)
+    msg["Subject"] = "Тест IDN"
+    msg["From"] = "sender@xn----dtbbg1boax0b.xn--p1ai"
+    msg["To"] = "pravlenie@xn----dtbbg1boax0b.xn--p1ai"
+    msg["Date"] = "Fri, 04 Sep 2026 12:00:00 +0300"
+    msg.set_content("Текст")
+
+    _make_board(db)
+    _make_settings(db)
+    _mock_imap(monkeypatch, {1: msg.as_bytes()})
+    login(client, "board1", "pass1234")
+
+    resp = client.get("/mailbox/compose?forward=1")
+    body = resp.get_data(as_text=True)
+    assert "гм-восход.рф" in body
+    assert "xn--" not in body
 
 
 def test_compose_reply_connection_error_shows_flash_not_500(db, client, monkeypatch):

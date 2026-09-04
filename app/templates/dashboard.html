@@ -157,14 +157,15 @@
         {% elif mail_preview.messages %}
         <ul class="list-group list-group-flush">
           {% for m in mail_preview.messages %}
-          <li class="list-group-item px-0">
-            <a href="{{ url_for('mailbox.view_message', uid=m.uid) }}" class="d-block text-decoration-none">
-              <div class="d-flex justify-content-between">
-                <span class="{{ 'fw-semibold' if m.seen is false }}">{{ m.from_name or m.from_addr or "—" }}</span>
-                <span class="small text-muted">{{ m.date.strftime("%d.%m.%Y %H:%M") if m.date else "—" }}</span>
+          <li class="list-group-item px-0 d-flex justify-content-between align-items-start gap-2">
+            <div>
+              <div class="small text-muted">
+                {{ m.from_name or (m.from_addr|decode_idn_address if m.from_addr else "—") }}
+                {% if m.date %} · {{ m.date.strftime("%d.%m.%Y %H:%M") }}{% endif %}
               </div>
               <div class="{{ 'fw-semibold' if m.seen is false }}">{{ m.subject }}</div>
-            </a>
+            </div>
+            <a class="btn btn-sm btn-outline-secondary btn-icon-square flex-shrink-0" href="{{ url_for('mailbox.view_message', uid=m.uid) }}" title="{{ _('Открыть письмо') }}">&rarr;</a>
           </li>
           {% endfor %}
         </ul>

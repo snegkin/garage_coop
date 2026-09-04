@@ -101,6 +101,27 @@ class MessageDetail:
 # сырые байты целого письма и парсят их одной и той же функцией.
 # ---------------------------------------------------------------------------
 
+def decode_idn_address(addr: str | None) -> str:
+    """Отображение адреса с раскодированным IDN-доменом: почтовые сервера
+    отдают заголовки From/To в ASCII (punycode) для кириллических/юникодных
+    доменов — "pravlenie@xn----dtbbg1boax0b.xn--p1ai" вместо
+    "pravlenie@гм-восход.рф". Для показа человеку декодируем через
+    стандартный кодек "idna"; сам адрес в модели/форме (то, что реально
+    уходит на SMTP) не трогаем — используется только там, где строка идёт
+    в текст, а не в атрибут формы (см. mailbox.py: _reply_prefill — "to" не
+    декодируется, это реальный адрес получателя, а не подпись).
+    Молча возвращает исходную строку, если декодировать не удалось (не
+    punycode-домен, кривой ввод и т.п.) — не должно ронять показ письма."""
+    if not addr or "@" not in addr:
+        return addr or ""
+    local, _, domain = addr.rpartition("@")
+    try:
+        decoded_domain = domain.encode("ascii").decode("idna")
+    except (UnicodeError, LookupError):
+        return addr
+    return f"{local}@{decoded_domain}"
+
+
 def _address_from_header(msg: email.message.Message, header: str) -> tuple[str | None, str | None]:
     raw = msg[header]
     if not raw:

@@ -16,8 +16,8 @@
   <div class="card-body">
     <h4 class="card-title">{{ detail.subject }}</h4>
     <table class="table table-borderless table-sm mb-3" style="max-width:700px">
-      <tr><th style="width:100px">{{ _("От кого") }}</th><td>{{ detail.from_name or "" }} {% if detail.from_addr %}&lt;{{ detail.from_addr }}&gt;{% endif %}</td></tr>
-      <tr><th>{{ _("Кому") }}</th><td>{{ detail.to_addrs|join(", ") or "—" }}</td></tr>
+      <tr><th style="width:100px">{{ _("От кого") }}</th><td>{{ detail.from_name or "" }} {% if detail.from_addr %}&lt;{{ detail.from_addr|decode_idn_address }}&gt;{% endif %}</td></tr>
+      <tr><th>{{ _("Кому") }}</th><td>{{ detail.to_addrs|map('decode_idn_address')|join(", ") or "—" }}</td></tr>
       <tr><th>{{ _("Дата") }}</th><td>{{ detail.date.strftime("%d.%m.%Y %H:%M") if detail.date else "—" }}</td></tr>
     </table>
 

@@ -66,6 +66,16 @@ def _build_tree(all_nodes):
     return roots
 
 
+def _wrap_with_root(tree):
+    """Оборачивает лес узлов верхнего уровня (parent_id IS NULL) в один
+    синтетический корень {"node": None, "children": tree} — верхний узел
+    дерева ВСЕГДА физически есть вводной счётчик кооператива (см.
+    _tree.html: node=None рендерится как «Ввод», со ссылкой на /power/), а
+    не отдельная сущность ControlMeter, поэтому узлы верхнего уровня в
+    дереве показываются как его дети, а не как несвязанный лес."""
+    return [{"node": None, "children": tree}]
+
+
 def _descendant_ids(node):
     """id узла и всех его потомков — чтобы при выборе родителя в форме
     редактирования нельзя было выбрать сам узел или его же потомка."""
@@ -286,7 +296,7 @@ def root_level_reconciliation(date_from: dt.date, date_to: dt.date) -> NodeRecon
 @roles_required(RoleEnum.BOARD)
 def list_tree():
     all_nodes = database.db_session.query(ControlMeter).all()
-    tree = _build_tree(all_nodes)
+    tree = _wrap_with_root(_build_tree(all_nodes))
     root_reconciliation = reconcile_node_default(None)
     return render_template(
         "control_meters/list.html", tree=tree,
@@ -422,7 +432,7 @@ def detail(node_id):
     breadcrumbs.reverse()
 
     all_nodes = database.db_session.query(ControlMeter).all()
-    tree = _build_tree(all_nodes)
+    tree = _wrap_with_root(_build_tree(all_nodes))
 
     return render_template(
         "control_meters/detail.html", node=node,

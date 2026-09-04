@@ -1,33 +1,48 @@
 {# Рекурсивный макрос дерева контрольных счётчиков — по образцу wiki/_tree.html
    (переиспользует те же CSS-классы .wiki-tree-* из base.html: чисто
    структурная вёрстка сворачиваемого дерева, ничем не завязанная на вики).
-   nodes            — список {"node": ControlMeter, "children": [...]}
+   nodes            — список {"node": ControlMeter|None, "children": [...]}.
+                       node=None — синтетический корень «Ввод (общий
+                       счётчик)»: верхний узел дерева всегда физически есть
+                       вводной счётчик кооператива, показания которого
+                       вводятся на /power/ (MasterMeterReading) — это не
+                       отдельная сущность control_meter, поэтому у него нет
+                       edit/delete, только ссылка на /power/ и «добавить
+                       узел верхнего уровня» (= добавить ребёнка ввода).
    current_node_id  — id текущего просматриваемого узла (подсвечивается), может быть None
    ancestor_ids     — set id узлов, которые нужно раскрыть по умолчанию (путь к текущему узлу)
-   reconcile_default — функция ControlMeter -> NodeReconciliation|None (сводный бейдж по узлу)
+   reconcile_default — функция ControlMeter|None -> NodeReconciliation|None (сводный бейдж по узлу)
    depth            — текущая глубина (для уникальных id коллапсов и отступа) #}
 {% macro render_tree(nodes, current_node_id=None, ancestor_ids=None, reconcile_default=None, depth=0) %}
 {% set ancestor_ids = ancestor_ids or [] %}
 <ul class="wiki-tree list-unstyled {{ 'mb-0' if depth > 0 else '' }}" {{ 'style="padding-left:1.1rem"' if depth > 0 }}>
   {% for entry in nodes %}
   {% set n = entry.node %}
+  {% set is_root = n is none %}
   {% set has_children = entry.children | length > 0 %}
-  {% set expanded = n.id in ancestor_ids or n.id == current_node_id %}
+  {% set expanded = is_root or n.id in ancestor_ids or n.id == current_node_id %}
+  {% set dom_id = "cmnode-root" if is_root else "cmnode-" ~ n.id %}
   <li class="wiki-tree-item">
     <div class="d-flex align-items-center gap-1 flex-wrap">
       {% if has_children %}
       <button type="button" class="btn btn-sm btn-link p-0 wiki-tree-toggle {{ '' if expanded else 'collapsed' }}"
-              data-bs-toggle="collapse" data-bs-target="#cmnode-{{ n.id }}" aria-expanded="{{ 'true' if expanded else 'false' }}">
+              data-bs-toggle="collapse" data-bs-target="#{{ dom_id }}" aria-expanded="{{ 'true' if expanded else 'false' }}">
         <span class="chevron">&#9662;</span>
       </button>
       {% else %}
       <span class="wiki-tree-spacer"></span>
       {% endif %}
 
+      {% if is_root %}
+      <a href="{{ url_for('power.view') }}" class="wiki-tree-link fw-semibold text-body" title="{{ _('Показания вносятся на странице «Счётчик»') }}">
+        &#128268; {{ _("Ввод (общий счётчик)") }}
+      </a>
+      {% else %}
       <a href="{{ url_for('control_meters.detail', node_id=n.id) }}"
          class="wiki-tree-link {{ 'fw-semibold text-body' if n.id == current_node_id else '' }}">
         {{ n.name }}
       </a>
+      {% endif %}
 
       {% if reconcile_default %}
       {% set rec = reconcile_default(n) %}
@@ -48,17 +63,19 @@
       {% endif %}
 
       <span class="wiki-tree-actions ms-auto">
-        <a href="{{ url_for('control_meters.create', parent_id=n.id) }}" class="btn btn-sm btn-link p-0 text-muted" title="{{ _('Добавить дочерний узел') }}">&#10133;</a>
+        <a href="{{ url_for('control_meters.create', parent_id=n.id if not is_root else none) }}" class="btn btn-sm btn-link p-0 text-muted" title="{{ _('Добавить узел верхнего уровня') if is_root else _('Добавить дочерний узел') }}">&#10133;</a>
+        {% if not is_root %}
         <a href="{{ url_for('control_meters.edit', node_id=n.id) }}" class="btn btn-sm btn-link p-0 text-muted" title="{{ _('Изменить') }}">&#9998;</a>
         <form method="post" action="{{ url_for('control_meters.delete', node_id=n.id) }}" class="d-inline"
               onsubmit="return confirm('{{ _("Удалить узел контрольного счётчика?") }}')">
           <button class="btn btn-sm btn-link p-0 text-muted" title="{{ _('Удалить') }}" {{ 'disabled' if has_children or n.garages }}>&#128465;</button>
         </form>
+        {% endif %}
       </span>
     </div>
 
     {% if has_children %}
-    <div class="collapse {{ 'show' if expanded else '' }}" id="cmnode-{{ n.id }}">
+    <div class="collapse {{ 'show' if expanded else '' }}" id="{{ dom_id }}">
       {{ render_tree(entry.children, current_node_id, ancestor_ids, reconcile_default, depth + 1) }}
     </div>
     {% endif %}

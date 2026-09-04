@@ -333,3 +333,28 @@ def test_connect_imap_wraps_connection_error_as_mail_error(app, monkeypatch):
     with app.app_context():
         with pytest.raises(MailError):
             mail_client._connect_imap(_imap_settings())
+
+
+def test_non_ascii_login_raises_mail_error_not_raw_unicode_error(app, monkeypatch):
+    """Регресс: imaplib/poplib/smtplib кодируют команды протокола в ASCII —
+    нелатинский логин/пароль (например кириллический домен почты) роняет
+    login() с сырым UnicodeEncodeError (ПОДКЛАСС ValueError). Без явного
+    except UnicodeError в _connect_* это проскакивало мимо MailError и
+    попадало в общий обработчик форм (app/errors.py: ValueError на уровне
+    приложения) — пользователь видел бесполезное "проверьте правильность
+    заполнения формы" вместо объяснения, что именно не так, а страница
+    почты вообще переставала открываться."""
+    class FakeConnBadLogin:
+        def login(self, user, password):
+            raise UnicodeEncodeError("ascii", user, 0, 1, "ordinal not in range(128)")
+
+    import imaplib
+    monkeypatch.setattr(imaplib, "IMAP4_SSL", lambda *a, **kw: FakeConnBadLogin())
+
+    settings = _imap_settings()
+    settings.username = "логин@пример.рф"
+
+    with app.app_context():
+        with pytest.raises(MailError) as exc_info:
+            mail_client._connect_imap(settings)
+        assert "латиницу" in str(exc_info.value)

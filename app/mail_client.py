@@ -240,6 +240,23 @@ def _decrypted_password(settings: MailboxSettings) -> str:
     return crypto.decrypt(settings.password_encrypted) or ""
 
 
+def _connection_error_message(exc: Exception) -> str:
+    """UnicodeError (в т.ч. UnicodeEncodeError — ПОДКЛАСС ValueError) — если
+    в логине/пароле есть нелатинские символы (например кириллический домен
+    в адресе почты). imaplib/poplib/smtplib кодируют команды протокола в
+    ASCII и падают с сырым UnicodeEncodeError — без этого except он бы
+    проскочил мимо MailError и попал в общий обработчик форм
+    (app/errors.py: _bad_form_input ловит ValueError НА УРОВНЕ ПРИЛОЖЕНИЯ),
+    показывая пользователю бесполезное "проверьте правильность заполнения
+    формы" вместо объяснения, что именно не так."""
+    if isinstance(exc, UnicodeError):
+        return (
+            "логин или пароль содержат символы, которые нельзя передать по протоколу — "
+            "используйте латиницу (для кириллического домена почты — его punycode-вариант, xn--...)"
+        )
+    return str(exc)
+
+
 def _connect_imap(settings: MailboxSettings) -> imaplib.IMAP4:
     if not settings.incoming_host:
         raise MailError("IMAP: сервер не настроен")
@@ -252,8 +269,8 @@ def _connect_imap(settings: MailboxSettings) -> imaplib.IMAP4:
                 conn.starttls()
         conn.login(settings.username or "", _decrypted_password(settings))
         return conn
-    except (OSError, imaplib.IMAP4.error) as exc:
-        raise MailError(f"IMAP: {exc}") from exc
+    except (OSError, imaplib.IMAP4.error, UnicodeError) as exc:
+        raise MailError(f"IMAP: {_connection_error_message(exc)}") from exc
 
 
 def _connect_pop3(settings: MailboxSettings) -> poplib.POP3:
@@ -269,8 +286,8 @@ def _connect_pop3(settings: MailboxSettings) -> poplib.POP3:
         conn.user(settings.username or "")
         conn.pass_(_decrypted_password(settings))
         return conn
-    except (OSError, poplib.error_proto) as exc:
-        raise MailError(f"POP3: {exc}") from exc
+    except (OSError, poplib.error_proto, UnicodeError) as exc:
+        raise MailError(f"POP3: {_connection_error_message(exc)}") from exc
 
 
 def _connect_smtp(settings: MailboxSettings) -> smtplib.SMTP:
@@ -285,8 +302,8 @@ def _connect_smtp(settings: MailboxSettings) -> smtplib.SMTP:
                 conn.starttls()
         conn.login(settings.username or "", _decrypted_password(settings))
         return conn
-    except (OSError, smtplib.SMTPException) as exc:
-        raise MailError(f"SMTP: {exc}") from exc
+    except (OSError, smtplib.SMTPException, UnicodeError) as exc:
+        raise MailError(f"SMTP: {_connection_error_message(exc)}") from exc
 
 
 # ---------------------------------------------------------------------------
@@ -505,8 +522,8 @@ def send_message(
     conn = _connect_smtp(settings)
     try:
         conn.send_message(msg)
-    except smtplib.SMTPException as exc:
-        raise MailError(f"SMTP: {exc}") from exc
+    except (smtplib.SMTPException, UnicodeError) as exc:
+        raise MailError(f"SMTP: {_connection_error_message(exc)}") from exc
     finally:
         try:
             conn.quit()

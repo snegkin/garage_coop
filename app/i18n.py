@@ -1654,13 +1654,13 @@ DOC_TYPE_LABELS = {
     "ru": {
         "charter": "устав", "order": "приказ", "act": "акт",
         "letter": "письмо", "protocol": "протокол",
-        "invoice": "счёт", "statement": "выписка", "certificate": "справка",
+        "invoice": "счёт", "utd": "УПД / счёт-фактура", "statement": "выписка", "certificate": "справка",
         "estimate": "смета", "report": "отчёт", "agreement": "соглашение", "other": "прочее",
     },
     "en": {
         "charter": "charter", "order": "order", "act": "act",
         "letter": "letter", "protocol": "protocol",
-        "invoice": "invoice", "statement": "statement", "certificate": "certificate",
+        "invoice": "invoice", "utd": "UTD / invoice-facture", "statement": "statement", "certificate": "certificate",
         "estimate": "estimate", "report": "report", "agreement": "agreement", "other": "other",
     },
 }

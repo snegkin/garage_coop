@@ -45,7 +45,7 @@ def _save_document(
 
 def _save_expense_documents(
     file_key: str, title_key: str, default_title: str,
-    counterparty: Counterparty, expense: Expense, doc_type: DocumentType = DocumentType.ACT,
+    counterparty: Counterparty, expense: Expense, doc_type: DocumentType = DocumentType.UTD,
 ) -> list[Document]:
     """Как _save_document, но для расходов — которым иногда нужно сразу
     несколько подтверждающих документов (см. Expense.documents: например

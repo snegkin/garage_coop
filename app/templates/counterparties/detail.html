@@ -56,7 +56,7 @@
 </div>
 {% endif %}
 <table class="table table-sm bg-body sortable mb-2" id="expensesTable" data-page-size="15">
-  <thead><tr><th>{{ _("Дата") }}</th><th>{{ _("Категория") }}</th><th>{{ _("Описание") }}</th><th>{{ _("Сумма") }}</th><th>{{ _("Оплачено") }}</th><th class="no-sort">{{ _("Счёт/акт") }}</th><th class="no-sort">{{ _("Действия") }}</th></tr></thead>
+  <thead><tr><th>{{ _("Дата") }}</th><th>{{ _("Категория") }}</th><th>{{ _("Описание") }}</th><th>{{ _("Сумма") }}</th><th>{{ _("Оплачено") }}</th><th class="no-sort">{{ _("Счёт/УПД") }}</th><th class="no-sort">{{ _("Действия") }}</th></tr></thead>
   <tbody>
     {% for e in expenses %}
     <tr data-filter-text="{{ ((e.category or '') ~ ' ' ~ (e.description or '') ~ ' ' ~ e.amount)|lower }}">
@@ -285,7 +285,7 @@
             <textarea class="form-control" name="description"></textarea>
           </div>
           <div class="mb-3">
-            <label class="form-label">{{ _("Счёт / акт от контрагента") }}</label>
+            <label class="form-label">{{ _("Счёт / УПД от контрагента") }}</label>
             <input class="form-control" type="file" name="document_file" multiple>
             <div class="form-text">{{ _("Можно выбрать сразу несколько файлов — например, когда услуга оформлена контрагентом двумя разными УПД (счёт-фактурами).") }}</div>
           </div>
@@ -330,7 +330,7 @@
             <textarea class="form-control" name="description">{{ e.description or "" }}</textarea>
           </div>
           <div class="mb-3">
-            <label class="form-label">{{ _("Счёт / акт от контрагента") }}</label>
+            <label class="form-label">{{ _("Счёт / УПД от контрагента") }}</label>
             {% if e.documents %}
             <div class="form-text mb-1">
               {{ _("Уже прикреплено:") }}

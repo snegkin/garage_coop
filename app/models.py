@@ -565,6 +565,7 @@ class DocumentType(str, enum.Enum):
     LETTER = "letter"
     PROTOCOL = "protocol"
     INVOICE = "invoice"
+    UTD = "utd"  # УПД (универсальный передаточный документ) / счёт-фактура — налоговый документ от контрагента, отдельно от обычного "счёта" (invoice)
     STATEMENT = "statement"
     CERTIFICATE = "certificate"
     ESTIMATE = "estimate"

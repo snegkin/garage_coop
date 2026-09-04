@@ -12,7 +12,7 @@
 <div class="row g-3 mb-3">
   {% if stats.coop_balance is defined %}
   <div class="col-md-3">
-    <div class="card"><div class="card-body">
+    <div class="card h-100"><div class="card-body">
       <div class="text-muted">{{ _("Баланс кооператива") }}</div>
       <div class="fs-2 {{ 'text-danger' if stats.coop_balance < 0 else 'text-success' }}">{{ fmt2(stats.coop_balance) }} ₽</div>
       <div class="text-muted small">{{ _("сумма по расчётным счетам в банках") }}</div>
@@ -35,26 +35,47 @@
       </div></div>
     </a>
   </div>
+  <div class="col-md-6">
+    <div class="card h-100">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <div class="text-muted">{{ _("Электроэнергия — мощность за сутки") }}</div>
+          <a class="small" href="{{ url_for('electricity_monitor.view') }}">{{ _("Подробнее") }}</a>
+        </div>
+        {% if electricity_devices %}
+        <div style="position:relative; height:150px;">
+          <canvas id="dashboardPowerChart"></canvas>
+        </div>
+        <p id="dashboardPowerChartEmpty" class="text-muted small mb-0 d-none">{{ _("Нет данных за последние сутки.") }}</p>
+        {% else %}
+        <p class="text-muted small mb-0">{{ _("Мониторинг электроэнергии ещё не настроен.") }}</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3 mb-3">
   <div class="col-md-3">
-    <div class="card"><div class="card-body">
+    <div class="card h-100"><div class="card-body">
       <div class="text-muted">{{ _("Гаражей") }}</div>
       <div class="fs-2">{{ stats.garages_count }}</div>
     </div></div>
   </div>
   <div class="col-md-3">
-    <div class="card"><div class="card-body">
+    <div class="card h-100"><div class="card-body">
       <div class="text-muted">{{ _("Людей в базе") }}</div>
       <div class="fs-2">{{ stats.persons_count }}</div>
     </div></div>
   </div>
   <div class="col-md-3">
-    <div class="card"><div class="card-body">
+    <div class="card h-100"><div class="card-body">
       <div class="text-muted">{{ _("Последнее собрание") }}</div>
       <div class="fs-5">{{ fmt_date(stats.last_meeting.date) if stats.last_meeting else "—" }}</div>
     </div></div>
   </div>
   <div class="col-md-3">
-    <div class="card"><div class="card-body">
+    <div class="card h-100"><div class="card-body">
       <div class="text-muted">{{ _("Последний годовой отчёт") }}</div>
       <div class="fs-5">{{ stats.last_report.year if stats.last_report else "—" }}</div>
     </div></div>
@@ -118,4 +139,72 @@
     </div>
   </div>
 </div>
+
+{% if electricity_devices %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+<script>
+(function () {
+  // Компактная превью-версия графика с /electricity/ (см. electricity/monitor.html) —
+  // без переключателя фаз/типа графика/зума/датапикеров, фиксированный период
+  // «последние сутки», ссылка «Подробнее» ведёт на полную страницу мониторинга.
+  var canvas = document.getElementById("dashboardPowerChart");
+  if (!canvas) return;
+
+  var colors = ["#0d6efd", "#fd7e14", "#20c997", "#dc3545", "#6f42c1"];
+  var historyUrl = {{ url_for("electricity_monitor.history_data") | tojson }};
+  var emptyMsg = document.getElementById("dashboardPowerChartEmpty");
+
+  var until = new Date();
+  var since = new Date(until.getTime() - 24 * 60 * 60 * 1000);
+
+  var chart = new Chart(canvas.getContext("2d"), {
+    type: "line",
+    data: { datasets: [] },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      normalized: true,
+      interaction: { mode: "nearest", axis: "x", intersect: false },
+      scales: {
+        x: {
+          type: "time",
+          time: { displayFormats: { minute: "HH:mm", hour: "HH:mm" } },
+          ticks: { maxRotation: 0 },
+        },
+        y: { title: { display: true, text: "{{ _('кВт') }}" }, beginAtZero: true },
+      },
+      plugins: { legend: { position: "bottom", labels: { boxHeight: 6 } } },
+    },
+  });
+
+  fetch(historyUrl + "?since=" + encodeURIComponent(since.toISOString()) + "&until=" + encodeURIComponent(until.toISOString()))
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      var anyPoints = false;
+      chart.data.datasets = data.devices.map(function (d, i) {
+        if (d.points.length) anyPoints = true;
+        return {
+          label: d.label,
+          data: d.points.map(function (p) { return { x: p.t, y: p.w / 1000 }; }),
+          borderColor: colors[i % colors.length],
+          backgroundColor: colors[i % colors.length],
+          borderWidth: 1.5,
+          pointRadius: 0,
+          tension: 0.15,
+        };
+      });
+      chart.update();
+      emptyMsg.classList.toggle("d-none", anyPoints);
+      canvas.classList.toggle("d-none", !anyPoints);
+    })
+    .catch(function () {
+      emptyMsg.textContent = "{{ _('Не удалось загрузить данные графика.') }}";
+      emptyMsg.classList.remove("d-none");
+      canvas.classList.add("d-none");
+    });
+})();
+</script>
+{% endif %}
 {% endblock %}

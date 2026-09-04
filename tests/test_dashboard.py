@@ -130,8 +130,10 @@ def test_dashboard_shows_collection_rate_for_current_and_previous_year(app, db, 
     assert resp.status_code == 200
     body = resp.get_data(as_text=True)
     assert "Собираемость" in body
-    assert f"{current_year} — 25,00%" in body
-    assert f"{current_year - 1} — 100,00%" in body
+    assert f">{current_year}</span>" in body
+    assert "25,00%</span>" in body
+    assert f">{current_year - 1}</span>" in body
+    assert "100,00%</span>" in body
 
 
 def test_dashboard_shows_collection_rate_for_three_years_but_not_older(app, db, client):
@@ -155,10 +157,13 @@ def test_dashboard_shows_collection_rate_for_three_years_but_not_older(app, db, 
     resp = client.get("/dashboard")
     assert resp.status_code == 200
     body = resp.get_data(as_text=True)
-    assert f"{current_year} — 100,00%" in body
-    assert f"{current_year - 1} — 50,00%" in body
-    assert f"{current_year - 2} — 25,00%" in body
-    assert f"{current_year - 3}" not in body  # только 3 года — за 4-й собираемость не выводится
+    assert f">{current_year}</span>" in body
+    assert "100,00%</span>" in body
+    assert f">{current_year - 1}</span>" in body
+    assert "50,00%</span>" in body
+    assert f">{current_year - 2}</span>" in body
+    assert "25,00%</span>" in body
+    assert f">{current_year - 3}</span>" not in body  # только 3 года — за 4-й собираемость не выводится
 
 
 def test_dashboard_hides_collection_rate_when_nothing_charged(app, db, client):

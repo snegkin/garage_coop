@@ -148,13 +148,17 @@ def test_extract_token_pair_raises_on_missing_fields():
 # Права доступа
 # ---------------------------------------------------------------------------
 
-def test_view_requires_board(app, db, client):
+def test_view_accessible_to_member(app, db, client):
+    """Мониторинг доступен любому вошедшему члену кооператива — данные о
+    текущем энергопотреблении не чувствительны; настройки подключения
+    остаются только председателю (см. test_save_settings_requires_chairman
+    и остальные test_*_requires_chairman ниже)."""
     make_user(db, "member1", "pass12345", role=RoleEnum.MEMBER)
     db.commit()
     login(client, "member1", "pass12345")
 
     resp = client.get("/electricity/")
-    assert resp.status_code == 302
+    assert resp.status_code == 200
 
 
 def test_view_accessible_to_board(app, db, client):
@@ -164,6 +168,23 @@ def test_view_accessible_to_board(app, db, client):
 
     resp = client.get("/electricity/")
     assert resp.status_code == 200
+
+
+def test_member_does_not_see_chairman_settings_buttons(app, db, client):
+    """Открытие просмотра всем членам не должно раскрывать элементы
+    настройки подключения — шаблон гейтит их отдельно через is_chairman()
+    (см. electricity/monitor.html), это регресс-проверка именно этой
+    развязки ролей."""
+    make_user(db, "member1", "pass12345", role=RoleEnum.MEMBER)
+    db.commit()
+    login(client, "member1", "pass12345")
+
+    body = client.get("/electricity/").get_data(as_text=True)
+    # Не голая подстрока "Подключение к eWeLink" — она есть и в тексте
+    # предупреждения "не настроено, обратитесь к председателю", видимом
+    # всем; проверяем конкретно кнопку/модалку настроек.
+    assert 'data-bs-target="#settingsModal"' not in body
+    assert 'data-bs-target="#devicesModal"' not in body
 
 
 def test_save_settings_requires_chairman(app, db, client):
@@ -558,14 +579,14 @@ def test_history_data_respects_explicit_since_until(app, db, client):
     assert [p["w"] for p in points] == [20.0]
 
 
-def test_history_data_requires_board_role(app, db, client):
+def test_history_data_accessible_to_member(app, db, client):
     make_phase_device(db)
     make_user(db, "member1", "pass12345", role=RoleEnum.MEMBER)
     db.commit()
     login(client, "member1", "pass12345")
 
     resp = client.get("/electricity/history-data")
-    assert resp.status_code == 302  # roles_required редиректит на dashboard, а не 403
+    assert resp.status_code == 200
 
 
 def test_downsample_keeps_max_points_and_endpoints():

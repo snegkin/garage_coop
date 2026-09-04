@@ -8,9 +8,13 @@ scripts/update_key_rate.py для ставки ЦБ РФ).
 Это отдельная подсистема от app/power.py (помесячный биллинг по общему
 счётчику) — здесь только снимки для мониторинга, без начислений.
 
-Права: просмотр — правление (BOARD, как и app/power.py), настройки
+Права: просмотр — любой вошедший член кооператива (по прямой просьбе —
+данные о текущем энергопотреблении не чувствительны); настройки
 подключения к eWeLink и привязка устройств к фазам — только председатель
 (CHAIRMAN), по аналогии с настройками API банка в app/bank_sync.py.
+Шаблон (electricity/monitor.html) уже гейтит все админ-элементы через
+is_chairman(), а не is_board() — открытие view()/history_data() всем
+не расширяет доступ ни к чему настроечному.
 
 Авторизация в eWeLink — официальный OAuth2 Open API (authorization code
 flow, приложение зарегистрировано на dev.ewelink.cc), см. app/ewelink/client.py.
@@ -28,7 +32,7 @@ from sqlalchemy import func
 
 from . import database
 from .i18n import translate as _
-from .auth import roles_required
+from .auth import login_required, roles_required
 from .models import RoleEnum, EWeLinkAccount, PowerPhaseDevice, PowerPhaseReading
 from .bank_api import crypto
 from .ewelink import EWeLinkClient, EWeLinkTokens, EWeLinkApiError, EWeLinkAuthError
@@ -139,7 +143,7 @@ def _callback_redirect_uri() -> str:
 
 
 @bp.route("/")
-@roles_required(RoleEnum.BOARD)
+@login_required
 def view():
     account = _get_or_create_account()
     devices = (
@@ -218,7 +222,7 @@ def view():
 
 
 @bp.route("/history-data")
-@roles_required(RoleEnum.BOARD)
+@login_required
 def history_data():
     """JSON для графика истории на странице (см. monitor.html): произвольный
     период — параметрами ?since=&until= (ISO UTC, см. _parse_iso_utc), задаётся

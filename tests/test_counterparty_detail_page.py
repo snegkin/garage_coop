@@ -207,3 +207,21 @@ def test_only_board_can_add_document_to_counterparty(db, client):
     })
     assert resp.status_code == 302
     assert db.query(Document).filter_by(title="Sneaky doc").first() is None
+
+
+def test_detail_page_shows_each_comma_separated_phone_as_own_link(db, client):
+    """Counterparty.phone — одно текстовое поле, несколько номеров вводят
+    через запятую (нет отдельной таблицы, как Person.phones) — раньше все
+    цифры слипались в один нерабочий tel: ("супертелефон"), см.
+    contact_format.phone_link."""
+    _make_board(db)
+    counterparty = _make_counterparty(db)
+    counterparty.phone = "+7 911 111-11-11, +7 922 222-22-22"
+    db.commit()
+
+    login(client, "board1", "pass1234")
+    resp = client.get(f"/counterparties/{counterparty.id}")
+    body = resp.get_data(as_text=True)
+    assert 'href="tel:+79111111111"' in body
+    assert 'href="tel:+79222222222"' in body
+    assert 'href="tel:+79111111111+79222222222"' not in body

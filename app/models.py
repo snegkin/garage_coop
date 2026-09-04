@@ -410,7 +410,11 @@ class Counterparty(Base):
     inn: Mapped[str | None] = mapped_column(String(12))
     kpp: Mapped[str | None] = mapped_column(String(9))
     category: Mapped[str | None] = mapped_column(String(100))  # напр. "уборка снега", "электрика"
-    phone: Mapped[str | None] = mapped_column(String(30))
+    # 120, а не 30 (как у Person.Phone.number, единственный номер в строке):
+    # это одно текстовое поле без отдельных строк на каждый номер — несколько
+    # телефонов контрагента вводятся через запятую в одну строку (см.
+    # contact_format.phone_link — там же разбор на отдельные ссылки).
+    phone: Mapped[str | None] = mapped_column(String(120))
     email: Mapped[str | None] = mapped_column(String(120))
     address: Mapped[str | None] = mapped_column(Text)
     comment: Mapped[str | None] = mapped_column(Text)

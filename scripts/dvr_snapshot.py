@@ -55,7 +55,13 @@ def _capture(camera: DvrCamera) -> str | None:
     None при успехе."""
     os.makedirs(snapshot_dir(camera.recorder_id), exist_ok=True)
     target = snapshot_path(camera.recorder_id, camera.id)
-    tmp_path = target + ".tmp"
+    # ".tmp" ПЕРЕД расширением, не после (не "camera_5.jpg.tmp") — ffmpeg
+    # без явного -f выбирает мьюксер по расширению ВЫХОДНОГО файла, а
+    # ".tmp" ему незнакомо: "Unable to choose an output format for
+    # '...jpg.tmp'" / "Error opening output files: Invalid argument",
+    # даже когда RTSP-поток открылся нормально (воспроизведено вручную).
+    root, ext = os.path.splitext(target)
+    tmp_path = f"{root}.tmp{ext}"
 
     url = rtsp_url(camera.recorder, camera)
     try:

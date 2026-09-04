@@ -34,10 +34,23 @@
 </div>
 {% endif %}
 
+{% if is_configured and sent_folder_available %}
+<ul class="nav nav-tabs mb-3">
+  <li class="nav-item">
+    <a class="nav-link {{ 'active' if folder == 'INBOX' }}" href="{{ url_for('mailbox.inbox', page_size=page_size) }}">{{ _("Входящие") }}</a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link {{ 'active' if folder == settings.sent_folder }}" href="{{ url_for('mailbox.inbox', folder=settings.sent_folder, page_size=page_size) }}">{{ _("Отправленные") }}</a>
+  </li>
+</ul>
+{% endif %}
+
 {% if page is not none %}
+{% set is_sent = folder == settings.sent_folder %}
 <div class="d-flex justify-content-between align-items-center mb-2">
   <div class="text-muted small">{{ _("Всего писем:") }} {{ page.total }}</div>
   <form method="get" class="d-flex align-items-center gap-2">
+    <input type="hidden" name="folder" value="{{ folder }}">
     <label class="form-label small mb-0">{{ _("На странице:") }}</label>
     <select class="form-select form-select-sm" name="page_size" style="width:auto" onchange="this.form.submit()">
       {% for size in page_size_choices %}
@@ -48,28 +61,33 @@
 </div>
 
 <table class="table table-hover bg-body">
-  <thead><tr><th>{{ _("От кого") }}</th><th>{{ _("Тема") }}</th><th>{{ _("Дата") }}</th></tr></thead>
+  <thead><tr><th>{{ _("Кому") if is_sent else _("От кого") }}</th><th>{{ _("Тема") }}</th><th>{{ _("Дата") }}</th><th class="no-sort"></th></tr></thead>
   <tbody>
     {% for m in page.messages %}
-    <tr onclick="window.location='{{ url_for('mailbox.view_message', uid=m.uid) }}'" style="cursor:pointer" class="{{ 'fw-semibold' if supports_flags and m.seen is false }}">
-      <td>
+    <tr class="{{ 'fw-semibold' if supports_flags and m.seen is false }}">
+      <td onclick="window.location='{{ url_for('mailbox.view_message', uid=m.uid, folder=folder) }}'" style="cursor:pointer">
         {% if supports_flags and m.seen is false %}<span class="badge bg-primary badge-sm">{{ _("новое") }}</span>{% endif %}
-        {{ m.from_name or m.from_addr or "—" }}
+        {% if is_sent %}{{ m.to_addr or "—" }}{% else %}{{ m.from_name or m.from_addr or "—" }}{% endif %}
       </td>
-      <td>{{ m.subject }}</td>
-      <td class="text-muted small">{{ m.date.strftime("%d.%m.%Y %H:%M") if m.date else "—" }}</td>
+      <td onclick="window.location='{{ url_for('mailbox.view_message', uid=m.uid, folder=folder) }}'" style="cursor:pointer">{{ m.subject }}</td>
+      <td class="text-muted small" onclick="window.location='{{ url_for('mailbox.view_message', uid=m.uid, folder=folder) }}'" style="cursor:pointer">{{ m.date.strftime("%d.%m.%Y %H:%M") if m.date else "—" }}</td>
+      <td class="no-sort text-end">
+        <form method="post" action="{{ url_for('mailbox.delete_message', uid=m.uid, folder=folder) }}" onsubmit="return confirm('{{ _('Удалить письмо?') }}')">
+          <button class="btn btn-sm btn-outline-danger btn-icon-square" title="{{ _('Удалить') }}">✕</button>
+        </form>
+      </td>
     </tr>
     {% else %}
-    <tr><td colspan="3" class="text-muted">{{ _("Входящих писем нет.") }}</td></tr>
+    <tr><td colspan="4" class="text-muted">{{ _("Отправленных писем нет.") if is_sent else _("Входящих писем нет.") }}</td></tr>
     {% endfor %}
   </tbody>
 </table>
 
 <nav class="d-flex justify-content-between mt-2">
   <a class="btn btn-sm btn-outline-secondary {{ 'disabled' if not page.has_prev }}"
-     href="{{ url_for('mailbox.inbox', page=(request.args.get('page', 1, type=int) - 1), page_size=page_size) }}">&larr; {{ _("Назад") }}</a>
+     href="{{ url_for('mailbox.inbox', page=(request.args.get('page', 1, type=int) - 1), page_size=page_size, folder=folder) }}">&larr; {{ _("Назад") }}</a>
   <a class="btn btn-sm btn-outline-secondary {{ 'disabled' if not page.has_next }}"
-     href="{{ url_for('mailbox.inbox', page=(request.args.get('page', 1, type=int) + 1), page_size=page_size) }}">{{ _("Вперёд") }} &rarr;</a>
+     href="{{ url_for('mailbox.inbox', page=(request.args.get('page', 1, type=int) + 1), page_size=page_size, folder=folder) }}">{{ _("Вперёд") }} &rarr;</a>
 </nav>
 {% endif %}
 
@@ -109,6 +127,13 @@
                 <option value="starttls" {{ "selected" if settings.incoming_encryption.value == "starttls" }}>STARTTLS</option>
                 <option value="none" {{ "selected" if settings.incoming_encryption.value == "none" }}>{{ _("без шифрования") }}</option>
               </select>
+            </div>
+          </div>
+          <div class="row g-2 mb-3">
+            <div class="col-md-6">
+              <label class="form-label">{{ _("Папка «Отправленные» (только IMAP)") }}</label>
+              <input class="form-control" name="sent_folder" value="{{ settings.sent_folder or '' }}" placeholder="Sent">
+              <div class="form-text">{{ _("Имя папки у провайдера — например Sent, Отправленные, [Gmail]/Sent Mail. Пусто — копии отправленных писем не сохраняются.") }}</div>
             </div>
           </div>
 

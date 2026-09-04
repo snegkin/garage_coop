@@ -2,7 +2,8 @@
 {% block title %}{{ _("Новое письмо") }}{% endblock %}
 {% block content %}
 <h3 class="mb-3">{{ _("Новое письмо") }}</h3>
-<form method="post" class="bg-body p-4 rounded border" style="max-width:700px" enctype="multipart/form-data">
+<form method="post" id="composeForm" class="bg-body p-4 rounded border" style="max-width:700px" enctype="multipart/form-data">
+  <div id="composeError" class="alert alert-danger d-none"></div>
   <div class="mb-3">
     <label class="form-label">{{ _("Кому") }}</label>
     <input class="form-control" name="to" value="{{ to }}" placeholder="{{ _('через запятую, если несколько') }}" required autofocus>
@@ -20,8 +21,45 @@
     <input class="form-control" type="file" name="attachments" multiple>
   </div>
   <div class="d-flex justify-content-end gap-2">
-    <button class="btn btn-primary">{{ _("Отправить") }}</button>
+    <button class="btn btn-primary" type="submit" id="composeSubmitBtn">{{ _("Отправить") }}</button>
     <a class="btn btn-outline-secondary" href="{{ url_for('mailbox.inbox') }}">{{ _("Отмена") }}</a>
   </div>
 </form>
+
+<script>
+// Отправка через fetch, а не обычным submit формы — при ошибке (например
+// опечатка в адресе) страница НЕ перезагружается/не перерисовывается,
+// поэтому выбранные файлы в поле "Вложения" не сбрасываются. При обычном
+// submit-с-редиректом это неизбежно: браузер безусловно очищает значение
+// <input type="file"> при любой навигации, и восстановить его программно
+// нельзя даже через JS — только повторным выбором файла руками.
+(function () {
+  var form = document.getElementById("composeForm");
+  var errorBox = document.getElementById("composeError");
+  var submitBtn = document.getElementById("composeSubmitBtn");
+
+  form.addEventListener("submit", function (e) {
+    e.preventDefault();
+    errorBox.classList.add("d-none");
+    submitBtn.disabled = true;
+
+    fetch(window.location.href, { method: "POST", body: new FormData(form) })
+      .then(function (r) { return r.json().then(function (data) { return { ok: r.ok, data: data }; }); })
+      .then(function (result) {
+        if (result.ok && result.data.ok) {
+          window.location.href = result.data.redirect;
+          return;
+        }
+        errorBox.textContent = (result.data && result.data.error) || "{{ _('Не удалось отправить письмо.') }}";
+        errorBox.classList.remove("d-none");
+        submitBtn.disabled = false;
+      })
+      .catch(function () {
+        errorBox.textContent = "{{ _('Не удалось отправить письмо.') }}";
+        errorBox.classList.remove("d-none");
+        submitBtn.disabled = false;
+      });
+  });
+})();
+</script>
 {% endblock %}

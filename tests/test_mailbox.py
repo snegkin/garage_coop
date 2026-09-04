@@ -63,30 +63,59 @@ def _test_email(subject="Тестовое письмо", with_attachment=True):
 
 
 class FakeImapConn:
-    def __init__(self, messages):
-        self._messages = messages
+    """messages — письма папки INBOX (uid -> raw), folders — доп. папки
+    вида {"Sent": {uid: raw}} для проверки вкладки «Отправленные»/APPEND."""
+
+    def __init__(self, messages, folders=None):
+        self.mailboxes = {"INBOX": dict(messages)}
+        if folders:
+            self.mailboxes.update({name: dict(msgs) for name, msgs in folders.items()})
+        self.selected = None
+        self.expunged = False
+        self.appended = []  # [(folder, raw_bytes)]
 
     def login(self, user, password):
         return ("OK", [b""])
 
     def select(self, folder):
+        self.selected = folder.strip('"')
         return ("OK", [b"1"])
 
     def uid(self, command, *args):
+        current = self.mailboxes.get(self.selected, {})
         if command == "search":
-            uids = " ".join(str(u) for u in sorted(self._messages)).encode()
+            uids = " ".join(str(u) for u in sorted(current)).encode()
             return ("OK", [uids])
         if command == "fetch":
             uid = int(args[0].decode() if isinstance(args[0], bytes) else args[0])
             spec = args[1] if len(args) > 1 else ""
-            raw = self._messages.get(uid)
+            raw = current.get(uid)
             if raw is None:
                 return ("NO", [None])
             if "RFC822" in spec:
                 return ("OK", [(f"{uid} (UID {uid} RFC822 {{{len(raw)}}}".encode(), raw)])
-            meta = f"{uid} (UID {uid} FLAGS (\\Seen) BODY[HEADER.FIELDS (SUBJECT FROM DATE)] {{999}}".encode()
-            return ("OK", [(meta, raw[:300])])
+            meta = f"{uid} (UID {uid} FLAGS (\\Seen) BODY[HEADER.FIELDS (SUBJECT FROM TO DATE)] {{999}}".encode()
+            return ("OK", [(meta, raw)])
+        if command == "store":
+            uid = int(args[0].decode() if isinstance(args[0], bytes) else args[0])
+            if len(args) > 2 and "\\Deleted" in args[2]:
+                current.pop(uid, None)
+            return ("OK", [b""])
         return ("NO", [None])
+
+    def expunge(self):
+        self.expunged = True
+        return ("OK", [b""])
+
+    def append(self, mailbox, flags, date_time, message):
+        name = mailbox.strip('"')
+        self.mailboxes.setdefault(name, {})
+        self.appended.append((name, message))
+        return ("OK", [b""])
+
+    def create(self, mailbox):
+        self.mailboxes.setdefault(mailbox.strip('"'), {})
+        return ("OK", [b""])
 
     def close(self):
         return ("OK", [b""])
@@ -106,8 +135,10 @@ class FakeSmtpConn:
         pass
 
 
-def _mock_imap(monkeypatch, messages):
-    monkeypatch.setattr(mail_client, "_connect_imap", lambda settings: FakeImapConn(messages))
+def _mock_imap(monkeypatch, messages, folders=None):
+    fake = FakeImapConn(messages, folders=folders)
+    monkeypatch.setattr(mail_client, "_connect_imap", lambda settings: fake)
+    return fake
 
 
 def _mock_smtp(monkeypatch):
@@ -168,6 +199,27 @@ def test_chairman_can_save_settings(db, client):
     db.expire_all()
     settings = db.query(MailboxSettings).first()
     assert settings.incoming_host == "imap.new.com"
+
+
+def test_chairman_can_clear_sent_folder(db, client):
+    """Очистка поля через форму — это UPDATE уже существующей записи, не
+    INSERT, поэтому column-level default модели ("Sent") не подставляется
+    обратно (в отличие от прямого конструирования MailboxSettings(sent_folder=None)
+    в тестах — см. test_sent_tab_hidden_without_sent_folder_configured)."""
+    _make_chairman(db)
+    _make_settings(db, sent_folder="Sent")
+    login(client, "chair1", "pass1234")
+
+    client.post("/mailbox/settings", data={
+        "incoming_protocol": "imap", "incoming_host": "imap.example.com", "incoming_port": "993",
+        "incoming_encryption": "ssl", "smtp_host": "smtp.example.com", "smtp_port": "587",
+        "smtp_encryption": "starttls", "username": "pravlenie@example.com", "password": "",
+        "sent_folder": "",
+    }, follow_redirects=True)
+
+    db.expire_all()
+    settings = db.query(MailboxSettings).first()
+    assert settings.sent_folder is None
 
 
 # ---------------------------------------------------------------------------
@@ -316,6 +368,10 @@ def test_external_images_blocked_by_default_and_shown_on_request(db, client, mon
 # ---------------------------------------------------------------------------
 
 def test_compose_sends_with_attachment(db, client, monkeypatch):
+    """Отправка идёт через fetch (JSON), не обычный submit — см.
+    mailbox/compose.html: при ошибке страница не перезагружается, поэтому
+    выбранный файл не сбрасывается (в отличие от обычного submit-с-
+    редиректом, где браузер безусловно очищает <input type="file">)."""
     _make_board(db)
     _make_settings(db)
     fake_smtp = _mock_smtp(monkeypatch)
@@ -326,10 +382,12 @@ def test_compose_sends_with_attachment(db, client, monkeypatch):
         "subject": "Повестка",
         "body": "Текст письма",
         "attachments": (io.BytesIO(b"file content"), "report.txt"),
-    }, content_type="multipart/form-data", follow_redirects=True)
+    }, content_type="multipart/form-data")
 
     assert resp.status_code == 200
-    assert "Письмо отправлено" in resp.get_data(as_text=True)
+    payload = resp.get_json()
+    assert payload["ok"] is True
+    assert payload["redirect"] == "/mailbox/"
     assert len(fake_smtp.sent) == 1
     sent = fake_smtp.sent[0]
     assert sent["Subject"] == "Повестка"
@@ -337,7 +395,7 @@ def test_compose_sends_with_attachment(db, client, monkeypatch):
     assert sum(1 for _ in sent.iter_attachments()) == 1
 
 
-def test_compose_send_failure_does_not_lose_form_data(db, client, monkeypatch):
+def test_compose_send_failure_returns_json_error(db, client, monkeypatch):
     _make_board(db)
     _make_settings(db)
 
@@ -348,13 +406,23 @@ def test_compose_send_failure_does_not_lose_form_data(db, client, monkeypatch):
     login(client, "board1", "pass1234")
 
     resp = client.post("/mailbox/compose", data={
-        "to": "someone@example.com", "subject": "Тема не должна потеряться", "body": "Текст не должен потеряться",
-    }, follow_redirects=True)
-    assert resp.status_code == 200
-    body = resp.get_data(as_text=True)
-    assert "Не удалось отправить письмо" in body
-    assert "Тема не должна потеряться" in body
-    assert "Текст не должен потеряться" in body
+        "to": "someone@example.com", "subject": "Тема письма", "body": "Текст письма",
+    })
+    assert resp.status_code == 400
+    payload = resp.get_json()
+    assert payload["ok"] is False
+    assert "Не удалось отправить письмо" in payload["error"]
+
+
+def test_compose_missing_fields_returns_json_error(db, client):
+    _make_board(db)
+    _make_settings(db)
+    login(client, "board1", "pass1234")
+
+    resp = client.post("/mailbox/compose", data={"to": "", "subject": "", "body": ""})
+    assert resp.status_code == 400
+    payload = resp.get_json()
+    assert payload["ok"] is False
 
 
 def test_sending_mail_creates_no_charge_or_expense(db, client, monkeypatch):
@@ -412,3 +480,128 @@ def test_failed_connection_test_is_not_audited(db, client, monkeypatch):
     client.post("/mailbox/settings/test-connection", follow_redirects=True)
     actions = [a.action for a in db.query(AuditLog).all() if a.action.startswith("mailbox.")]
     assert actions == []
+
+
+# ---------------------------------------------------------------------------
+# Удаление письма
+# ---------------------------------------------------------------------------
+
+def test_delete_message_removes_it_and_redirects_to_inbox(db, client, monkeypatch):
+    _make_board(db)
+    _make_settings(db)
+    fake = _mock_imap(monkeypatch, {1: _test_email().as_bytes()})
+    login(client, "board1", "pass1234")
+
+    resp = client.post("/mailbox/messages/1/delete", follow_redirects=True)
+    assert resp.status_code == 200
+    assert "Письмо удалено" in resp.get_data(as_text=True)
+    assert fake.expunged is True
+    assert 1 not in fake.mailboxes["INBOX"]
+
+
+def test_delete_message_connection_error_shows_flash_not_500(db, client, monkeypatch):
+    _make_board(db)
+    _make_settings(db)
+
+    def boom(settings):
+        raise mail_client.MailError("IMAP: boom")
+
+    monkeypatch.setattr(mail_client, "_connect_imap", boom)
+    login(client, "board1", "pass1234")
+
+    resp = client.post("/mailbox/messages/1/delete", follow_redirects=True)
+    assert resp.status_code == 200
+    assert "Не удалось удалить письмо" in resp.get_data(as_text=True)
+
+
+def test_delete_message_writes_audit_log(db, client, monkeypatch):
+    _make_board(db)
+    _make_settings(db)
+    _mock_imap(monkeypatch, {1: _test_email().as_bytes()})
+    login(client, "board1", "pass1234")
+
+    client.post("/mailbox/messages/1/delete", follow_redirects=True)
+    actions = [a.action for a in db.query(AuditLog).all()]
+    assert "mailbox.message_delete" in actions
+
+
+def test_member_cannot_delete_message(db, client):
+    _make_member(db)
+    _make_settings(db)
+    login(client, "member1", "pass1234")
+
+    resp = client.post("/mailbox/messages/1/delete", follow_redirects=True)
+    assert "Недостаточно прав" in resp.get_data(as_text=True)
+
+
+# ---------------------------------------------------------------------------
+# Папка «Отправленные»
+# ---------------------------------------------------------------------------
+
+def test_sent_tab_hidden_without_sent_folder_configured(db, client, monkeypatch):
+    _make_board(db)
+    # sent_folder="" а не None — SQLAlchemy подставляет column-level default
+    # ("Sent") вместо None при INSERT (это не баг: в реальном сценарии
+    # председатель очищает поле через UPDATE уже существующей записи, где
+    # default не применяется — см. test_empty_password_does_not_clear_existing_secret
+    # для того же паттерна с password_encrypted).
+    _make_settings(db, sent_folder="")
+    _mock_imap(monkeypatch, {1: _test_email().as_bytes()})
+    login(client, "board1", "pass1234")
+
+    resp = client.get("/mailbox/")
+    assert "Отправленные" not in resp.get_data(as_text=True)
+
+
+def test_sent_tab_hidden_for_pop3(db, client, monkeypatch):
+    _make_board(db)
+    _make_settings(db, incoming_protocol=MailProtocol.POP3, incoming_port=995, sent_folder="Sent")
+    monkeypatch.setattr(mail_client, "_connect_pop3", lambda settings: type(
+        "FakePop3", (), {"stat": lambda self: (0, 0), "quit": lambda self: None},
+    )())
+    login(client, "board1", "pass1234")
+
+    resp = client.get("/mailbox/")
+    assert "Отправленные" not in resp.get_data(as_text=True)
+
+
+def test_sent_folder_lists_messages_with_to_column(db, client, monkeypatch):
+    sent_msg = _test_email(subject="Уже отправлено", with_attachment=False)
+    sent_msg.replace_header("From", "pravlenie@example.com")
+    sent_msg.replace_header("To", "recipient@example.com")
+
+    _make_board(db)
+    _make_settings(db, sent_folder="Sent")
+    _mock_imap(monkeypatch, {}, folders={"Sent": {1: sent_msg.as_bytes()}})
+    login(client, "board1", "pass1234")
+
+    resp = client.get("/mailbox/?folder=Sent")
+    body = resp.get_data(as_text=True)
+    assert resp.status_code == 200
+    assert "Уже отправлено" in body
+    assert "recipient@example.com" in body
+
+
+def test_arbitrary_folder_query_param_is_ignored(db, client, monkeypatch):
+    """Нельзя зайти в произвольную папку через ?folder= — только INBOX или
+    настроенная sent_folder (см. mailbox._folder_from_request)."""
+    _make_board(db)
+    _make_settings(db, sent_folder="Sent")
+    fake = _mock_imap(monkeypatch, {1: _test_email(subject="Во входящих").as_bytes()})
+    login(client, "board1", "pass1234")
+
+    resp = client.get("/mailbox/?folder=SomeOtherFolder")
+    assert resp.status_code == 200
+    assert "Во входящих" in resp.get_data(as_text=True)
+    assert fake.selected == "INBOX"
+
+
+def test_send_message_appends_copy_to_configured_sent_folder(db, client, monkeypatch):
+    _make_board(db)
+    _make_settings(db, sent_folder="Sent")
+    fake_imap = _mock_imap(monkeypatch, {})
+    _mock_smtp(monkeypatch)
+    login(client, "board1", "pass1234")
+
+    client.post("/mailbox/compose", data={"to": "x@example.com", "subject": "s", "body": "b"})
+    assert any(name == "Sent" for name, _raw in fake_imap.appended)

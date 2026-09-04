@@ -17,7 +17,7 @@ import os
 from app import database
 from app.models import RoleEnum, DvrRecorder, DvrCamera
 from app.bank_api import crypto
-from app.surveillance import rtsp_url, snapshot_path
+from app.surveillance import rtsp_url, snapshot_path, history_dir
 
 from tests.conftest import make_person, make_user, login
 
@@ -361,6 +361,11 @@ def test_edit_recorder_removes_camera_missing_from_form_and_its_snapshot_file(ap
     with open(removed_snap, "wb") as fh:
         fh.write(b"fake-jpeg-bytes")
 
+    removed_hist_dir = history_dir(recorder.id, removed.id)
+    os.makedirs(removed_hist_dir, exist_ok=True)
+    with open(os.path.join(removed_hist_dir, "20260101_000000.jpg"), "wb") as fh:
+        fh.write(b"fake-jpeg-bytes")
+
     login(client, "chair15", "pass12345")
     resp = client.post(f"/surveillance/recorders/{recorder.id}/edit", data={
         "name": recorder.name, "host": recorder.host,
@@ -375,6 +380,7 @@ def test_edit_recorder_removes_camera_missing_from_form_and_its_snapshot_file(ap
     assert database.db_session.get(DvrCamera, kept.id) is not None
     assert database.db_session.get(DvrCamera, removed.id) is None
     assert not os.path.exists(removed_snap)
+    assert not os.path.exists(removed_hist_dir)
 
 
 def test_edit_recorder_requires_name_and_host(app, db, client):
@@ -483,6 +489,87 @@ def test_snapshot_serves_saved_frame_anonymously(app, db, client, tmp_path, monk
     assert resp.status_code == 200
     assert resp.data == b"fake-jpeg-bytes"
     assert resp.mimetype == "image/jpeg"
+
+
+# ---------------------------------------------------------------------------
+# История кадров (галерея за сутки, см. scripts/dvr_snapshot.py)
+# ---------------------------------------------------------------------------
+
+def test_camera_history_empty_state_when_no_history_yet(app, db, client):
+    recorder = make_recorder(db)
+    camera = make_camera(db, recorder)
+    db.commit()
+
+    resp = client.get(f"/surveillance/cameras/{camera.id}/history")
+    assert resp.status_code == 200
+    assert "За последние сутки кадров пока нет." in resp.get_data(as_text=True)
+
+
+def test_camera_history_returns_404_for_unknown_camera(client):
+    resp = client.get("/surveillance/cameras/999999/history")
+    assert resp.status_code == 404
+
+
+def test_camera_history_lists_frames_newest_first(app, db, client, tmp_path, monkeypatch):
+    monkeypatch.setitem(app.config, "DVR_SNAPSHOT_FOLDER", str(tmp_path))
+    recorder = make_recorder(db)
+    camera = make_camera(db, recorder)
+    db.commit()
+
+    hist_dir = history_dir(recorder.id, camera.id)
+    os.makedirs(hist_dir, exist_ok=True)
+    for name in ("20260905_100000.jpg", "20260905_120000.jpg", "20260905_110000.jpg", "garbage.jpg"):
+        with open(os.path.join(hist_dir, name), "wb") as fh:
+            fh.write(b"x")
+
+    resp = client.get(f"/surveillance/cameras/{camera.id}/history")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    # самый новый (12:00) должен идти раньше самого старого (10:00) в тексте страницы
+    assert body.index("20260905_120000.jpg") < body.index("20260905_100000.jpg")
+    assert "garbage.jpg" not in body  # не парсится как метка времени — пропускается, не падает
+    assert "3 кадров за последние сутки" in body
+
+
+def test_camera_history_frame_serves_existing_file(app, db, client, tmp_path, monkeypatch):
+    monkeypatch.setitem(app.config, "DVR_SNAPSHOT_FOLDER", str(tmp_path))
+    recorder = make_recorder(db)
+    camera = make_camera(db, recorder)
+    db.commit()
+
+    hist_dir = history_dir(recorder.id, camera.id)
+    os.makedirs(hist_dir, exist_ok=True)
+    with open(os.path.join(hist_dir, "20260905_120000.jpg"), "wb") as fh:
+        fh.write(b"fake-jpeg-bytes")
+
+    resp = client.get(f"/surveillance/cameras/{camera.id}/history/20260905_120000.jpg")
+    assert resp.status_code == 200
+    assert resp.data == b"fake-jpeg-bytes"
+    assert resp.mimetype == "image/jpeg"
+
+
+def test_camera_history_frame_404_for_missing_file(app, db, client, tmp_path, monkeypatch):
+    monkeypatch.setitem(app.config, "DVR_SNAPSHOT_FOLDER", str(tmp_path))
+    recorder = make_recorder(db)
+    camera = make_camera(db, recorder)
+    db.commit()
+
+    resp = client.get(f"/surveillance/cameras/{camera.id}/history/20260905_120000.jpg")
+    assert resp.status_code == 404
+
+
+def test_camera_history_frame_rejects_path_traversal_filename(app, db, client, tmp_path, monkeypatch):
+    """Имя файла должно строго совпадать с паттерном метки времени — иначе
+    404, даже если в остальном похоже на попытку выйти за пределы папки
+    истории (../../etc/passwd и т.п.)."""
+    monkeypatch.setitem(app.config, "DVR_SNAPSHOT_FOLDER", str(tmp_path))
+    recorder = make_recorder(db)
+    camera = make_camera(db, recorder)
+    db.commit()
+
+    for bad_name in ("..%2F..%2Fetc%2Fpasswd", "20260905_120000.jpg.exe", "not-a-timestamp.jpg"):
+        resp = client.get(f"/surveillance/cameras/{camera.id}/history/{bad_name}")
+        assert resp.status_code == 404, bad_name
 
 
 # ---------------------------------------------------------------------------

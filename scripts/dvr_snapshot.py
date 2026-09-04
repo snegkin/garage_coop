@@ -18,6 +18,11 @@
      одной файловой системы атомарен; если писать сразу в целевой файл,
      веб-процесс мог бы отдать наполовину записанный кадр, читая его в
      этот же момент).
+  2.1. Тот же кадр копируется ещё и в историю (app.surveillance.history_dir)
+     под именем-меткой времени — по файлу на снимок, не перезаписывается.
+     Старые файлы (старше HISTORY_RETENTION_HOURS) в этой же папке
+     подчищаются сразу после каждой удачной копии — отдельный cron для
+     очистки не нужен, глубина хранения поддерживается сама по прогону.
   3. Успех/ошибка — per-camera try/except, как в poll_ewelink.py:
      единственная зависшая/недоступная камера не должна останавливать
      снятие кадров с остальных. last_error сохраняется, но last_snapshot_at
@@ -41,13 +46,32 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app import create_app, database
 from app.models import DvrCamera
-from app.surveillance import rtsp_url, snapshot_dir, snapshot_path
+from app.surveillance import rtsp_url, snapshot_dir, snapshot_path, history_dir
 
 FFMPEG_TIMEOUT_SECONDS = 20
+HISTORY_RETENTION_HOURS = 24  # глубина хранения истории кадров на камеру
 
 
 def _utcnow() -> dt.datetime:
     return dt.datetime.now(dt.UTC).replace(tzinfo=None)
+
+
+def _prune_history(dir_path: str, now: dt.datetime) -> None:
+    """Удаляет файлы истории старше HISTORY_RETENTION_HOURS. Имя файла —
+    сама метка времени (см. _capture) — не нужно ни трогать mtime, ни
+    хранить это отдельно в БД: не смог распарсить имя (посторонний файл) —
+    пропускаем, не трогаем."""
+    cutoff = now - dt.timedelta(hours=HISTORY_RETENTION_HOURS)
+    for name in os.listdir(dir_path):
+        try:
+            ts = dt.datetime.strptime(name, "%Y%m%d_%H%M%S.jpg")
+        except ValueError:
+            continue
+        if ts < cutoff:
+            try:
+                os.remove(os.path.join(dir_path, name))
+            except OSError:
+                pass
 
 
 def _capture(camera: DvrCamera) -> str | None:
@@ -81,6 +105,20 @@ def _capture(camera: DvrCamera) -> str | None:
         return f"ffmpeg завершился с кодом {result.returncode}" + (f": {stderr_tail[0]}" if stderr_tail else "")
 
     os.replace(tmp_path, target)  # атомарная замена — читатели никогда не увидят наполовину записанный файл
+
+    # Копия того же кадра — в историю, отдельным файлом на снимок (не
+    # перезаписывается, в отличие от target). Ошибка здесь (диск полон и
+    # т.п.) не должна портить уже сохранённый "живой" кадр — best-effort,
+    # без падения всего _capture.
+    now = _utcnow()
+    try:
+        hist_dir = history_dir(camera.recorder_id, camera.id)
+        os.makedirs(hist_dir, exist_ok=True)
+        shutil.copyfile(target, os.path.join(hist_dir, now.strftime("%Y%m%d_%H%M%S") + ".jpg"))
+        _prune_history(hist_dir, now)
+    except OSError:
+        pass
+
     return None
 
 

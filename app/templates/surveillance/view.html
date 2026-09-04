@@ -34,14 +34,17 @@
       <div class="card h-100">
         {% if camera.last_snapshot_at %}
         <img src="{{ url_for('surveillance.snapshot', camera_id=camera.id) }}?t={{ camera.last_snapshot_at.timestamp()|int }}"
-             class="card-img-top js-dvr-frame" data-camera-id="{{ camera.id }}" alt="{{ camera.label }}"
+             class="card-img-top js-dvr-frame js-lightbox" data-camera-id="{{ camera.id }}" alt="{{ camera.label }}"
              style="aspect-ratio:4/3; object-fit:cover; background:#000;">
         {% else %}
         <div class="card-img-top d-flex align-items-center justify-content-center text-white-50 small"
              style="aspect-ratio:4/3; background:#222;">{{ _("Кадр пока не получен") }}</div>
         {% endif %}
         <div class="card-body py-2">
-          <div class="small">{{ camera.label }}</div>
+          <div class="d-flex justify-content-between align-items-center">
+            <div class="small">{{ camera.label }}</div>
+            <a href="{{ url_for('surveillance.camera_history', camera_id=camera.id) }}" class="small">{{ _("История") }}</a>
+          </div>
           {% if camera.last_snapshot_at %}
           <div class="text-muted small">{{ _("обновлено") }} <span data-utc-datetime="{{ camera.last_snapshot_at.isoformat() }}Z">{{ camera.last_snapshot_at.strftime('%H:%M:%S') }}</span></div>
           {% endif %}

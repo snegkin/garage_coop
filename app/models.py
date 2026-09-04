@@ -1209,6 +1209,11 @@ class Garage(Base):
     land_cadastral_number: Mapped[str | None] = mapped_column(String(50))  # кадастровый номер участка (если приватизирован)
     privatized_land_area: Mapped[Decimal | None] = mapped_column(Numeric(8, 2))  # площадь приватизированного участка, м²
     comment: Mapped[str | None] = mapped_column(Text)
+    # К какому узлу дерева контрольных счётчиков подключена ветвь этого гаража
+    # (см. ControlMeter) — NULL означает подключение напрямую к вводу, минуя
+    # отслеживаемый контрольный счётчик; это поведение по умолчанию для всех
+    # существующих гаражей.
+    control_meter_id: Mapped[int | None] = mapped_column(ForeignKey("control_meter.id", ondelete="RESTRICT"), index=True)
 
     ownerships: Mapped[list["GarageOwnership"]] = relationship(back_populates="garage", cascade="all, delete-orphan")
     contacts: Mapped[list["GarageContact"]] = relationship(back_populates="garage", cascade="all, delete-orphan")
@@ -1217,6 +1222,7 @@ class Garage(Base):
     account: Mapped["PersonalAccount | None"] = relationship(back_populates="garage", uselist=False)
     charges: Mapped[list["Charge"]] = relationship(back_populates="garage", cascade="all, delete-orphan")
     payments: Mapped[list["Payment"]] = relationship(back_populates="garage", cascade="all, delete-orphan")
+    control_meter: Mapped["ControlMeter | None"] = relationship(back_populates="garages")
 
 
 class GaragePhoto(Base):
@@ -1391,6 +1397,58 @@ class ElectricitySettings(Base):
     supplier_id: Mapped[int | None] = mapped_column(ForeignKey("counterparty.id", ondelete="SET NULL"))
 
     supplier: Mapped["Counterparty | None"] = relationship()
+
+
+class ControlMeter(Base):
+    """
+    Внутренний контрольный счётчик кооператива — узел дерева сверки
+    (self-referencing FK, по образцу WikiPage.parent_id). НЕ формирует
+    начислений — только показания для сверки: дельта показаний узла должна
+    примерно совпадать с суммой дельт его непосредственных потребителей
+    (дочерних узлов и/или подключённых гаражей), расхождение — это потери
+    в проводке этого конкретного сегмента (см. app/control_meters.py).
+
+    parent_id IS NULL — узел верхнего уровня, физически подключён к вводу.
+    Это НЕ объединяется с MasterMeterReading (app/power.py) в БД — сверка
+    "ввод vs верхние узлы + гаражи без узла" считается отдельно, на чтение
+    (см. control_meters.root_level_reconciliation).
+
+    ondelete="RESTRICT" — как у wiki_page.parent_id: защита от случайного
+    каскадного сноса поддерева на уровне БД; приложение уже не даёт удалить
+    узел с детьми/гаражами явной проверкой в control_meters.delete().
+    """
+    __tablename__ = "control_meter"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(255))
+    parent_id: Mapped[int | None] = mapped_column(ForeignKey("control_meter.id", ondelete="RESTRICT"), index=True)
+    comment: Mapped[str | None] = mapped_column(Text)
+
+    parent: Mapped["ControlMeter | None"] = relationship(remote_side=[id], back_populates="children")
+    children: Mapped[list["ControlMeter"]] = relationship(back_populates="parent", order_by="ControlMeter.name")
+    readings: Mapped[list["ControlMeterReading"]] = relationship(
+        back_populates="control_meter", cascade="all, delete-orphan", order_by="ControlMeterReading.reading_date"
+    )
+    garages: Mapped[list["Garage"]] = relationship(back_populates="control_meter")
+
+
+class ControlMeterReading(Base):
+    """
+    История показаний контрольного счётчика — только сырое показание кВт·ч,
+    БЕЗ денег (в отличие от ElectricityReading/MasterMeterReading: контрольные
+    счётчики не формируют Charge/Expense, только сверку). Дельта к предыдущей
+    по времени записи считается на лету, тем же приёмом, что
+    power._readings_with_amounts, но без умножения на тариф.
+    """
+    __tablename__ = "control_meter_reading"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    control_meter_id: Mapped[int] = mapped_column(ForeignKey("control_meter.id", ondelete="CASCADE"), index=True)
+    reading: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    reading_date: Mapped[dt.date] = mapped_column(Date, index=True)
+    comment: Mapped[str | None] = mapped_column(Text)
+
+    control_meter: Mapped["ControlMeter"] = relationship(back_populates="readings")
 
 
 class CsvImportProfile(Base):

@@ -1,0 +1,63 @@
+{# Ожидает переменную `reconciliation` (control_meters.NodeReconciliation, не None). #}
+<div class="row g-3 mb-3">
+  <div class="col-auto">
+    <div class="text-muted small">{{ _("Период") }}</div>
+    <div>{{ fmt_date(reconciliation.date_from) }} &ndash; {{ fmt_date(reconciliation.date_to) }}</div>
+  </div>
+  <div class="col-auto">
+    <div class="text-muted small">{{ _("Дельта узла") }}</div>
+    <div>{{ fmt2(reconciliation.node_delta) if reconciliation.node_delta is not none else "—" }}</div>
+  </div>
+  <div class="col-auto">
+    <div class="text-muted small">{{ _("Сумма потребителей") }}</div>
+    <div>{{ fmt2(reconciliation.sum_children_delta) if reconciliation.sum_children_delta is not none else "—" }}</div>
+  </div>
+  <div class="col-auto">
+    <div class="text-muted small">{{ _("Потери") }}</div>
+    <div class="{{ 'text-danger fw-semibold' if reconciliation.is_negative else '' }}">
+      {{ fmt2(reconciliation.loss) if reconciliation.loss is not none else "—" }}
+    </div>
+  </div>
+  <div class="col-auto">
+    <div class="text-muted small">{{ _("Поровну на потребителя") }}</div>
+    <div>{{ fmt2(reconciliation.loss_per_consumer) if reconciliation.loss_per_consumer is not none else "—" }}</div>
+  </div>
+</div>
+
+{% if reconciliation.consumers_total == 0 %}
+<p class="text-muted small mb-0">{{ _("К узлу не подключено ни одного потребителя (гаража или дочернего узла).") }}</p>
+{% else %}
+{% if reconciliation.is_partial %}
+<p class="text-warning small">
+  {{ _("Расчёт по неполным данным: {with_data} из {total} потребителей имеют показания за этот период.",
+       with_data=reconciliation.consumers_with_data, total=reconciliation.consumers_total) }}
+</p>
+{% endif %}
+<div class="table-responsive">
+  <table class="table table-sm bg-body mb-0">
+    <thead><tr><th>{{ _("Потребитель") }}</th><th>{{ _("Тип") }}</th><th>{{ _("Дельта за период") }}</th><th>{{ _("Доля потерь") }}</th></tr></thead>
+    <tbody>
+      {% for c in reconciliation.consumers %}
+      <tr>
+        <td>
+          {% if c.kind == "garage" %}
+          <a href="{{ url_for('garages.detail', garage_id=c.ref.id) }}">{{ _("Гараж №{number}", number=c.ref.number) }}</a>
+          {% else %}
+          <a href="{{ url_for('control_meters.detail', node_id=c.ref.id) }}">{{ c.ref.name }}</a>
+          {% endif %}
+        </td>
+        <td class="text-muted small">{{ _("гараж") if c.kind == "garage" else _("узел") }}</td>
+        <td>
+          {% if c.delta is none %}
+          <span class="text-muted">{{ _("нет данных") }}</span>
+          {% else %}
+          {{ fmt2(c.delta) }}
+          {% endif %}
+        </td>
+        <td>{{ fmt2(c.share_of_loss) if c.share_of_loss is not none else "—" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}

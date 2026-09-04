@@ -52,6 +52,7 @@
             <li><h6 class="dropdown-header">{{ _("Электроэнергия") }}</h6></li>
             <li><a class="dropdown-item" href="{{ url_for('electricity_monitor.view') }}">{{ _("Мониторинг электропитания") }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('power.view') }}">{{ _("Счётчик") }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('control_meters.list_tree') }}">{{ _("Контрольные счётчики") }}</a></li>
             <li><hr class="dropdown-divider"></li>
             <li><h6 class="dropdown-header">{{ _("Реестры") }}</h6></li>
             <li><a class="dropdown-item" href="{{ url_for('garages.list_garages') }}">{{ _("Гаражи") }}</a></li>

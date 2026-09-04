@@ -1,0 +1,30 @@
+{% import "control_meters/_tree.html" as cmtree %}
+{% extends "base.html" %}
+{% block title %}{{ _("Контрольные счётчики") }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h3>{{ _("Контрольные счётчики") }}</h3>
+  <a class="btn btn-primary" href="{{ url_for('control_meters.create') }}">+ {{ _("Добавить узел верхнего уровня") }}</a>
+</div>
+
+<p class="text-muted small">
+  {{ _("Внутренние счётчики кооператива для сверки показаний — не формируют начислений. Дельта показаний узла за период сравнивается с суммой дельт непосредственно подключённых к нему гаражей и/или дочерних узлов; расхождение — потери в проводке этого сегмента, поровну на потребителей узла.") }}
+</p>
+
+<div class="card bg-body mb-4">
+  <div class="card-body">
+    <h5 class="card-title">{{ _("Сверка на вводе") }}</h5>
+    <p class="card-subtitle text-muted small mb-3">{{ _("Показания общего счётчика (см. раздел «Счётчик») против суммы узлов верхнего уровня и гаражей, не подключённых ни к одному узлу.") }}</p>
+    {% if root_reconciliation is none %}
+    <p class="text-muted mb-0">{{ _("Недостаточно показаний общего счётчика для сверки.") }}</p>
+    {% else %}
+    {% set reconciliation = root_reconciliation %}
+    {% include "control_meters/_reconciliation.html" %}
+    {% endif %}
+  </div>
+</div>
+
+<div class="bg-body p-3 rounded border" style="max-width:900px">
+  {{ cmtree.render_tree(tree, current_node_id=None, ancestor_ids=[], reconcile_default=reconcile_default) }}
+</div>
+{% endblock %}

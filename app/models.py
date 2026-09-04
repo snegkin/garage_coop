@@ -1981,3 +1981,50 @@ class DvrCamera(Base):
     last_error: Mapped[str | None] = mapped_column(Text)
 
     recorder: Mapped["DvrRecorder"] = relationship(back_populates="cameras")
+
+
+# ---------------------------------------------------------------------------
+# Почта правления
+# ---------------------------------------------------------------------------
+#
+# Один общий почтовый ящик правления (напр. pravlenie@...), не личная почта
+# отдельных членов — председатель один раз вводит параметры подключения,
+# правление читает/пишет письма через этот ящик. Письма нигде не кэшируются
+# в БД (см. app/mail_client.py) — только сами параметры подключения.
+
+class MailProtocol(str, enum.Enum):
+    IMAP = "imap"
+    POP3 = "pop3"
+
+
+class MailEncryption(str, enum.Enum):
+    SSL = "ssl"            # неявный TLS с начала соединения (обычно порты 993/995/465)
+    STARTTLS = "starttls"  # соединение открытое, потом апгрейд (обычно порты 143/110/587)
+    NONE = "none"           # без шифрования — для локальных/тестовых серверов
+
+
+class MailboxSettings(Base):
+    """Единственная запись — параметры подключения к общему ящику правления.
+    Пароль общий для входящих (IMAP/POP3) и исходящих (SMTP) — обычный
+    случай одного почтового аккаунта. Шифруется тем же Fernet, что и
+    DvrRecorder.password_encrypted/EWeLinkAccount.app_secret_encrypted (см.
+    app/bank_api/crypto.py — модуль общего назначения, несмотря на путь)."""
+    __tablename__ = "mailbox_settings"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+
+    incoming_protocol: Mapped[MailProtocol] = mapped_column(Enum(MailProtocol), default=MailProtocol.IMAP)
+    incoming_host: Mapped[str | None] = mapped_column(String(255))
+    incoming_port: Mapped[int] = mapped_column(Integer, default=993)
+    incoming_encryption: Mapped[MailEncryption] = mapped_column(Enum(MailEncryption), default=MailEncryption.SSL)
+
+    smtp_host: Mapped[str | None] = mapped_column(String(255))
+    smtp_port: Mapped[int] = mapped_column(Integer, default=587)
+    smtp_encryption: Mapped[MailEncryption] = mapped_column(Enum(MailEncryption), default=MailEncryption.STARTTLS)
+
+    username: Mapped[str | None] = mapped_column(String(255))
+    password_encrypted: Mapped[str | None] = mapped_column(Text)
+    from_name: Mapped[str | None] = mapped_column(String(255))
+
+    last_error: Mapped[str | None] = mapped_column(Text)
+    last_checked_at: Mapped[dt.datetime | None] = mapped_column(DateTime)

@@ -1,0 +1,165 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Почта правления") }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h3 class="mb-0">{{ _("Почта правления") }}</h3>
+  <div class="d-flex gap-2">
+    {% if is_configured %}
+    <a class="btn btn-primary" href="{{ url_for('mailbox.compose') }}">+ {{ _("Написать письмо") }}</a>
+    {% endif %}
+    {% if is_chairman() %}
+    {% if is_configured %}
+    <form method="post" action="{{ url_for('mailbox.test_connection') }}" class="d-inline">
+      <button class="btn btn-outline-primary">{{ _("Проверить подключение") }}</button>
+    </form>
+    {% endif %}
+    <button class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#mailSettingsModal">{{ _("Настройки почты") }}</button>
+    {% endif %}
+  </div>
+</div>
+
+{% if not is_configured %}
+<div class="alert alert-warning">
+  {{ _("Почта ещё не настроена.") }}
+  {% if is_chairman() %}
+  {{ _("Заполните параметры подключения в «Настройках почты» выше.") }}
+  {% else %}
+  {{ _("Обратитесь к председателю.") }}
+  {% endif %}
+</div>
+{% elif settings.last_error and page is none %}
+<div class="alert alert-danger">
+  {{ _("Не удалось подключиться к почте.") }}
+  {% if is_chairman() %}{{ settings.last_error }}{% endif %}
+</div>
+{% endif %}
+
+{% if page is not none %}
+<div class="d-flex justify-content-between align-items-center mb-2">
+  <div class="text-muted small">{{ _("Всего писем:") }} {{ page.total }}</div>
+  <form method="get" class="d-flex align-items-center gap-2">
+    <label class="form-label small mb-0">{{ _("На странице:") }}</label>
+    <select class="form-select form-select-sm" name="page_size" style="width:auto" onchange="this.form.submit()">
+      {% for size in page_size_choices %}
+      <option value="{{ size }}" {{ "selected" if size == page_size }}>{{ size }}</option>
+      {% endfor %}
+    </select>
+  </form>
+</div>
+
+<table class="table table-hover bg-body">
+  <thead><tr><th>{{ _("От кого") }}</th><th>{{ _("Тема") }}</th><th>{{ _("Дата") }}</th></tr></thead>
+  <tbody>
+    {% for m in page.messages %}
+    <tr onclick="window.location='{{ url_for('mailbox.view_message', uid=m.uid) }}'" style="cursor:pointer" class="{{ 'fw-semibold' if supports_flags and m.seen is false }}">
+      <td>
+        {% if supports_flags and m.seen is false %}<span class="badge bg-primary badge-sm">{{ _("новое") }}</span>{% endif %}
+        {{ m.from_name or m.from_addr or "—" }}
+      </td>
+      <td>{{ m.subject }}</td>
+      <td class="text-muted small">{{ m.date.strftime("%d.%m.%Y %H:%M") if m.date else "—" }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="3" class="text-muted">{{ _("Входящих писем нет.") }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<nav class="d-flex justify-content-between mt-2">
+  <a class="btn btn-sm btn-outline-secondary {{ 'disabled' if not page.has_prev }}"
+     href="{{ url_for('mailbox.inbox', page=(request.args.get('page', 1, type=int) - 1), page_size=page_size) }}">&larr; {{ _("Назад") }}</a>
+  <a class="btn btn-sm btn-outline-secondary {{ 'disabled' if not page.has_next }}"
+     href="{{ url_for('mailbox.inbox', page=(request.args.get('page', 1, type=int) + 1), page_size=page_size) }}">{{ _("Вперёд") }} &rarr;</a>
+</nav>
+{% endif %}
+
+{% if is_chairman() %}
+<div class="modal fade" id="mailSettingsModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <form method="post" action="{{ url_for('mailbox.save_settings') }}">
+        <div class="modal-header">
+          <h5 class="modal-title">{{ _("Настройки почты правления") }}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <p class="text-muted small">{{ _("Один общий почтовый ящик правления. Пароль общий для входящих и исходящих.") }}</p>
+
+          <h6>{{ _("Входящие") }}</h6>
+          <div class="row g-2 mb-3">
+            <div class="col-md-3">
+              <label class="form-label">{{ _("Протокол") }}</label>
+              <select class="form-select" name="incoming_protocol">
+                <option value="imap" {{ "selected" if settings.incoming_protocol.value == "imap" }}>IMAP</option>
+                <option value="pop3" {{ "selected" if settings.incoming_protocol.value == "pop3" }}>POP3</option>
+              </select>
+            </div>
+            <div class="col-md-5">
+              <label class="form-label">{{ _("Сервер") }}</label>
+              <input class="form-control" name="incoming_host" value="{{ settings.incoming_host or '' }}" placeholder="imap.example.com">
+            </div>
+            <div class="col-md-2">
+              <label class="form-label">{{ _("Порт") }}</label>
+              <input class="form-control" type="number" name="incoming_port" value="{{ settings.incoming_port }}">
+            </div>
+            <div class="col-md-2">
+              <label class="form-label">{{ _("Шифрование") }}</label>
+              <select class="form-select" name="incoming_encryption">
+                <option value="ssl" {{ "selected" if settings.incoming_encryption.value == "ssl" }}>SSL</option>
+                <option value="starttls" {{ "selected" if settings.incoming_encryption.value == "starttls" }}>STARTTLS</option>
+                <option value="none" {{ "selected" if settings.incoming_encryption.value == "none" }}>{{ _("без шифрования") }}</option>
+              </select>
+            </div>
+          </div>
+
+          <h6>{{ _("Исходящие (SMTP)") }}</h6>
+          <div class="row g-2 mb-3">
+            <div class="col-md-6">
+              <label class="form-label">{{ _("Сервер") }}</label>
+              <input class="form-control" name="smtp_host" value="{{ settings.smtp_host or '' }}" placeholder="smtp.example.com">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">{{ _("Порт") }}</label>
+              <input class="form-control" type="number" name="smtp_port" value="{{ settings.smtp_port }}">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">{{ _("Шифрование") }}</label>
+              <select class="form-select" name="smtp_encryption">
+                <option value="ssl" {{ "selected" if settings.smtp_encryption.value == "ssl" }}>SSL</option>
+                <option value="starttls" {{ "selected" if settings.smtp_encryption.value == "starttls" }}>STARTTLS</option>
+                <option value="none" {{ "selected" if settings.smtp_encryption.value == "none" }}>{{ _("без шифрования") }}</option>
+              </select>
+            </div>
+          </div>
+
+          <h6>{{ _("Учётные данные") }}</h6>
+          <div class="row g-2">
+            <div class="col-md-6">
+              <label class="form-label">{{ _("Логин (email)") }}</label>
+              <input class="form-control" name="username" value="{{ settings.username or '' }}" autocomplete="off">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">{{ _("Пароль") }}</label>
+              <input class="form-control" type="password" name="password" autocomplete="new-password"
+                     placeholder="{{ _('оставьте пустым, чтобы не менять') if settings.password_encrypted else '' }}">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">{{ _("Имя отправителя") }}</label>
+              <input class="form-control" name="from_name" value="{{ settings.from_name or '' }}" placeholder="{{ _('Правление ГСК') }}">
+            </div>
+          </div>
+
+          {% if settings.last_error %}
+          <div class="alert alert-danger mt-3 mb-0 small">{{ settings.last_error }}</div>
+          {% endif %}
+        </div>
+        <div class="modal-footer d-flex justify-content-end">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+          <button class="btn btn-primary">{{ _("Сохранить") }}</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

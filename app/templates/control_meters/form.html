@@ -2,7 +2,7 @@
 {% block title %}{{ _("Новый узел") if not node else _("Редактирование узла") }}{% endblock %}
 {% block content %}
 <h3 class="mb-3">{{ _("Новый узел контрольного счётчика") if not node else _("Редактирование узла") }}</h3>
-<form method="post" class="bg-body p-4 rounded border" style="max-width:600px">
+<form method="post" class="bg-body p-4 rounded border">
   <div class="mb-3">
     <label class="form-label">{{ _("Название") }}</label>
     <input class="form-control" name="name" value="{{ node.name if node else '' }}" placeholder="{{ _('например: ВРУ-2, щит ряда Б') }}" required autofocus>

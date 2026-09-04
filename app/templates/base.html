@@ -255,6 +255,28 @@ function enhanceSearchableSelect(select) {
     const q = (filter || "").trim().toLowerCase();
     list.innerHTML = "";
     let shown = 0;
+    // Необязательное поле (нет required) — первым пунктом сброс к "не
+    // выбрано", иначе после выбора значения вернуться к пустому нечем: сам
+    // <option value=""> ниже намеренно не попадает в список (не значение
+    // для поиска), а без этого пункта пользователь не мог до него добраться.
+    if (!select.required) {
+      const clearText = select.dataset.placeholder || "—";
+      if (!q || clearText.toLowerCase().indexOf(q) !== -1) {
+        shown++;
+        const clearItem = document.createElement("button");
+        clearItem.type = "button";
+        clearItem.className = "list-group-item list-group-item-action text-muted" + (select.value === "" ? " active" : "");
+        clearItem.textContent = clearText;
+        clearItem.addEventListener("mousedown", function (e) {
+          e.preventDefault();
+          select.value = "";
+          setInputFromSelect();
+          list.style.display = "none";
+          select.dispatchEvent(new Event("change", { bubbles: true }));
+        });
+        list.appendChild(clearItem);
+      }
+    }
     options().forEach(function (opt) {
       if (q && opt.textContent.toLowerCase().indexOf(q) === -1) return;
       shown++;
@@ -282,6 +304,10 @@ function enhanceSearchableSelect(select) {
   }
 
   input.addEventListener("focus", function () { renderList(""); });
+  // Клик по УЖЕ сфокусированному полю не порождает новое событие "focus"
+  // (focus не всплывает повторно без смены фокуса) — без этого повторный
+  // клик в то же поле сразу после выбора значения не открывал список снова.
+  input.addEventListener("click", function () { renderList(""); });
   input.addEventListener("input", function () { renderList(input.value); });
   input.addEventListener("blur", function () {
     setTimeout(function () {

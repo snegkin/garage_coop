@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}{{ detail.subject }}{% endblock %}
+{% block content %}
+<a href="{{ url_for('mailbox.inbox') }}" class="d-inline-block mb-3">&larr; {{ _("Ко всем письмам") }}</a>
+
+<div class="card bg-body">
+  <div class="card-body">
+    <h4 class="card-title">{{ detail.subject }}</h4>
+    <table class="table table-borderless table-sm mb-3" style="max-width:700px">
+      <tr><th style="width:100px">{{ _("От кого") }}</th><td>{{ detail.from_name or "" }} {% if detail.from_addr %}&lt;{{ detail.from_addr }}&gt;{% endif %}</td></tr>
+      <tr><th>{{ _("Кому") }}</th><td>{{ detail.to_addrs|join(", ") or "—" }}</td></tr>
+      <tr><th>{{ _("Дата") }}</th><td>{{ detail.date.strftime("%d.%m.%Y %H:%M") if detail.date else "—" }}</td></tr>
+    </table>
+
+    {% if detail.attachments %}
+    <div class="mb-3">
+      <div class="text-muted small mb-1">{{ _("Вложения:") }}</div>
+      {% for att in detail.attachments %}
+      <a class="btn btn-sm btn-outline-secondary me-1 mb-1" href="{{ url_for('mailbox.download_attachment', uid=detail.uid, index=att.index) }}">
+        📎 {{ att.filename }} <span class="text-muted">({{ (att.size / 1024) | round(1) }} КБ)</span>
+      </a>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if had_blocked_images %}
+    <div class="alert alert-secondary d-flex justify-content-between align-items-center py-2">
+      <span class="small">{{ _("Внешние изображения скрыты (защита от отслеживания прочтения).") }}</span>
+      <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('mailbox.view_message', uid=detail.uid, allow_images=1) }}">{{ _("Показать изображения") }}</a>
+    </div>
+    {% endif %}
+
+    <iframe sandbox="" srcdoc="{{ body_srcdoc }}" style="width:100%;min-height:400px;resize:vertical;border:1px solid var(--bs-border-color);background:#fff"></iframe>
+  </div>
+</div>
+{% endblock %}

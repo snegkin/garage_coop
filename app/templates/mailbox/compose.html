@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Новое письмо") }}{% endblock %}
+{% block content %}
+<h3 class="mb-3">{{ _("Новое письмо") }}</h3>
+<form method="post" class="bg-body p-4 rounded border" style="max-width:700px" enctype="multipart/form-data">
+  <div class="mb-3">
+    <label class="form-label">{{ _("Кому") }}</label>
+    <input class="form-control" name="to" value="{{ to }}" placeholder="{{ _('через запятую, если несколько') }}" required autofocus>
+  </div>
+  <div class="mb-3">
+    <label class="form-label">{{ _("Тема") }}</label>
+    <input class="form-control" name="subject" value="{{ subject }}" required>
+  </div>
+  <div class="mb-3">
+    <label class="form-label">{{ _("Текст") }}</label>
+    <textarea class="form-control" name="body" rows="12">{{ body }}</textarea>
+  </div>
+  <div class="mb-3">
+    <label class="form-label">{{ _("Вложения") }}</label>
+    <input class="form-control" type="file" name="attachments" multiple>
+  </div>
+  <div class="d-flex justify-content-end gap-2">
+    <button class="btn btn-primary">{{ _("Отправить") }}</button>
+    <a class="btn btn-outline-secondary" href="{{ url_for('mailbox.inbox') }}">{{ _("Отмена") }}</a>
+  </div>
+</form>
+{% endblock %}

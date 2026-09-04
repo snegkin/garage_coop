@@ -15,6 +15,17 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 cd "$PROJECT_DIR"
 
+# .env НЕ подхватывается python-dotenv (см. .env.example) — приложение читает
+# os.environ напрямую. Веб-процесс обычно получает DATABASE_URL/SECRET_KEY
+# через окружение сервиса (systemd EnvironmentFile= и т.п.), а этот скрипт
+# из-под cron — нет: без .env create_app() тихо возьмёт дефолтную БД из
+# config.py вместо настоящей продовой (тот же приём, что и в poll_ewelink.sh).
+if [ -f "$PROJECT_DIR/.env" ]; then
+    set -a
+    . "$PROJECT_DIR/.env"
+    set +a
+fi
+
 LOG_DIR="$PROJECT_DIR/instance/logs"
 LOG_FILE="$LOG_DIR/update_key_rate.log"
 LOCK_FILE="$PROJECT_DIR/instance/update_key_rate.lock"

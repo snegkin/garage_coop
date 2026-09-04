@@ -15,6 +15,20 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 cd "$PROJECT_DIR"
 
+# .env НЕ подхватывается python-dotenv (см. .env.example) — приложение читает
+# os.environ напрямую. Веб-процесс обычно получает SECRET_KEY/
+# BANK_API_ENCRYPTION_KEY через окружение сервиса (systemd EnvironmentFile=
+# и т.п.), а этот скрипт из-под cron — нет, поэтому подгружаем .env сами:
+# без совпадающего ключа расшифровка сохранённого пароля регистратора
+# (DvrRecorder.password_encrypted, см. app/surveillance.py:rtsp_url) здесь
+# не сойдётся с тем, чем он был зашифрован в веб-процессе (тот же приём,
+# что и в poll_ewelink.sh).
+if [ -f "$PROJECT_DIR/.env" ]; then
+    set -a
+    . "$PROJECT_DIR/.env"
+    set +a
+fi
+
 LOG_DIR="$PROJECT_DIR/instance/logs"
 LOG_FILE="$LOG_DIR/dvr_snapshot.log"
 LOCK_FILE="$PROJECT_DIR/instance/dvr_snapshot.lock"

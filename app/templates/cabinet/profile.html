@@ -7,7 +7,7 @@
 <div class="alert alert-info d-flex align-items-center mb-3" role="alert">
   <span class="me-2">⚠</span>
   <div>
-    <strong>{{ _("Ожидают одобрения") }}</strong>: {{ _("Изменения отправлены на {date}.", date=pending_revision.submitted_at.strftime('%d.%m.%Y %H:%M')) }}
+    <strong>{{ _("Ожидают одобрения") }}</strong>: {{ _("Изменения отправлены на") }} <span data-utc-datetime="{{ pending_revision.submitted_at.isoformat() }}Z">{{ pending_revision.submitted_at.strftime('%d.%m.%Y %H:%M') }}</span>.
   </div>
 </div>
 {% endif %}

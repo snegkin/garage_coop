@@ -83,7 +83,7 @@
         <div class="text-muted small">
           {% if reading.voltage_v is not none %}{{ fmt2(reading.voltage_v) }} {{ _("В") }}{% endif %}
           {% if reading.current_a is not none %} · {{ fmt2(reading.current_a) }} {{ _("А") }}{% endif %}
-          - {{ _("обновлено") }} {{ reading.ts.strftime('%H:%M:%S') }}
+          - {{ _("обновлено") }} <span data-utc-datetime="{{ reading.ts.isoformat() }}Z">{{ reading.ts.strftime('%H:%M:%S') }}</span>
           {% if reading.sled_online is not none %} · {{ _("LED") }} {{ _("вкл") if reading.sled_online else _("выкл") }}{% endif %}
         </div>
         {% else %}

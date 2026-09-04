@@ -193,7 +193,7 @@
   <div class="border-bottom pb-2 mb-2 {% if rev.status.value == 'pending' %}bg-warning-subtle rounded p-2{% endif %}">
     <div class="d-flex justify-content-between align-items-start">
       <div>
-        <strong>{{ rev.submitted_at.strftime('%d.%m.%Y %H:%M') }}</strong>
+        <strong><span data-utc-datetime="{{ rev.submitted_at.isoformat() }}Z">{{ rev.submitted_at.strftime('%d.%m.%Y %H:%M') }}</span></strong>
         · {{ _("отправил") }} {{ rev.submitter.username if rev.submitter else '—' }}
         {% if rev.status.value == 'pending' %}
         <span class="badge bg-warning text-dark ms-2">⚠ {{ _("ожидает") }}</span>
@@ -233,7 +233,7 @@
       </form>
     </div>
     {% else %}
-    <p class="text-muted small mt-1">{{ rev.reviewed_at.strftime('%d.%m.%Y %H:%M') if rev.reviewed_at else '' }}</p>
+    <p class="text-muted small mt-1">{% if rev.reviewed_at %}<span data-utc-datetime="{{ rev.reviewed_at.isoformat() }}Z">{{ rev.reviewed_at.strftime('%d.%m.%Y %H:%M') }}</span>{% endif %}</p>
     {% endif %}
   </div>
   {% endfor %}

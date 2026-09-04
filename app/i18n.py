@@ -731,7 +731,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
 
         # person data revisions
         "Ожидают одобрения": "Pending approval",
-        "Изменения отправлены на {date}.": "Changes submitted on {date}.",
+        "Изменения отправлены на": "Changes submitted on",
         "Отправить на рассмотрение": "Submit for review",
         "Нет изменений для отправки.": "Nothing to submit — no changes detected.",
         "Изменения отправлены на рассмотрение председателю.": "Changes submitted to the chairman for review.",

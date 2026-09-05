@@ -1032,6 +1032,11 @@ class User(Base):
     role: Mapped[RoleEnum] = mapped_column(Enum(RoleEnum), default=RoleEnum.MEMBER)
     person_id: Mapped[int | None] = mapped_column(ForeignKey("person.id", ondelete="SET NULL"), unique=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Принудительная смена пароля при следующем входе — выставляется при
+    # массовом создании учётных записей (setup_wizard.accounts_create),
+    # где пароль генерируется автоматически и человек его не выбирал.
+    # Снимается в auth.force_change_password при успешной смене.
+    must_change_password: Mapped[bool] = mapped_column(Boolean, default=False)
 
     person: Mapped["Person | None"] = relationship(foreign_keys=[person_id])
 

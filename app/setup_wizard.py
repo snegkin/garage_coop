@@ -19,18 +19,22 @@ import csv
 import datetime as dt
 import io
 import json
+import secrets
+import string
 from decimal import Decimal, InvalidOperation
 
 from flask import Blueprint, render_template, request, redirect, url_for, flash, abort, Response, g
+from werkzeug.security import generate_password_hash
 
 from . import database
+from . import audit
 from .i18n import translate as _, parse_decimal, parse_optional_decimal as _parse_decimal
 from .auth import roles_required
 from .permissions import sync_user_role
 from .models import (
     Cooperative, BankAccount, Counterparty, ElectricitySettings, ElectricityTariff,
     MasterMeterReading, Garage, GarageOwnership, Person, PersonalAccount, BoardTerm, RoleEnum,
-    CsvImportProfile,
+    CsvImportProfile, User,
 )
 from .accounting import (
     get_electricity_settings, current_tariff, electricity_account_number,
@@ -710,3 +714,123 @@ def board_link_me():
     database.db_session.commit()
     flash(_("Карточка человека создана и привязана к вашей учётной записи."), "success")
     return redirect(url_for("setup_wizard.board_step"))
+
+
+# ---------------------------------------------------------------------------
+# Массовое создание учётных записей
+# ---------------------------------------------------------------------------
+# Логин по умолчанию — первая буква имени + фамилия (тот же разбор ФИО, что
+# и в Person.short_name: parts[0] — фамилия, parts[1] — имя). Коллизии
+# (совпадение с уже существующим логином или с логином другого человека из
+# этого же списка) не разрешаются автоматически — показываются человеку
+# списком прямо в форме, редактирует логины он сам. Пароль генерируется
+# случайно и никогда не сохраняется в БД в открытом виде — единственный
+# шанс его увидеть/сохранить в файл — страница результата сразу после
+# создания (setup/accounts_result.html), второй раз получить тот же
+# пароль неоткуда (сбросить можно только через persons.reset_password).
+
+def _generate_login(full_name: str) -> str:
+    parts = full_name.strip().split()
+    if not parts:
+        return ""
+    if len(parts) > 1:
+        return (parts[1][0] + parts[0]).lower()
+    return parts[0].lower()
+
+
+def _generate_password(length: int = 10) -> str:
+    alphabet = string.ascii_letters + string.digits
+    return "".join(secrets.choice(alphabet) for _ in range(length))
+
+
+def _unlinked_persons():
+    """Люди без учётной записи (User.person_id) — «если у кого-то уже
+    создан аккаунт, его не трогать» реализовано тем, что такие люди сюда
+    вовсе не попадают, их нельзя ни выбрать, ни случайно пересоздать."""
+    linked_ids = {
+        pid for (pid,) in database.db_session.query(User.person_id).filter(User.person_id.isnot(None))
+    }
+    query = database.db_session.query(Person).order_by(Person.full_name)
+    if linked_ids:
+        query = query.filter(~Person.id.in_(linked_ids))
+    return query.all()
+
+
+def _build_account_rows(overrides: dict[int, str] | None = None):
+    """rows — [(person, login, collision)] для всех людей без учётной
+    записи. overrides — логины, отредактированные человеком при
+    неудачной попытке создания (см. accounts_create), чтобы не терять
+    правки при повторном показе формы; без overrides логин — просто
+    вычисленное значение по умолчанию."""
+    overrides = overrides or {}
+    persons = _unlinked_persons()
+    existing_usernames = {u for (u,) in database.db_session.query(User.username)}
+
+    logins = {p.id: (overrides.get(p.id) or _generate_login(p.full_name)) for p in persons}
+    counts: dict[str, int] = {}
+    for login in logins.values():
+        counts[login] = counts.get(login, 0) + 1
+
+    rows = []
+    for p in persons:
+        login = logins[p.id]
+        collision = (not login) or counts[login] > 1 or login in existing_usernames
+        rows.append({"person": p, "login": login, "collision": collision})
+    return rows
+
+
+@bp.route("/accounts")
+@roles_required(RoleEnum.CHAIRMAN)
+def accounts_step():
+    rows = _build_account_rows()
+    return render_template("setup/accounts.html", rows=rows, has_collisions=any(r["collision"] for r in rows))
+
+
+@bp.route("/accounts/create", methods=["POST"])
+@roles_required(RoleEnum.CHAIRMAN)
+def accounts_create():
+    selected_ids = {int(x) for x in request.form.getlist("person_id")}
+    overrides = {}
+    for p in _unlinked_persons():
+        raw = request.form.get(f"login_{p.id}")
+        if raw is not None:
+            overrides[p.id] = raw.strip().lower()
+
+    rows = _build_account_rows(overrides)
+    if not selected_ids:
+        flash(_("Выберите хотя бы одного человека."), "warning")
+        return render_template("setup/accounts.html", rows=rows, has_collisions=any(r["collision"] for r in rows))
+
+    selected_rows = [r for r in rows if r["person"].id in selected_ids]
+    if any(r["collision"] for r in selected_rows):
+        flash(_("У некоторых выбранных людей совпадающие или уже занятые логины — исправьте их (отмечены ниже) и повторите."), "danger")
+        return render_template("setup/accounts.html", rows=rows, has_collisions=any(r["collision"] for r in rows))
+
+    created = []
+    for r in selected_rows:
+        person = r["person"]
+        password = _generate_password()
+        initial_role = RoleEnum.CHAIRMAN if person.is_chairman else (
+            RoleEnum.ACCOUNTANT if person.is_accountant else (
+                RoleEnum.BOARD if person.is_board_member else RoleEnum.MEMBER
+            )
+        )
+        user = User(
+            username=r["login"],
+            password_hash=generate_password_hash(password),
+            role=initial_role,
+            person_id=person.id,
+            is_active=True,
+            must_change_password=True,
+        )
+        database.db_session.add(user)
+        database.db_session.flush()
+        audit.record(
+            "account.create", entity_type="user", entity_id=user.id,
+            summary=f"Массово создана учётная запись «{r['login']}» для {person.full_name}, роль — {initial_role.value}",
+        )
+        created.append({"person": person, "login": r["login"], "password": password})
+    database.db_session.commit()
+
+    flash(_("Создано учётных записей: {n}.", n=len(created)), "success")
+    return render_template("setup/accounts_result.html", created=created)

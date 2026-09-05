@@ -5,7 +5,7 @@ Flask-Login) + декораторы для ограничения доступа
 from functools import wraps
 
 from flask import Blueprint, render_template, request, redirect, url_for, session, flash, g
-from werkzeug.security import check_password_hash
+from werkzeug.security import check_password_hash, generate_password_hash
 
 from . import database
 from . import audit
@@ -107,6 +107,40 @@ def login():
     # новостная лента правления показывается прямо здесь.
     from .news import latest_news
     return render_template("auth/login.html", news_items=latest_news())
+
+
+@bp.route("/change-password", methods=["GET", "POST"])
+@login_required
+def force_change_password():
+    """Принудительная смена пароля — единственная страница, доступная
+    пользователю с must_change_password=True (см. app/__init__.py:
+    _enforce_password_change, редиректит сюда с любой другой страницы).
+    В отличие от cabinet.change_password не спрашивает текущий пароль —
+    личность уже подтверждена самим входом в систему с ним."""
+    if not g.user.must_change_password:
+        return redirect(url_for("main.dashboard"))
+
+    if request.method == "POST":
+        new_password = request.form.get("new_password", "")
+        confirm_password = request.form.get("confirm_password", "")
+        if len(new_password) < 4:
+            flash(_("Новый пароль слишком короткий (минимум 4 символа)."), "danger")
+            return redirect(url_for("auth.force_change_password"))
+        if new_password != confirm_password:
+            flash(_("Новый пароль и подтверждение не совпадают."), "danger")
+            return redirect(url_for("auth.force_change_password"))
+
+        g.user.password_hash = generate_password_hash(new_password)
+        g.user.must_change_password = False
+        audit.record(
+            "account.password_change", entity_type="user", entity_id=g.user.id,
+            summary=f"Пользователь «{g.user.username}» сменил пароль при первом входе",
+        )
+        database.db_session.commit()
+        flash(_("Пароль изменён."), "success")
+        return redirect(url_for("main.dashboard"))
+
+    return render_template("auth/force_change_password.html")
 
 
 @bp.route("/logout")

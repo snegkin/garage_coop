@@ -47,14 +47,38 @@ def _spoiler_sub(match: re.Match) -> str:
     return f'<span class="wiki-spoiler" tabindex="0" role="button">{escape(match.group(1))}</span>'
 
 
+# bleach.linkify() сам находит URL внутри уже собранного <span
+# class="wiki-spoiler">...</span> и оборачивает его в <a> — у ссылки свой
+# цвет (a { color: ... } в base.html побеждает унаследованный от
+# .wiki-spoiler, т.к. унаследованное значение проигрывает любому явно
+# совпавшему правилу), и маскировка «текст того же цвета, что фон»
+# ломается — спрятанный URL виден как обычная ссылка. У linkify() есть
+# параметр skip_tags для ровно такого случая, но на практике он ломает
+# другое: содержимое пропускаемого тега на выходе экранируется ВТОРОЙ раз
+# (bleach 6.x, "&lt;" -> "&amp;lt;"). Поэтому прячем уже собранные спойлеры
+# текстовыми плейсхолдерами ДО linkify и возвращаем обратно ПОСЛЕ — сам
+# linkify их содержимое вообще не видит.
+_SPOILER_SPAN_RE = re.compile(r'<span class="wiki-spoiler"[^>]*>.*?</span>')
+_SPOILER_PLACEHOLDER_RE = re.compile(r"SPOILERSTASH(\d+)ENDSTASH")
+
+
 def render_html(text: str) -> Markup:
     """Markdown -> безопасный HTML для отображения новости целиком."""
     _md.reset()
     pre = _SPOILER_RE.sub(_spoiler_sub, text or "")
     html = _md.convert(pre)
     clean = bleach.clean(html, tags=ALLOWED_TAGS, attributes=ALLOWED_ATTRS, strip=True)
-    clean = bleach.linkify(clean, callbacks=[*bleach.linkifier.DEFAULT_CALLBACKS])
-    return Markup(clean)
+
+    stash: list[str] = []
+
+    def _stash(match: re.Match) -> str:
+        stash.append(match.group(0))
+        return f"SPOILERSTASH{len(stash) - 1}ENDSTASH"
+
+    stashed = _SPOILER_SPAN_RE.sub(_stash, clean)
+    linked = bleach.linkify(stashed, callbacks=[*bleach.linkifier.DEFAULT_CALLBACKS])
+    final = _SPOILER_PLACEHOLDER_RE.sub(lambda m: stash[int(m.group(1))], linked)
+    return Markup(final)
 
 
 def plain_text(text: str) -> str:

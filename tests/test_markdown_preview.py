@@ -153,3 +153,24 @@ def test_multiple_spoilers_on_same_line_render_separately():
     html = str(render_html("логин ||admin|| пароль ||secret123||"))
     assert html.count('class="wiki-spoiler"') == 2
     assert "admin" in html and "secret123" in html
+
+
+def test_spoiler_url_is_not_auto_linked():
+    """Регресс: bleach.linkify() сам находил URL внутри ||...|| и
+    оборачивал его в <a> — у ссылки свой цвет (a{color:...} в base.html
+    побеждает унаследованный от .wiki-spoiler), маскировка «текст того же
+    цвета, что фон» переставала работать, спрятанный URL был виден как
+    обычная ссылка. Внутри спойлера URL должен остаться простым текстом."""
+    from app.news_format import render_html
+    html = str(render_html("||https://example.com/secret-page||"))
+    assert "<a " not in html
+    assert "https://example.com/secret-page" in html
+
+
+def test_url_outside_spoiler_is_still_auto_linked():
+    """Тот же linkify не должен перестать работать для обычных ссылок —
+    плейсхолдерами прячутся только уже собранные .wiki-spoiler спаны,
+    остальной текст проходит через linkify как обычно."""
+    from app.news_format import render_html
+    html = str(render_html("Смотрите https://example.com/public — открыто всем."))
+    assert '<a href="https://example.com/public"' in html

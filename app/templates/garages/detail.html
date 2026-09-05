@@ -212,9 +212,12 @@
           <td>{{ c.relation or "—" }}</td>
           {% if is_board() or is_owner %}
           <td>
-            <form method="post" action="{{ url_for('garages.remove_contact', garage_id=garage.id, contact_id=c.id) }}" onsubmit="return confirm('{{ _("Удалить контакт?") }}')">
-              <button class="btn btn-sm btn-outline-danger btn-icon-square" title="{{ _('Удалить') }}">✕</button>
-            </form>
+            <div class="d-flex gap-1">
+              <button type="button" class="btn btn-sm btn-outline-secondary btn-icon-square" title="{{ _('Изменить') }}" data-bs-toggle="modal" data-bs-target="#editContactModal{{ c.id }}">✎</button>
+              <form method="post" action="{{ url_for('garages.remove_contact', garage_id=garage.id, contact_id=c.id) }}" onsubmit="return confirm('{{ _("Удалить контакт?") }}')">
+                <button class="btn btn-sm btn-outline-danger btn-icon-square" title="{{ _('Удалить') }}">✕</button>
+              </form>
+            </div>
           </td>
           {% endif %}
         </tr>
@@ -223,6 +226,40 @@
         {% endfor %}
       </tbody>
     </table>
+    {% if is_board() or is_owner %}
+    {% for c in garage.contacts %}
+    <div class="modal fade" id="editContactModal{{ c.id }}" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <form method="post" action="{{ url_for('garages.edit_contact', garage_id=garage.id, contact_id=c.id) }}">
+            <div class="modal-header">
+              <h5 class="modal-title">{{ _("Изменить контактное лицо") }}</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+              <div class="mb-3">
+                <label class="form-label">{{ _("Человек") }}</label>
+                <select name="person_id" class="form-select" data-searchable required>
+                  {% for p in all_persons %}
+                  <option value="{{ p.id }}" {{ "selected" if p.id == c.person_id }}>{{ p.full_name }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="mb-3">
+                <label class="form-label">{{ _("Отношение") }}</label>
+                <input class="form-control" name="relation" value="{{ c.relation or '' }}" placeholder="{{ _('напр. супруга') }}">
+              </div>
+            </div>
+            <div class="modal-footer d-flex justify-content-end">
+              <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+              <button class="btn btn-primary">{{ _("Сохранить") }}</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+    {% endif %}
     {% if is_board() or is_owner %}
     <form method="post" action="{{ url_for('garages.add_contact', garage_id=garage.id) }}" class="d-flex gap-2">
       <select name="person_id" class="form-select form-select-sm" id="contactPersonSelect" data-searchable required>

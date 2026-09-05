@@ -661,6 +661,26 @@ def add_contact(garage_id):
     return redirect(url_for("garages.detail", garage_id=garage_id))
 
 
+@bp.route("/<int:garage_id>/contacts/<int:contact_id>/edit", methods=["POST"])
+@login_required
+def edit_contact(garage_id, contact_id):
+    """Изменить лицо для связи (человека и/или отношение) без удаления и
+    повторного добавления — та же пара полей, что и при добавлении."""
+    garage = database.db_session.get(Garage, garage_id)
+    if garage is None:
+        abort(404)
+    if not is_owner_or_board(garage):
+        abort(403)
+    contact = database.db_session.get(GarageContact, contact_id)
+    if contact is None or contact.garage_id != garage_id:
+        abort(404)
+    contact.person_id = int(request.form["person_id"])
+    contact.relation = request.form.get("relation") or None
+    database.db_session.commit()
+    flash(_("Контактное лицо изменено."), "success")
+    return redirect(url_for("garages.detail", garage_id=garage_id))
+
+
 @bp.route("/<int:garage_id>/contacts/<int:contact_id>/remove", methods=["POST"])
 @login_required
 def remove_contact(garage_id, contact_id):

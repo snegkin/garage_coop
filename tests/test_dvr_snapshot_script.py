@@ -11,6 +11,8 @@ argument", даже когда RTSP-поток открылся нормальн
 import datetime as dt
 import importlib.util
 import os
+import shutil
+import subprocess
 
 import pytest
 
@@ -175,7 +177,53 @@ def test_build_combined_snapshot_invokes_ffmpeg_with_scale_and_xstack(dvr_snapsh
     assert "scale=" not in filter_complex  # без сжатия — каждая ячейка в исходном разрешении
     assert "xstack=inputs=2" in filter_complex
     assert "layout=0_0|w0_0" in filter_complex  # символьная ссылка на реальную ширину первого тайла, не литеральное число
+    assert "fill=black" in filter_complex  # иначе незакрытые тайлами пиксели — неинициализированная память (на практике зелёный)
     assert cmd[cmd.index("-map") + 1] == "[out]"
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="нужен реальный ffmpeg — тест на его собственное поведение по умолчанию, не на нашу команду")
+def test_build_combined_snapshot_fills_uncovered_gaps_black_not_green(dvr_snapshot_module, tmp_path):
+    """Регресс: без fill=black незакрытая тайлами область холста (неполная
+    последняя строка сетки, либо полоса под тайлом короче остальных в
+    своей строке) заполнялась неинициализированной памятью — на практике
+    воспроизведено как чистый зелёный цвет, не чёрный. Реальный ffmpeg
+    (без моков subprocess.run) — суть бага в его собственном поведении по
+    умолчанию, не в том, как мы формируем команду. Тестовые кадры
+    генерируются самим ffmpeg (-f lavfi color=...), не Pillow — тот же
+    системный бинарник, что и так обязателен для всей фичи, без ещё одной
+    Python-зависимости только ради теста."""
+    # 5 камер, cols=3 -> последняя строка заполнена не полностью (2 из 3) —
+    # правый нижний угол сетки не накрыт ни одним тайлом.
+    paths = []
+    for i in range(5):
+        p = os.path.join(str(tmp_path), f"cam{i}.jpg")
+        subprocess.run(
+            ["ffmpeg", "-y", "-f", "lavfi", "-i", "color=c=red:s=64x48", "-frames:v", "1", p],
+            capture_output=True, check=True,
+        )
+        paths.append(p)
+
+    out = os.path.join(str(tmp_path), "combined.jpg")
+    assert dvr_snapshot_module._build_combined_snapshot(paths, out) is True
+
+    # Размер получившегося холста (ffprobe) и сырые байты RGB24 всего кадра
+    # (ffmpeg) — тоже просто ffmpeg/ffprobe, без Pillow. Правый нижний
+    # угол сетки заведомо не накрыт ни одним тайлом при неполной последней
+    # строке (5 камер, 3 колонки — в последней строке только 2 из 3).
+    dims = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0",
+         "-show_entries", "stream=width,height", "-of", "csv=p=0", out],
+        capture_output=True, text=True, check=True,
+    ).stdout.strip()
+    w, h = (int(x) for x in dims.split(","))
+
+    raw = subprocess.run(
+        ["ffmpeg", "-y", "-i", out, "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
+        capture_output=True, check=True,
+    ).stdout
+    offset = ((h - 1) * w + (w - 1)) * 3
+    gap_pixel = tuple(raw[offset:offset + 3])
+    assert gap_pixel == (0, 0, 0), f"пустая область сетки должна быть чёрной, а не {gap_pixel}"
 
 
 def test_build_combined_snapshot_returns_false_and_cleans_tmp_on_ffmpeg_failure(dvr_snapshot_module, tmp_path, monkeypatch):

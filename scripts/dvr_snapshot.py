@@ -136,7 +136,12 @@ def _build_combined_snapshot(image_paths: list[str], out_path: str) -> bool:
     Предполагает, что все камеры одной строки/столбца дают одинаковый
     размер кадра (обычно так и есть — камеры настраиваются на один и тот
     же stream), иначе в сетке возможны небольшие пустоты/наложения —
-    приемлемо ради полного разрешения без сжатия."""
+    приемлемо ради полного разрешения без сжатия. Такие пустоты (напр.
+    последняя неполная строка сетки, или строка чуть ниже последнего тайла,
+    если его высота отличается от остальных в той же строке) без явного
+    fill=black заполняются НЕИНИЦИАЛИЗИРОВАННОЙ памятью — на практике
+    рендерится чистым зелёным (воспроизведено и проверено), а не чёрным,
+    как можно было бы ожидать."""
     n = len(image_paths)
     if n == 0:
         return False
@@ -153,7 +158,7 @@ def _build_combined_snapshot(image_paths: list[str], out_path: str) -> bool:
         y_expr = "+".join(f"h{j * cols}" for j in range(row)) or "0"
         positions.append(f"{x_expr}_{y_expr}")
 
-    filter_complex = f"xstack=inputs={n}:layout={'|'.join(positions)}[out]"
+    filter_complex = f"xstack=inputs={n}:layout={'|'.join(positions)}:fill=black[out]"
 
     root, ext = os.path.splitext(out_path)
     tmp_path = f"{root}.tmp{ext}"  # см. _capture — ".tmp" перед расширением, иначе ffmpeg не распознаёт формат по имени

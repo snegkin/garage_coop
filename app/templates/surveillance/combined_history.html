@@ -23,5 +23,23 @@
   </div>
   {% endfor %}
 </div>
+<script>
+// Переход сюда — по клику на живой снапшот регистратора (см.
+// surveillance/view.html), сразу открываем самый новый кадр (frames
+// отсортированы новым первым, см. app/surveillance.py: _list_history_frames)
+// в полноэкранном лайтбоксе — не заставляем ещё раз кликать по нему в
+// галерее. "load", а не DOMContentLoaded: обработчики клика для
+// .js-lightbox навешивает initLightbox() в base.html — он подписывается
+// на DOMContentLoaded тоже, а порядок выполнения нескольких обработчиков
+// этого события — по порядку их регистрации (по порядку <script> в
+// документе); base.html подключается ПОСЛЕ этого блока, значит к моменту
+// DOMContentLoaded его обработчик мог ещё не сработать. "load" наступает
+// заведомо позже — все обработчики DOMContentLoaded к этому моменту уже
+// отработали.
+window.addEventListener("load", function () {
+  var first = document.querySelector(".js-lightbox");
+  if (first) first.click();
+});
+</script>
 {% endif %}
 {% endblock %}

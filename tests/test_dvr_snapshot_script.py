@@ -16,7 +16,7 @@ import pytest
 
 from app.models import DvrRecorder, DvrCamera
 from app.bank_api import crypto
-from app.surveillance import history_dir, snapshot_path, combined_snapshot_path, combined_history_dir
+from app.surveillance import snapshot_path, combined_snapshot_path, combined_history_dir
 
 
 def _load_dvr_snapshot_module():
@@ -88,10 +88,6 @@ def test_capture_uses_tmp_path_with_real_extension_not_appended_after_it(app, db
     assert not os.path.exists(captured_output_path["path"])  # переименован в target, временного не осталось
 
 
-# ---------------------------------------------------------------------------
-# История кадров (глубина хранения HISTORY_RETENTION_HOURS)
-# ---------------------------------------------------------------------------
-
 def _fake_run_factory():
     class FakeResult:
         returncode = 0
@@ -106,40 +102,11 @@ def _fake_run_factory():
     return fake_run
 
 
-def test_capture_saves_a_copy_into_history(app, db, dvr_snapshot_module, monkeypatch, tmp_path):
-    monkeypatch.setitem(app.config, "DVR_SNAPSHOT_FOLDER", str(tmp_path))
-    recorder = make_recorder(db)
-    camera = make_camera(db, recorder)
-    db.commit()
-
-    monkeypatch.setattr(dvr_snapshot_module.subprocess, "run", _fake_run_factory())
-    fixed_now = dt.datetime(2026, 9, 5, 12, 30, 0)
-    monkeypatch.setattr(dvr_snapshot_module, "_utcnow", lambda: fixed_now)
-
-    error = dvr_snapshot_module._capture(camera)
-    assert error is None
-
-    hist_dir = history_dir(camera.recorder_id, camera.id)
-    assert os.listdir(hist_dir) == ["20260905_123000.jpg"]
-    with open(os.path.join(hist_dir, "20260905_123000.jpg"), "rb") as fh:
-        assert fh.read() == b"fake-jpeg-bytes"
-
-
-def test_capture_accumulates_multiple_history_frames_across_runs(app, db, dvr_snapshot_module, monkeypatch, tmp_path):
-    monkeypatch.setitem(app.config, "DVR_SNAPSHOT_FOLDER", str(tmp_path))
-    recorder = make_recorder(db)
-    camera = make_camera(db, recorder)
-    db.commit()
-
-    monkeypatch.setattr(dvr_snapshot_module.subprocess, "run", _fake_run_factory())
-
-    for minute in (0, 1, 2):
-        monkeypatch.setattr(dvr_snapshot_module, "_utcnow", lambda m=minute: dt.datetime(2026, 9, 5, 12, m, 0))
-        assert dvr_snapshot_module._capture(camera) is None
-
-    hist_dir = history_dir(camera.recorder_id, camera.id)
-    assert sorted(os.listdir(hist_dir)) == ["20260905_120000.jpg", "20260905_120100.jpg", "20260905_120200.jpg"]
-
+# ---------------------------------------------------------------------------
+# _prune_history — общая функция, используется только для истории общего
+# смонтированного кадра регистратора (per-camera история убрана вместе с
+# per-camera отображением, см. app/surveillance.py).
+# ---------------------------------------------------------------------------
 
 def test_prune_history_removes_only_files_older_than_retention_window(tmp_path, dvr_snapshot_module):
     now = dt.datetime(2026, 9, 5, 12, 0, 0)
@@ -156,30 +123,12 @@ def test_prune_history_removes_only_files_older_than_retention_window(tmp_path, 
     assert remaining == {fresh_name, garbage_name}
 
 
-def test_capture_prunes_stale_history_frames_on_each_run(app, db, dvr_snapshot_module, monkeypatch, tmp_path):
-    monkeypatch.setitem(app.config, "DVR_SNAPSHOT_FOLDER", str(tmp_path))
-    recorder = make_recorder(db)
-    camera = make_camera(db, recorder)
-    db.commit()
-
-    hist_dir = history_dir(camera.recorder_id, camera.id)
-    os.makedirs(hist_dir, exist_ok=True)
-    stale_path = os.path.join(hist_dir, "20260101_000000.jpg")
-    with open(stale_path, "wb") as fh:
-        fh.write(b"old")
-
-    monkeypatch.setattr(dvr_snapshot_module.subprocess, "run", _fake_run_factory())
-    monkeypatch.setattr(dvr_snapshot_module, "_utcnow", lambda: dt.datetime(2026, 9, 5, 12, 0, 0))
-
-    assert dvr_snapshot_module._capture(camera) is None
-    assert not os.path.exists(stale_path)
-    assert os.path.exists(os.path.join(hist_dir, "20260905_120000.jpg"))
-
-
 # ---------------------------------------------------------------------------
-# Общий смонтированный кадр (_build_combined_snapshot) — все камеры сразу в
-# одну сетку, см. app.surveillance: combined_dir/combined_snapshot_path.
-# По одной камере смотреть неудобно — см. docstring скрипта, п.5.
+# Общий смонтированный кадр (_build_combined_snapshot) — все камеры ОДНОГО
+# регистратора сразу в одну сетку, см. app.surveillance:
+# combined_dir/combined_snapshot_path. По одной камере отдельно не
+# смотрим, кросс-регистраторного общего кадра тоже больше нет — см.
+# docstring скрипта, п.5.
 # ---------------------------------------------------------------------------
 
 def test_build_combined_snapshot_returns_false_for_empty_list(dvr_snapshot_module, tmp_path):
@@ -286,10 +235,10 @@ def test_update_combined_snapshot_builds_montage_and_history(app, db, dvr_snapsh
     monkeypatch.setattr(dvr_snapshot_module.subprocess, "run", fake_run)
     monkeypatch.setattr(dvr_snapshot_module, "_utcnow", lambda: dt.datetime(2026, 9, 5, 12, 0, 0))
 
-    dvr_snapshot_module._update_combined_snapshot([camera1, camera2])
+    dvr_snapshot_module._update_combined_snapshot(recorder.id, [camera1, camera2])
 
-    assert os.path.exists(combined_snapshot_path())
-    assert os.path.exists(os.path.join(combined_history_dir(), "20260905_120000.jpg"))
+    assert os.path.exists(combined_snapshot_path(recorder.id))
+    assert os.path.exists(os.path.join(combined_history_dir(recorder.id), "20260905_120000.jpg"))
 
 
 def test_update_combined_snapshot_noop_when_no_camera_files_exist(app, db, dvr_snapshot_module, monkeypatch, tmp_path):
@@ -300,7 +249,45 @@ def test_update_combined_snapshot_noop_when_no_camera_files_exist(app, db, dvr_s
     camera = make_camera(db, recorder)
     db.commit()
 
-    dvr_snapshot_module._update_combined_snapshot([camera])
+    dvr_snapshot_module._update_combined_snapshot(recorder.id, [camera])
 
-    assert not os.path.exists(combined_snapshot_path())
-    assert not os.path.exists(combined_snapshot_path())
+    assert not os.path.exists(combined_snapshot_path(recorder.id))
+
+
+def test_update_combined_snapshot_scopes_to_its_own_recorder(app, db, dvr_snapshot_module, monkeypatch, tmp_path):
+    """Кадры камер другого регистратора не должны попадать в сетку ЭТОГО
+    регистратора — сырьё (image_paths) собирается только из переданного
+    списка камер, не из всех, что есть в БД."""
+    monkeypatch.setitem(app.config, "DVR_SNAPSHOT_FOLDER", str(tmp_path))
+    recorder1 = make_recorder(db, name="Регистратор А")
+    recorder2 = make_recorder(db, name="Регистратор Б")
+    camera1 = make_camera(db, recorder1, label="Камера А1", channel=1)
+    camera2 = make_camera(db, recorder2, label="Камера Б1", channel=1)
+    db.commit()
+
+    for c in (camera1, camera2):
+        p = snapshot_path(c.recorder_id, c.id)
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "wb") as fh:
+            fh.write(b"fake-jpeg-bytes")
+
+    captured = {}
+
+    class FakeResult:
+        returncode = 0
+        stderr = b""
+
+    def fake_run(cmd, capture_output, timeout):
+        captured["cmd"] = cmd
+        with open(cmd[-1], "wb") as fh:
+            fh.write(b"fake-combined-bytes")
+        return FakeResult()
+
+    monkeypatch.setattr(dvr_snapshot_module.subprocess, "run", fake_run)
+    monkeypatch.setattr(dvr_snapshot_module, "_utcnow", lambda: dt.datetime(2026, 9, 5, 12, 0, 0))
+
+    dvr_snapshot_module._update_combined_snapshot(recorder1.id, [camera1])
+
+    assert os.path.exists(combined_snapshot_path(recorder1.id))
+    assert not os.path.exists(combined_snapshot_path(recorder2.id))
+    assert snapshot_path(camera2.recorder_id, camera2.id) not in captured["cmd"]

@@ -17,29 +17,27 @@
      во временный файл РЯДОМ с целевым (та же папка — os.rename внутри
      одной файловой системы атомарен; если писать сразу в целевой файл,
      веб-процесс мог бы отдать наполовину записанный кадр, читая его в
-     этот же момент).
-  2.1. Тот же кадр копируется ещё и в историю (app.surveillance.history_dir)
-     под именем-меткой времени — по файлу на снимок, не перезаписывается.
-     Старые файлы (старше HISTORY_RETENTION_HOURS) в этой же папке
-     подчищаются сразу после каждой удачной копии — отдельный cron для
-     очистки не нужен, глубина хранения поддерживается сама по прогону.
+     этот же момент). Кадр отдельной камеры (snapshot_path) — только
+     сырьё для сборки общего кадра регистратора (см. п.5), сам по себе
+     никуда не отдаётся и историю не ведёт — по одной камере отдельно не
+     смотрим (см. docstring app/surveillance.py).
   3. Успех/ошибка — per-camera try/except, как в poll_ewelink.py:
      единственная зависшая/недоступная камера не должна останавливать
      снятие кадров с остальных. last_error сохраняется, но last_snapshot_at
      НЕ трогается при ошибке — на странице продолжает показываться
-     последний удачный кадр, а не пустота.
+     последний удачный (общий) кадр, а не пустота.
   4. Один commit в конце.
-  5. После всех камер — общий смонтированный кадр (сетка из последних
-     снятых кадров ВСЕХ камер сразу, см. _build_combined_snapshot и
-     app.surveillance.combined_dir): по одной камере смотреть неудобно,
-     эта картинка — для быстрого обзора всего сразу. Строится тем же
-     ffmpeg (фильтр xstack) — без Pillow, чтобы не тащить ещё одну
+  5. Для КАЖДОГО регистратора — общий смонтированный кадр (сетка из
+     последних снятых кадров ВСЕХ его камер сразу, см.
+     _build_combined_snapshot и app.surveillance.combined_dir). Строится
+     ffmpeg (фильтр xstack, без масштабирования — в исходном разрешении
+     каждой камеры) — без Pillow, чтобы не тащить ещё одну
      Python-зависимость только ради этого. Берутся кадры, которые
      реально есть на диске, даже если конкретно в этом прогоне съёмка
      камеры не удалась (тот же принцип, что last_snapshot_at) — иначе
-     единственная недоступная камера выбивала бы общий кадр целиком.
-     Копируется в историю и подчищается тем же _prune_history, что и
-     история отдельных камер.
+     единственная недоступная камера выбивала бы общий кадр регистратора
+     целиком. Копируется в историю регистратора и подчищается
+     _prune_history.
 
 Требует системный бинарник ffmpeg (не входит в requirements.txt — не
 Python-пакет). Установка, например: `apt install ffmpeg`.
@@ -53,18 +51,19 @@ import os
 import shutil
 import subprocess
 import sys
+from itertools import groupby
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app import create_app, database
 from app.models import DvrCamera
 from app.surveillance import (
-    rtsp_url, snapshot_dir, snapshot_path, history_dir,
+    rtsp_url, snapshot_dir, snapshot_path,
     combined_dir, combined_snapshot_path, combined_history_dir,
 )
 
 FFMPEG_TIMEOUT_SECONDS = 20
-HISTORY_RETENTION_HOURS = 24  # глубина хранения истории кадров на камеру
+HISTORY_RETENTION_HOURS = 24  # глубина хранения истории смонтированных кадров на регистратор
 
 
 def _utcnow() -> dt.datetime:
@@ -73,9 +72,9 @@ def _utcnow() -> dt.datetime:
 
 def _prune_history(dir_path: str, now: dt.datetime) -> None:
     """Удаляет файлы истории старше HISTORY_RETENTION_HOURS. Имя файла —
-    сама метка времени (см. _capture) — не нужно ни трогать mtime, ни
-    хранить это отдельно в БД: не смог распарсить имя (посторонний файл) —
-    пропускаем, не трогаем."""
+    сама метка времени (см. _update_combined_snapshot) — не нужно ни
+    трогать mtime, ни хранить это отдельно в БД: не смог распарсить имя
+    (посторонний файл) — пропускаем, не трогаем."""
     cutoff = now - dt.timedelta(hours=HISTORY_RETENTION_HOURS)
     for name in os.listdir(dir_path):
         try:
@@ -90,8 +89,9 @@ def _prune_history(dir_path: str, now: dt.datetime) -> None:
 
 
 def _capture(camera: DvrCamera) -> str | None:
-    """Снимает один кадр в целевой файл камеры. Возвращает текст ошибки или
-    None при успехе."""
+    """Снимает один кадр в целевой файл камеры — сырьё для общего кадра
+    регистратора (см. docstring модуля). Возвращает текст ошибки или None
+    при успехе."""
     os.makedirs(snapshot_dir(camera.recorder_id), exist_ok=True)
     target = snapshot_path(camera.recorder_id, camera.id)
     # ".tmp" ПЕРЕД расширением, не после (не "camera_5.jpg.tmp") — ffmpeg
@@ -120,20 +120,6 @@ def _capture(camera: DvrCamera) -> str | None:
         return f"ffmpeg завершился с кодом {result.returncode}" + (f": {stderr_tail[0]}" if stderr_tail else "")
 
     os.replace(tmp_path, target)  # атомарная замена — читатели никогда не увидят наполовину записанный файл
-
-    # Копия того же кадра — в историю, отдельным файлом на снимок (не
-    # перезаписывается, в отличие от target). Ошибка здесь (диск полон и
-    # т.п.) не должна портить уже сохранённый "живой" кадр — best-effort,
-    # без падения всего _capture.
-    now = _utcnow()
-    try:
-        hist_dir = history_dir(camera.recorder_id, camera.id)
-        os.makedirs(hist_dir, exist_ok=True)
-        shutil.copyfile(target, os.path.join(hist_dir, now.strftime("%Y%m%d_%H%M%S") + ".jpg"))
-        _prune_history(hist_dir, now)
-    except OSError:
-        pass
-
     return None
 
 
@@ -188,14 +174,14 @@ def _build_combined_snapshot(image_paths: list[str], out_path: str) -> bool:
     return True
 
 
-def _update_combined_snapshot(cameras: list[DvrCamera]) -> None:
-    """Общий смонтированный кадр — по кадрам, которые реально есть на
-    диске (в т.ч. с прошлых прогонов, если конкретно в этом прогоне
-    камера не снялась — см. docstring модуля, п.5). Вынесено из main()
-    отдельной функцией ради тестируемости: сам main() не тестируется
-    напрямую — создаёт свой собственный Flask-app через create_app(),
-    поэтому подменить конфиг (DVR_SNAPSHOT_FOLDER) в тесте, где app —
-    фикстура pytest, на него не подействует."""
+def _update_combined_snapshot(recorder_id: int, cameras: list[DvrCamera]) -> None:
+    """Общий смонтированный кадр ОДНОГО регистратора — по кадрам его камер,
+    которые реально есть на диске (в т.ч. с прошлых прогонов, если
+    конкретно в этом прогоне камера не снялась — см. docstring модуля,
+    п.5). Вынесено из main() отдельной функцией ради тестируемости: сам
+    main() не тестируется напрямую — создаёт свой собственный Flask-app
+    через create_app(), поэтому подменить конфиг (DVR_SNAPSHOT_FOLDER) в
+    тесте, где app — фикстура pytest, на него не подействует."""
     image_paths = [
         p for c in cameras
         for p in [snapshot_path(c.recorder_id, c.id)]
@@ -204,16 +190,16 @@ def _update_combined_snapshot(cameras: list[DvrCamera]) -> None:
     if not image_paths:
         return
 
-    os.makedirs(combined_dir(), exist_ok=True)
-    combined_target = combined_snapshot_path()
+    os.makedirs(combined_dir(recorder_id), exist_ok=True)
+    combined_target = combined_snapshot_path(recorder_id)
     if not _build_combined_snapshot(image_paths, combined_target):
         print(f"[{dt.datetime.now().isoformat(timespec='seconds')}] "
-              f"Не удалось построить общий смонтированный кадр.", file=sys.stderr)
+              f"Регистратор {recorder_id}: не удалось построить общий смонтированный кадр.", file=sys.stderr)
         return
 
     now = _utcnow()
     try:
-        hist_dir = combined_history_dir()
+        hist_dir = combined_history_dir(recorder_id)
         os.makedirs(hist_dir, exist_ok=True)
         shutil.copyfile(combined_target, os.path.join(hist_dir, now.strftime("%Y%m%d_%H%M%S") + ".jpg"))
         _prune_history(hist_dir, now)
@@ -229,7 +215,7 @@ def main() -> int:
 
     app = create_app()
     with app.app_context():
-        cameras = database.db_session.query(DvrCamera).all()
+        cameras = database.db_session.query(DvrCamera).order_by(DvrCamera.recorder_id).all()
         if not cameras:
             print(f"[{dt.datetime.now().isoformat(timespec='seconds')}] Камер не настроено — снимать нечего.")
             return 0
@@ -254,7 +240,10 @@ def main() -> int:
         print(f"[{dt.datetime.now().isoformat(timespec='seconds')}] "
               f"Снято кадров: {saved}, ошибок: {failed}.")
 
-        _update_combined_snapshot(cameras)
+        # order_by(recorder_id) выше — обязательное условие для groupby
+        # (группирует только СОСЕДНИЕ элементы с одинаковым ключом).
+        for recorder_id, group in groupby(cameras, key=lambda c: c.recorder_id):
+            _update_combined_snapshot(recorder_id, list(group))
 
         return 0 if failed == 0 else 1
 

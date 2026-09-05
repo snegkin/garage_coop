@@ -103,3 +103,53 @@ def test_wiki_preview_uses_same_renderer_as_news():
     from app.news import render_html as news_render_html
     from app.wiki import render_html as wiki_render_html
     assert news_render_html is wiki_render_html
+
+
+# ---------------------------------------------------------------------------
+# Скрытый текст ||...|| (см. app/news_format.py: _SPOILER_RE) — раскрывается
+# по клику через JS в base.html (.wiki-spoiler), не разметка доступа: текст
+# всё равно есть в HTML страницы, просто визуально скрыт по умолчанию.
+# ---------------------------------------------------------------------------
+
+def test_wiki_preview_renders_spoiler_span(db, client):
+    _board_user(db)
+    login(client, "board1", "pass1234")
+
+    resp = client.post("/wiki/preview", data={"body": "Пароль от роутера: ||admin123||"})
+    assert resp.status_code == 200
+    html = resp.get_json()["html"]
+    assert '<span class="wiki-spoiler" tabindex="0" role="button">admin123</span>' in html
+
+
+def test_news_preview_renders_spoiler_span(db, client):
+    _board_user(db)
+    login(client, "board1", "pass1234")
+
+    resp = client.post("/news/preview", data={"body": "||секрет||"})
+    assert resp.status_code == 200
+    html = resp.get_json()["html"]
+    assert '<span class="wiki-spoiler"' in html
+    assert "секрет" in html
+
+
+def test_spoiler_content_is_html_escaped():
+    """Даже если внутри ||...|| оказались символы разметки — они не должны
+    сломать структуру страницы (экранируются перед подстановкой в span, см.
+    news_format._spoiler_sub)."""
+    from app.news_format import render_html
+    html = str(render_html("||<b>bold</b> and \"quotes\"||"))
+    assert "<b>bold</b>" not in html
+    assert "&lt;b&gt;" in html
+
+
+def test_spoiler_does_not_bypass_script_sanitization():
+    from app.news_format import render_html
+    html = str(render_html("||<script>alert(1)</script>||"))
+    assert "<script>" not in html
+
+
+def test_multiple_spoilers_on_same_line_render_separately():
+    from app.news_format import render_html
+    html = str(render_html("логин ||admin|| пароль ||secret123||"))
+    assert html.count('class="wiki-spoiler"') == 2
+    assert "admin" in html and "secret123" in html

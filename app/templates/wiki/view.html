@@ -33,6 +33,31 @@
     </div>
     <div class="card-text card-text--always-tiled">{{ render_wiki_html(page.body) }}</div>
 
+    {% set gallery_attachments = page.attachments | rejectattr("is_inline") | list %}
+    {% set gallery_images = gallery_attachments | selectattr("is_image") | list %}
+    {% set gallery_files = gallery_attachments | rejectattr("is_image") | list %}
+
+    {% if gallery_images %}
+    <div class="d-flex flex-wrap gap-2 mt-4">
+      {% for att in gallery_images %}
+      <img class="js-lightbox" src="{{ url_for('wiki.attachment', attachment_id=att.id, original_filename=att.original_filename) }}" alt="" style="max-height:220px;border-radius:.375rem">
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if gallery_files %}
+    <div class="mt-4">
+      <h6>{{ _("Файлы") }}</h6>
+      <div class="list-unstyled mb-0">
+        {% for att in gallery_files %}
+        <div class="mb-2">
+          <a href="{{ url_for('wiki.attachment', attachment_id=att.id, original_filename=att.original_filename) }}" class="btn btn-sm btn-outline-secondary">{{ att.original_filename }}</a>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
     {% if is_board() %}
     <div class="d-flex gap-2 mt-4">
       <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('wiki.create', parent_id=page.id) }}">+ {{ _("Добавить подраздел") }}</a>

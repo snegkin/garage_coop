@@ -13,7 +13,9 @@
 удалить раздел с детьми; нельзя сделать родителем себя/своего потомка
 (защита от цикла).
 """
-from app.models import RoleEnum, WikiPage
+import io
+
+from app.models import RoleEnum, WikiPage, WikiAttachment
 
 from tests.conftest import make_person, make_user, login
 
@@ -270,3 +272,115 @@ def test_reparent_to_valid_new_parent_works(db, client):
     assert resp.status_code == 302
     moved = db.query(WikiPage).get(page.id)
     assert moved.parent_id == section_b.id
+
+
+# ---------------------------------------------------------------------------
+# Обычные (не inline) вложения — файлы вроде конфигурации устройства,
+# показываются отдельным списком под текстом страницы (см. wiki.py:
+# _save_attachments, _sync_inline_attachments)
+# ---------------------------------------------------------------------------
+
+def test_create_page_with_attached_file(db, client):
+    _make_board(db)
+    login(client, "board1", "pass1234")
+
+    resp = client.post("/wiki/new", data={
+        "title": "Настройки роутера", "body": "Текст страницы",
+        "attachments": (io.BytesIO(b"config contents"), "router.conf"),
+    }, content_type="multipart/form-data")
+    assert resp.status_code == 302
+
+    page = db.query(WikiPage).filter_by(title="Настройки роутера").one()
+    atts = db.query(WikiAttachment).filter_by(page_id=page.id).all()
+    assert len(atts) == 1
+    assert atts[0].original_filename == "router.conf"
+    assert atts[0].is_inline is False
+
+
+def test_view_page_shows_attached_file_as_download_link(db, client):
+    page = _make_page(db, title="С конфигом")
+    db.add(WikiAttachment(page_id=page.id, original_filename="device.conf", stored_filename="stored123.conf", is_inline=False))
+    db.commit()
+    _make_board(db)
+    login(client, "board1", "pass1234")
+
+    resp = client.get(f"/wiki/{page.id}")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert "device.conf" in body
+    assert "Файлы" in body
+
+
+def test_view_page_shows_attached_image_via_lightbox_not_body(db, client):
+    page = _make_page(db, title="С фото")
+    att = WikiAttachment(page_id=page.id, original_filename="photo.jpg", stored_filename="stored123.jpg", is_inline=False)
+    db.add(att)
+    db.commit()
+    _make_board(db)
+    login(client, "board1", "pass1234")
+
+    resp = client.get(f"/wiki/{page.id}")
+    body = resp.get_data(as_text=True)
+    assert 'class="js-lightbox"' in body
+    assert f"/wiki/attachments/{att.id}/photo.jpg" in body
+
+
+def test_edit_page_removes_attachment_via_checkbox(db, client):
+    page = _make_page(db, title="Страница")
+    att = WikiAttachment(page_id=page.id, original_filename="old.conf", stored_filename="stored123.conf", is_inline=False)
+    db.add(att)
+    db.commit()
+    _make_board(db)
+    login(client, "board1", "pass1234")
+
+    resp = client.post(f"/wiki/{page.id}/edit", data={
+        "title": page.title, "body": page.body, "remove_attachment": str(att.id),
+    })
+    assert resp.status_code == 302
+    assert db.query(WikiAttachment).filter_by(id=att.id).first() is None
+
+
+def test_editing_page_does_not_delete_unmentioned_gallery_attachment(db, client):
+    """Регресс: _sync_inline_attachments раньше удаляла ЛЮБОЕ вложение, не
+    упомянутое в markdown-тексте, — обычный (не inline) файл вроде
+    конфигурации устройства никогда не упоминается в теле статьи и
+    удалялся бы при первом же повторном сохранении страницы."""
+    page = _make_page(db, title="Страница", body="Текст без ссылок на файлы")
+    att = WikiAttachment(page_id=page.id, original_filename="keep.conf", stored_filename="stored123.conf", is_inline=False)
+    db.add(att)
+    db.commit()
+    _make_board(db)
+    login(client, "board1", "pass1234")
+
+    resp = client.post(f"/wiki/{page.id}/edit", data={
+        "title": page.title, "body": page.body,
+    })
+    assert resp.status_code == 302
+    assert db.query(WikiAttachment).filter_by(id=att.id).first() is not None
+
+
+def test_member_cannot_download_attachment_of_internal_page(db, client):
+    page = _make_page(db, title="Внутренняя", is_internal=True)
+    att = WikiAttachment(page_id=page.id, original_filename="secret.conf", stored_filename="stored123.conf", is_inline=False)
+    db.add(att)
+    db.commit()
+    _make_member(db)
+    login(client, "member1", "pass1234")
+
+    resp = client.get(f"/wiki/attachments/{att.id}/secret.conf")
+    assert resp.status_code == 403
+
+
+def test_member_can_download_attachment_of_public_page(app, db, client):
+    page = _make_page(db, title="Публичная", is_internal=False)
+    att = WikiAttachment(page_id=page.id, original_filename="public.conf", stored_filename="stored123.conf", is_inline=False)
+    db.add(att)
+    db.commit()
+    with open(f"{app.config['UPLOAD_FOLDER']}/stored123.conf", "wb") as fh:
+        fh.write(b"config contents")
+    _make_member(db)
+    login(client, "member1", "pass1234")
+
+    resp = client.get(f"/wiki/attachments/{att.id}/public.conf")
+    assert resp.status_code == 200
+    assert resp.data == b"config contents"

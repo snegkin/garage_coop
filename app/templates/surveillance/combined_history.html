@@ -1,9 +1,9 @@
 {% extends "base.html" %}
-{% block title %}{{ _("История: все камеры") }}{% endblock %}
+{% block title %}{{ _("История: {name}", name=recorder.name) }}{% endblock %}
 {% block content %}
 <a href="{{ url_for('surveillance.view') }}" class="d-inline-block mb-3">&larr; {{ _("Ко всем регистраторам") }}</a>
 
-<h3 class="mb-3">{{ _("Все камеры — история") }}</h3>
+<h3 class="mb-3">{{ _("{name} — история", name=recorder.name) }}</h3>
 
 {% if not frames %}
 <p class="text-muted">{{ _("За последние сутки кадров пока нет.") }}</p>
@@ -13,7 +13,7 @@
   {% for filename, ts in frames %}
   <div class="col-12 col-md-6">
     <div class="card h-100">
-      <img src="{{ url_for('surveillance.combined_history_frame', filename=filename) }}"
+      <img src="{{ url_for('surveillance.combined_history_frame', recorder_id=recorder.id, filename=filename) }}"
            class="card-img-top js-lightbox" loading="lazy" alt="{{ fmt_date(ts) }} {{ ts.strftime('%H:%M:%S') }}"
            style="background:#000;cursor:zoom-in;">
       <div class="card-body py-1 px-2 text-center">

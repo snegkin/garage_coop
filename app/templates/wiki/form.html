@@ -24,20 +24,36 @@
 
   <div class="mb-3">
     <label class="form-label">{{ _("Текст") }}</label>
-    <div class="btn-toolbar mb-2" role="toolbar" aria-label="{{ _('Форматирование') }}">
+    <div class="btn-toolbar mb-2 gap-1" role="toolbar" aria-label="{{ _('Форматирование') }}">
       <div class="btn-group btn-group-sm">
         <button type="button" class="btn btn-outline-secondary fw-bold" data-md-wrap="**" title="{{ _('Жирный') }}">B</button>
         <button type="button" class="btn btn-outline-secondary fst-italic" data-md-wrap="*" title="{{ _('Курсив') }}">I</button>
-        <button type="button" class="btn btn-outline-secondary" data-md-prefix="### " title="{{ _('Подзаголовок') }}">H</button>
-        <button type="button" class="btn btn-outline-secondary" data-md-prefix="- " title="{{ _('Список') }}">&bull; {{ _("Список") }}</button>
+        <button type="button" class="btn btn-outline-secondary text-decoration-underline" data-md-wrap="&lt;u&gt;" data-md-wrap-close="&lt;/u&gt;" title="{{ _('Подчёркнутый') }}">U</button>
+        <button type="button" class="btn btn-outline-secondary" data-md-wrap="`" title="{{ _('Код (в строке)') }}">&lt;/&gt;</button>
+      </div>
+      <div class="btn-group btn-group-sm">
+        <button type="button" class="btn btn-outline-secondary" data-md-prefix="### " title="{{ _('Подзаголовок') }}">H3</button>
+        <button type="button" class="btn btn-outline-secondary" data-md-prefix="#### " title="{{ _('Подзаголовок помельче') }}">H4</button>
+      </div>
+      <div class="btn-group btn-group-sm">
+        <button type="button" class="btn btn-outline-secondary" data-md-prefix="- " title="{{ _('Маркированный список') }}">&bull; {{ _("Список") }}</button>
+        <button type="button" class="btn btn-outline-secondary" data-md-prefix="1. " title="{{ _('Нумерованный список') }}">1. {{ _("Список") }}</button>
+        <button type="button" class="btn btn-outline-secondary" data-md-prefix="&gt; " title="{{ _('Цитата') }}">&#10078; {{ _("Цитата") }}</button>
+        <button type="button" class="btn btn-outline-secondary" data-md-prefix="    " title="{{ _('Блок кода (со следующей строки, с отступом)') }}">{{ _("Блок кода") }}</button>
+      </div>
+      <div class="btn-group btn-group-sm">
         <button type="button" class="btn btn-outline-secondary" data-md-link title="{{ _('Ссылка') }}">&#128279;</button>
         <button type="button" class="btn btn-outline-secondary" id="wiki-insert-image-btn" title="{{ _('Вставить картинку') }}">&#128247;</button>
         <input type="file" id="wiki-image-input" accept="image/jpeg,image/png,image/webp,image/gif" class="d-none">
+        <button type="button" class="btn btn-outline-secondary" data-md-insert-hr title="{{ _('Горизонтальная линия') }}">&#9135;</button>
+        <button type="button" class="btn btn-outline-secondary" data-md-wrap="||" title="{{ _('Скрытый текст (например, пароль) — раскрывается по клику') }}">&bull;&bull;&bull;</button>
+      </div>
+      <div class="btn-group btn-group-sm">
         <button type="button" class="btn btn-outline-secondary" id="wiki-preview-btn" title="{{ _('Предпросмотр') }}">&#128065; {{ _("Предпросмотр") }}</button>
       </div>
     </div>
     <textarea id="wiki-body" class="form-control" name="body" rows="14" required>{{ page.body if page else '' }}</textarea>
-    <div class="form-text">{{ _("Поддерживается упрощённая разметка: **жирный**, *курсив*, [текст](ссылка), списки (пустая строка, затем строки с «- »), заголовок (### ), ||скрытый текст|| (например, пароль — раскрывается по клику). Между абзацами оставляйте пустую строку.") }} {{ _("Кнопка с камерой загружает картинку и сразу вставляет её в текст в месте курсора.") }}</div>
+    <div class="form-text">{{ _("Поддерживается упрощённая разметка: **жирный**, *курсив*, <u>подчёркнутый</u>, `код`, [текст](ссылка), списки («- » или «1. »), цитата («> »), блок кода (отступ 4 пробела), заголовки (### и ####), горизонтальная линия (---), ||скрытый текст|| (например, пароль — раскрывается по клику). Между абзацами оставляйте пустую строку.") }} {{ _("Кнопка с камерой загружает картинку и сразу вставляет её в текст в месте курсора.") }}</div>
     <div id="wiki-image-status" class="form-text text-danger"></div>
   </div>
 
@@ -99,14 +115,14 @@
 (function () {
   var textarea = document.getElementById("wiki-body");
 
-  function wrapSelection(marker) {
+  function wrapSelection(openMarker, closeMarker) {
     var start = textarea.selectionStart, end = textarea.selectionEnd;
     var value = textarea.value;
     var selected = value.slice(start, end);
-    textarea.value = value.slice(0, start) + marker + selected + marker + value.slice(end);
+    textarea.value = value.slice(0, start) + openMarker + selected + closeMarker + value.slice(end);
     textarea.focus();
-    textarea.selectionStart = start + marker.length;
-    textarea.selectionEnd = start + marker.length + selected.length;
+    textarea.selectionStart = start + openMarker.length;
+    textarea.selectionEnd = start + openMarker.length + selected.length;
   }
 
   function prefixLines(prefix) {
@@ -122,11 +138,31 @@
   }
 
   document.querySelectorAll("[data-md-wrap]").forEach(function (btn) {
-    btn.addEventListener("click", function () { wrapSelection(btn.dataset.mdWrap); });
+    btn.addEventListener("click", function () {
+      wrapSelection(btn.dataset.mdWrap, btn.dataset.mdWrapClose || btn.dataset.mdWrap);
+    });
   });
   document.querySelectorAll("[data-md-prefix]").forEach(function (btn) {
     btn.addEventListener("click", function () { prefixLines(btn.dataset.mdPrefix); });
   });
+  var hrBtn = document.querySelector("[data-md-insert-hr]");
+  if (hrBtn) {
+    hrBtn.addEventListener("click", function () {
+      // Горизонтальная линия должна оказаться в отдельном абзаце, иначе
+      // markdown склеит "---" со соседним текстом и не распознает её как hr
+      // (тот же принцип, что и у вставки картинки — см. ниже).
+      var pos = textarea.selectionStart;
+      var value = textarea.value;
+      var before = value.slice(0, pos);
+      var after = value.slice(pos);
+      var prefix = (before.length === 0 || /\n\n$/.test(before)) ? "" : (/\n$/.test(before) ? "\n" : "\n\n");
+      var suffix = (after.length === 0 || /^\n\n/.test(after)) ? "" : (/^\n/.test(after) ? "\n" : "\n\n");
+      var insertText = prefix + "---" + suffix;
+      textarea.value = before + insertText + after;
+      textarea.focus();
+      textarea.selectionStart = textarea.selectionEnd = pos + insertText.length;
+    });
+  }
   var linkBtn = document.querySelector("[data-md-link]");
   if (linkBtn) {
     linkBtn.addEventListener("click", function () {

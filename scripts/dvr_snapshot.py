@@ -29,6 +29,17 @@
      НЕ трогается при ошибке — на странице продолжает показываться
      последний удачный кадр, а не пустота.
   4. Один commit в конце.
+  5. После всех камер — общий смонтированный кадр (сетка из последних
+     снятых кадров ВСЕХ камер сразу, см. _build_combined_snapshot и
+     app.surveillance.combined_dir): по одной камере смотреть неудобно,
+     эта картинка — для быстрого обзора всего сразу. Строится тем же
+     ffmpeg (фильтр xstack) — без Pillow, чтобы не тащить ещё одну
+     Python-зависимость только ради этого. Берутся кадры, которые
+     реально есть на диске, даже если конкретно в этом прогоне съёмка
+     камеры не удалась (тот же принцип, что last_snapshot_at) — иначе
+     единственная недоступная камера выбивала бы общий кадр целиком.
+     Копируется в историю и подчищается тем же _prune_history, что и
+     история отдельных камер.
 
 Требует системный бинарник ffmpeg (не входит в requirements.txt — не
 Python-пакет). Установка, например: `apt install ffmpeg`.
@@ -37,6 +48,7 @@ Python-пакет). Установка, например: `apt install ffmpeg`.
     cd /path/to/project && python3 scripts/dvr_snapshot.py
 """
 import datetime as dt
+import math
 import os
 import shutil
 import subprocess
@@ -46,10 +58,15 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app import create_app, database
 from app.models import DvrCamera
-from app.surveillance import rtsp_url, snapshot_dir, snapshot_path, history_dir
+from app.surveillance import (
+    rtsp_url, snapshot_dir, snapshot_path, history_dir,
+    combined_dir, combined_snapshot_path, combined_history_dir,
+)
 
 FFMPEG_TIMEOUT_SECONDS = 20
 HISTORY_RETENTION_HOURS = 24  # глубина хранения истории кадров на камеру
+COMBINED_TILE_WIDTH = 480     # размер одной ячейки в общем смонтированном кадре
+COMBINED_TILE_HEIGHT = 360
 
 
 def _utcnow() -> dt.datetime:
@@ -122,6 +139,82 @@ def _capture(camera: DvrCamera) -> str | None:
     return None
 
 
+def _build_combined_snapshot(image_paths: list[str], out_path: str) -> bool:
+    """Монтирует уже отснятые кадры камер (image_paths) в одну сетку NxM
+    через ffmpeg (масштабирует каждый до COMBINED_TILE_WIDTH x
+    COMBINED_TILE_HEIGHT и склеивает фильтром xstack) — без Pillow, ffmpeg
+    и так обязателен для самой съёмки. Возвращает True при успехе."""
+    n = len(image_paths)
+    if n == 0:
+        return False
+    cols = math.ceil(math.sqrt(n))
+
+    inputs = []
+    for p in image_paths:
+        inputs += ["-i", p]
+
+    scale_filters = "".join(
+        f"[{i}:v]scale={COMBINED_TILE_WIDTH}:{COMBINED_TILE_HEIGHT}[s{i}];" for i in range(n)
+    )
+    positions = [
+        f"{(i % cols) * COMBINED_TILE_WIDTH}_{(i // cols) * COMBINED_TILE_HEIGHT}"
+        for i in range(n)
+    ]
+    stack_inputs = "".join(f"[s{i}]" for i in range(n))
+    filter_complex = scale_filters + f"{stack_inputs}xstack=inputs={n}:layout={'|'.join(positions)}[out]"
+
+    root, ext = os.path.splitext(out_path)
+    tmp_path = f"{root}.tmp{ext}"  # см. _capture — ".tmp" перед расширением, иначе ffmpeg не распознаёт формат по имени
+    try:
+        result = subprocess.run(
+            ["ffmpeg", "-y", *inputs, "-filter_complex", filter_complex, "-map", "[out]", tmp_path],
+            capture_output=True, timeout=FFMPEG_TIMEOUT_SECONDS,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return False
+
+    if result.returncode != 0 or not os.path.exists(tmp_path) or os.path.getsize(tmp_path) == 0:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+        return False
+
+    os.replace(tmp_path, out_path)
+    return True
+
+
+def _update_combined_snapshot(cameras: list[DvrCamera]) -> None:
+    """Общий смонтированный кадр — по кадрам, которые реально есть на
+    диске (в т.ч. с прошлых прогонов, если конкретно в этом прогоне
+    камера не снялась — см. docstring модуля, п.5). Вынесено из main()
+    отдельной функцией ради тестируемости: сам main() не тестируется
+    напрямую — создаёт свой собственный Flask-app через create_app(),
+    поэтому подменить конфиг (DVR_SNAPSHOT_FOLDER) в тесте, где app —
+    фикстура pytest, на него не подействует."""
+    image_paths = [
+        p for c in cameras
+        for p in [snapshot_path(c.recorder_id, c.id)]
+        if os.path.exists(p)
+    ]
+    if not image_paths:
+        return
+
+    os.makedirs(combined_dir(), exist_ok=True)
+    combined_target = combined_snapshot_path()
+    if not _build_combined_snapshot(image_paths, combined_target):
+        print(f"[{dt.datetime.now().isoformat(timespec='seconds')}] "
+              f"Не удалось построить общий смонтированный кадр.", file=sys.stderr)
+        return
+
+    now = _utcnow()
+    try:
+        hist_dir = combined_history_dir()
+        os.makedirs(hist_dir, exist_ok=True)
+        shutil.copyfile(combined_target, os.path.join(hist_dir, now.strftime("%Y%m%d_%H%M%S") + ".jpg"))
+        _prune_history(hist_dir, now)
+    except OSError:
+        pass
+
+
 def main() -> int:
     if shutil.which("ffmpeg") is None:
         print(f"[{dt.datetime.now().isoformat(timespec='seconds')}] "
@@ -154,6 +247,9 @@ def main() -> int:
         database.db_session.commit()
         print(f"[{dt.datetime.now().isoformat(timespec='seconds')}] "
               f"Снято кадров: {saved}, ошибок: {failed}.")
+
+        _update_combined_snapshot(cameras)
+
         return 0 if failed == 0 else 1
 
 

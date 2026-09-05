@@ -74,6 +74,22 @@ def history_dir(recorder_id: int, camera_id: int) -> str:
     return os.path.join(current_app.config["DVR_SNAPSHOT_FOLDER"], str(recorder_id), "history", f"camera_{camera_id}")
 
 
+def combined_dir() -> str:
+    """Общий смонтированный кадр (сетка из последних кадров ВСЕХ камер всех
+    регистраторов сразу, см. scripts/dvr_snapshot.py: _build_combined_snapshot)
+    — по одной камере отдельно смотреть неудобно, здесь всё на одной
+    картинке. Не привязан к конкретному регистратору, отдельная папка."""
+    return os.path.join(current_app.config["DVR_SNAPSHOT_FOLDER"], "combined")
+
+
+def combined_snapshot_path() -> str:
+    return os.path.join(combined_dir(), "snapshot.jpg")
+
+
+def combined_history_dir() -> str:
+    return os.path.join(combined_dir(), "history")
+
+
 @bp.route("/")
 def view():
     recorders = (
@@ -81,7 +97,15 @@ def view():
         .order_by(DvrRecorder.sort_order, DvrRecorder.id)
         .all()
     )
-    return render_template("surveillance/view.html", recorders=recorders)
+    # Отдельного поля "когда обновился общий кадр" в БД нет — он общий на
+    # всю систему, не привязан ни к одной модели, поэтому берём mtime
+    # самого файла (та же логика, что camera.last_snapshot_at, только без
+    # колонки).
+    combined_updated_at = None
+    combined_path = combined_snapshot_path()
+    if os.path.exists(combined_path):
+        combined_updated_at = dt.datetime.utcfromtimestamp(os.path.getmtime(combined_path))
+    return render_template("surveillance/view.html", recorders=recorders, combined_updated_at=combined_updated_at)
 
 
 @bp.route("/cameras/<int:camera_id>/snapshot")
@@ -99,15 +123,10 @@ def snapshot(camera_id):
     return send_file(path, mimetype="image/jpeg", max_age=0)
 
 
-@bp.route("/cameras/<int:camera_id>/history")
-def camera_history(camera_id):
-    """Галерея кадров камеры за последние сутки (см. history_dir,
-    scripts/dvr_snapshot.py — там же обрезка старше HISTORY_RETENTION_HOURS).
-    Общедоступно, как и остальной раздел — см. docstring модуля."""
-    camera = database.db_session.get(DvrCamera, camera_id)
-    if camera is None:
-        abort(404)
-    dir_path = history_dir(camera.recorder_id, camera.id)
+def _list_history_frames(dir_path: str) -> list[tuple[str, dt.datetime]]:
+    """Общий список (имя файла, метка времени) для галереи истории — и
+    по одной камере (camera_history), и по общему смонтированному кадру
+    (combined_history): та же схема имён (см. HISTORY_FRAME_NAME_RE)."""
     frames = []
     if os.path.isdir(dir_path):
         for name in os.listdir(dir_path):
@@ -117,6 +136,18 @@ def camera_history(camera_id):
                 continue  # посторонний файл в папке — пропускаем, не падаем
             frames.append((name, ts))
     frames.sort(key=lambda pair: pair[1], reverse=True)
+    return frames
+
+
+@bp.route("/cameras/<int:camera_id>/history")
+def camera_history(camera_id):
+    """Галерея кадров камеры за последние сутки (см. history_dir,
+    scripts/dvr_snapshot.py — там же обрезка старше HISTORY_RETENTION_HOURS).
+    Общедоступно, как и остальной раздел — см. docstring модуля."""
+    camera = database.db_session.get(DvrCamera, camera_id)
+    if camera is None:
+        abort(404)
+    frames = _list_history_frames(history_dir(camera.recorder_id, camera.id))
     return render_template("surveillance/camera_history.html", camera=camera, frames=frames)
 
 
@@ -131,6 +162,33 @@ def camera_history_frame(camera_id, filename):
     if not os.path.exists(path):
         abort(404)
     # Кадры истории неизменны после создания (в отличие от "живого" snapshot) — кэш браузера безопасен.
+    return send_file(path, mimetype="image/jpeg", max_age=3600)
+
+
+@bp.route("/combined/snapshot")
+def combined_snapshot():
+    """Живой смонтированный кадр всех камер сразу — см. combined_dir()."""
+    path = combined_snapshot_path()
+    if not os.path.exists(path):
+        abort(404)
+    return send_file(path, mimetype="image/jpeg", max_age=0)
+
+
+@bp.route("/combined/history")
+def combined_history():
+    """Галерея смонтированных кадров (все камеры сразу) за последние сутки —
+    тот же принцип, что camera_history(), но не привязано к одной камере."""
+    frames = _list_history_frames(combined_history_dir())
+    return render_template("surveillance/combined_history.html", frames=frames)
+
+
+@bp.route("/combined/history/<filename>")
+def combined_history_frame(filename):
+    if not HISTORY_FRAME_NAME_RE.match(filename):
+        abort(404)
+    path = os.path.join(combined_history_dir(), filename)
+    if not os.path.exists(path):
+        abort(404)
     return send_file(path, mimetype="image/jpeg", max_age=3600)
 
 

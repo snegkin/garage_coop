@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}{{ _("История: все камеры") }}{% endblock %}
+{% block content %}
+<a href="{{ url_for('surveillance.view') }}" class="d-inline-block mb-3">&larr; {{ _("Ко всем регистраторам") }}</a>
+
+<h3 class="mb-3">{{ _("Все камеры — история") }}</h3>
+
+{% if not frames %}
+<p class="text-muted">{{ _("За последние сутки кадров пока нет.") }}</p>
+{% else %}
+<p class="text-muted small">{{ _("{n} кадров за последние сутки, самый новый — первым.", n=frames|length) }}</p>
+<div class="row g-3">
+  {% for filename, ts in frames %}
+  <div class="col-12 col-md-6">
+    <div class="card h-100">
+      <img src="{{ url_for('surveillance.combined_history_frame', filename=filename) }}"
+           class="card-img-top js-lightbox" loading="lazy" alt="{{ fmt_date(ts) }} {{ ts.strftime('%H:%M:%S') }}"
+           style="background:#000;cursor:zoom-in;">
+      <div class="card-body py-1 px-2 text-center">
+        <span class="small text-muted" data-utc-datetime="{{ ts.isoformat() }}Z">{{ fmt_date(ts) }} {{ ts.strftime('%H:%M:%S') }}</span>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+{% endblock %}

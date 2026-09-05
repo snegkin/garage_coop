@@ -16,7 +16,7 @@ import pytest
 
 from app.models import DvrRecorder, DvrCamera
 from app.bank_api import crypto
-from app.surveillance import history_dir
+from app.surveillance import history_dir, snapshot_path, combined_snapshot_path, combined_history_dir
 
 
 def _load_dvr_snapshot_module():
@@ -174,3 +174,132 @@ def test_capture_prunes_stale_history_frames_on_each_run(app, db, dvr_snapshot_m
     assert dvr_snapshot_module._capture(camera) is None
     assert not os.path.exists(stale_path)
     assert os.path.exists(os.path.join(hist_dir, "20260905_120000.jpg"))
+
+
+# ---------------------------------------------------------------------------
+# Общий смонтированный кадр (_build_combined_snapshot) — все камеры сразу в
+# одну сетку, см. app.surveillance: combined_dir/combined_snapshot_path.
+# По одной камере смотреть неудобно — см. docstring скрипта, п.5.
+# ---------------------------------------------------------------------------
+
+def test_build_combined_snapshot_returns_false_for_empty_list(dvr_snapshot_module, tmp_path):
+    out = os.path.join(str(tmp_path), "combined.jpg")
+    assert dvr_snapshot_module._build_combined_snapshot([], out) is False
+    assert not os.path.exists(out)
+
+
+def test_build_combined_snapshot_invokes_ffmpeg_with_scale_and_xstack(dvr_snapshot_module, tmp_path, monkeypatch):
+    cam1 = os.path.join(str(tmp_path), "cam1.jpg")
+    cam2 = os.path.join(str(tmp_path), "cam2.jpg")
+    for p in (cam1, cam2):
+        with open(p, "wb") as fh:
+            fh.write(b"x")
+    out = os.path.join(str(tmp_path), "combined.jpg")
+
+    captured = {}
+
+    class FakeResult:
+        returncode = 0
+        stderr = b""
+
+    def fake_run(cmd, capture_output, timeout):
+        captured["cmd"] = cmd
+        output_path = cmd[-1]
+        assert output_path.endswith(".jpg"), f"ffmpeg получит выходной файл без распознаваемого расширения: {output_path}"
+        with open(output_path, "wb") as fh:
+            fh.write(b"fake-combined-bytes")
+        return FakeResult()
+
+    monkeypatch.setattr(dvr_snapshot_module.subprocess, "run", fake_run)
+
+    ok = dvr_snapshot_module._build_combined_snapshot([cam1, cam2], out)
+
+    assert ok is True
+    assert os.path.exists(out)
+    with open(out, "rb") as fh:
+        assert fh.read() == b"fake-combined-bytes"
+
+    cmd = captured["cmd"]
+    assert cmd[0] == "ffmpeg"
+    assert cam1 in cmd and cam2 in cmd
+    filter_complex = cmd[cmd.index("-filter_complex") + 1]
+    assert "scale=480:360" in filter_complex
+    assert "xstack=inputs=2" in filter_complex
+    assert cmd[cmd.index("-map") + 1] == "[out]"
+
+
+def test_build_combined_snapshot_returns_false_and_cleans_tmp_on_ffmpeg_failure(dvr_snapshot_module, tmp_path, monkeypatch):
+    cam1 = os.path.join(str(tmp_path), "cam1.jpg")
+    with open(cam1, "wb") as fh:
+        fh.write(b"x")
+    out = os.path.join(str(tmp_path), "combined.jpg")
+
+    class FakeResult:
+        returncode = 1
+        stderr = b"boom"
+
+    def fake_run(cmd, capture_output, timeout):
+        with open(cmd[-1], "wb") as fh:
+            fh.write(b"partial")
+        return FakeResult()
+
+    monkeypatch.setattr(dvr_snapshot_module.subprocess, "run", fake_run)
+
+    ok = dvr_snapshot_module._build_combined_snapshot([cam1], out)
+
+    assert ok is False
+    assert not os.path.exists(out)
+    root, ext = os.path.splitext(out)
+    assert not os.path.exists(f"{root}.tmp{ext}")
+
+
+def test_update_combined_snapshot_builds_montage_and_history(app, db, dvr_snapshot_module, monkeypatch, tmp_path):
+    """_update_combined_snapshot (вызывается из main() после съёмки всех
+    камер) должна построить общий смонтированный кадр и отложить его
+    копию в историю — тем же принципом, что и у кадра отдельной камеры
+    (см. _capture). main() тут не участвует: он создаёт свой собственный
+    Flask-app через create_app(), из-за чего monkeypatch конфига
+    pytest-фикстуры app на него не подействовал бы (см. docstring
+    _update_combined_snapshot)."""
+    monkeypatch.setitem(app.config, "DVR_SNAPSHOT_FOLDER", str(tmp_path))
+    recorder = make_recorder(db)
+    camera1 = make_camera(db, recorder, label="Камера 1", channel=1)
+    camera2 = make_camera(db, recorder, label="Камера 2", channel=2)
+    db.commit()
+
+    for c in (camera1, camera2):
+        p = snapshot_path(c.recorder_id, c.id)
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "wb") as fh:
+            fh.write(b"fake-jpeg-bytes")
+
+    class FakeResult:
+        returncode = 0
+        stderr = b""
+
+    def fake_run(cmd, capture_output, timeout):
+        with open(cmd[-1], "wb") as fh:
+            fh.write(b"fake-combined-bytes")
+        return FakeResult()
+
+    monkeypatch.setattr(dvr_snapshot_module.subprocess, "run", fake_run)
+    monkeypatch.setattr(dvr_snapshot_module, "_utcnow", lambda: dt.datetime(2026, 9, 5, 12, 0, 0))
+
+    dvr_snapshot_module._update_combined_snapshot([camera1, camera2])
+
+    assert os.path.exists(combined_snapshot_path())
+    assert os.path.exists(os.path.join(combined_history_dir(), "20260905_120000.jpg"))
+
+
+def test_update_combined_snapshot_noop_when_no_camera_files_exist(app, db, dvr_snapshot_module, monkeypatch, tmp_path):
+    """Если ни у одной камеры на диске вообще нет кадра — строить общий
+    смонтированный кадр не из чего, не пытаемся (и не падаем)."""
+    monkeypatch.setitem(app.config, "DVR_SNAPSHOT_FOLDER", str(tmp_path))
+    recorder = make_recorder(db)
+    camera = make_camera(db, recorder)
+    db.commit()
+
+    dvr_snapshot_module._update_combined_snapshot([camera])
+
+    assert not os.path.exists(combined_snapshot_path())
+    assert not os.path.exists(combined_snapshot_path())

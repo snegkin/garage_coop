@@ -439,7 +439,33 @@ tr.table-info-subtle { --bs-table-bg: var(--bs-info-bg-subtle); --bs-table-borde
    на странице лицевого счёта и т.п., где рядом уже есть колонка с суммой/
    датой и обычная текстовая кнопка была бы избыточно широкой. */
 .btn-icon-square { width: 2rem; height: 2rem; padding: 0; display: inline-flex; align-items: center; justify-content: center; line-height: 1; }
+/* Скрытый текст в тексте вики/новости — ||текст|| в markdown (см.
+   news_format.py: _SPOILER_RE), например пароль устройства: не для
+   защиты (это всё та же страница, просто визуально скрыто), а чтобы
+   случайно не мелькало на экране/при демонстрации — раскрывается по
+   клику. background и color — ОДНО И ТО ЖЕ непрозрачное значение
+   (не var(--bs-secondary-color) — он полупрозрачный: два полупрозрачных
+   слоя друг на друге дают разную непрозрачность там, где текст, и там,
+   где просто заливка, буквы слегка проступают). #6c757d — сплошной,
+   без темы: достаточно контрастен и на светлом, и на тёмном фоне. */
+.wiki-spoiler { background-color: #6c757d; color: #6c757d; border-radius: .25rem; padding: 0 .3em; cursor: pointer; user-select: none; }
+.wiki-spoiler.revealed { background-color: transparent; color: inherit; cursor: text; user-select: text; }
 </style>
+<script>
+// Скрытый текст (.wiki-spoiler, см. <style> выше и news_format.py:
+// _SPOILER_RE) — раскрывается по клику или по Enter/Space с клавиатуры,
+// один делегированный обработчик на весь документ (работает и для
+// текста, вставленного позже — например, в модалке предпросмотра).
+document.addEventListener("click", function (e) {
+  var el = e.target.closest(".wiki-spoiler");
+  if (el) el.classList.toggle("revealed");
+});
+document.addEventListener("keydown", function (e) {
+  if (e.key !== "Enter" && e.key !== " ") return;
+  var el = e.target.closest && e.target.closest(".wiki-spoiler");
+  if (el) { e.preventDefault(); el.classList.toggle("revealed"); }
+});
+</script>
 <script>
 // Клик по заголовку у любой таблицы с классом "sortable" сортирует строки её tbody.
 // Заголовки с классом "no-sort" (например, колонка с кнопками действий) не сортируются.

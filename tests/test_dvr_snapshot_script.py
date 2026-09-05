@@ -223,8 +223,9 @@ def test_build_combined_snapshot_invokes_ffmpeg_with_scale_and_xstack(dvr_snapsh
     assert cmd[0] == "ffmpeg"
     assert cam1 in cmd and cam2 in cmd
     filter_complex = cmd[cmd.index("-filter_complex") + 1]
-    assert "scale=480:360" in filter_complex
+    assert "scale=" not in filter_complex  # без сжатия — каждая ячейка в исходном разрешении
     assert "xstack=inputs=2" in filter_complex
+    assert "layout=0_0|w0_0" in filter_complex  # символьная ссылка на реальную ширину первого тайла, не литеральное число
     assert cmd[cmd.index("-map") + 1] == "[out]"
 
 

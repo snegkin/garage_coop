@@ -65,8 +65,6 @@ from app.surveillance import (
 
 FFMPEG_TIMEOUT_SECONDS = 20
 HISTORY_RETENTION_HOURS = 24  # глубина хранения истории кадров на камеру
-COMBINED_TILE_WIDTH = 480     # размер одной ячейки в общем смонтированном кадре
-COMBINED_TILE_HEIGHT = 360
 
 
 def _utcnow() -> dt.datetime:
@@ -141,9 +139,18 @@ def _capture(camera: DvrCamera) -> str | None:
 
 def _build_combined_snapshot(image_paths: list[str], out_path: str) -> bool:
     """Монтирует уже отснятые кадры камер (image_paths) в одну сетку NxM
-    через ffmpeg (масштабирует каждый до COMBINED_TILE_WIDTH x
-    COMBINED_TILE_HEIGHT и склеивает фильтром xstack) — без Pillow, ffmpeg
-    и так обязателен для самой съёмки. Возвращает True при успехе."""
+    через ffmpeg (фильтр xstack) БЕЗ масштабирования — каждая ячейка в
+    полном разрешении, как снята камерой. xstack сам выравнивает тайлы по
+    сетке через символьные ссылки w{i}/h{i} на реальные размеры конкретных
+    входов (официальный приём ffmpeg для сетки без единого общего размера
+    тайла: x — сумма ширин предыдущих тайлов ТОЙ ЖЕ строки, y — сумма
+    высот первых тайлов предыдущих строк). Без Pillow — ffmpeg и так
+    обязателен для самой съёмки. Возвращает True при успехе.
+
+    Предполагает, что все камеры одной строки/столбца дают одинаковый
+    размер кадра (обычно так и есть — камеры настраиваются на один и тот
+    же stream), иначе в сетке возможны небольшие пустоты/наложения —
+    приемлемо ради полного разрешения без сжатия."""
     n = len(image_paths)
     if n == 0:
         return False
@@ -153,15 +160,14 @@ def _build_combined_snapshot(image_paths: list[str], out_path: str) -> bool:
     for p in image_paths:
         inputs += ["-i", p]
 
-    scale_filters = "".join(
-        f"[{i}:v]scale={COMBINED_TILE_WIDTH}:{COMBINED_TILE_HEIGHT}[s{i}];" for i in range(n)
-    )
-    positions = [
-        f"{(i % cols) * COMBINED_TILE_WIDTH}_{(i // cols) * COMBINED_TILE_HEIGHT}"
-        for i in range(n)
-    ]
-    stack_inputs = "".join(f"[s{i}]" for i in range(n))
-    filter_complex = scale_filters + f"{stack_inputs}xstack=inputs={n}:layout={'|'.join(positions)}[out]"
+    positions = []
+    for i in range(n):
+        row, col = divmod(i, cols)
+        x_expr = "+".join(f"w{j}" for j in range(row * cols, i)) or "0"
+        y_expr = "+".join(f"h{j * cols}" for j in range(row)) or "0"
+        positions.append(f"{x_expr}_{y_expr}")
+
+    filter_complex = f"xstack=inputs={n}:layout={'|'.join(positions)}[out]"
 
     root, ext = os.path.splitext(out_path)
     tmp_path = f"{root}.tmp{ext}"  # см. _capture — ".tmp" перед расширением, иначе ffmpeg не распознаёт формат по имени

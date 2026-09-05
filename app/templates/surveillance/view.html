@@ -220,15 +220,28 @@ document.addEventListener("DOMContentLoaded", function () {
 {% endif %}
 
 <script>
-// Превью обновляются на диске раз в минуту (cron, см. scripts/dvr_snapshot.py)
-// — периодически перезапрашиваем те же кадры с новым cache-busting
-// параметром, без перезагрузки всей страницы.
-setInterval(function () {
-  document.querySelectorAll(".js-dvr-frame").forEach(function (img) {
-    var url = new URL(img.src, window.location.href);
-    url.searchParams.set("t", Date.now());
-    img.src = url.toString();
-  });
-}, 60000);
+// Превью обновляются на диске раз в минуту cron'ом (* * * * *, см.
+// scripts/dvr_snapshot.py) — ровно на 0-й секунде минуты по времени сервера,
+// кадр дописывается на диск ещё через несколько секунд (ffmpeg + запись
+// файла). Поэтому подгоняем перезапрос не под setInterval со случайной
+// фазой (могли попасть на момент ДО того, как кадр реально обновился), а
+// под 10-ю секунду каждой минуты ПО ЛОКАЛЬНОМУ ВРЕМЕНИ КОМПЬЮТЕРА
+// пользователя — с запасом после cron-момента, но не настолько поздно,
+// чтобы кадр казался устаревшим.
+function scheduleNextDvrRefresh() {
+  var now = new Date();
+  var next = new Date(now);
+  next.setSeconds(10, 0);
+  if (next <= now) next.setMinutes(next.getMinutes() + 1);
+  setTimeout(function () {
+    document.querySelectorAll(".js-dvr-frame").forEach(function (img) {
+      var url = new URL(img.src, window.location.href);
+      url.searchParams.set("t", Date.now());
+      img.src = url.toString();
+    });
+    scheduleNextDvrRefresh();
+  }, next - now);
+}
+scheduleNextDvrRefresh();
 </script>
 {% endblock %}

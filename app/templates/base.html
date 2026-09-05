@@ -216,6 +216,13 @@ function enhanceSearchableSelect(select) {
 
   const wrapper = document.createElement("div");
   wrapper.className = "position-relative w-100";
+  // Исходный <select> мог иметь свой inline max-width (например, в форме
+  // добавления собственника гаража — узкое поле рядом с долей/комментарием
+  // в одну строку) — сам select дальше скрывается (display:none) и на
+  // раскладку не влияет, поэтому ограничение переносим на wrapper, иначе
+  // поле растягивалось бы на всю ширину флекс-контейнера (w-100) и сталкивало
+  // остальные поля/кнопку на следующую строку.
+  if (select.style.maxWidth) wrapper.style.maxWidth = select.style.maxWidth;
   select.parentNode.insertBefore(wrapper, select);
   wrapper.appendChild(select);
   select.style.display = "none";

@@ -366,6 +366,15 @@ function localizeDatetime(el) {
 </script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <style>
+/* Единый стиль ссылок по всему проекту: без подчёркивания по умолчанию,
+   подчёркивание только при наведении. Переопределяет базовое правило
+   Bootstrap (a { text-decoration: underline }) — та же специфичность
+   (обычный тег), побеждает по порядку подключения (наш <style> идёт
+   после bootstrap.min.css). Точечные .text-decoration-none на отдельных
+   ссылках (стрелки "назад", бейджи) стали избыточны, но не мешают —
+   не трогаем их, чтобы не плодить лишний diff. */
+a { text-decoration: none; }
+a:hover { text-decoration: underline; }
 table.sortable thead th:not(.no-sort) { cursor: pointer; user-select: none; white-space: nowrap; }
 table.sortable thead th:not(.no-sort)::after { content: "⇅"; opacity: .35; margin-left: 6px; font-size: .8em; }
 table.sortable thead th.sort-asc::after { content: "↑"; opacity: 1; }
@@ -400,8 +409,6 @@ tr.table-info-subtle { --bs-table-bg: var(--bs-info-bg-subtle); --bs-table-borde
 .wiki-tree-toggle .chevron { display: inline-block; transition: transform .15s; }
 .wiki-tree-toggle.collapsed .chevron { transform: rotate(-90deg); }
 .wiki-tree-spacer { display: inline-block; width: 1.1rem; }
-.wiki-tree-link { text-decoration: none; }
-.wiki-tree-link:hover { text-decoration: underline; }
 .wiki-tree-actions { opacity: 0; transition: opacity .1s; }
 .wiki-tree-item:hover > div > .wiki-tree-actions { opacity: 1; }
 .badge-sm { font-size: .55em; vertical-align: middle; }

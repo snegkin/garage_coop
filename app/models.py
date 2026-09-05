@@ -1239,6 +1239,7 @@ class Garage(Base):
     cadastral_number: Mapped[str | None] = mapped_column(String(50))       # кадастровый номер гаража
     land_cadastral_number: Mapped[str | None] = mapped_column(String(50))  # кадастровый номер участка (если приватизирован)
     privatized_land_area: Mapped[Decimal | None] = mapped_column(Numeric(8, 2))  # площадь приватизированного участка, м²
+    land_privatization_date: Mapped[dt.date | None] = mapped_column(Date)  # дата приватизации участка
     comment: Mapped[str | None] = mapped_column(Text)
     # К какому узлу дерева контрольных счётчиков подключена ветвь этого гаража
     # (см. ControlMeter) — NULL означает подключение напрямую к вводу, минуя

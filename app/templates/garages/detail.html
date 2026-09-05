@@ -62,6 +62,7 @@
         {% if garage.land_privatized %}
         <p><strong>{{ _("Кадастровый номер участка") }}:</strong> {{ garage.land_cadastral_number or "—" }}</p>
         <p><strong>{{ _("Площадь приватизированного участка") }}:</strong> {{ (fmt2(garage.privatized_land_area) ~ " м²") if garage.privatized_land_area is not none else "—" }}</p>
+        <p><strong>{{ _("Дата приватизации участка") }}:</strong> {{ fmt_date(garage.land_privatization_date) if garage.land_privatization_date else "—" }}</p>
         {% endif %}
         {% if is_board() %}
         <form method="post" action="{{ url_for('garages.update_comment', garage_id=garage.id) }}" class="mb-2">

@@ -167,6 +167,7 @@ def create():
             cadastral_number=f.get("cadastral_number") or None,
             land_cadastral_number=f.get("land_cadastral_number") or None,
             privatized_land_area=parse_decimal(f["privatized_land_area"]) if f.get("privatized_land_area") else None,
+            land_privatization_date=dt.date.fromisoformat(f["land_privatization_date"]) if f.get("land_privatization_date") else None,
             comment=f.get("comment") or None,
         )
         database.db_session.add(garage)
@@ -445,6 +446,7 @@ def edit(garage_id):
         garage.cadastral_number = f.get("cadastral_number") or None
         garage.land_cadastral_number = f.get("land_cadastral_number") or None
         garage.privatized_land_area = parse_decimal(f["privatized_land_area"]) if f.get("privatized_land_area") else None
+        garage.land_privatization_date = dt.date.fromisoformat(f["land_privatization_date"]) if f.get("land_privatization_date") else None
         garage.comment = f.get("comment") or None
         audit.record("garage.edit", f"Изменены данные гаража №{garage.number}", entity_type="garage", entity_id=garage.id)
         database.db_session.commit()

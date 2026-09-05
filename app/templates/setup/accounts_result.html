@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Учётные записи созданы") }}{% endblock %}
+{% block content %}
+{% set title = _("Учётные записи созданы") %}
+{% include "setup/_step_header.html" with context %}
+
+<div class="alert alert-warning" style="max-width:700px">
+  {{ _("Пароли показаны только сейчас — сохраните список в файл или сразу передайте людям. Повторно их не показать (только сбросить новый на карточке человека).") }}
+</div>
+
+<div class="d-flex gap-2 mb-3">
+  <button type="button" class="btn btn-primary" id="downloadAccountsBtn">{{ _("Скачать список в файл") }}</button>
+  <a class="btn btn-outline-secondary" href="{{ url_for('setup_wizard.accounts_step') }}">{{ _("Создать ещё") }}</a>
+</div>
+
+<table class="table table-sm bg-body" style="max-width:700px">
+  <thead><tr><th>{{ _("ФИО") }}</th><th>{{ _("Логин") }}</th><th>{{ _("Пароль") }}</th></tr></thead>
+  <tbody>
+    {% for c in created %}
+    <tr>
+      <td>{{ c.person.full_name }}</td>
+      <td>{{ c.login }}</td>
+      <td><code>{{ c.password }}</code></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<script>
+document.getElementById("downloadAccountsBtn").addEventListener("click", function () {
+  var lines = [{{ _("ФИО;Логин;Пароль")|tojson }}];
+  {% for c in created %}
+  lines.push({{ (c.person.full_name ~ ";" ~ c.login ~ ";" ~ c.password)|tojson }});
+  {% endfor %}
+  var blob = new Blob([lines.join("\r\n")], {type: "text/csv;charset=utf-8"});
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement("a");
+  a.href = url;
+  a.download = "accounts.csv";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+});
+</script>
+{% endblock %}

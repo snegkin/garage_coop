@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Учётные записи") }}{% endblock %}
+{% block content %}
+{% set title = _("Массовое создание учётных записей") %}
+{% include "setup/_step_header.html" with context %}
+
+<p class="text-muted" style="max-width:700px">
+  {{ _("Люди без учётной записи — выберите, кому создать вход. Логин по умолчанию — первая буква имени + фамилия; если он с кем-то совпал или уже занят, строка отмечена красным — исправьте логин перед созданием. Пароль будет сгенерирован случайно, при первом входе человека попросят задать свой.") }}
+</p>
+
+{% if not rows %}
+<p class="text-muted">{{ _("У всех людей в базе уже есть учётные записи.") }}</p>
+{% else %}
+{% if has_collisions %}
+<div class="alert alert-warning">{{ _("Есть совпадающие или уже занятые логины (отмечены красным) — исправьте их перед созданием.") }}</div>
+{% endif %}
+
+<form method="post" action="{{ url_for('setup_wizard.accounts_create') }}">
+  <div class="d-flex gap-2 mb-2">
+    <input type="text" class="form-control form-control-sm" id="accountsPickerFilter" placeholder="{{ _('Поиск по ФИО…') }}">
+    <button type="button" class="btn btn-sm btn-primary text-nowrap" id="accountsPickerSelectAll">{{ _("Выбрать все") }}</button>
+    <button type="button" class="btn btn-sm btn-primary text-nowrap" id="accountsPickerClear">{{ _("Снять все") }}</button>
+  </div>
+  <div class="border rounded bg-body-tertiary" style="max-height:480px; overflow-y:auto">
+    <table class="table table-sm mb-0">
+      <thead><tr><th style="width:2rem"></th><th>{{ _("ФИО") }}</th><th>{{ _("Логин") }}</th></tr></thead>
+      <tbody>
+        {% for row in rows %}
+        <tr class="accounts-picker-row" data-search="{{ row.person.full_name|lower }}">
+          <td><input class="form-check-input" type="checkbox" name="person_id" value="{{ row.person.id }}" id="acc{{ row.person.id }}"></td>
+          <td><label class="form-check-label" for="acc{{ row.person.id }}">{{ row.person.full_name }}</label></td>
+          <td>
+            <input class="form-control form-control-sm {{ 'is-invalid' if row.collision }}" name="login_{{ row.person.id }}" value="{{ row.login }}">
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="text-muted small mt-1 mb-3"><span id="accountsPickerCount">0</span> {{ _("человек выбрано") }}</p>
+  <button class="btn btn-primary">{{ _("Создать учётные записи") }}</button>
+</form>
+{% endif %}
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  const rows = Array.from(document.querySelectorAll(".accounts-picker-row"));
+  const filter = document.getElementById("accountsPickerFilter");
+  const selectAllBtn = document.getElementById("accountsPickerSelectAll");
+  const clearBtn = document.getElementById("accountsPickerClear");
+  const countEl = document.getElementById("accountsPickerCount");
+  if (!rows.length) return;
+  const checkboxes = rows.map(function (row) { return row.querySelector("input[type=checkbox]"); });
+
+  function updateCount() {
+    countEl.textContent = checkboxes.filter(function (cb) { return cb.checked; }).length;
+  }
+  filter.addEventListener("input", function () {
+    const q = filter.value.trim().toLowerCase();
+    rows.forEach(function (row) {
+      const hay = row.dataset.search || "";
+      row.style.display = (!q || hay.indexOf(q) !== -1) ? "" : "none";
+    });
+  });
+  selectAllBtn.addEventListener("click", function () {
+    rows.forEach(function (row) {
+      if (row.style.display === "none") return;
+      row.querySelector("input[type=checkbox]").checked = true;
+    });
+    updateCount();
+  });
+  clearBtn.addEventListener("click", function () {
+    checkboxes.forEach(function (cb) { cb.checked = false; });
+    updateCount();
+  });
+  checkboxes.forEach(function (cb) { cb.addEventListener("change", updateCount); });
+  updateCount();
+});
+</script>
+{% endblock %}

@@ -2,7 +2,7 @@ import datetime as dt
 import os
 import logging
 
-from flask import Flask, g, redirect, url_for
+from flask import Flask, g, redirect, request, url_for
 from flask_wtf import CSRFProtect
 
 from config import Config
@@ -67,6 +67,18 @@ def create_app(config_class=Config):
     @app.before_request
     def _load_user():
         auth.load_logged_in_user()
+
+    # Принудительная смена пароля (см. models.User.must_change_password,
+    # setup_wizard.accounts_create — массово созданные учётные записи со
+    # случайным паролем): пока флаг не снят, любая другая страница
+    # редиректит сюда. static — иначе сломались бы CSS/JS/favicon даже на
+    # самой странице смены пароля.
+    _PASSWORD_CHANGE_ALLOWED_ENDPOINTS = {"auth.force_change_password", "auth.logout", "static"}
+
+    @app.before_request
+    def _enforce_password_change():
+        if g.user and g.user.must_change_password and request.endpoint not in _PASSWORD_CHANGE_ALLOWED_ENDPOINTS:
+            return redirect(url_for("auth.force_change_password"))
 
     @app.context_processor
     def _inject_user():

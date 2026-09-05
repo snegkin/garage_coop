@@ -20,16 +20,35 @@
   <input class="form-check-input" type="checkbox" name="land_privatized" id="lp" {{ "checked" if garage and garage.land_privatized }}>
   <label class="form-check-label" for="lp">{{ _("Земля под гаражом приватизирована") }}</label>
 </div>
-<div class="mb-3">
-  <label class="form-label">{{ _("Кадастровый номер участка") }}</label>
-  <input class="form-control" name="land_cadastral_number" value="{{ (garage.land_cadastral_number or '') if garage else '' }}">
-  <div class="form-text">{{ _("Заполняется, если земля под гаражом приватизирована.") }}</div>
+<div id="landPrivatizationFields">
+  <div class="mb-3">
+    <label class="form-label">{{ _("Кадастровый номер участка") }}</label>
+    <input class="form-control" name="land_cadastral_number" value="{{ (garage.land_cadastral_number or '') if garage else '' }}">
+  </div>
+  <div class="mb-3">
+    <label class="form-label">{{ _("Площадь приватизированного участка, м²") }}</label>
+    <input class="form-control" type="text" inputmode="decimal" name="privatized_land_area" value="{{ (garage.privatized_land_area or '') if garage else '' }}">
+    <div class="form-text">{{ _("Используется для расчёта земельного налога.") }}</div>
+  </div>
+  <div class="mb-3">
+    <label class="form-label">{{ _("Дата приватизации участка") }}</label>
+    <input class="form-control" type="date" name="land_privatization_date" value="{{ garage.land_privatization_date.isoformat() if garage and garage.land_privatization_date else '' }}">
+  </div>
 </div>
-<div class="mb-3">
-  <label class="form-label">{{ _("Площадь приватизированного участка, м²") }}</label>
-  <input class="form-control" type="text" inputmode="decimal" name="privatized_land_area" value="{{ (garage.privatized_land_area or '') if garage else '' }}">
-  <div class="form-text">{{ _("Используется для расчёта земельного налога — заполняется, если земля приватизирована.") }}</div>
-</div>
+
+<script>
+(function () {
+  var checkbox = document.getElementById("lp");
+  var wrapper = document.getElementById("landPrivatizationFields");
+  if (!checkbox || !wrapper) return;
+
+  function sync() {
+    wrapper.classList.toggle("d-none", !checkbox.checked);
+  }
+  checkbox.addEventListener("change", sync);
+  sync();
+})();
+</script>
 <div class="mb-3">
   <label class="form-label">{{ _("Комментарий") }}</label>
   <textarea class="form-control" name="comment">{{ (garage.comment or '') if garage else '' }}</textarea>

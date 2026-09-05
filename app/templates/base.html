@@ -106,7 +106,7 @@
         {# Тема и язык — один <li> на оба, иначе на мобильном (свёрнутое меню,
            .navbar-nav в столбец) значки оказываются на отдельных строках;
            так они всегда в одну строку, сначала тема, потом язык. #}
-        <li class="nav-item d-flex align-items-center">
+        <li class="nav-item d-flex align-items-center gap-3">
           <a class="nav-link text-white" href="{{ url_for('set_theme', theme=next_theme(current_theme)) }}" title="{{ _('Переключить тему') }}" aria-label="{{ _('Переключить тему') }}">
             {{ THEME_TOGGLE_ICONS[current_theme] }}
           </a>

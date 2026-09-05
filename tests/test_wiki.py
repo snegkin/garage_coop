@@ -297,6 +297,38 @@ def test_create_page_with_attached_file(db, client):
     assert atts[0].is_inline is False
 
 
+def test_create_page_with_archive_attachment(db, client):
+    _make_board(db)
+    login(client, "board1", "pass1234")
+
+    resp = client.post("/wiki/new", data={
+        "title": "Бэкап конфигов", "body": "Текст страницы",
+        "attachments": (io.BytesIO(b"zip contents"), "backup.zip"),
+    }, content_type="multipart/form-data")
+    assert resp.status_code == 302
+
+    page = db.query(WikiPage).filter_by(title="Бэкап конфигов").one()
+    atts = db.query(WikiAttachment).filter_by(page_id=page.id).all()
+    assert len(atts) == 1
+    assert atts[0].original_filename == "backup.zip"
+    assert atts[0].is_inline is False
+
+
+def test_create_page_rejects_disallowed_extension(db, client):
+    _make_board(db)
+    login(client, "board1", "pass1234")
+
+    resp = client.post("/wiki/new", data={
+        "title": "Плохое вложение", "body": "Текст страницы",
+        "attachments": (io.BytesIO(b"MZ..."), "malware.exe"),
+    }, content_type="multipart/form-data")
+    assert resp.status_code == 302
+
+    page = db.query(WikiPage).filter_by(title="Плохое вложение").one()
+    atts = db.query(WikiAttachment).filter_by(page_id=page.id).all()
+    assert len(atts) == 0
+
+
 def test_view_page_shows_attached_file_as_download_link(db, client):
     page = _make_page(db, title="С конфигом")
     db.add(WikiAttachment(page_id=page.id, original_filename="device.conf", stored_filename="stored123.conf", is_inline=False))

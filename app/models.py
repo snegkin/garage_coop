@@ -1152,25 +1152,35 @@ class WikiPage(Base):
 
 
 class WikiAttachment(Base):
-    """Картинка, вставленная в текст страницы вики (![](url) в markdown тела
-    WikiPage.body). В отличие от News, у вики нет отдельной «галереи» под
-    текстом — единственное назначение вложения здесь — быть встроенным в
-    body через markdown, поэтому отдельного is_inline не нужно (все строки
-    этой таблицы по смыслу inline).
+    """Файл, привязанный к странице вики — картинка, вставленная в текст
+    (![](url) в markdown тела WikiPage.body), ИЛИ обычное скачиваемое
+    вложение (например конфигурация устройства), не встроенное в текст.
+    is_inline различает эти два случая — тот же приём, что у NewsAttachment.
 
-    page_id nullable — тот же приём, что у NewsAttachment: картинка
-    загружается на лету (AJAX, POST /wiki/attachments/upload) РАНЬШЕ, чем
-    сохранена сама страница. При сохранении (create/edit) wiki.py:
-    _sync_inline_attachments() разбирает markdown, «забирает» вложения, на
-    которые есть ссылка в новом body (и только свои — author_id), и удаляет
-    ранее забранные, ссылку на которые убрали из текста. «Осиротевшие»
-    (черновик так и не сохранён) чистит scripts/cleanup_orphan_attachments.py
-    по cron, как и для News.
+    is_inline=True — картинка, вставленная в САМ текст через кнопку
+    «Вставить картинку» (AJAX-загрузка на лету, POST /wiki/attachments/upload,
+    см. wiki.py), в отдельном списке файлов внизу страницы не показывается —
+    она уже видна в теле статьи через ![](url) в markdown.
+    is_inline=False (по умолчанию) — классическое вложение через блок
+    «Добавить файлы» в форме, показывается отдельным списком под текстом
+    (см. wiki/view.html) — картинки среди них тоже открываются лайтбоксом,
+    но в тексте страницы не встроены.
+
+    page_id nullable — тот же приём, что у NewsAttachment: inline-картинка
+    загружается на лету (AJAX) РАНЬШЕ, чем сохранена сама страница. При
+    сохранении (create/edit) wiki.py: _sync_inline_attachments() разбирает
+    markdown, «забирает» is_inline-вложения, на которые есть ссылка в новом
+    body (и только свои — author_id), и удаляет ранее забранные inline,
+    ссылку на которые убрали из текста (файлы is_inline=False эта функция
+    не трогает — ими управляют чекбоксы remove_attachment, отдельная
+    логика, см. news.py: _sync_inline_attachments — тот же приём).
+    «Осиротевшие» (черновик так и не сохранён) чистит
+    scripts/cleanup_orphan_attachments.py по cron, как и для News.
 
     Видимость файла при отдаче (см. wiki.py: attachment()) наследуется от
     страницы: WikiPage.is_internal — та же логика, что и у самой страницы,
-    иначе картинка во внутренней странице была бы доступна по прямой ссылке
-    в обход ограничения."""
+    иначе файл во внутренней странице был бы доступен по прямой ссылке в
+    обход ограничения."""
     __tablename__ = "wiki_attachment"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -1178,6 +1188,7 @@ class WikiAttachment(Base):
     original_filename: Mapped[str] = mapped_column(String(255))
     stored_filename: Mapped[str] = mapped_column(String(255))
     content_type: Mapped[str | None] = mapped_column(String(100))
+    is_inline: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     author_id: Mapped[int | None] = mapped_column(ForeignKey("user.id", ondelete="SET NULL"), index=True)
     created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.utcnow, index=True)
 

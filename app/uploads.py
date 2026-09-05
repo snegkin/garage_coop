@@ -15,6 +15,16 @@ DEFAULT_ALLOWED_EXT = {
     ".txt", ".csv",
 }
 
+# Расширенный список для вложений вики (см. wiki.py: _save_attachments) —
+# страницы вики часто используются для хранения конфигураций устройств
+# (роутеры, DVR и т.п.), поэтому список дополнен текстовыми форматами
+# конфигов. Ни один из них не исполняется браузером как скрипт/разметка
+# (в отличие от .html/.svg/.js, которые намеренно нигде не разрешены — см.
+# комментарий к DEFAULT_ALLOWED_EXT выше), так что риск stored XSS тот же.
+WIKI_ATTACHMENT_ALLOWED_EXT = DEFAULT_ALLOWED_EXT | {
+    ".conf", ".cfg", ".ini", ".json", ".xml", ".yaml", ".yml", ".ovpn", ".zip",
+}
+
 
 def save_upload(file_storage, upload_folder: str, allowed_ext: set[str] | None = DEFAULT_ALLOWED_EXT) -> str | None:
     """

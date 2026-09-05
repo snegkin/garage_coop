@@ -30,7 +30,7 @@ from .i18n import translate as _
 from .auth import login_required, roles_required
 from .permissions import is_board
 from .models import WikiPage, WikiAttachment, RoleEnum
-from .uploads import save_upload
+from .uploads import save_upload, WIKI_ATTACHMENT_ALLOWED_EXT
 from .garages import ALLOWED_PHOTO_EXT
 from .news_format import render_html
 
@@ -134,8 +134,12 @@ def _parent_options(all_pages, exclude_ids=frozenset()):
 
 def _sync_inline_attachments(page: WikiPage, body_text: str):
     """См. news.py: _sync_inline_attachments — тот же приём для страницы
-    вики: забирает свои осиротевшие вложения, на которые появилась ссылка
-    в новом теле, удаляет прикреплённые, ссылку на которые убрали."""
+    вики: забирает свои осиротевшие inline-вложения, на которые появилась
+    ссылка в новом теле, удаляет прикреплённые inline, ссылку на которые
+    убрали. Файлы is_inline=False (обычные вложения, см. _save_attachments)
+    не трогает вовсе — ими управляют чекбоксы remove_attachment, иначе
+    любой не упомянутый в markdown файл удалялся бы при первом же
+    повторном сохранении страницы."""
     referenced_ids = {int(m) for m in INLINE_ATTACHMENT_RE.findall(body_text)}
 
     if referenced_ids:
@@ -148,8 +152,30 @@ def _sync_inline_attachments(page: WikiPage, body_text: str):
             att.page = page
 
     for att in list(page.attachments):
-        if att.id not in referenced_ids:
+        if att.is_inline and att.id not in referenced_ids:
             database.db_session.delete(att)
+
+
+def _save_attachments(page: WikiPage):
+    """Сохраняет все файлы из request.files['attachments'] (multiple) и
+    привязывает их к странице как обычные (не inline) вложения — см.
+    news.py: _save_attachments, тот же приём, но с расширенным списком
+    расширений (WIKI_ATTACHMENT_ALLOWED_EXT) — типичный случай использования
+    вики-вложений это конфигурация устройств (.conf/.cfg/.json и т.п.)."""
+    for file_storage in request.files.getlist("attachments"):
+        if not file_storage or not file_storage.filename:
+            continue
+        stored_name = save_upload(file_storage, current_app.config["UPLOAD_FOLDER"], allowed_ext=WIKI_ATTACHMENT_ALLOWED_EXT)
+        if not stored_name:
+            continue
+        database.db_session.add(WikiAttachment(
+            page=page,
+            original_filename=file_storage.filename,
+            stored_filename=stored_name,
+            content_type=file_storage.content_type,
+            is_inline=False,
+            author_id=g.user.id,
+        ))
 
 
 @bp.route("/preview", methods=["POST"])
@@ -178,6 +204,7 @@ def upload_inline_attachment():
         original_filename=file_storage.filename,
         stored_filename=stored_name,
         content_type=file_storage.content_type,
+        is_inline=True,
         author_id=g.user.id,
     )
     database.db_session.add(att)
@@ -238,6 +265,7 @@ def create():
         )
         database.db_session.add(page)
         _sync_inline_attachments(page, f["body"])
+        _save_attachments(page)
         database.db_session.commit()
         flash(_("Страница вики добавлена."), "success")
         return redirect(url_for("wiki.view", page_id=page.id))
@@ -271,7 +299,15 @@ def edit(page_id):
         page.is_internal = bool(f.get("is_internal"))
         page.updated_at = dt.datetime.utcnow()
         page.updated_by_id = g.user.id
+
+        remove_ids = {int(x) for x in request.form.getlist("remove_attachment")}
+        if remove_ids:
+            for att in list(page.attachments):
+                if att.id in remove_ids:
+                    database.db_session.delete(att)
+
         _sync_inline_attachments(page, f["body"])
+        _save_attachments(page)
         database.db_session.commit()
         flash(_("Страница вики обновлена."), "success")
         return redirect(url_for("wiki.view", page_id=page.id))

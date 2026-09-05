@@ -1250,6 +1250,7 @@ class Garage(Base):
     ownerships: Mapped[list["GarageOwnership"]] = relationship(back_populates="garage", cascade="all, delete-orphan")
     contacts: Mapped[list["GarageContact"]] = relationship(back_populates="garage", cascade="all, delete-orphan")
     photos: Mapped[list["GaragePhoto"]] = relationship(back_populates="garage", cascade="all, delete-orphan")
+    document_photos: Mapped[list["GarageDocumentPhoto"]] = relationship(back_populates="garage", cascade="all, delete-orphan", order_by="GarageDocumentPhoto.created_at")
     meters: Mapped[list["ElectricityMeter"]] = relationship(back_populates="garage", cascade="all, delete-orphan")
     account: Mapped["PersonalAccount | None"] = relationship(back_populates="garage", uselist=False)
     charges: Mapped[list["Charge"]] = relationship(back_populates="garage", cascade="all, delete-orphan")
@@ -1266,6 +1267,43 @@ class GaragePhoto(Base):
     caption: Mapped[str | None] = mapped_column(String(255))
 
     garage: Mapped["Garage"] = relationship(back_populates="photos")
+
+
+class GarageDocumentType(str, enum.Enum):
+    TECHNICAL_PLAN = "technical_plan"
+    USRN_EXTRACT = "usrn_extract"
+    LAND_SURVEY = "land_survey"
+    OTHER = "other"
+
+
+class GarageDocumentPhoto(Base):
+    """Фото/скан документа по гаражу (технический план, выписка из ЕГРН,
+    межевание и т.п.) — в отличие от GaragePhoto (фото самого гаража как
+    объекта), здесь именно документы, поэтому кроме картинок разрешён и
+    PDF/DOC/XLS (см. garages.py: save_upload с DEFAULT_ALLOWED_EXT, не
+    ALLOWED_PHOTO_EXT как у фото гаража).
+
+    Загружать может собственник гаража или правление (is_owner_or_board,
+    как у GarageContact) — такие документы обычно есть на руках именно у
+    собственника (получены им в Росреестре), не у правления."""
+    __tablename__ = "garage_document_photo"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    garage_id: Mapped[int] = mapped_column(ForeignKey("garage.id", ondelete="CASCADE"), index=True)
+    doc_type: Mapped[GarageDocumentType] = mapped_column(Enum(GarageDocumentType), default=GarageDocumentType.OTHER, index=True)
+    original_filename: Mapped[str] = mapped_column(String(255))
+    file_path: Mapped[str] = mapped_column(String(500))
+    comment: Mapped[str | None] = mapped_column(String(255))
+    author_id: Mapped[int | None] = mapped_column(ForeignKey("user.id", ondelete="SET NULL"), index=True)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.utcnow, index=True)
+
+    garage: Mapped["Garage"] = relationship(back_populates="document_photos")
+    author: Mapped["User | None"] = relationship()
+
+    @property
+    def is_image(self) -> bool:
+        ext = self.original_filename.rsplit(".", 1)[-1].lower() if "." in self.original_filename else ""
+        return ext in {"jpg", "jpeg", "png", "gif", "webp"}
 
 
 class GarageOwnership(Base):

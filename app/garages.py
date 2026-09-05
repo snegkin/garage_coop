@@ -5,7 +5,7 @@ from decimal import Decimal, InvalidOperation
 
 from flask import (
     Blueprint, render_template, request, redirect, url_for, flash, g, abort,
-    current_app, send_from_directory,
+    current_app, send_from_directory, send_file,
 )
 
 from . import database
@@ -13,8 +13,10 @@ from . import audit
 from .i18n import translate as _, parse_decimal
 from .auth import login_required, roles_required
 from .permissions import is_board, is_owner_or_board, is_chairman, is_privileged, can_view_member_account
+from .uploads import save_upload
 from .models import (
     Garage, Person, GarageOwnership, GarageOwnershipEvent, GarageOwnershipEventType, GarageContact, GaragePhoto,
+    GarageDocumentPhoto, GarageDocumentType,
     PersonalAccount, MemberAccount, FeeType, RoleEnum, ElectricityMeter, ElectricityReading,
     Charge, Payment, User,
 )
@@ -798,6 +800,84 @@ def photo_file(photo_id):
     if not is_owner_or_board(photo.garage):
         abort(403)
     return send_from_directory(current_app.config["UPLOAD_FOLDER"], photo.file_path)
+
+
+# ---------------------------------------------------------------------------
+# Документы гаража (технический план, выписка из ЕГРН, межевание и т.п.)
+# ---------------------------------------------------------------------------
+
+@bp.route("/<int:garage_id>/documents/add", methods=["POST"])
+@login_required
+def add_document_photo(garage_id):
+    """Загрузка документа по гаражу — доступна собственнику ИЛИ правлению
+    (is_owner_or_board, как у контактов): такие документы обычно на руках
+    именно у собственника, не у правления. В отличие от фото гаража,
+    разрешён и PDF/DOC/XLS (save_upload с DEFAULT_ALLOWED_EXT)."""
+    garage = database.db_session.get(Garage, garage_id)
+    if garage is None:
+        abort(404)
+    if not is_owner_or_board(garage):
+        abort(403)
+
+    upload = request.files.get("file")
+    if not upload or not upload.filename:
+        flash(_("Выберите файл документа."), "danger")
+        return redirect(url_for("garages.detail", garage_id=garage_id))
+
+    stored_name = save_upload(upload, current_app.config["UPLOAD_FOLDER"])
+    if not stored_name:
+        flash(_("Недопустимый тип файла."), "danger")
+        return redirect(url_for("garages.detail", garage_id=garage_id))
+
+    try:
+        doc_type = GarageDocumentType(request.form.get("doc_type"))
+    except ValueError:
+        doc_type = GarageDocumentType.OTHER
+
+    doc = GarageDocumentPhoto(
+        garage_id=garage.id, doc_type=doc_type, original_filename=upload.filename,
+        file_path=stored_name, comment=request.form.get("comment") or None, author_id=g.user.id,
+    )
+    database.db_session.add(doc)
+    database.db_session.commit()
+    flash(_("Документ добавлен."), "success")
+    return redirect(url_for("garages.detail", garage_id=garage_id))
+
+
+@bp.route("/<int:garage_id>/documents/<int:document_id>/remove", methods=["POST"])
+@login_required
+def remove_document_photo(garage_id, document_id):
+    garage = database.db_session.get(Garage, garage_id)
+    if garage is None:
+        abort(404)
+    if not is_owner_or_board(garage):
+        abort(403)
+    doc = database.db_session.get(GarageDocumentPhoto, document_id)
+    if doc is None or doc.garage_id != garage_id:
+        abort(404)
+
+    file_path = os.path.join(current_app.config["UPLOAD_FOLDER"], doc.file_path)
+    if os.path.exists(file_path):
+        os.remove(file_path)
+    database.db_session.delete(doc)
+    database.db_session.commit()
+    flash(_("Документ удалён."), "success")
+    return redirect(url_for("garages.detail", garage_id=garage_id))
+
+
+@bp.route("/documents/<int:document_id>/<original_filename>")
+@login_required
+def document_photo_file(document_id, original_filename):
+    doc = database.db_session.get(GarageDocumentPhoto, document_id)
+    if doc is None:
+        abort(404)
+    if not is_owner_or_board(doc.garage):
+        abort(403)
+    return send_file(
+        os.path.join(current_app.config["UPLOAD_FOLDER"], doc.file_path),
+        as_attachment=True,
+        download_name=doc.original_filename,
+    )
 
 
 # ---------------------------------------------------------------------------

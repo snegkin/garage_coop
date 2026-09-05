@@ -1665,6 +1665,17 @@ DOC_TYPE_LABELS = {
     },
 }
 
+GARAGE_DOCUMENT_TYPE_LABELS = {
+    "ru": {
+        "technical_plan": "технический план", "usrn_extract": "выписка из ЕГРН",
+        "land_survey": "межевание", "other": "другое",
+    },
+    "en": {
+        "technical_plan": "technical plan", "usrn_extract": "USRN extract",
+        "land_survey": "land survey", "other": "other",
+    },
+}
+
 VOTE_TYPE_LABELS = {
     "ru": {
         "absentee": "заочное", "in_person_and_absentee": "очно-заочное", "in_person": "очное",
@@ -1698,6 +1709,11 @@ def role_label(role_value: str) -> str:
 def doc_type_label(doc_type_value: str) -> str:
     locale = getattr(g, "locale", DEFAULT_LANGUAGE)
     return DOC_TYPE_LABELS.get(locale, DOC_TYPE_LABELS["ru"]).get(doc_type_value, doc_type_value)
+
+
+def garage_document_type_label(doc_type_value: str) -> str:
+    locale = getattr(g, "locale", DEFAULT_LANGUAGE)
+    return GARAGE_DOCUMENT_TYPE_LABELS.get(locale, GARAGE_DOCUMENT_TYPE_LABELS["ru"]).get(doc_type_value, doc_type_value)
 
 
 def vote_type_label(vote_type_value: str) -> str:
@@ -1802,6 +1818,7 @@ def init_app(app):
     app.jinja_env.globals["_"] = translate
     app.jinja_env.globals["role_label"] = role_label
     app.jinja_env.globals["doc_type_label"] = doc_type_label
+    app.jinja_env.globals["garage_document_type_label"] = garage_document_type_label
     app.jinja_env.globals["vote_type_label"] = vote_type_label
     app.jinja_env.globals["fmt_date"] = format_date
     app.jinja_env.globals["fmt2"] = fmt2

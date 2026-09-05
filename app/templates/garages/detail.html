@@ -414,6 +414,50 @@
   <button class="btn btn-sm btn-primary">{{ _("Загрузить фото") }}</button>
 </form>
 {% endif %}
+
+<h5 class="mt-4">{{ _("Документы гаража") }}</h5>
+<p class="text-muted small">{{ _("Технический план, выписка из ЕГРН, межевание и т.п.") }}</p>
+<div class="row g-3 mb-3">
+  {% for doc in garage.document_photos %}
+  <div class="col-md-3 col-sm-4 col-6">
+    <div class="card">
+      <a href="{{ url_for('garages.document_photo_file', document_id=doc.id, original_filename=doc.original_filename) }}">
+        {% if doc.is_image %}
+        <img src="{{ url_for('garages.document_photo_file', document_id=doc.id, original_filename=doc.original_filename) }}" class="card-img-top" style="height:150px;object-fit:cover">
+        {% else %}
+        <div class="card-img-top d-flex align-items-center justify-content-center text-muted" style="height:150px;background:var(--bs-secondary-bg);font-size:2.5rem">&#128196;</div>
+        {% endif %}
+      </a>
+      <div class="card-body p-2">
+        <div class="small fw-semibold">{{ garage_document_type_label(doc.doc_type.value) }}</div>
+        <a href="{{ url_for('garages.document_photo_file', document_id=doc.id, original_filename=doc.original_filename) }}" class="small d-block text-truncate" title="{{ doc.original_filename }}">{{ doc.original_filename }}</a>
+        {% if doc.comment %}<div class="small text-muted">{{ doc.comment }}</div>{% endif %}
+        {% if is_board() or is_owner %}
+        <form method="post" action="{{ url_for('garages.remove_document_photo', garage_id=garage.id, document_id=doc.id) }}" onsubmit="return confirm('{{ _("Удалить документ?") }}')" class="mt-1">
+          <button class="btn btn-sm btn-outline-danger w-100">{{ _("Удалить") }}</button>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  {% else %}
+  <div class="col-12"><p class="text-muted">{{ _("Документов пока нет.") }}</p></div>
+  {% endfor %}
+</div>
+
+{% if is_board() or is_owner %}
+<form method="post" action="{{ url_for('garages.add_document_photo', garage_id=garage.id) }}" enctype="multipart/form-data" class="d-flex gap-2 border rounded p-3 bg-body mb-4">
+  <select name="doc_type" class="form-select form-select-sm" style="max-width:220px">
+    <option value="technical_plan">{{ garage_document_type_label('technical_plan') }}</option>
+    <option value="usrn_extract">{{ garage_document_type_label('usrn_extract') }}</option>
+    <option value="land_survey">{{ garage_document_type_label('land_survey') }}</option>
+    <option value="other" selected>{{ garage_document_type_label('other') }}</option>
+  </select>
+  <input class="form-control form-control-sm" style="max-width:220px" type="file" name="file" required>
+  <input class="form-control form-control-sm flex-grow-1" name="comment" placeholder="{{ _('Комментарий (необязательно)') }}">
+  <button class="btn btn-sm btn-primary">{{ _("Загрузить документ") }}</button>
+</form>
+{% endif %}
 {% endif %}
 
 {# ===== Вкладка: Электричество и счёт ===== #}

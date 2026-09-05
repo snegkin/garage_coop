@@ -69,11 +69,18 @@
         </div>
         <div class="col-md-6">
           <label class="form-label">{{ _("Адрес регистрации (прописки)") }}</label>
-          <input class="form-control" name="registration_address" value="{{ person.registration_address or '' }}">
+          <input class="form-control" id="registration_address" name="registration_address" value="{{ person.registration_address or '' }}">
         </div>
         <div class="col-md-6">
-          <label class="form-label">{{ _("Адрес проживания") }}</label>
-          <input class="form-control" name="residence_address" value="{{ person.residence_address or '' }}">
+          <div class="form-check mb-2">
+            <input class="form-check-input" type="checkbox" id="residence_same_as_registration"
+                   {{ 'checked' if person.registration_address and person.residence_address == person.registration_address }}>
+            <label class="form-check-label" for="residence_same_as_registration">{{ _("Совпадает с местом регистрации") }}</label>
+          </div>
+          <div id="residence_address_wrapper">
+            <label class="form-label">{{ _("Адрес проживания") }}</label>
+            <input class="form-control" id="residence_address" name="residence_address" value="{{ person.residence_address or '' }}">
+          </div>
         </div>
 
         <div class="col-12 mt-4">
@@ -135,5 +142,29 @@
     </form>
   </div>
 </div>
+
+<script>
+(function () {
+  var checkbox = document.getElementById("residence_same_as_registration");
+  var wrapper = document.getElementById("residence_address_wrapper");
+  var residenceInput = document.getElementById("residence_address");
+  var registrationInput = document.getElementById("registration_address");
+  if (!checkbox || !wrapper || !residenceInput || !registrationInput) return;
+
+  function sync() {
+    if (checkbox.checked) {
+      wrapper.classList.add("d-none");
+      residenceInput.value = registrationInput.value;
+    } else {
+      wrapper.classList.remove("d-none");
+    }
+  }
+  checkbox.addEventListener("change", sync);
+  registrationInput.addEventListener("input", function () {
+    if (checkbox.checked) residenceInput.value = registrationInput.value;
+  });
+  sync();
+})();
+</script>
 {% endif %}
 {% endblock %}

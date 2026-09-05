@@ -6,7 +6,7 @@
    depth         — текущая глубина (для уникальных id коллапсов и небольшого отступа) #}
 {% macro render_tree(nodes, current_page_id=None, path_ids=None, show_actions=False, depth=0) %}
 {% set path_ids = path_ids or [] %}
-<ul class="wiki-tree list-unstyled {{ 'mb-0' if depth > 0 else '' }}" {{ 'style="padding-left:1.1rem"' if depth > 0 }}>
+<ul class="wiki-tree list-unstyled {{ 'mb-0' if depth > 0 else '' }}" style="padding-left:{{ '1.1rem' if depth > 0 else '0' }}">
   {% for node in nodes %}
   {% set p = node.page %}
   {% set has_children = node.children | length > 0 %}

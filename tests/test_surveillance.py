@@ -17,7 +17,7 @@ import os
 from app import database
 from app.models import RoleEnum, DvrRecorder, DvrCamera
 from app.bank_api import crypto
-from app.surveillance import rtsp_url, snapshot_path, history_dir
+from app.surveillance import rtsp_url, snapshot_path, history_dir, combined_snapshot_path, combined_history_dir
 
 from tests.conftest import make_person, make_user, login
 
@@ -610,3 +610,90 @@ def test_rtsp_url_without_credentials(app, db):
 def test_snapshot_path_layout(app, db):
     path = snapshot_path(7, 42)
     assert path.endswith(os.path.join("7", "snapshots", "camera_42.jpg"))
+
+
+# ---------------------------------------------------------------------------
+# Общий смонтированный кадр (все камеры сразу, см. scripts/dvr_snapshot.py:
+# _build_combined_snapshot) — по одной камере смотреть неудобно.
+# ---------------------------------------------------------------------------
+
+def test_view_page_has_no_combined_block_when_no_file_yet(app, db, client, tmp_path, monkeypatch):
+    monkeypatch.setitem(app.config, "DVR_SNAPSHOT_FOLDER", str(tmp_path))
+    resp = client.get("/surveillance/")
+    assert resp.status_code == 200
+    assert "Все камеры" not in resp.get_data(as_text=True)
+
+
+def test_view_page_shows_combined_block_when_file_exists(app, db, client, tmp_path, monkeypatch):
+    monkeypatch.setitem(app.config, "DVR_SNAPSHOT_FOLDER", str(tmp_path))
+    path = combined_snapshot_path()
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "wb") as fh:
+        fh.write(b"fake-jpeg-bytes")
+
+    resp = client.get("/surveillance/")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert "Все камеры" in body
+    assert "/surveillance/combined/snapshot" in body
+
+
+def test_combined_snapshot_returns_404_when_no_file_yet(app, db, client, tmp_path, monkeypatch):
+    monkeypatch.setitem(app.config, "DVR_SNAPSHOT_FOLDER", str(tmp_path))
+    resp = client.get("/surveillance/combined/snapshot")
+    assert resp.status_code == 404
+
+
+def test_combined_snapshot_serves_saved_frame_anonymously(app, db, client, tmp_path, monkeypatch):
+    monkeypatch.setitem(app.config, "DVR_SNAPSHOT_FOLDER", str(tmp_path))
+    path = combined_snapshot_path()
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "wb") as fh:
+        fh.write(b"fake-combined-bytes")
+
+    resp = client.get("/surveillance/combined/snapshot")
+    assert resp.status_code == 200
+    assert resp.data == b"fake-combined-bytes"
+    assert resp.mimetype == "image/jpeg"
+
+
+def test_combined_history_empty_state_when_no_history_yet(app, db, client, tmp_path, monkeypatch):
+    monkeypatch.setitem(app.config, "DVR_SNAPSHOT_FOLDER", str(tmp_path))
+    resp = client.get("/surveillance/combined/history")
+    assert resp.status_code == 200
+    assert "За последние сутки кадров пока нет." in resp.get_data(as_text=True)
+
+
+def test_combined_history_lists_frames_newest_first(app, db, client, tmp_path, monkeypatch):
+    monkeypatch.setitem(app.config, "DVR_SNAPSHOT_FOLDER", str(tmp_path))
+    hist_dir = combined_history_dir()
+    os.makedirs(hist_dir, exist_ok=True)
+    for name in ("20260905_100000.jpg", "20260905_120000.jpg", "20260905_110000.jpg", "garbage.jpg"):
+        with open(os.path.join(hist_dir, name), "wb") as fh:
+            fh.write(b"x")
+
+    resp = client.get("/surveillance/combined/history")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert body.index("20260905_120000.jpg") < body.index("20260905_100000.jpg")
+    assert "garbage.jpg" not in body
+    assert "3 кадров за последние сутки" in body
+
+
+def test_combined_history_frame_serves_existing_file(app, db, client, tmp_path, monkeypatch):
+    monkeypatch.setitem(app.config, "DVR_SNAPSHOT_FOLDER", str(tmp_path))
+    hist_dir = combined_history_dir()
+    os.makedirs(hist_dir, exist_ok=True)
+    with open(os.path.join(hist_dir, "20260905_120000.jpg"), "wb") as fh:
+        fh.write(b"fake-jpeg-bytes")
+
+    resp = client.get("/surveillance/combined/history/20260905_120000.jpg")
+    assert resp.status_code == 200
+    assert resp.data == b"fake-jpeg-bytes"
+
+
+def test_combined_history_frame_rejects_path_traversal_filename(app, db, client, tmp_path, monkeypatch):
+    monkeypatch.setitem(app.config, "DVR_SNAPSHOT_FOLDER", str(tmp_path))
+    for bad_name in ("..%2F..%2Fetc%2Fpasswd", "20260905_120000.jpg.exe", "not-a-timestamp.jpg"):
+        resp = client.get(f"/surveillance/combined/history/{bad_name}")
+        assert resp.status_code == 404, bad_name

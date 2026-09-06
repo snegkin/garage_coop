@@ -1786,6 +1786,12 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "черновик для проверки": "draft for review",
         "Это черновик, а не готовый к подаче документ. Перед подачей в суд обязательно проверьте и при необходимости поправьте текст, суммы и реквизиты сторон вместе с юристом кооператива.":
             "This is a draft, not a document ready for filing. Before filing, be sure to review and, if necessary, correct the text, amounts and parties' details together with the cooperative's counsel.",
+
+        # legal_docs/state_duty_review.html — приказное производство (50% пошлины) vs исковое (100%)
+        "Приказное производство": "Writ proceeding",
+        "50% (судебный приказ)": "50% (court order)",
+        "Заявление о вынесении судебного приказа (упрощённое производство, без судебного заседания) — госпошлина 50% от обычной ставки (пп. 2 п. 1 ст. 333.19 НК РФ). Обычное исковое заявление, рассматриваемое в очном гражданском процессе — госпошлина в полном размере. Переключатель только пересчитывает подсказанную сумму; итоговое значение по-прежнему можно поправить вручную.":
+            "An application for a court order (simplified proceeding, no hearing) — state duty is 50% of the regular rate (para. 2, cl. 1, Art. 333.19 of the Tax Code). A regular statement of claim heard in a full civil trial — full state duty. The toggle only recalculates the suggested amount; the final value can still be corrected manually.",
     }
 }
 

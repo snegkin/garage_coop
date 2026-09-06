@@ -15,7 +15,7 @@ import re
 from decimal import Decimal
 
 from app import audit
-from app.models import RoleEnum, AuditLog, FeeType, MemberAccount
+from app.models import RoleEnum, AuditLog, FeeType, MemberAccount, Phone
 
 from tests.conftest import make_person, make_garage, make_ownership, make_user, login
 
@@ -74,6 +74,48 @@ def test_failed_login_creates_audit_entry(app, db, client):
     assert len(entries) == 1
     assert "boarduser" in entries[0].summary
     assert entries[0].actor_user_id is None  # неудачный логин — актёр неизвестен
+
+
+def test_failed_login_with_phone_as_username_shows_linked_account(app, db, client):
+    """Человек перепутал вкладки входа и ввёл номер телефона в поле обычного
+    логина (не воспользовался вкладкой «По телефону») — этот номер привязан
+    к чьей-то карточке с учётной записью, поэтому в журнале рядом с номером
+    в скобках должен появиться логин, к которому он привязан."""
+    person = make_person(db, full_name="Телефонов Телефон Телефонович")
+    db.add(Phone(person_id=person.id, number="+7 915 977-83-61"))
+    make_user(db, "realuser", "pass1234", role=RoleEnum.MEMBER, person=person)
+    db.commit()
+
+    login(client, "+79159778361", "wrong-password")
+
+    entries = db.query(AuditLog).filter_by(action="auth.login_failed").all()
+    assert len(entries) == 1
+    assert "+79159778361" in entries[0].summary
+    assert "«realuser»" in entries[0].summary
+
+
+def test_failed_login_with_unknown_phone_shows_no_extra_hint(app, db, client):
+    """Номер телефона не найден ни у одного человека — журнал показывает
+    только сам введённый логин, без пометки в скобках (гадать не о чем)."""
+    login(client, "+79159778361", "wrong-password")
+
+    entries = db.query(AuditLog).filter_by(action="auth.login_failed").all()
+    assert len(entries) == 1
+    assert entries[0].summary == "Неудачная попытка входа: логин «+79159778361»"
+
+
+def test_failed_login_with_phone_person_without_account_shows_no_hint(app, db, client):
+    """Номер найден, но у этого человека нет учётной записи — подсказывать
+    в скобках нечего, журнал остаётся без пометки."""
+    person = make_person(db, full_name="Безаккаунтов Без Аккаунтович")
+    db.add(Phone(person_id=person.id, number="+7 915 977-83-61"))
+    db.commit()
+
+    login(client, "+79159778361", "wrong-password")
+
+    entries = db.query(AuditLog).filter_by(action="auth.login_failed").all()
+    assert len(entries) == 1
+    assert entries[0].summary == "Неудачная попытка входа: логин «+79159778361»"
 
 
 def test_role_change_creates_audit_entry(app, db, client):

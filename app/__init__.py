@@ -193,6 +193,15 @@ def create_app(config_class=Config):
 
     @app.route("/")
     def index():
+        # Анонимного посетителя — сразу на страницу входа, БЕЗ похода
+        # через main.dashboard (@login_required): тот при отсутствии
+        # g.user сам увёл бы туда же, но ещё и с флэшем "Пожалуйста,
+        # войдите в систему" — уместным, когда человек целенаправленно
+        # пытался открыть что-то, требующее входа, но не тогда, когда он
+        # просто открыл корень сайта почитать новости (auth.login и есть
+        # де-факто главная страница для не вошедших, см. её докстринг).
+        if g.user is None:
+            return redirect(url_for("auth.login"))
         return redirect(url_for("main.dashboard"))
 
     return app

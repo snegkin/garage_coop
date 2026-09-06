@@ -29,6 +29,34 @@ def _make_account(db, person, garage, code, is_archived=False):
     return account
 
 
+# ---------------------------------------------------------------------------
+# Корень сайта (/) — редирект в зависимости от того, вошёл ли пользователь
+# ---------------------------------------------------------------------------
+
+def test_index_redirects_anonymous_straight_to_login_without_flash(client):
+    """Анонимный посетитель мог просто открыть сайт почитать новости —
+    редирект сразу на страницу входа, БЕЗ похода через /dashboard
+    (@login_required), который добавил бы неуместный флэш "Пожалуйста,
+    войдите в систему", как будто он пытался куда-то попасть."""
+    resp = client.get("/")
+    assert resp.status_code == 302
+    assert resp.headers["Location"] == "/auth/login"
+
+    follow = client.get("/", follow_redirects=True)
+    body = follow.get_data(as_text=True)
+    assert "Пожалуйста, войдите в систему" not in body
+
+
+def test_index_redirects_logged_in_user_to_dashboard(db, client):
+    make_user(db, "member1", "pass12345", role=RoleEnum.MEMBER)
+    db.commit()
+    login(client, "member1", "pass12345")
+
+    resp = client.get("/")
+    assert resp.status_code == 302
+    assert resp.headers["Location"] == "/dashboard"
+
+
 def test_dashboard_shows_total_debt_and_account_count(app, db, client):
     person = make_person(db, full_name="Должников Должник Должникович")
     garage = make_garage(db, number="70")

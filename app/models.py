@@ -1043,6 +1043,8 @@ class User(Base):
     # при каждом успешном GET /board-chat/messages, отдельного роута
     # "отметить прочитанным" не нужно.
     board_chat_read_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
+    # То же самое, но для чата ревизионной комиссии (app/revision_chat.py).
+    revision_chat_read_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
 
     person: Mapped["Person | None"] = relationship(foreign_keys=[person_id])
 
@@ -2195,6 +2197,27 @@ class BoardChatMessage(Base):
     редактирования и удаления (тот же принцип неизменности, что у
     AuditLog), без вложений и разметки (обычный текст)."""
     __tablename__ = "board_chat_message"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    author_id: Mapped[int] = mapped_column(ForeignKey("user.id", ondelete="CASCADE"), index=True)
+    body: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.utcnow, index=True)
+
+    author: Mapped["User"] = relationship()
+
+
+# ---------------------------------------------------------------------------
+# Чат ревизионной комиссии — тот же плавающий виджет, но для другого
+# избранного органа (RevisionCommission, см. governance.py), не для роли
+# User.role — см. app/revision_chat.py
+# ---------------------------------------------------------------------------
+
+class RevisionChatMessage(Base):
+    """Общий чат ревизионной комиссии — та же механика, что и у
+    BoardChatMessage (см. там докстринг), отдельная таблица: состав
+    ревизионной комиссии по уставу обычно не пересекается с правлением
+    (см. RevisionCommission), поэтому и переписка разделена."""
+    __tablename__ = "revision_chat_message"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     author_id: Mapped[int] = mapped_column(ForeignKey("user.id", ondelete="CASCADE"), index=True)

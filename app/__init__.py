@@ -89,6 +89,7 @@ def create_app(config_class=Config):
         from .models import (
             Cooperative, PersonDataRevision, PersonDataRevisionStatus, Vote, VoteQuestion, VoteBallot, VoteStatus,
             RoleEnum, Person, VoteProposal, VoteProposalBoardBallot, ProposalStatus, BoardChatMessage,
+            RevisionChatMessage,
         )
         from .accounting import balance as _balance
         from .permissions import is_board, is_chairman, is_privileged
@@ -144,12 +145,28 @@ def create_app(config_class=Config):
                 BoardChatMessage.author_id != user.id,
             ).count()
 
+        # то же самое для чата ревизионной комиссии (app/revision_chat.py)
+        # — доступ не по User.role, а по членству в текущей комиссии
+        is_revision_member = False
+        revision_chat_unread = 0
+        if user and user.person_id:
+            from .governance import current_revision_commission_member_ids
+            is_revision_member = user.person_id in current_revision_commission_member_ids()
+            if is_revision_member:
+                since = user.revision_chat_read_at or dt.datetime.min
+                revision_chat_unread = database.db_session.query(RevisionChatMessage).filter(
+                    RevisionChatMessage.created_at > since,
+                    RevisionChatMessage.author_id != user.id,
+                ).count()
+
         return {
             "current_user": user, "coop_name": coop_name, "balance": _balance,
             "is_board": is_board, "is_chairman": is_chairman, "is_privileged": is_privileged,
             "pending_pd_count": pending_pd,
             "pending_votes_count": pending_votes,
             "board_chat_unread_count": board_chat_unread,
+            "is_revision_commission_member": is_revision_member,
+            "revision_chat_unread_count": revision_chat_unread,
             "pending_proposals_count": pending_proposals,
         }
 
@@ -178,6 +195,7 @@ def create_app(config_class=Config):
     from .surveillance import bp as surveillance_bp
     from .sms_settings import bp as sms_settings_bp
     from .board_chat import bp as board_chat_bp
+    from .revision_chat import bp as revision_chat_bp
 
     app.register_blueprint(main_bp)
     app.register_blueprint(garages_bp)
@@ -204,6 +222,7 @@ def create_app(config_class=Config):
     app.register_blueprint(surveillance_bp)
     app.register_blueprint(sms_settings_bp)
     app.register_blueprint(board_chat_bp)
+    app.register_blueprint(revision_chat_bp)
 
     @app.route("/")
     def index():

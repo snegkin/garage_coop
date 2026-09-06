@@ -113,6 +113,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
 
         # board_chat
         "Чат правления": "Board chat",
+        "Чат ревизионной комиссии": "Revision commission chat",
         "Написать сообщение…": "Write a message…",
         "Тестовая отправка": "Test send",
         "Отправить": "Send",

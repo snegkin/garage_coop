@@ -161,7 +161,7 @@ def test_unread_count_increases_for_other_users_message(db, client):
     login(client, "board2", "pass1234")
     resp = client.get("/dashboard")
     body = resp.get_data(as_text=True) if resp.status_code == 200 else client.get("/cabinet/garages").get_data(as_text=True)
-    assert '<span id="boardChatBadge" class="board-chat-badge ">1</span>' in body or ">1</span>" in body
+    assert '<span id="boardChatBadge" class="chat-widget-badge ">1</span>' in body or ">1</span>" in body
 
 
 def test_polling_messages_marks_as_read_and_clears_badge(db, client):
@@ -179,7 +179,7 @@ def test_polling_messages_marks_as_read_and_clears_badge(db, client):
 
     resp = client.get("/dashboard")
     body = resp.get_data(as_text=True) if resp.status_code == 200 else client.get("/cabinet/garages").get_data(as_text=True)
-    assert 'class="board-chat-badge d-none"' in body
+    assert 'class="chat-widget-badge d-none"' in body
 
 
 def test_own_messages_are_never_counted_as_unread(db, client):
@@ -189,7 +189,7 @@ def test_own_messages_are_never_counted_as_unread(db, client):
 
     resp = client.get("/dashboard")
     body = resp.get_data(as_text=True) if resp.status_code == 200 else client.get("/cabinet/garages").get_data(as_text=True)
-    assert 'class="board-chat-badge d-none"' in body
+    assert 'class="chat-widget-badge d-none"' in body
 
 
 def test_new_message_after_read_increases_badge_again(db, client):

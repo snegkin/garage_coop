@@ -164,6 +164,7 @@ def create_app(config_class=Config):
     from .wiki import bp as wiki_bp
     from .setup_wizard import bp as setup_wizard_bp
     from .surveillance import bp as surveillance_bp
+    from .sms_settings import bp as sms_settings_bp
 
     app.register_blueprint(main_bp)
     app.register_blueprint(garages_bp)
@@ -188,6 +189,7 @@ def create_app(config_class=Config):
     app.register_blueprint(wiki_bp)
     app.register_blueprint(setup_wizard_bp)
     app.register_blueprint(surveillance_bp)
+    app.register_blueprint(sms_settings_bp)
 
     @app.route("/")
     def index():

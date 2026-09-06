@@ -22,6 +22,7 @@
 """
 import calendar
 import datetime as dt
+import re
 from decimal import Decimal
 
 from sqlalchemy import func
@@ -843,6 +844,24 @@ def get_primary_bank_account():
     )
 
 
+_NON_DIGIT_RE = re.compile(r"\D")
+
+
+def _qr_account_digits(value: str | None) -> str:
+    """
+    Р/с, БИК и к/с — в поля QR-кода (ГОСТ Р 56042-2014: PersonalAcc/BIC/
+    CorrespAcc) должны попадать строго цифрами, без пробелов/дефисов, ровно
+    той длины, что и настоящий номер счёта (20 цифр у р/с и к/с, 9 у БИК).
+    В самих реквизитах кооператива (BankAccount.checking_account и т.п.)
+    номер может быть внесён с пробелами-разрядами для читаемости человеком
+    (как на банковской выписке) — это нормально для печатной формы
+    квитанции, но именно из-за лишних пробелов Сбербанк отказывался
+    принимать QR-код («Нельзя оплатить по этому QR-коду»): PersonalAcc
+    получался длиннее 20 символов и переставал быть валидным номером счёта.
+    """
+    return _NON_DIGIT_RE.sub("", value or "")
+
+
 def pd4_qr_payload(coop: Cooperative, bank_account, member_account: MemberAccount, amount: Decimal) -> str:
     """
     Строка для QR-кода платёжки по стандарту ГОСТ Р 56042-2014 (тот же формат,
@@ -851,10 +870,10 @@ def pd4_qr_payload(coop: Cooperative, bank_account, member_account: MemberAccoun
     payer = member_account.person
     fields = {
         "Name": coop.short_name or coop.full_name,
-        "PersonalAcc": bank_account.checking_account if bank_account else "",
+        "PersonalAcc": _qr_account_digits(bank_account.checking_account) if bank_account else "",
         "BankName": bank_account.bank_name if bank_account else "",
-        "BIC": bank_account.bik if bank_account else "",
-        "CorrespAcc": bank_account.correspondent_account if bank_account else "",
+        "BIC": _qr_account_digits(bank_account.bik) if bank_account else "",
+        "CorrespAcc": _qr_account_digits(bank_account.correspondent_account) if bank_account else "",
         "PayeeINN": coop.inn,
         "KPP": coop.kpp,
         "Purpose": f"{member_account.fee_type.name}, гараж №{member_account.garage.number}, л/с {member_account.account_number}",
@@ -877,10 +896,10 @@ def pd4_qr_payload_electricity(coop: Cooperative, bank_account, garage: Garage, 
     purpose_label = electricity_fee_type.name if electricity_fee_type else "Электроэнергия"
     fields = {
         "Name": coop.short_name or coop.full_name,
-        "PersonalAcc": bank_account.checking_account if bank_account else "",
+        "PersonalAcc": _qr_account_digits(bank_account.checking_account) if bank_account else "",
         "BankName": bank_account.bank_name if bank_account else "",
-        "BIC": bank_account.bik if bank_account else "",
-        "CorrespAcc": bank_account.correspondent_account if bank_account else "",
+        "BIC": _qr_account_digits(bank_account.bik) if bank_account else "",
+        "CorrespAcc": _qr_account_digits(bank_account.correspondent_account) if bank_account else "",
         "PayeeINN": coop.inn,
         "KPP": coop.kpp,
         "Purpose": f"{purpose_label}, гараж №{garage.number}, л/с {personal_account.account_number}",

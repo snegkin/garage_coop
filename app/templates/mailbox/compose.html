@@ -73,6 +73,12 @@
     var withPrefix = block.length ? block.split("\n").map(function (l) { return prefix + l; }).join("\n") : prefix;
     textarea.value = value.slice(0, lineStart) + withPrefix + value.slice(lineEnd);
     textarea.focus();
+    // Присвоение textarea.value сбрасывает selectionStart/End в конец ВСЕГО
+    // текста (поведение браузера) — без явного восстановления курсор
+    // "прыгал" бы в конец письма при клике по кнопке из этой группы
+    // (см. тот же фикс в wiki/form.html).
+    textarea.selectionStart = lineStart;
+    textarea.selectionEnd = lineStart + withPrefix.length;
   }
 
   document.querySelectorAll("[data-md-wrap]").forEach(function (btn) {

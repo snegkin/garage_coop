@@ -36,10 +36,10 @@
         <button type="button" class="btn btn-outline-secondary" data-md-prefix="#### " title="{{ _('Подзаголовок помельче') }}">H4</button>
       </div>
       <div class="btn-group btn-group-sm">
-        <button type="button" class="btn btn-outline-secondary" data-md-prefix="- " title="{{ _('Маркированный список') }}">&bull; {{ _("Список") }}</button>
-        <button type="button" class="btn btn-outline-secondary" data-md-prefix="1. " title="{{ _('Нумерованный список') }}">1. {{ _("Список") }}</button>
-        <button type="button" class="btn btn-outline-secondary" data-md-prefix="&gt; " title="{{ _('Цитата') }}">&#10078; {{ _("Цитата") }}</button>
-        <button type="button" class="btn btn-outline-secondary" data-md-prefix="    " title="{{ _('Блок кода (со следующей строки, с отступом)') }}">{{ _("Блок кода") }}</button>
+        <button type="button" class="btn btn-outline-secondary" data-md-prefix="- " title="{{ _('Маркированный список') }}">&bull;</button>
+        <button type="button" class="btn btn-outline-secondary" data-md-prefix="1. " title="{{ _('Нумерованный список') }}">1.</button>
+        <button type="button" class="btn btn-outline-secondary" data-md-prefix="&gt; " title="{{ _('Цитата') }}">&#10078;</button>
+        <button type="button" class="btn btn-outline-secondary" data-md-prefix="    " title="{{ _('Блок кода (со следующей строки, с отступом)') }}">{ }</button>
       </div>
       <div class="btn-group btn-group-sm">
         <button type="button" class="btn btn-outline-secondary" data-md-link title="{{ _('Ссылка') }}">&#128279;</button>
@@ -115,14 +115,23 @@
 (function () {
   var textarea = document.getElementById("wiki-body");
 
+  // Порядок ниже — сначала selectionStart/End, ПОТОМ focus() — важен: сам
+  // .value сбрасывает выделение в конец ВСЕГО текста (поведение браузера),
+  // и если фокусировать элемент раньше, чем поправить выделение, браузер
+  // при самом focus() уже прокручивает textarea к каретке НА КОНЦЕ (там,
+  // где она оказалась после сброса) — правильную позицию мы выставляем
+  // мгновением позже, но повторного скролла к ней браузер сам не делает.
+  // Итог при обратном порядке (было воспроизведено и проверено): курсор
+  // логически на месте правки, а видимая прокрутка — в конец статьи.
+
   function wrapSelection(openMarker, closeMarker) {
     var start = textarea.selectionStart, end = textarea.selectionEnd;
     var value = textarea.value;
     var selected = value.slice(start, end);
     textarea.value = value.slice(0, start) + openMarker + selected + closeMarker + value.slice(end);
-    textarea.focus();
     textarea.selectionStart = start + openMarker.length;
     textarea.selectionEnd = start + openMarker.length + selected.length;
+    textarea.focus();
   }
 
   function prefixLines(prefix) {
@@ -134,14 +143,9 @@
     var block = value.slice(lineStart, lineEnd);
     var withPrefix = block.length ? block.split("\n").map(function (l) { return prefix + l; }).join("\n") : prefix;
     textarea.value = value.slice(0, lineStart) + withPrefix + value.slice(lineEnd);
-    textarea.focus();
-    // Присвоение textarea.value сбрасывает selectionStart/End в конец ВСЕГО
-    // текста (это поведение самого браузера, не наше) — без явного
-    // восстановления курсор "прыгал" бы в конец статьи при любом клике по
-    // кнопке форматирования из этой группы (H3/H4/список/цитата/блок кода),
-    // даже если правка была в начале или середине длинной статьи.
     textarea.selectionStart = lineStart;
     textarea.selectionEnd = lineStart + withPrefix.length;
+    textarea.focus();
   }
 
   document.querySelectorAll("[data-md-wrap]").forEach(function (btn) {
@@ -166,8 +170,8 @@
       var suffix = (after.length === 0 || /^\n\n/.test(after)) ? "" : (/^\n/.test(after) ? "\n" : "\n\n");
       var insertText = prefix + "---" + suffix;
       textarea.value = before + insertText + after;
-      textarea.focus();
       textarea.selectionStart = textarea.selectionEnd = pos + insertText.length;
+      textarea.focus();
     });
   }
   var linkBtn = document.querySelector("[data-md-link]");
@@ -180,6 +184,7 @@
       if (!url) return;
       var replacement = "[" + selected + "](" + url + ")";
       textarea.value = value.slice(0, start) + replacement + value.slice(end);
+      textarea.selectionStart = textarea.selectionEnd = start + replacement.length;
       textarea.focus();
     });
   }
@@ -225,8 +230,8 @@
           var prefix = (before.length === 0 || /\n\n$/.test(before)) ? "" : (/\n$/.test(before) ? "\n" : "\n\n");
           var suffix = (after.length === 0 || /^\n\n/.test(after)) ? "" : (/^\n/.test(after) ? "\n" : "\n\n");
           textarea.value = before + prefix + markdown + suffix + after;
-          textarea.focus();
           textarea.selectionStart = textarea.selectionEnd = cursorPos + prefix.length + markdown.length;
+          textarea.focus();
         })
         .catch(function () {
           imageStatus.textContent = "{{ _('Не удалось загрузить файл.') }}";

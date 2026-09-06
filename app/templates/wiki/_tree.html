@@ -22,7 +22,7 @@
       <span class="wiki-tree-spacer"></span>
       {% endif %}
 
-      <a href="{{ url_for('wiki.view', page_id=p.id) }}"
+      <a href="{{ url_for('wiki.view', slug=p.slug) }}"
          class="wiki-tree-link {{ 'fw-semibold text-body' if p.id == current_page_id else '' }}">
         {{ p.title }}
       </a>

@@ -16,12 +16,15 @@
 import io
 
 from app.models import RoleEnum, WikiPage, WikiAttachment
+from app.wiki import _slugify, _unique_slug
 
 from tests.conftest import make_person, make_user, login
 
 
 def _make_page(db, is_internal=False, title="Страница", parent_id=None, body="Текст"):
-    page = WikiPage(title=title, parent_id=parent_id, body=body, is_internal=is_internal)
+    page = WikiPage(
+        title=title, slug=_unique_slug(_slugify(title)), parent_id=parent_id, body=body, is_internal=is_internal,
+    )
     db.add(page)
     db.flush()
     return page
@@ -89,7 +92,7 @@ def test_member_can_open_public_page(db, client):
     _make_member(db)
 
     login(client, "member1", "pass1234")
-    resp = client.get(f"/wiki/{page.id}")
+    resp = client.get(f"/wiki/{page.slug}")
     assert resp.status_code == 200
 
 
@@ -109,7 +112,7 @@ def test_visible_child_of_internal_section_promoted_to_root_for_member(db, clien
     assert "Internal Section" not in body
     assert "Public Child" in body, "visible child of a hidden section must still be reachable in the tree"
 
-    resp = client.get(f"/wiki/{child.id}")
+    resp = client.get(f"/wiki/{child.slug}")
     assert resp.status_code == 200
 
 
@@ -336,7 +339,7 @@ def test_view_page_shows_attached_file_as_download_link(db, client):
     _make_board(db)
     login(client, "board1", "pass1234")
 
-    resp = client.get(f"/wiki/{page.id}")
+    resp = client.get(f"/wiki/{page.slug}")
     assert resp.status_code == 200
     body = resp.get_data(as_text=True)
     assert "device.conf" in body
@@ -351,7 +354,7 @@ def test_view_page_shows_attached_image_via_lightbox_not_body(db, client):
     _make_board(db)
     login(client, "board1", "pass1234")
 
-    resp = client.get(f"/wiki/{page.id}")
+    resp = client.get(f"/wiki/{page.slug}")
     body = resp.get_data(as_text=True)
     assert 'class="js-lightbox"' in body
     assert f"/wiki/attachments/{att.id}/photo.jpg" in body

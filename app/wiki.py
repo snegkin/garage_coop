@@ -33,11 +33,44 @@ from .models import WikiPage, WikiAttachment, RoleEnum
 from .uploads import save_upload, WIKI_ATTACHMENT_ALLOWED_EXT
 from .garages import ALLOWED_PHOTO_EXT
 from .news_format import render_html
+from .translit import transliterate
 
 bp = Blueprint("wiki", __name__, url_prefix="/wiki")
 
 # см. news.py: INLINE_ATTACHMENT_RE — тот же приём, свой префикс пути.
 INLINE_ATTACHMENT_RE = re.compile(r"/wiki/attachments/(\d+)/")
+
+_SLUG_NON_ALNUM_RE = re.compile(r"[^a-z0-9]+")
+
+
+def _slugify(title: str) -> str:
+    """Заголовок -> человекопонятный кусок URL: транслитерация в латиницу
+    (см. translit.py), всё, что не буква/цифра — заменяется на дефис,
+    крайние дефисы обрезаются. Пустой результат (например, заголовок был
+    целиком из знаков препинания) заменяется на "page", чтобы slug не
+    оказался пустой строкой."""
+    translit = transliterate(title).lower()
+    slug = _SLUG_NON_ALNUM_RE.sub("-", translit).strip("-")
+    return slug or "page"
+
+
+def _unique_slug(base_slug: str, exclude_id: int | None = None) -> str:
+    """base_slug + при коллизии числовой суффикс -2, -3... — коллизия
+    возможна и между разными заголовками, транслитерирующимися в одно и то
+    же (например, «Ё»/«Е»), и при полном совпадении заголовков. exclude_id
+    — сама страница при регенерации (сейчас не используется — см.
+    докстринг WikiPage.slug о том, что slug после создания не меняется,
+    параметр оставлен на случай будущей ручной регенерации)."""
+    slug = base_slug
+    suffix = 2
+    while True:
+        query = database.db_session.query(WikiPage.id).filter(WikiPage.slug == slug)
+        if exclude_id is not None:
+            query = query.filter(WikiPage.id != exclude_id)
+        if query.first() is None:
+            return slug
+        slug = f"{base_slug}-{suffix}"
+        suffix += 1
 
 
 # ---------------------------------------------------------------------------
@@ -260,6 +293,7 @@ def create():
         parent_id = int(f["parent_id"]) if f.get("parent_id") else None
         page = WikiPage(
             title=f["title"],
+            slug=_unique_slug(_slugify(f["title"])),
             parent_id=parent_id,
             body=f["body"],
             is_internal=bool(f.get("is_internal")),
@@ -270,7 +304,7 @@ def create():
         _save_attachments(page)
         database.db_session.commit()
         flash(_("Страница вики добавлена."), "success")
-        return redirect(url_for("wiki.view", page_id=page.id))
+        return redirect(url_for("wiki.view", slug=page.slug))
 
     all_pages = database.db_session.query(WikiPage).all()
     preselected_parent_id = request.args.get("parent_id", type=int)
@@ -312,7 +346,7 @@ def edit(page_id):
         _save_attachments(page)
         database.db_session.commit()
         flash(_("Страница вики обновлена."), "success")
-        return redirect(url_for("wiki.view", page_id=page.id))
+        return redirect(url_for("wiki.view", slug=page.slug))
 
     all_pages = database.db_session.query(WikiPage).all()
     return render_template("wiki/form.html", page=page,
@@ -328,7 +362,7 @@ def delete(page_id):
         abort(404)
     if page.children:
         flash(_("Нельзя удалить раздел, в котором есть подразделы/страницы — сначала удалите или перенесите их."), "danger")
-        return redirect(url_for("wiki.view", page_id=page.id))
+        return redirect(url_for("wiki.view", slug=page.slug))
     database.db_session.delete(page)
     database.db_session.commit()
     flash(_("Страница вики удалена."), "success")
@@ -337,8 +371,28 @@ def delete(page_id):
 
 @bp.route("/<int:page_id>")
 @login_required
-def view(page_id):
+def view_by_id(page_id):
+    """Совместимость со старыми ссылками вида /wiki/<id> — до появления
+    человекопонятного URL (см. WikiPage.slug) это и был единственный адрес
+    страницы; редирект на канонический /wiki/<slug>, чтобы уже
+    разошедшиеся где-то (закладки, письма) ссылки не переставали
+    работать. Видимость (is_internal) проверяется здесь же, ДО редиректа
+    — иначе сам факт существования и slug (а в slug — транслитерированный
+    заголовок) внутренней страницы утекал бы рядовому члену через
+    Location, даже если итоговое содержимое ему всё равно недоступно
+    (см. докстринг модуля про IDOR по id — тот же принцип, что и раньше)."""
     page = database.db_session.get(WikiPage, page_id)
+    if page is None:
+        abort(404)
+    if page.is_internal and not is_board():
+        abort(403)
+    return redirect(url_for("wiki.view", slug=page.slug), code=301)
+
+
+@bp.route("/<slug>")
+@login_required
+def view(slug):
+    page = database.db_session.query(WikiPage).filter_by(slug=slug).first()
     if page is None:
         abort(404)
     if page.is_internal and not is_board():

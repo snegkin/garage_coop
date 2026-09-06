@@ -13,7 +13,7 @@
     {% if breadcrumbs %}
     <nav class="small text-muted mb-2">
       {% for b in breadcrumbs %}
-      <a href="{{ url_for('wiki.view', page_id=b.id) }}" class="text-muted">{{ b.title }}</a> /
+      <a href="{{ url_for('wiki.view', slug=b.slug) }}" class="text-muted">{{ b.title }}</a> /
       {% endfor %}
       <span>{{ page.title }}</span>
     </nav>

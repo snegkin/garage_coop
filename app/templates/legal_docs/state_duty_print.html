@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% import "legal_docs/_macros.html" as m %}
+{% block title %}{{ _("Оплата госпошлины") }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3 no-print">
+  <h3 class="mb-0">{{ _("Оплата госпошлины") }}</h3>
+  <div class="d-flex gap-2">
+    <button class="btn btn-primary" onclick="window.print()">{{ _("Печать") }}</button>
+    <form method="post" action="{{ url_for('legal_docs.state_duty_print') }}" class="d-inline">
+      {% for item in items %}
+      <input type="hidden" name="person_id" value="{{ item.person.id }}">
+      <input type="hidden" name="duty_amount_{{ item.person.id }}" value="{{ item.duty_amount }}">
+      {% endfor %}
+      <input type="hidden" name="format" value="pdf">
+      <button class="btn btn-outline-primary">{{ _("Скачать PDF") }}</button>
+    </form>
+    <a class="btn btn-outline-secondary" href="{{ url_for('legal_docs.state_duty') }}">{{ _("Назад к выбору") }}</a>
+  </div>
+</div>
+{% include "legal_docs/_print_style.html" %}
+<div class="legal-print">
+  {% for item in items %}
+  {{ m.state_duty_receipt(item, coop, today) }}
+  {% endfor %}
+</div>
+{% endblock %}

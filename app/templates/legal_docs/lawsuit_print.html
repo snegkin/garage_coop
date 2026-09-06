@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% import "legal_docs/_macros.html" as m %}
+{% block title %}{{ _("Исковое заявление") }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3 no-print">
+  <h3 class="mb-0">{{ _("Исковое заявление") }}</h3>
+  <div class="d-flex gap-2">
+    <button class="btn btn-primary" onclick="window.print()">{{ _("Печать") }}</button>
+    <form method="post" action="{{ url_for('legal_docs.lawsuit_print') }}" class="d-inline">
+      {% for doc in docs %}
+      <input type="hidden" name="person_id" value="{{ doc.person.id }}">
+      <textarea name="text_{{ doc.person.id }}" hidden>{{ doc.text }}</textarea>
+      {% endfor %}
+      <input type="hidden" name="format" value="pdf">
+      <button class="btn btn-outline-primary">{{ _("Скачать PDF") }}</button>
+    </form>
+    <a class="btn btn-outline-secondary" href="{{ url_for('legal_docs.lawsuit') }}">{{ _("Назад к выбору") }}</a>
+  </div>
+</div>
+{% include "legal_docs/_print_style.html" %}
+<div class="legal-print">
+  {% for doc in docs %}
+  {{ m.lawsuit_doc(doc.text) }}
+  {% endfor %}
+</div>
+{% endblock %}

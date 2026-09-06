@@ -1,0 +1,106 @@
+{% macro debt_notice_doc(person, summary, coop, chairman, today) %}
+<div class="legal-doc">
+  {% include "legal_docs/_letterhead.html" %}
+  <p class="print-title">{{ _("Уведомление о задолженности") }}</p>
+  <p class="print-meta">{{ fmt_date(today) }}</p>
+  <p>
+    {{ _("Уважаемый(ая)") }} {{ person.full_name }}{% if person.residence_address or person.registration_address %},<br>
+    {{ person.residence_address or person.registration_address }}{% else %}!{% endif %}
+  </p>
+  <p>
+    {{ _("Настоящим уведомляем Вас о наличии задолженности перед {coop} по членским и/или целевым взносам и иным платежам, предусмотренным уставом кооператива. Ниже приведён полный расчёт по всем Вашим лицевым счетам по состоянию на {date}.", coop=(coop.short_name or coop.full_name) if coop else "", date=fmt_date(today)) }}
+  </p>
+
+  {% if summary.rows %}
+  <table class="print-table">
+    <thead><tr><th>{{ _("Л/С") }}</th><th>{{ _("Назначение") }}</th><th class="num">{{ _("Начислено") }}</th><th class="num">{{ _("Оплачено") }}</th><th class="num">{{ _("Сумма") }}</th></tr></thead>
+    <tbody>
+      {% for row in summary.rows %}
+      <tr>
+        <td>{{ row.account_number }}</td>
+        <td>{{ row.label }}</td>
+        <td class="num">{{ fmt2(row.charged) }}</td>
+        <td class="num">{{ fmt2(row.paid) }}</td>
+        <td class="num">{{ fmt2(row.balance) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+    <tfoot>
+      <tr><td colspan="4">{{ _("Баланс") }}{% if summary.penalty_rows %} ({{ _("без пени") }}){% endif %}</td><td class="num">{{ fmt2(summary.balance_excl_penalty) }} ₽</td></tr>
+    </tfoot>
+  </table>
+  {% endif %}
+
+  {% if summary.penalty_rows %}
+  <table class="print-table">
+    <thead><tr><th>{{ _("Л/С") }}</th><th>{{ _("Назначение") }}</th><th class="num">{{ _("Начислено") }}</th><th class="num">{{ _("Оплачено") }}</th><th class="num">{{ _("Сумма") }}</th></tr></thead>
+    <tbody>
+      {% for row in summary.penalty_rows %}
+      <tr>
+        <td>{{ row.account_number }}</td>
+        <td>{{ row.label }}</td>
+        <td class="num">{{ fmt2(row.charged) }}</td>
+        <td class="num">{{ fmt2(row.paid) }}</td>
+        <td class="num">{{ fmt2(row.balance) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+    <tfoot>
+      <tr><td colspan="4">{{ _("Пеня") }}</td><td class="num">{{ fmt2(summary.penalty_total) }} ₽</td></tr>
+      <tr><td colspan="4"><strong>{{ _("Итого") }}</strong></td><td class="num"><strong>{{ fmt2(summary.grand_total) }} ₽</strong></td></tr>
+    </tfoot>
+  </table>
+  {% endif %}
+
+  <p>
+    {{ _("Просим погасить указанную задолженность в кратчайшие сроки. В случае неисполнения кооператив будет вынужден обратиться за взысканием задолженности, пени и понесённых судебных расходов в судебном порядке.") }}
+  </p>
+
+  <div class="print-signatures">
+    <div class="signature-rows">
+      <div class="signature-line">
+        <span class="sig-role">{{ _("Председатель") }}</span><span class="sig-blank"></span>
+        {% if chairman %}<span class="sig-name">/{{ chairman.short_name }}/</span>{% endif %}
+      </div>
+    </div>
+    <div class="stamp-place">{{ _("М.П.") }}</div>
+  </div>
+</div>
+{% endmacro %}
+
+
+{% macro state_duty_receipt(item, coop, today) %}
+{# item: {person, section, claim_amount, duty_amount} #}
+<div class="legal-doc">
+  {% include "legal_docs/_letterhead.html" %}
+  <p class="print-title">{{ _("Квитанция на уплату государственной пошлины") }}</p>
+  <p class="print-subtitle">{{ _("По иску к") }} {{ item.person.full_name }}</p>
+  <p class="print-meta">{{ fmt_date(today) }}</p>
+
+  <table class="print-table">
+    <tbody>
+      <tr><td>{{ _("Получатель") }}</td><td>{{ item.section.treasury_payee if item.section else "—" }}</td></tr>
+      <tr><td>{{ _("ИНН / КПП") }}</td><td>{{ (item.section.treasury_inn or "—") if item.section else "—" }} / {{ (item.section.treasury_kpp or "—") if item.section else "—" }}</td></tr>
+      <tr><td>{{ _("Банк получателя") }}</td><td>{{ item.section.treasury_bank if item.section else "—" }}</td></tr>
+      <tr><td>{{ _("БИК") }}</td><td>{{ item.section.treasury_bik if item.section else "—" }}</td></tr>
+      <tr><td>{{ _("Корр. счёт") }}</td><td>{{ item.section.treasury_correspondent_account if item.section else "—" }}</td></tr>
+      <tr><td>{{ _("Казначейский счёт") }}</td><td>{{ item.section.treasury_account if item.section else "—" }}</td></tr>
+      <tr><td>{{ _("ОКТМО") }}</td><td>{{ item.section.treasury_oktmo if item.section else "—" }}</td></tr>
+      <tr><td>{{ _("КБК") }}</td><td>{{ item.section.treasury_kbk if item.section else "—" }}</td></tr>
+      <tr><td>{{ _("Плательщик") }}</td><td>{{ (coop.short_name or coop.full_name) if coop else "" }}, {{ _("ИНН") }} {{ coop.inn if coop else "" }}</td></tr>
+      <tr><td>{{ _("Назначение платежа") }}</td><td>{{ _("Государственная пошлина за подачу искового заявления к {name}", name=item.person.full_name) }}</td></tr>
+      <tr><td><strong>{{ _("Сумма") }}</strong></td><td><strong>{{ fmt2(item.duty_amount) }} ₽</strong></td></tr>
+    </tbody>
+  </table>
+  {% if not item.section %}
+  <p><em>{{ _("Судебный участок не определён — реквизиты не заполнены. Укажите участок у должника или участок кооператива по умолчанию.") }}</em></p>
+  {% endif %}
+</div>
+{% endmacro %}
+
+
+{% macro lawsuit_doc(text) %}
+<div class="legal-doc">
+  <div class="legal-text">{{ text }}</div>
+</div>
+{% endmacro %}

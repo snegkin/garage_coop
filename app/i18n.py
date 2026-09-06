@@ -1724,6 +1724,68 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Удалить это сторно? Исходный платёж снова станет действующим.": "Delete this reversal? The original payment will become active again.",
         "Это не сторно-проводка — её нельзя удалить этой кнопкой.": "This is not a reversal entry — it can't be deleted with this button.",
         "Сторно удалено — исходный платёж снова действует.": "Reversal deleted — the original payment is active again.",
+
+        # legal_docs — раздел «Делопроизводство» (взыскание задолженности через суд)
+        "Делопроизводство": "Legal proceedings",
+        "Уведомление о задолженности": "Debt notice",
+        "Оплата госпошлины": "State duty payment",
+        "Исковое заявление": "Statement of claim",
+        "Судебные участки": "Court sections",
+        "Судебный участок": "Court section",
+        "Выберите хотя бы одного должника.": "Select at least one debtor.",
+        "Должников не найдено.": "No debtors found.",
+        "должников выбрано": "debtors selected",
+        "Сформировать документы": "Generate documents",
+        "Поиск по ФИО…": "Search by name…",
+        "Судебные участки — справочник": "Court sections directory",
+        "Правление вносит реквизиты судебного участка вручную (узнав их официально, напр. на mirsudrf.ru), один раз — дальше он переиспользуется для всех должников этого участка, а также как участок по месту нахождения самого кооператива (фолбэк, когда место жительства должника неизвестно).":
+            "The board enters the court section's details manually (looked up officially, e.g. at mirsudrf.ru) once — it's then reused for all debtors in that section, and also as the section for the cooperative's own location (fallback when the debtor's residence is unknown).",
+        "Добавить участок": "Add section",
+        "Название участка/суда": "Section/court name",
+        "Адрес суда": "Court address",
+        "Банк получателя": "Payee bank",
+        "Казначейский счёт (номер счёта получателя)": "Treasury account number",
+        "КБК госпошлины": "Budget classification code (KBK)",
+        "Удалить судебный участок?": "Delete this court section?",
+        "Судебных участков пока нет.": "No court sections yet.",
+        "Новый судебный участок": "New court section",
+        "Участок по месту нахождения кооператива (используется, если у должника участок не указан)":
+            "Section for the cooperative's own location (used when the debtor has none set)",
+        "Судебный участок добавлен.": "Court section added.",
+        "Судебный участок удалён.": "Court section deleted.",
+        "Судебный участок кооператива обновлён.": "The cooperative's court section was updated.",
+        "Судебный участок сохранён.": "Court section saved.",
+        "— по месту нахождения кооператива —": "— use the cooperative's own section —",
+        "По последнему известному месту жительства — для исков и госпошлины (раздел «Делопроизводство»).":
+            "Based on the debtor's last known residence — used for lawsuits and state duty (Legal proceedings section).",
+        "Выберите должников — на каждого будет сформировано уведомление с полной распечаткой всех счетов, начислений и оплат.":
+            "Select debtors — each will get a notice with a full printout of all their accounts, charges and payments.",
+        "Уважаемый(ая)": "Dear",
+        "Настоящим уведомляем Вас о наличии задолженности перед {coop} по членским и/или целевым взносам и иным платежам, предусмотренным уставом кооператива. Ниже приведён полный расчёт по всем Вашим лицевым счетам по состоянию на {date}.":
+            "This is to notify you of an outstanding debt to {coop} for membership and/or special-purpose dues and other payments required by the cooperative's charter. A full breakdown of all your accounts as of {date} is provided below.",
+        "Просим погасить указанную задолженность в кратчайшие сроки. В случае неисполнения кооператив будет вынужден обратиться за взысканием задолженности, пени и понесённых судебных расходов в судебном порядке.":
+            "Please settle this debt as soon as possible. Otherwise, the cooperative will be forced to seek recovery of the debt, penalty and court costs through the courts.",
+        "Выберите должников — для каждого будет предложена (справочно, с возможностью правки) сумма госпошлины и реквизиты нужного судебного участка.":
+            "Select debtors — a reference (editable) state duty amount and the relevant court section's details will be prepared for each.",
+        "проверьте суммы перед печатью": "review the amounts before printing",
+        "Сумма подсказана автоматически по таблице ст. 333.19 НК РФ (в редакции с 09.09.2024) и является только справочной — обязательно сверьте её с актуальной нормой перед оплатой. Поле можно и нужно поправить вручную.":
+            "The amount is auto-suggested from the Art. 333.19 Tax Code table (as amended 09.09.2024) and is for reference only — make sure to check it against the current rule before paying. The field can and should be corrected manually.",
+        "Должник": "Debtor",
+        "Цена иска (долг + пеня)": "Claim amount (debt + penalty)",
+        "не определён": "not set",
+        "Сумма госпошлины, ₽": "State duty amount, ₽",
+        "Сформировать квитанции": "Generate receipts",
+        "Квитанция на уплату государственной пошлины": "State duty payment receipt",
+        "По иску к": "Claim against",
+        "ИНН / КПП": "TIN / KPP",
+        "ОКТМО": "OKTMO",
+        "Судебный участок не определён — реквизиты не заполнены. Укажите участок у должника или участок кооператива по умолчанию.":
+            "Court section not set — details are missing. Assign a section to the debtor or set the cooperative's default section.",
+        "Выберите должников — на каждого будет сформирован редактируемый черновик искового заявления (долг + пеня + судебные расходы), обязательный к проверке перед подачей в суд.":
+            "Select debtors — an editable draft statement of claim (debt + penalty + court costs) will be generated for each, which must be reviewed before filing.",
+        "черновик для проверки": "draft for review",
+        "Это черновик, а не готовый к подаче документ. Перед подачей в суд обязательно проверьте и при необходимости поправьте текст, суммы и реквизиты сторон вместе с юристом кооператива.":
+            "This is a draft, not a document ready for filing. Before filing, be sure to review and, if necessary, correct the text, amounts and parties' details together with the cooperative's counsel.",
     }
 }
 

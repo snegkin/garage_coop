@@ -1,0 +1,58 @@
+{# Ожидает переменную section (CourtSection или None). Только поля, без <form> и кнопок. #}
+<div class="mb-3">
+  <label class="form-label">{{ _("Название участка/суда") }}</label>
+  <input class="form-control" name="name" value="{{ (section.name or '') if section else '' }}" required
+         placeholder="{{ _('напр. «Судебный участок №5 Тверского судебного района г. Твери»') }}">
+</div>
+<div class="mb-3">
+  <label class="form-label">{{ _("Адрес суда") }}</label>
+  <textarea class="form-control" name="court_address" rows="2">{{ (section.court_address or '') if section else '' }}</textarea>
+</div>
+<hr>
+<p class="text-muted small">{{ _("Реквизиты уплаты госпошлины (территориальный орган Федерального казначейства) — переносятся с официального сайта суда или ФНС.") }}</p>
+<div class="mb-3">
+  <label class="form-label">{{ _("Получатель") }}</label>
+  <input class="form-control" name="treasury_payee" value="{{ (section.treasury_payee or '') if section else '' }}">
+</div>
+<div class="row g-2 mb-3">
+  <div class="col-6">
+    <label class="form-label">{{ _("ИНН") }}</label>
+    <input class="form-control" name="treasury_inn" value="{{ (section.treasury_inn or '') if section else '' }}">
+  </div>
+  <div class="col-6">
+    <label class="form-label">{{ _("КПП") }}</label>
+    <input class="form-control" name="treasury_kpp" value="{{ (section.treasury_kpp or '') if section else '' }}">
+  </div>
+</div>
+<div class="mb-3">
+  <label class="form-label">{{ _("Банк получателя") }}</label>
+  <input class="form-control" name="treasury_bank" value="{{ (section.treasury_bank or '') if section else '' }}">
+</div>
+<div class="row g-2 mb-3">
+  <div class="col-6">
+    <label class="form-label">{{ _("БИК") }}</label>
+    <input class="form-control" name="treasury_bik" value="{{ (section.treasury_bik or '') if section else '' }}">
+  </div>
+  <div class="col-6">
+    <label class="form-label">{{ _("Корр. счёт") }}</label>
+    <input class="form-control" name="treasury_correspondent_account" value="{{ (section.treasury_correspondent_account or '') if section else '' }}">
+  </div>
+</div>
+<div class="mb-3">
+  <label class="form-label">{{ _("Казначейский счёт (номер счёта получателя)") }}</label>
+  <input class="form-control" name="treasury_account" value="{{ (section.treasury_account or '') if section else '' }}">
+</div>
+<div class="row g-2 mb-3">
+  <div class="col-6">
+    <label class="form-label">{{ _("ОКТМО") }}</label>
+    <input class="form-control" name="treasury_oktmo" value="{{ (section.treasury_oktmo or '') if section else '' }}">
+  </div>
+  <div class="col-6">
+    <label class="form-label">{{ _("КБК госпошлины") }}</label>
+    <input class="form-control" name="treasury_kbk" value="{{ (section.treasury_kbk or '') if section else '' }}">
+  </div>
+</div>
+<div class="mb-3">
+  <label class="form-label">{{ _("Комментарий") }}</label>
+  <textarea class="form-control" name="comment">{{ (section.comment or '') if section else '' }}</textarea>
+</div>

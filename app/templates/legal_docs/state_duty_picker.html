@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Оплата госпошлины") }}{% endblock %}
+{% block content %}
+<h3 class="mb-3">{{ _("Оплата госпошлины") }}</h3>
+<p class="text-muted">{{ _("Выберите должников — для каждого будет предложена (справочно, с возможностью правки) сумма госпошлины и реквизиты нужного судебного участка.") }}</p>
+{% set form_action = url_for('legal_docs.state_duty_review') %}
+{% include "legal_docs/_debtor_picker.html" %}
+{% endblock %}

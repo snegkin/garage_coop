@@ -196,6 +196,7 @@ def create_app(config_class=Config):
     from .sms_settings import bp as sms_settings_bp
     from .board_chat import bp as board_chat_bp
     from .revision_chat import bp as revision_chat_bp
+    from .legal_docs import bp as legal_docs_bp
 
     app.register_blueprint(main_bp)
     app.register_blueprint(garages_bp)
@@ -223,6 +224,7 @@ def create_app(config_class=Config):
     app.register_blueprint(sms_settings_bp)
     app.register_blueprint(board_chat_bp)
     app.register_blueprint(revision_chat_bp)
+    app.register_blueprint(legal_docs_bp)
 
     @app.route("/")
     def index():

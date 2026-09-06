@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Оплата госпошлины") }}{% endblock %}
+{% block content %}
+<h3 class="mb-3">{{ _("Оплата госпошлины") }} — {{ _("проверьте суммы перед печатью") }}</h3>
+<div class="alert alert-warning">
+  {{ _("Сумма подсказана автоматически по таблице ст. 333.19 НК РФ (в редакции с 09.09.2024) и является только справочной — обязательно сверьте её с актуальной нормой перед оплатой. Поле можно и нужно поправить вручную.") }}
+</div>
+
+<form method="post" action="{{ url_for('legal_docs.state_duty_print') }}">
+  <table class="table bg-body align-middle">
+    <thead>
+      <tr>
+        <th>{{ _("Должник") }}</th>
+        <th>{{ _("Цена иска (долг + пеня)") }}</th>
+        <th>{{ _("Судебный участок") }}</th>
+        <th>{{ _("Сумма госпошлины, ₽") }}</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in items %}
+      <tr>
+        <td>
+          {{ item.person.full_name }}
+          <input type="hidden" name="person_id" value="{{ item.person.id }}">
+        </td>
+        <td>{{ fmt2(item.claim_amount) }} ₽</td>
+        <td>
+          {% if item.section %}{{ item.section.name }}
+          {% else %}<span class="text-danger">{{ _("не определён") }}</span>{% endif %}
+        </td>
+        <td style="max-width:160px">
+          <input type="text" inputmode="decimal" class="form-control" name="duty_amount_{{ item.person.id }}" value="{{ item.suggested_duty }}" required>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <div class="d-flex gap-2">
+    <button class="btn btn-primary">{{ _("Сформировать квитанции") }}</button>
+    <a class="btn btn-outline-secondary" href="{{ url_for('legal_docs.state_duty') }}">{{ _("Назад к выбору") }}</a>
+  </div>
+</form>
+{% endblock %}

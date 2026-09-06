@@ -78,6 +78,15 @@ class Cooperative(Base):
     dues_due_day: Mapped[int | None] = mapped_column(Integer)    # 1-31
     dues_due_month: Mapped[int | None] = mapped_column(Integer)  # 1-12
 
+    # Судебный участок по месту нахождения САМОГО кооператива — фолбэк для
+    # исков/госпошлины (app/legal_docs.py: resolve_court_section), когда у
+    # конкретного должника (Person.court_section_id) участок не заполнен —
+    # т.е. когда последнее место жительства должника неизвестно.
+    default_court_section_id: Mapped[int | None] = mapped_column(
+        ForeignKey("court_section.id", ondelete="SET NULL"), index=True
+    )
+    default_court_section: Mapped["CourtSection | None"] = relationship()
+
     comment: Mapped[str | None] = mapped_column(Text)
 
     @property
@@ -430,6 +439,39 @@ class Counterparty(Base):
     payments: Mapped[list["CounterpartyPayment"]] = relationship(back_populates="counterparty")
     reconciliation_acts: Mapped[list["ReconciliationAct"]] = relationship(back_populates="counterparty")
     documents: Mapped[list["Document"]] = relationship(back_populates="counterparty")
+
+
+class CourtSection(Base):
+    """
+    Судебный участок (мировой судья) или суд — реквизиты для взыскания
+    задолженности через суд (app/legal_docs.py: раздел «Делопроизводство»).
+    Автоматически определить нужный участок по адресу должника нельзя (нет
+    открытого API с привязкой «адрес → участок») — правление один раз
+    вносит сюда участок, узнав его официально (напр. через mirsudrf.ru по
+    адресу должника), и дальше он переиспользуется для всех должников
+    этого же участка (см. Person.court_section_id) либо как участок по
+    месту нахождения самого кооператива (Cooperative.default_court_section_id).
+    """
+    __tablename__ = "court_section"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(255))  # напр. «Судебный участок №5 Тверского судебного района г. Твери»
+    court_address: Mapped[str | None] = mapped_column(Text)  # адрес суда — для шапки иска и конвертов
+
+    # Реквизиты уплаты госпошлины (получатель — территориальный орган
+    # Федерального казначейства, не сам суд) — свободные текстовые поля:
+    # председатель переносит их из официального источника (сайт суда/ФНС),
+    # проверять/парсить их здесь не имеет смысла.
+    treasury_payee: Mapped[str | None] = mapped_column(String(255))
+    treasury_inn: Mapped[str | None] = mapped_column(String(12))
+    treasury_kpp: Mapped[str | None] = mapped_column(String(9))
+    treasury_bank: Mapped[str | None] = mapped_column(String(255))
+    treasury_account: Mapped[str | None] = mapped_column(String(20))
+    treasury_bik: Mapped[str | None] = mapped_column(String(9))
+    treasury_correspondent_account: Mapped[str | None] = mapped_column(String(20))
+    treasury_oktmo: Mapped[str | None] = mapped_column(String(11))
+    treasury_kbk: Mapped[str | None] = mapped_column(String(20))  # КБК госпошлины по гражданским делам
+    comment: Mapped[str | None] = mapped_column(Text)
 
 
 class Expense(Base):
@@ -990,6 +1032,16 @@ class Person(Base):
     is_board_member: Mapped[bool] = mapped_column(Boolean, default=False)
     is_chairman: Mapped[bool] = mapped_column(Boolean, default=False)  # должен быть true максимум у одного Person
     is_accountant: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    # Судебный участок по последнему известному месту жительства — для
+    # взыскания задолженности через суд (app/legal_docs.py). Правление
+    # проставляет вручную, когда узнало официально; пока пусто — при
+    # формировании иска/госпошлины используется участок по месту
+    # нахождения кооператива (Cooperative.default_court_section_id).
+    court_section_id: Mapped[int | None] = mapped_column(
+        ForeignKey("court_section.id", ondelete="SET NULL"), index=True
+    )
+    court_section: Mapped["CourtSection | None"] = relationship()
 
     phones: Mapped[list["Phone"]] = relationship(back_populates="person", cascade="all, delete-orphan")
     revisions: Mapped[list["PersonDataRevision"]] = relationship(back_populates="person", cascade="all, delete-orphan")

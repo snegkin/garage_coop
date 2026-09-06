@@ -1,0 +1,61 @@
+{# Общий стиль формального документа для всех страниц раздела
+   «Делопроизводство» — используется И на экране (WYSIWYG превью перед
+   печатью — здесь это уместно, документы формальные и должны выглядеть
+   одинаково что на экране, что на бумаге), И в standalone-шаблоне для
+   weasyprint (см. legal_docs._render_pdf_or_fallback). Один .legal-print
+   может содержать несколько .legal-doc (по одному на должника) — между
+   ними разрыв страницы, кроме последнего. #}
+<style>
+.legal-print {
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 13px;
+  color: #000;
+  background: #fff;
+  max-width: 210mm;
+  margin: 0 auto;
+}
+.legal-print .legal-doc { padding: 10mm 0; }
+.legal-print .print-letterhead {
+  display: flex; align-items: center; gap: 5mm;
+  border-bottom: 1px solid #000; padding-bottom: 3mm; margin-bottom: 6mm;
+}
+.legal-print .print-logo { height: 16mm; width: auto; flex: none; }
+.legal-print .print-org-name { font-size: 12px; font-weight: bold; }
+.legal-print .print-org-requisites { font-size: 10px; color: #333; }
+.legal-print .print-org-address { font-size: 10px; color: #333; }
+
+.legal-print .print-title { font-size: 15px; font-weight: bold; text-align: center; margin: 0 0 2mm; }
+.legal-print .print-subtitle { text-align: center; margin: 0 0 1mm; }
+.legal-print .print-meta { text-align: center; color: #333; font-size: 11px; margin: 0 0 6mm; }
+
+.legal-print .print-table { width: 100%; border-collapse: collapse; margin: 0 0 6mm; font-size: 11px; }
+.legal-print .print-table th, .legal-print .print-table td { border: 1px solid #000; padding: 1mm 2mm; }
+.legal-print .print-table th { background: #eee; text-align: left; font-weight: bold; }
+.legal-print .print-table td.num, .legal-print .print-table th.num { text-align: right; }
+.legal-print .print-table tfoot td { font-weight: bold; }
+
+.legal-print .print-signatures { margin-top: 12mm; }
+.legal-print .signature-rows { text-align: left; width: 100mm; margin-left: auto; }
+.legal-print .signature-line { margin-bottom: 7mm; white-space: nowrap; }
+.legal-print .sig-role { display: inline-block; width: 28mm; }
+.legal-print .sig-blank { display: inline-block; width: 45mm; border-bottom: 1px solid #000; margin: 0 2mm; }
+.legal-print .sig-name { font-size: 10px; }
+.legal-print .stamp-place {
+  width: 24mm; height: 24mm; margin: 4mm 0 0 auto; border: 1px dashed #666; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 9px; color: #666; text-align: center;
+}
+.legal-print .legal-text { white-space: pre-wrap; line-height: 1.5; }
+
+@media print {
+  @page { size: auto; margin: 15mm; }
+  .no-print, nav, footer { display: none !important; }
+  html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; }
+  body div, body main, body section {
+    width: auto !important; max-width: none !important;
+    margin-left: 0 !important; margin-right: 0 !important;
+    padding-left: 0 !important; padding-right: 0 !important;
+  }
+  .legal-print .legal-doc:not(:last-child) { page-break-after: always; }
+}
+</style>

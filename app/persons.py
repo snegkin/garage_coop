@@ -13,7 +13,7 @@ from .auth import login_required, roles_required, is_safe_next_url
 from .permissions import is_board, is_chairman, sync_user_role
 from .models import (
     Person, Phone, User, RoleEnum, MemberAccount, PersonDataRevision, PersonDataRevisionStatus,
-    GarageOwnership, PersonalAccount, Cooperative, Charge, FeeType, KeyRate,
+    GarageOwnership, PersonalAccount, Cooperative, Charge, FeeType, KeyRate, CourtSection,
 )
 from sqlalchemy.orm import joinedload
 from .accounting import balance
@@ -247,12 +247,14 @@ def detail(person_id):
         ma.fee_type.is_penalty and balance(ma) < 0 for ma in member_accounts
     )
     revision_rows = {}
+    court_sections = []
     if is_chairman():
         revision_rows = {rev.id: _revision_diff_rows(rev, person) for rev in person.revisions}
+        court_sections = database.db_session.query(CourtSection).order_by(CourtSection.name).all()
     return render_template(
         "persons/detail.html", person=person, account=account, member_accounts=member_accounts,
         has_unpaid_penalty=has_unpaid_penalty,
-        revision_rows=revision_rows, today=dt.date.today(),
+        revision_rows=revision_rows, court_sections=court_sections, today=dt.date.today(),
     )
 
 
@@ -272,42 +274,37 @@ def _statement_row(account_number: str, url: str, label: str, charges, payments)
     }
 
 
-@bp.route("/<int:person_id>/statement")
-@login_required
-def statement(person_id):
+def build_statement(person) -> dict:
     """
-    Сводная печатная выписка по ВСЕМ лицевым счетам человека сразу —
-    взносы/налог (MemberAccount) и, если он собственник гаража(ей),
-    электричество (PersonalAccount, счёт общий на гараж, не персональный,
-    но раз человек им пользуется — включаем и его тоже). Одна строка на
-    счёт (см. _statement_row) — не постатейно по каждому начислению/
-    платежу, как было раньше: для печатной выписки, которую видит и
-    рядовой член, это оказалось избыточно подробно (годы, статусы оплаты
-    каждого начисления по отдельности), а полная история всё равно есть
-    на карточке конкретного счёта, куда ведёт ссылка по номеру.
+    Сводная выписка по ВСЕМ лицевым счетам человека сразу — взносы/налог
+    (MemberAccount) и, если он собственник гаража(ей), электричество
+    (PersonalAccount, счёт общий на гараж, не персональный, но раз человек
+    им пользуется — включаем и его тоже). Одна строка на счёт (см.
+    _statement_row) — не постатейно по каждому начислению/платежу: для
+    печатной выписки, которую видит и рядовой член, это оказалось
+    избыточно подробно (годы, статусы оплаты каждого начисления по
+    отдельности), а полная история всё равно есть на карточке конкретного
+    счёта, куда ведёт ссылка по номеру.
 
-    Счета вида взноса «пеня» — отдельным блоком под основной таблицей
-    (penalty_rows), не строкой в общем списке: их баланс расчётно другой
-    природы (не долг за товар/услугу, а санкция за просрочку), поэтому
-    итог считается явно в два слагаемых — «Баланс» (без пени) и «Пеня» —
-    и складывается в penalty_rows/grand_total ниже.
+    Счета вида взноса «пеня» — отдельным блоком (penalty_rows), не строкой
+    в общем списке: их баланс расчётно другой природы (не долг за товар/
+    услугу, а санкция за просрочку), поэтому итог считается явно в два
+    слагаемых — «Баланс» (без пени) и «Пеня» — и складывается в
+    penalty_rows/grand_total ниже.
+
+    Используется и persons.statement() (личная печатная выписка), и
+    legal_docs.debt_notice() (уведомление о задолженности на нескольких
+    должников разом) — ровно одна реализация сводки долга на человека.
     """
-    person = database.db_session.get(Person, person_id)
-    if person is None:
-        flash(_("Человек не найден."), "danger")
-        return redirect(url_for("persons.list_persons") if is_board() else url_for("cabinet.profile"))
-    if not is_board() and g.user.person_id != person_id:
-        abort(403)
-
     member_accounts = (
         database.db_session.query(MemberAccount)
         .filter_by(person_id=person.id)
         .options(joinedload(MemberAccount.charges), joinedload(MemberAccount.payments))
         .all()
     )
-    # Печатная выписка — здесь нет чекбокса «Актуальные», который мог бы
-    # раскрыть счёт обратно, поэтому пени без единого начисления (нечего
-    # показывать) отфильтровываем насовсем, в отличие от detail() выше.
+    # Пени без единого начисления (нечего показывать) отфильтровываем
+    # насовсем — в отличие от detail(), тут нет чекбокса «Актуальные»,
+    # который мог бы раскрыть счёт обратно.
     member_accounts = [ma for ma in member_accounts if not ma.fee_type.is_penalty or ma.charges]
     member_accounts.sort(key=lambda ma: (ma.garage.number, ma.fee_type.name))
 
@@ -343,11 +340,28 @@ def statement(person_id):
     balance_excl_penalty = sum((r["balance"] for r in rows), Decimal("0"))
     penalty_total = sum((r["balance"] for r in penalty_rows), Decimal("0"))
 
+    return {
+        "rows": rows, "penalty_rows": penalty_rows,
+        "balance_excl_penalty": balance_excl_penalty, "penalty_total": penalty_total,
+        "grand_total": balance_excl_penalty + penalty_total,
+        "year_from": min(years) if years else None, "year_to": max(years) if years else None,
+    }
+
+
+@bp.route("/<int:person_id>/statement")
+@login_required
+def statement(person_id):
+    person = database.db_session.get(Person, person_id)
+    if person is None:
+        flash(_("Человек не найден."), "danger")
+        return redirect(url_for("persons.list_persons") if is_board() else url_for("cabinet.profile"))
+    if not is_board() and g.user.person_id != person_id:
+        abort(403)
+
+    summary = build_statement(person)
+
     return render_template(
-        "persons/statement.html", person=person, rows=rows, penalty_rows=penalty_rows,
-        balance_excl_penalty=balance_excl_penalty, penalty_total=penalty_total,
-        grand_total=balance_excl_penalty + penalty_total,
-        year_from=min(years) if years else None, year_to=max(years) if years else None,
+        "persons/statement.html", person=person, **summary,
         today=dt.date.today(),
         # Для официальной шапки/подписей на печатной форме (см.
         # persons/statement.html: .print-letterhead/.print-signatures) —

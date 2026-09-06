@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Исковое заявление") }}{% endblock %}
+{% block content %}
+<h3 class="mb-3">{{ _("Исковое заявление") }} — {{ _("черновик для проверки") }}</h3>
+<div class="alert alert-danger">
+  {{ _("Это черновик, а не готовый к подаче документ. Перед подачей в суд обязательно проверьте и при необходимости поправьте текст, суммы и реквизиты сторон вместе с юристом кооператива.") }}
+</div>
+
+<form method="post" action="{{ url_for('legal_docs.lawsuit_print') }}">
+  {% for draft in drafts %}
+  <div class="mb-4 bg-body p-3 rounded border">
+    <h5>{{ draft.person.full_name }}</h5>
+    <input type="hidden" name="person_id" value="{{ draft.person.id }}">
+    <textarea class="form-control" name="text_{{ draft.person.id }}" rows="24" style="font-family: monospace; font-size: 0.9em;">{{ draft.text }}</textarea>
+  </div>
+  {% endfor %}
+  <div class="d-flex gap-2">
+    <button class="btn btn-primary">{{ _("Печать") }}</button>
+    <a class="btn btn-outline-secondary" href="{{ url_for('legal_docs.lawsuit') }}">{{ _("Назад к выбору") }}</a>
+  </div>
+</form>
+{% endblock %}

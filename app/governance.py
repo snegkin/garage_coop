@@ -2,14 +2,17 @@ import datetime as dt
 
 from flask import Blueprint, render_template, request, redirect, url_for, flash, abort
 
+from sqlalchemy.orm import joinedload
+
 from . import database
 from . import audit
+from . import audit_format
 from .i18n import translate as _
 from .auth import login_required, roles_required
 from .permissions import sync_user_role
 from .models import (
     BoardTerm, BoardMember, RevisionCommission, RevisionCommissionMember,
-    Person, GeneralMeeting, RoleEnum, AuditLog,
+    Person, GeneralMeeting, RoleEnum, AuditLog, User,
 )
 
 bp = Blueprint("governance", __name__, url_prefix="/governance")
@@ -472,6 +475,12 @@ def audit_log():
     событий кооператива (десятки-сотни в месяц).
     """
     entries = database.db_session.query(AuditLog).order_by(AuditLog.created_at.desc(), AuditLog.id.desc()).all()
+
+    persons = database.db_session.query(Person).options(joinedload(Person.phones)).all()
+    users = database.db_session.query(User).all()
+    linkify_index = audit_format.build_linkify_index(persons, users)
+    summaries_html = {entry.id: audit_format.linkify_summary(entry.summary, linkify_index) for entry in entries}
+
     return render_template(
-        "governance/audit_log.html", entries=entries,
+        "governance/audit_log.html", entries=entries, summaries_html=summaries_html,
     )

@@ -48,11 +48,75 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "По логину": "By username",
         "По телефону": "By phone",
         "Номер телефона": "Phone number",
-        "Если у вас ещё нет учётной записи, но этот номер телефона есть в базе кооператива — учётная запись будет создана автоматически, а введённый здесь пароль станет вашим паролем для входа.":
-            "If you don't have an account yet, but this phone number is on file with the cooperative — an account will be created automatically, and the password you enter here will become your login password.",
+        "Если у вас ещё нет учётной записи, но этот номер телефона есть в базе кооператива — на него придёт СМС с кодом подтверждения, а введённый здесь пароль станет вашим паролем для входа.":
+            "If you don't have an account yet, but this phone number is on file with the cooperative — you'll receive an SMS confirmation code, and the password you enter here will become your login password.",
         "Введите номер телефона и пароль.": "Enter your phone number and password.",
         "Не удалось войти по этому номеру телефона.": "Couldn't sign in with this phone number.",
         "Неверный пароль.": "Incorrect password.",
+        "Забыли пароль?": "Forgot your password?",
+
+        # auth — подтверждение телефона СМС-кодом при самостоятельной регистрации
+        "СМС-уведомления пока не настроены — обратитесь к председателю.": "SMS notifications aren't configured yet — please contact the chairman.",
+        "Код подтверждения: {code}": "Confirmation code: {code}",
+        "Не удалось отправить СМС: {error}": "Failed to send SMS: {error}",
+        "Некорректный номер телефона.": "Invalid phone number.",
+        "Запросите код заново, указав телефон и пароль.": "Request a new code by entering your phone number and password again.",
+        "Код отправлен повторно.": "The code has been sent again.",
+        "Неверный или истёкший код.": "Incorrect or expired code.",
+        "Учётная запись для этого номера уже существует — войдите по логину или телефону.": "An account for this number already exists — sign in by username or phone.",
+        "Подтверждение телефона": "Phone confirmation",
+        "Мы отправили код подтверждения СМС на номер {phone}. Введите его, чтобы завершить создание учётной записи.":
+            "We sent a confirmation code by SMS to {phone}. Enter it to finish creating your account.",
+        "Код из СМС": "SMS code",
+        "Подтвердить": "Confirm",
+        "Отправить код ещё раз": "Resend the code",
+
+        # auth — восстановление пароля
+        "Введите email или номер телефона.": "Enter your email or phone number.",
+        "Не пройдена проверка «Я не робот» — попробуйте ещё раз.": "The \"I'm not a robot\" check failed — please try again.",
+        "Если такой email или номер телефона найден в базе кооператива — код для сброса пароля отправлен.":
+            "If this email or phone number is on file with the cooperative, a password reset code has been sent.",
+        "Восстановление пароля": "Password recovery",
+        "Код для восстановления пароля: {code}\n\nЕсли вы не запрашивали восстановление пароля, просто проигнорируйте это письмо.":
+            "Password recovery code: {code}\n\nIf you didn't request a password reset, just ignore this email.",
+        "Код для восстановления пароля: {code}": "Password recovery code: {code}",
+        "Не удалось найти учётную запись — обратитесь к председателю.": "Couldn't find an account — please contact the chairman.",
+        "Пароль изменён — теперь можно войти.": "Password changed — you can now sign in.",
+        "Укажите email или номер телефона, привязанные к вашей учётной записи, — вышлем код для сброса пароля.":
+            "Enter the email or phone number linked to your account — we'll send a password reset code.",
+        "Email или номер телефона": "Email or phone number",
+        "Отправить код": "Send code",
+        "Назад ко входу": "Back to sign in",
+        "Новый пароль": "New password",
+        "Введите код из письма/СМС и новый пароль.": "Enter the code from the email/SMS and a new password.",
+        "Код": "Code",
+        "Сохранить пароль": "Save password",
+        "Запросить код заново": "Request a new code",
+
+        # sms_settings
+        "Настройки СМС": "SMS settings",
+        "СМС": "SMS",
+        "Используется для подтверждения номера телефона при самостоятельной регистрации и для восстановления пароля по телефону.":
+            "Used to confirm phone numbers during self-registration and for password recovery by phone.",
+        "СМС настроены и готовы к отправке.": "SMS is configured and ready to send.",
+        "СМС ещё не настроены — регистрация и восстановление пароля по телефону не будут работать, пока не заполните email и API-ключ SMS Aero.":
+            "SMS isn't configured yet — phone registration and password recovery by phone won't work until you fill in the SMS Aero email and API key.",
+        "Провайдер": "Provider",
+        "Пока поддерживается только SMS Aero.": "Only SMS Aero is supported for now.",
+        "Email аккаунта SMS Aero": "SMS Aero account email",
+        "API-ключ": "API key",
+        "Личный кабинет SMS Aero → Профиль → API-ключ (не пароль от личного кабинета).": "SMS Aero account → Profile → API key (not your account password).",
+        "Имя отправителя (sign)": "Sender name (sign)",
+        "Если зарегистрировано у провайдера — иначе используется значение по умолчанию SMS Aero.":
+            "If registered with the provider — otherwise SMS Aero's default is used.",
+        "Настройки СМС сохранены.": "SMS settings saved.",
+        "Тестовая отправка": "Test send",
+        "Отправить": "Send",
+        "Последний результат": "Last result",
+        "Успешно отправлено.": "Sent successfully.",
+        "Сначала укажите email и API-ключ SMS Aero.": "First enter the SMS Aero email and API key.",
+        "Укажите корректный номер телефона для теста.": "Enter a valid phone number for the test.",
+        "необязательно": "optional",
 
         # news
         "Новости кооператива": "Cooperative news",

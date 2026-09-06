@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Подтверждение телефона") }}{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-md-5">
+    <div class="card bg-body">
+      <div class="card-body">
+        <h5 class="card-title mb-3">{{ _("Подтверждение телефона") }}</h5>
+        <p class="text-muted">{{ _("Мы отправили код подтверждения СМС на номер {phone}. Введите его, чтобы завершить создание учётной записи.", phone=phone) }}</p>
+        <form method="post" action="{{ url_for('auth.register_phone_confirm') }}">
+          <input type="hidden" name="phone" value="{{ phone }}">
+          <div class="mb-3">
+            <label class="form-label">{{ _("Код из СМС") }}</label>
+            <input class="form-control" name="code" inputmode="numeric" pattern="[0-9]*" maxlength="6" required autofocus>
+          </div>
+          <button class="btn btn-primary w-100">{{ _("Подтвердить") }}</button>
+        </form>
+        <form method="post" action="{{ url_for('auth.register_phone_resend') }}" class="mt-3 text-center">
+          <input type="hidden" name="phone" value="{{ phone }}">
+          <button class="btn btn-link btn-sm p-0">{{ _("Отправить код ещё раз") }}</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

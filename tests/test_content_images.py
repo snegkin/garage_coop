@@ -87,7 +87,7 @@ def test_wiki_view_contains_lightbox_overlay(db, client):
     from app.models import WikiPage
     page = db.query(WikiPage).filter_by(title="Страница").one()
 
-    resp = client.get(f"/wiki/{page.id}")
+    resp = client.get(f"/wiki/{page.slug}")
     html = resp.get_data(as_text=True)
     assert "lightboxOverlay" in html
     assert '<img alt="" src="/x.png">' in html

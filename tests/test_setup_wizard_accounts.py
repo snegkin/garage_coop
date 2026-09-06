@@ -1,10 +1,10 @@
 """
 Массовое создание учётных записей в мастере первоначальной настройки
 (setup_wizard.accounts_step/accounts_create) — логин по умолчанию первая
-буква имени + фамилия (см. _generate_login), коллизии не создаются
-автоматически, а показываются человеку списком для правки. Люди с уже
-существующей учётной записью не попадают в список вовсе — их нельзя
-случайно пересоздать.
+буква имени + фамилия, транслитерированная в латиницу (см.
+app/login_generation.py:default_login), коллизии не создаются автоматически, а показываются
+человеку списком для правки. Люди с уже существующей учётной записью не
+попадают в список вовсе — их нельзя случайно пересоздать.
 """
 from app.models import RoleEnum, User
 
@@ -19,6 +19,8 @@ def _make_chairman(db, username="chair900"):
 
 
 def test_generate_login_formula(db, client):
+    """Первая буква имени + фамилия, транслитерированные в латиницу (не
+    кириллицей — логин неудобно вводить на нерусской раскладке)."""
     _make_chairman(db)
     make_person(db, full_name="Иванов Иван Иванович")
     db.commit()
@@ -27,7 +29,7 @@ def test_generate_login_formula(db, client):
     resp = client.get("/setup/accounts")
     assert resp.status_code == 200
     body = resp.get_data(as_text=True)
-    assert 'value="ииванов"' in body
+    assert 'value="iivanov"' in body
 
 
 def test_person_with_existing_account_excluded_from_list(db, client):

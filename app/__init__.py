@@ -88,7 +88,7 @@ def create_app(config_class=Config):
         from . import database
         from .models import (
             Cooperative, PersonDataRevision, PersonDataRevisionStatus, Vote, VoteQuestion, VoteBallot, VoteStatus,
-            RoleEnum, Person, VoteProposal, VoteProposalBoardBallot, ProposalStatus,
+            RoleEnum, Person, VoteProposal, VoteProposalBoardBallot, ProposalStatus, BoardChatMessage,
         )
         from .accounting import balance as _balance
         from .permissions import is_board, is_chairman, is_privileged
@@ -133,11 +133,23 @@ def create_app(config_class=Config):
                     ).exists(),
                 ).count()
 
+        # непрочитанные сообщения чата правления (см. app/board_chat.py) —
+        # свои сообщения не считаются непрочитанными; порог "прочитано по"
+        # общий на все сообщения, не по каждому (User.board_chat_read_at)
+        board_chat_unread = 0
+        if user and is_board():
+            since = user.board_chat_read_at or dt.datetime.min
+            board_chat_unread = database.db_session.query(BoardChatMessage).filter(
+                BoardChatMessage.created_at > since,
+                BoardChatMessage.author_id != user.id,
+            ).count()
+
         return {
             "current_user": user, "coop_name": coop_name, "balance": _balance,
             "is_board": is_board, "is_chairman": is_chairman, "is_privileged": is_privileged,
             "pending_pd_count": pending_pd,
             "pending_votes_count": pending_votes,
+            "board_chat_unread_count": board_chat_unread,
             "pending_proposals_count": pending_proposals,
         }
 
@@ -165,6 +177,7 @@ def create_app(config_class=Config):
     from .setup_wizard import bp as setup_wizard_bp
     from .surveillance import bp as surveillance_bp
     from .sms_settings import bp as sms_settings_bp
+    from .board_chat import bp as board_chat_bp
 
     app.register_blueprint(main_bp)
     app.register_blueprint(garages_bp)
@@ -190,6 +203,7 @@ def create_app(config_class=Config):
     app.register_blueprint(setup_wizard_bp)
     app.register_blueprint(surveillance_bp)
     app.register_blueprint(sms_settings_bp)
+    app.register_blueprint(board_chat_bp)
 
     @app.route("/")
     def index():

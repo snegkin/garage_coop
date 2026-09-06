@@ -186,6 +186,144 @@
   <div class="lightbox-counter"></div>
 </div>
 
+{% if current_user and is_board() %}
+<div id="boardChatWidget">
+  <button type="button" id="boardChatToggle" class="board-chat-bubble" aria-label="{{ _('Чат правления') }}">
+    &#128172;
+    <span id="boardChatBadge" class="board-chat-badge {{ 'd-none' if not board_chat_unread_count }}">{{ board_chat_unread_count }}</span>
+  </button>
+  <div id="boardChatPanel" class="board-chat-panel d-none">
+    <div class="board-chat-header">
+      <span>{{ _("Чат правления") }}</span>
+      <button type="button" id="boardChatClose" class="btn-close btn-close-white" aria-label="{{ _('Закрыть') }}"></button>
+    </div>
+    <div id="boardChatMessages" class="board-chat-messages"></div>
+    <form id="boardChatForm" class="board-chat-form">
+      <textarea id="boardChatInput" class="form-control form-control-sm" rows="1" placeholder="{{ _('Написать сообщение…') }}"></textarea>
+      <button type="submit" class="btn btn-sm btn-primary">{{ _("Отправить") }}</button>
+    </form>
+  </div>
+</div>
+<script>
+// Чат правления — плавающий виджет (см. app/board_chat.py). Опрос новых
+// сообщений идёт ТОЛЬКО пока панель открыта (setInterval стартует при
+// открытии, останавливается при закрытии) — закрытый виджет не долбит
+// сервер, бейдж непрочитанных обновляется сам собой при обычной
+// навигации по страницам (board_chat_unread_count — контекст-процессор
+// в app/__init__.py).
+(function () {
+  var toggleBtn = document.getElementById("boardChatToggle");
+  var closeBtn = document.getElementById("boardChatClose");
+  var panel = document.getElementById("boardChatPanel");
+  var badge = document.getElementById("boardChatBadge");
+  var messagesEl = document.getElementById("boardChatMessages");
+  var form = document.getElementById("boardChatForm");
+  var input = document.getElementById("boardChatInput");
+
+  var lastId = 0;
+  var pollTimer = null;
+  var csrfMeta = document.querySelector('meta[name="csrf-token"]');
+
+  function renderMessage(msg) {
+    var el = document.createElement("div");
+    el.className = "board-chat-message" + (msg.is_mine ? " is-mine" : "");
+
+    var author = document.createElement("span");
+    author.className = "board-chat-author";
+    author.textContent = msg.author_name;  // textContent — не innerHTML, обычный текст, не разметка
+    el.appendChild(author);
+
+    var body = document.createElement("div");
+    body.textContent = msg.body;
+    el.appendChild(body);
+
+    var time = document.createElement("span");
+    time.className = "board-chat-time";
+    time.textContent = new Date(msg.created_at).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"});
+    el.appendChild(time);
+
+    messagesEl.appendChild(el);
+    if (msg.id > lastId) lastId = msg.id;
+  }
+
+  function scrollToBottom() {
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+
+  function poll() {
+    fetch("{{ url_for('board_chat.list_messages') }}?after_id=" + lastId)
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (!data.messages || !data.messages.length) return;
+        data.messages.forEach(renderMessage);
+        scrollToBottom();
+      })
+      .catch(function () {});
+  }
+
+  function loadInitial() {
+    fetch("{{ url_for('board_chat.list_messages') }}")
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        messagesEl.innerHTML = "";
+        lastId = 0;
+        (data.messages || []).forEach(renderMessage);
+        scrollToBottom();
+        badge.classList.add("d-none");
+      })
+      .catch(function () {});
+  }
+
+  function open() {
+    panel.classList.remove("d-none");
+    loadInitial();
+    if (pollTimer) clearInterval(pollTimer);
+    pollTimer = setInterval(poll, 4000);
+    input.focus();
+  }
+
+  function close() {
+    panel.classList.add("d-none");
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  }
+
+  toggleBtn.addEventListener("click", function () {
+    if (panel.classList.contains("d-none")) open(); else close();
+  });
+  closeBtn.addEventListener("click", close);
+
+  form.addEventListener("submit", function (e) {
+    e.preventDefault();
+    var body = input.value.trim();
+    if (!body) return;
+    var formData = new FormData();
+    formData.append("body", body);
+    fetch("{{ url_for('board_chat.send_message') }}", {
+      method: "POST",
+      headers: csrfMeta ? { "X-CSRFToken": csrfMeta.getAttribute("content") } : {},
+      body: formData,
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.message) {
+          renderMessage(data.message);
+          scrollToBottom();
+        }
+      });
+    input.value = "";
+  });
+
+  // Enter отправляет, Shift+Enter — перенос строки (обычное поведение чатов).
+  input.addEventListener("keydown", function (e) {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      form.requestSubmit();
+    }
+  });
+})();
+</script>
+{% endif %}
+
 <script>
 // Как parse_decimal в app/i18n.py на сервере — разбирает дробное число,
 // введённое пользователем, принимая и точку, и запятую как разделитель
@@ -415,6 +553,39 @@ tr.table-info-subtle { --bs-table-bg: var(--bs-info-bg-subtle); --bs-table-borde
 .lightbox-prev { left: 1rem; }
 .lightbox-next { right: 1rem; }
 .lightbox-counter { position: absolute; bottom: 1rem; left: 50%; transform: translateX(-50%); color: #fff; font-size: .9rem; opacity: .85; }
+/* Плавающий чат правления (см. app/board_chat.py) — кнопка-пузырь всегда
+   поверх страницы, панель раскрывается над ней. z-index ниже, чем у
+   лайтбокса (2000) — открытый лайтбокс не должен просвечивать чатом. */
+.board-chat-bubble {
+  position: fixed; right: 1.25rem; bottom: 1.25rem; z-index: 1500;
+  width: 3.25rem; height: 3.25rem; border-radius: 50%; border: none;
+  background: var(--bs-primary); color: #fff; font-size: 1.4rem;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 .25rem .75rem rgba(0, 0, 0, .3); cursor: pointer;
+}
+.board-chat-badge {
+  position: absolute; top: -.25rem; right: -.25rem; background: var(--bs-danger);
+  color: #fff; border-radius: 50%; min-width: 1.35rem; height: 1.35rem;
+  font-size: .7rem; display: flex; align-items: center; justify-content: center;
+  padding: 0 .25rem; line-height: 1;
+}
+.board-chat-panel {
+  position: fixed; right: 1.25rem; bottom: 5rem; z-index: 1500;
+  width: 320px; max-width: calc(100vw - 2rem); height: 420px; max-height: calc(100vh - 8rem);
+  background: var(--bs-body-bg); border: 1px solid var(--bs-border-color); border-radius: .5rem;
+  box-shadow: 0 .5rem 1.5rem rgba(0, 0, 0, .35); display: flex; flex-direction: column; overflow: hidden;
+}
+.board-chat-header {
+  background: var(--bs-primary); color: #fff; padding: .5rem .75rem;
+  display: flex; justify-content: space-between; align-items: center; font-weight: 600;
+}
+.board-chat-messages { flex: 1; overflow-y: auto; padding: .5rem .75rem; display: flex; flex-direction: column; gap: .5rem; }
+.board-chat-message { max-width: 85%; padding: .35rem .6rem; border-radius: .75rem; background: var(--bs-tertiary-bg); white-space: pre-wrap; word-break: break-word; }
+.board-chat-message.is-mine { align-self: flex-end; background: var(--bs-primary-bg-subtle); }
+.board-chat-message .board-chat-author { font-size: .75rem; font-weight: 600; opacity: .75; display: block; }
+.board-chat-message .board-chat-time { font-size: .7rem; opacity: .6; display: block; margin-top: .15rem; }
+.board-chat-form { display: flex; gap: .4rem; padding: .5rem; border-top: 1px solid var(--bs-border-color); }
+.board-chat-form textarea { resize: none; }
 .wiki-tree-toggle { display: inline-block; width: 1.1rem; text-align: center; }
 .wiki-tree-toggle .chevron { display: inline-block; transition: transform .15s; }
 .wiki-tree-toggle.collapsed .chevron { transform: rotate(-90deg); }

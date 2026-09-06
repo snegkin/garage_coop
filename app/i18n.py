@@ -110,6 +110,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Если зарегистрировано у провайдера — иначе используется значение по умолчанию SMS Aero.":
             "If registered with the provider — otherwise SMS Aero's default is used.",
         "Настройки СМС сохранены.": "SMS settings saved.",
+
+        # board_chat
+        "Чат правления": "Board chat",
+        "Написать сообщение…": "Write a message…",
         "Тестовая отправка": "Test send",
         "Отправить": "Send",
         "Последний результат": "Last result",

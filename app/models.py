@@ -1134,11 +1134,19 @@ class WikiPage(Base):
     Раньше вместо дерева была плоская произвольная категория (свободный
     текст) — заменена деревом при переходе на иерархическую навигацию (см.
     миграцию add_wiki_page_tree: старые значения category стали корневыми
-    разделами, существующие страницы этой категории — их детьми)."""
+    разделами, существующие страницы этой категории — их детьми).
+
+    slug — человекопонятный URL (/wiki/<slug> вместо /wiki/<id>), см.
+    app/wiki.py:_slugify. Генерируется ОДИН РАЗ при создании страницы из
+    заголовка (транслитерация, см. app/translit.py) и больше НЕ меняется
+    при последующих правках заголовка — иначе уже сохранённые где-то
+    (закладки, другие страницы вики, распечатки) ссылки переставали бы
+    работать при каждом переименовании."""
     __tablename__ = "wiki_page"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     title: Mapped[str] = mapped_column(String(255))
+    slug: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     parent_id: Mapped[int | None] = mapped_column(ForeignKey("wiki_page.id", ondelete="RESTRICT"), index=True)
     body: Mapped[str] = mapped_column(Text)  # markdown-исходник, тот же формат, что у News.body (см. news_format.py)
     is_internal: Mapped[bool] = mapped_column(Boolean, default=False, index=True)

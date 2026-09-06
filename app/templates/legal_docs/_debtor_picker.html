@@ -1,0 +1,74 @@
+{# Ожидает переменную debtors (список {person, debt} из legal_docs.list_debtor_persons)
+   и form_action (url для POST). Мультивыбор должников с поиском — тот же
+   JS-паттерн, что и у выбора гаражей в finance/mass_charge.html, только по
+   людям и с суммой долга вместо собственника. #}
+<form method="post" action="{{ form_action }}">
+  <div class="d-flex gap-2 mb-2">
+    <input type="text" class="form-control form-control-sm" id="debtorPickerFilter" placeholder="{{ _('Поиск по ФИО…') }}">
+    <button type="button" class="btn btn-sm btn-primary text-nowrap" id="debtorPickerSelectAll">{{ _("Выбрать все") }}</button>
+    <button type="button" class="btn btn-sm btn-primary text-nowrap" id="debtorPickerClear">{{ _("Снять все") }}</button>
+  </div>
+  <div class="border rounded p-2 bg-body-tertiary" style="max-height:360px; overflow-y:auto" id="debtorPickerList">
+    {% for row in debtors %}
+    <div class="form-check debtor-picker-row d-flex justify-content-between align-items-center" data-search="{{ row.person.full_name|lower }}">
+      <span>
+        <input class="form-check-input" type="checkbox" name="person_id" value="{{ row.person.id }}" id="debtorCheck{{ row.person.id }}">
+        <label class="form-check-label" for="debtorCheck{{ row.person.id }}">{{ row.person.full_name }}</label>
+      </span>
+      <span class="text-danger small">{{ fmt2(row.debt) }} ₽</span>
+    </div>
+    {% else %}
+    <p class="text-muted mb-0">{{ _("Должников не найдено.") }}</p>
+    {% endfor %}
+  </div>
+  <p class="text-muted small mb-3 mt-1"><span id="debtorPickerCount">0</span> {{ _("должников выбрано") }}</p>
+  <button class="btn btn-primary" {{ "disabled" if not debtors }}>{{ _("Сформировать документы") }}</button>
+</form>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  const list = document.getElementById("debtorPickerList");
+  const filter = document.getElementById("debtorPickerFilter");
+  const selectAllBtn = document.getElementById("debtorPickerSelectAll");
+  const clearBtn = document.getElementById("debtorPickerClear");
+  const countEl = document.getElementById("debtorPickerCount");
+  if (!list) return;
+
+  const rows = Array.from(list.querySelectorAll(".debtor-picker-row"));
+  const checkboxes = rows.map(function (row) { return row.querySelector("input[type=checkbox]"); });
+
+  function updateCount() {
+    countEl.textContent = checkboxes.filter(function (cb) { return cb.checked; }).length;
+  }
+
+  if (filter) {
+    filter.addEventListener("input", function () {
+      const q = filter.value.trim().toLowerCase();
+      rows.forEach(function (row) {
+        const hay = row.dataset.search || "";
+        row.style.display = (!q || hay.indexOf(q) !== -1) ? "" : "none";
+      });
+    });
+  }
+
+  if (selectAllBtn) {
+    selectAllBtn.addEventListener("click", function () {
+      rows.forEach(function (row) {
+        if (row.style.display === "none") return;
+        row.querySelector("input[type=checkbox]").checked = true;
+      });
+      updateCount();
+    });
+  }
+
+  if (clearBtn) {
+    clearBtn.addEventListener("click", function () {
+      checkboxes.forEach(function (cb) { cb.checked = false; });
+      updateCount();
+    });
+  }
+
+  checkboxes.forEach(function (cb) { cb.addEventListener("change", updateCount); });
+  updateCount();
+});
+</script>

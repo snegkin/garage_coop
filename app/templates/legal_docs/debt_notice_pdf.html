@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+{% include "legal_docs/_print_style.html" %}
+</head>
+<body>
+{% import "legal_docs/_macros.html" as m %}
+<div class="legal-print">
+  {% for doc in docs %}
+  {{ m.debt_notice_doc(doc.person, doc.summary, coop, chairman, today) }}
+  {% endfor %}
+</div>
+</body>
+</html>

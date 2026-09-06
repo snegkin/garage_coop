@@ -51,6 +51,23 @@
       {% if is_board() %}
       <tr><th>{{ _("Комментарий") }}</th><td>{{ person.comment or "—" }}</td></tr>
       {% endif %}
+      {% if is_chairman() %}
+      <tr>
+        <th>{{ _("Судебный участок") }}</th>
+        <td>
+          <form method="post" action="{{ url_for('legal_docs.person_court_section_assign', person_id=person.id) }}" class="d-flex gap-2">
+            <select class="form-select form-select-sm" name="court_section_id" style="max-width:320px">
+              <option value="">{{ _("— по месту нахождения кооператива —") }}</option>
+              {% for section in court_sections %}
+              <option value="{{ section.id }}" {{ "selected" if person.court_section_id == section.id }}>{{ section.name }}</option>
+              {% endfor %}
+            </select>
+            <button class="btn btn-sm btn-outline-primary text-nowrap">{{ _("Сохранить") }}</button>
+          </form>
+          <div class="form-text">{{ _("По последнему известному месту жительства — для исков и госпошлины (раздел «Делопроизводство»).") }}</div>
+        </td>
+      </tr>
+      {% endif %}
       <tr><th>{{ _("Членство") }}</th><td>
         {% if person.membership_start_date %}
           {{ fmt_date(person.membership_start_date) }} — {{ fmt_date(person.membership_end_date) if person.membership_end_date else "" }}

@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% import "legal_docs/_macros.html" as m %}
+{% block title %}{{ _("Уведомление о задолженности") }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3 no-print">
+  <h3 class="mb-0">{{ _("Уведомление о задолженности") }}</h3>
+  <div class="d-flex gap-2">
+    <button class="btn btn-primary" onclick="window.print()">{{ _("Печать") }}</button>
+    <form method="post" action="{{ url_for('legal_docs.debt_notice') }}" class="d-inline">
+      {% for doc in docs %}<input type="hidden" name="person_id" value="{{ doc.person.id }}">{% endfor %}
+      <input type="hidden" name="format" value="pdf">
+      <button class="btn btn-outline-primary">{{ _("Скачать PDF") }}</button>
+    </form>
+    <a class="btn btn-outline-secondary" href="{{ url_for('legal_docs.debt_notice') }}">{{ _("Назад к выбору") }}</a>
+  </div>
+</div>
+{% include "legal_docs/_print_style.html" %}
+<div class="legal-print">
+  {% for doc in docs %}
+  {{ m.debt_notice_doc(doc.person, doc.summary, coop, chairman, today) }}
+  {% endfor %}
+</div>
+{% endblock %}

@@ -2119,3 +2119,62 @@ class MailboxSettings(Base):
 
     last_error: Mapped[str | None] = mapped_column(Text)
     last_checked_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
+
+
+# ---------------------------------------------------------------------------
+# СМС (подтверждение регистрации по телефону, восстановление пароля)
+# ---------------------------------------------------------------------------
+
+class SmsProvider(str, enum.Enum):
+    SMSAERO = "smsaero"  # пока единственный реализованный — см. app/sms/
+
+
+class SmsSettings(Base):
+    """Единственная запись — настройки СМС-провайдера. Тот же приём, что и
+    у MailboxSettings/EWeLinkAccount: секрет шифруется тем же Fernet (см.
+    app/bank_api/crypto.py — модуль общего назначения, несмотря на путь).
+    provider — задел на будущее (см. app/sms/__init__.py:get_sms_client) —
+    сейчас реализован только SMS Aero, но поле уже есть, чтобы при
+    добавлении второго агрегатора не потребовалась ещё одна миграция."""
+    __tablename__ = "sms_settings"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    provider: Mapped[SmsProvider] = mapped_column(Enum(SmsProvider), default=SmsProvider.SMSAERO)
+
+    smsaero_email: Mapped[str | None] = mapped_column(String(255))
+    smsaero_api_key_encrypted: Mapped[str | None] = mapped_column(Text)
+    sender_sign: Mapped[str | None] = mapped_column(String(50))  # имя отправителя, зарегистрированное у провайдера
+
+    last_test_result: Mapped[str | None] = mapped_column(Text)  # текст последней ошибки/успеха тестовой отправки
+    last_test_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
+
+
+class VerificationCodePurpose(str, enum.Enum):
+    PHONE_REGISTER = "phone_register"  # подтверждение номера при самостоятельной регистрации (см. auth.py)
+    PASSWORD_RESET = "password_reset"  # восстановление пароля по email или телефону
+
+
+class VerificationCode(Base):
+    """Одноразовый код — общая механика и для подтверждения телефона при
+    самостоятельной регистрации, и для восстановления пароля (по email
+    ИЛИ телефону, канал определяется видом target — см. app/verification.py).
+    Код хранится хэшем (werkzeug.security, тот же приём, что и пароль
+    пользователя) — сырой код нигде в БД не остаётся, только в отправленном
+    СМС/письме."""
+    __tablename__ = "verification_code"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    purpose: Mapped[VerificationCodePurpose] = mapped_column(Enum(VerificationCodePurpose), index=True)
+    target: Mapped[str] = mapped_column(String(255), index=True)  # норм. телефон (только цифры) или email в нижнем регистре
+    code_hash: Mapped[str] = mapped_column(String(255))
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    expires_at: Mapped[dt.datetime] = mapped_column(DateTime)
+    consumed_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.utcnow)
+    # Непрозрачная полезная нагрузка, привязанная к коду — сейчас
+    # используется только PHONE_REGISTER (хэш пароля, который человек ввёл
+    # ДО подтверждения кода): так пароль ни разу не проходит через браузер
+    # повторно между шагом "запросили код" и "подтвердили код" (а мог бы —
+    # если бы гонять его туда-обратно скрытым полем формы), только его хэш
+    # хранится здесь до момента подтверждения. См. app/verification.py.
+    payload: Mapped[str | None] = mapped_column(Text)

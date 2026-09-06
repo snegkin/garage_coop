@@ -45,6 +45,14 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Пароль": "Password",
         "Войти": "Sign in",
         "Переключить тему": "Toggle theme",
+        "По логину": "By username",
+        "По телефону": "By phone",
+        "Номер телефона": "Phone number",
+        "Если у вас ещё нет учётной записи, но этот номер телефона есть в базе кооператива — учётная запись будет создана автоматически, а введённый здесь пароль станет вашим паролем для входа.":
+            "If you don't have an account yet, but this phone number is on file with the cooperative — an account will be created automatically, and the password you enter here will become your login password.",
+        "Введите номер телефона и пароль.": "Enter your phone number and password.",
+        "Не удалось войти по этому номеру телефона.": "Couldn't sign in with this phone number.",
+        "Неверный пароль.": "Incorrect password.",
 
         # news
         "Новости кооператива": "Cooperative news",

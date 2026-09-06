@@ -36,6 +36,7 @@ from .models import (
     MasterMeterReading, Garage, GarageOwnership, Person, PersonalAccount, BoardTerm, RoleEnum,
     CsvImportProfile, User,
 )
+from .login_generation import default_login
 from .accounting import (
     get_electricity_settings, current_tariff, electricity_account_number,
 )
@@ -719,23 +720,17 @@ def board_link_me():
 # ---------------------------------------------------------------------------
 # Массовое создание учётных записей
 # ---------------------------------------------------------------------------
-# Логин по умолчанию — первая буква имени + фамилия (тот же разбор ФИО, что
-# и в Person.short_name: parts[0] — фамилия, parts[1] — имя). Коллизии
-# (совпадение с уже существующим логином или с логином другого человека из
-# этого же списка) не разрешаются автоматически — показываются человеку
-# списком прямо в форме, редактирует логины он сам. Пароль генерируется
-# случайно и никогда не сохраняется в БД в открытом виде — единственный
-# шанс его увидеть/сохранить в файл — страница результата сразу после
-# создания (setup/accounts_result.html), второй раз получить тот же
-# пароль неоткуда (сбросить можно только через persons.reset_password).
-
-def _generate_login(full_name: str) -> str:
-    parts = full_name.strip().split()
-    if not parts:
-        return ""
-    if len(parts) > 1:
-        return (parts[1][0] + parts[0]).lower()
-    return parts[0].lower()
+# Логин по умолчанию — см. login_generation.default_login (первая буква
+# имени + фамилия, транслитерация в латиницу). Коллизии (совпадение с уже
+# существующим логином или с логином другого человека из этого же списка)
+# не разрешаются автоматически — показываются человеку списком прямо в
+# форме, редактирует логины он сам (в отличие от auth.login_by_phone, где
+# разрешать коллизию некому, см. login_generation.generate_unique_login).
+# Пароль генерируется случайно и никогда не сохраняется в БД в открытом
+# виде — единственный шанс его увидеть/сохранить в файл — страница
+# результата сразу после создания (setup/accounts_result.html), второй раз
+# получить тот же пароль неоткуда (сбросить можно только через
+# persons.reset_password).
 
 
 def _generate_password(length: int = 10) -> str:
@@ -766,7 +761,7 @@ def _build_account_rows(overrides: dict[int, str] | None = None):
     persons = _unlinked_persons()
     existing_usernames = {u for (u,) in database.db_session.query(User.username)}
 
-    logins = {p.id: (overrides.get(p.id) or _generate_login(p.full_name)) for p in persons}
+    logins = {p.id: (overrides.get(p.id) or default_login(p.full_name)) for p in persons}
     counts: dict[str, int] = {}
     for login in logins.values():
         counts[login] = counts.get(login, 0) + 1

@@ -79,6 +79,9 @@
               </div>
               <button class="btn btn-primary w-100">{{ _("Войти") }}</button>
             </form>
+            <div class="text-center mt-3">
+              <a href="{{ url_for('auth.forgot_password') }}" class="small">{{ _("Забыли пароль?") }}</a>
+            </div>
           </div>
           <div class="tab-pane fade" id="loginByPhone" role="tabpanel">
             <form method="post" action="{{ url_for('auth.login_by_phone', next=request.args.get('next')) }}">
@@ -90,9 +93,12 @@
                 <label class="form-label">{{ _("Пароль") }}</label>
                 <input class="form-control" type="password" name="password" required>
               </div>
-              <div class="form-text mb-3">{{ _("Если у вас ещё нет учётной записи, но этот номер телефона есть в базе кооператива — учётная запись будет создана автоматически, а введённый здесь пароль станет вашим паролем для входа.") }}</div>
+              <div class="form-text mb-3">{{ _("Если у вас ещё нет учётной записи, но этот номер телефона есть в базе кооператива — на него придёт СМС с кодом подтверждения, а введённый здесь пароль станет вашим паролем для входа.") }}</div>
               <button class="btn btn-primary w-100">{{ _("Войти") }}</button>
             </form>
+            <div class="text-center mt-3">
+              <a href="{{ url_for('auth.forgot_password') }}" class="small">{{ _("Забыли пароль?") }}</a>
+            </div>
           </div>
         </div>
       </div>

@@ -7,13 +7,19 @@ from functools import wraps
 
 from flask import Blueprint, render_template, request, redirect, url_for, session, flash, g
 from werkzeug.security import check_password_hash, generate_password_hash
+from sqlalchemy import func
 
 from . import database
 from . import audit
+from . import mail_client
+from . import verification
+from . import recaptcha
+from .mail_client import MailError
 from .rate_limit import limiter
 from .i18n import translate as _
-from .models import User, RoleEnum, Person, Phone
+from .models import User, RoleEnum, Person, Phone, MailboxSettings, SmsSettings, VerificationCode, VerificationCodePurpose
 from .login_generation import generate_unique_login
+from .sms import get_sms_client, SmsError
 
 bp = Blueprint("auth", __name__, url_prefix="/auth")
 
@@ -47,6 +53,21 @@ def _person_by_phone_digits(digits: str) -> "Person | None":
     if len(matched_person_ids) != 1:
         return None
     return database.db_session.get(Person, matched_person_ids.pop())
+
+
+def _person_by_email(email_lower: str) -> "Person | None":
+    """Тот же принцип неоднозначности, что и у _person_by_phone_digits —
+    Person.email не unique на уровне БД (см. models.py), поэтому если
+    несколько разных карточек ошибочно указали один email, отказываем, а
+    не угадываем."""
+    matches = (
+        database.db_session.query(Person)
+        .filter(func.lower(Person.email) == email_lower)
+        .all()
+    )
+    if len(matches) != 1:
+        return None
+    return matches[0]
 
 
 def is_safe_next_url(next_url: str | None) -> bool:
@@ -155,26 +176,23 @@ def login_by_phone():
     Phone кооператива (см. _person_by_phone_digits) — не полем User, у
     которого своего номера нет вовсе, только связь с Person.
 
-    Если у найденного Person ещё нет учётной записи — она создаётся здесь
-    же, "самостоятельной регистрацией": логин — по тем же правилам, что и
-    в мастере массового создания (setup_wizard.py), но коллизии, которые
-    там показываются человеку для ручной правки, здесь разрешаются
+    Если у найденного Person ещё нет учётной записи — самостоятельная
+    регистрация, но не сразу: сначала подтверждение номера СМС-кодом (см.
+    register_phone_confirm ниже) — иначе создать себе доступ мог бы кто
+    угодно, кто просто знает чужой номер телефона, занесённый в карточку
+    человека правлением. Логин при этом — по тем же правилам, что и в
+    мастере массового создания (setup_wizard.py), коллизии разрешаются
     автоматической эскалацией (см. login_generation.generate_unique_login)
-    — попросить кого-то разрешить коллизию тут некому. Пароль — тот,
-    что человек только что ввёл в форму САМ (не генерируется случайно, в
-    отличие от мастера, — здесь его никто, кроме самого человека, не увидит
-    и вводить второй раз для входа не придётся).
+    — попросить кого-то разрешить коллизию тут некому, в отличие от
+    мастера. Пароль — тот, что человек ввёл здесь сам (хэшируется сразу и
+    хранится в payload кода подтверждения — см. app/verification.py,
+    ни разу не гоняется через браузер повторно между этим шагом и
+    подтверждением кода).
 
     Если учётная запись уже есть — обычная проверка пароля, как и при
-    входе по логину, без каких-либо шагов регистрации.
-
-    Осознанный компромисс: единственное подтверждение личности —
-    сам факт знания номера телефона, уже занесённого в карточку человека
-    (без SMS-кода — в проекте нет SMS-интеграции). Это ниже, чем при входе
-    по личному логину/паролю, но соответствует тому, что телефон и так не
-    публичные данные (Phone виден только правлению — см. persons.py), и
-    даёт члену кооператива завести себе доступ самому, не дожидаясь, пока
-    председатель проведёт его через мастер настройки.
+    входе по логину, без кода — телефон здесь уже не средство
+    регистрации, а просто альтернативный идентификатор для уже
+    подтверждённого раньше аккаунта.
     """
     phone = request.form.get("phone", "").strip()
     password = request.form.get("password", "")
@@ -194,27 +212,23 @@ def login_by_phone():
     user = database.db_session.query(User).filter_by(person_id=person.id).first()
 
     if user is None:
-        existing_usernames = {u for (u,) in database.db_session.query(User.username)}
-        username = generate_unique_login(person.full_name, existing_usernames)
-        initial_role = RoleEnum.CHAIRMAN if person.is_chairman else (
-            RoleEnum.ACCOUNTANT if person.is_accountant else (
-                RoleEnum.BOARD if person.is_board_member else RoleEnum.MEMBER
-            )
+        sms_settings = database.db_session.query(SmsSettings).first()
+        client = get_sms_client(sms_settings)
+        if client is None:
+            flash(_("СМС-уведомления пока не настроены — обратитесь к председателю."), "danger")
+            return redirect(url_for("auth.login"))
+
+        code = verification.issue_code(
+            VerificationCodePurpose.PHONE_REGISTER, digits, payload=generate_password_hash(password),
         )
-        user = User(
-            username=username,
-            password_hash=generate_password_hash(password),
-            role=initial_role,
-            person_id=person.id,
-            is_active=True,
-        )
-        database.db_session.add(user)
-        database.db_session.flush()
-        audit.record(
-            "account.self_register_by_phone", entity_type="user", entity_id=user.id,
-            summary=f"Учётная запись «{username}» создана самостоятельно по номеру телефона для {person.full_name}",
-        )
-        return _complete_login(user, f"Успешный вход по телефону (новая учётная запись «{username}»)")
+        try:
+            client.send(digits, _("Код подтверждения: {code}", code=code))
+        except SmsError as exc:
+            database.db_session.rollback()
+            flash(_("Не удалось отправить СМС: {error}", error=str(exc)), "danger")
+            return redirect(url_for("auth.login"))
+        database.db_session.commit()
+        return render_template("auth/verify_phone_code.html", phone=phone)
 
     if not check_password_hash(user.password_hash, password):
         audit.record(
@@ -235,6 +249,234 @@ def login_by_phone():
         return redirect(url_for("auth.login"))
 
     return _complete_login(user, f"Успешный вход по телефону: «{user.username}»")
+
+
+@bp.route("/register-phone/resend", methods=["POST"])
+@limiter.limit("5 per minute")
+def register_phone_resend():
+    """«Отправить код ещё раз» на странице ввода кода (auth/verify_phone_code.html)
+    — только телефон, БЕЗ пароля: пароль уже осел хэшем в payload
+    непогашенного кода с первого запроса (см. login_by_phone), берём его
+    оттуда, а не просим ввести снова."""
+    phone = request.form.get("phone", "").strip()
+    digits = _normalize_phone_digits(phone)
+    if len(digits) < 7:
+        flash(_("Некорректный номер телефона."), "danger")
+        return redirect(url_for("auth.login"))
+
+    # Столбец, не вся сущность — existing_payload дальше передаётся в
+    # issue_code(), который эту же строку удалит (см. docstring
+    # verification.issue_code); если бы здесь была загружена целая ORM-
+    # сущность, SQLAlchemy предупредил бы о повторном использовании id
+    # только что удалённой строки для новой (SQLite переиспользует rowid
+    # опустевшей таблицы) — так этой сущности просто не существует.
+    existing_payload = (
+        database.db_session.query(VerificationCode.payload)
+        .filter(
+            VerificationCode.purpose == VerificationCodePurpose.PHONE_REGISTER,
+            VerificationCode.target == digits,
+            VerificationCode.consumed_at.is_(None),
+        )
+        .order_by(VerificationCode.id.desc())
+        .limit(1)
+        .scalar()
+    )
+    if existing_payload is None:
+        flash(_("Запросите код заново, указав телефон и пароль."), "danger")
+        return redirect(url_for("auth.login"))
+
+    sms_settings = database.db_session.query(SmsSettings).first()
+    client = get_sms_client(sms_settings)
+    if client is None:
+        flash(_("СМС-уведомления пока не настроены — обратитесь к председателю."), "danger")
+        return redirect(url_for("auth.login"))
+
+    code = verification.issue_code(VerificationCodePurpose.PHONE_REGISTER, digits, payload=existing_payload)
+    try:
+        client.send(digits, _("Код подтверждения: {code}", code=code))
+    except SmsError as exc:
+        database.db_session.rollback()
+        flash(_("Не удалось отправить СМС: {error}", error=str(exc)), "danger")
+        return redirect(url_for("auth.login"))
+    database.db_session.commit()
+    flash(_("Код отправлен повторно."), "success")
+    return render_template("auth/verify_phone_code.html", phone=phone)
+
+
+@bp.route("/register-phone/confirm", methods=["POST"])
+@limiter.limit("10 per minute")
+def register_phone_confirm():
+    """Подтверждение кода из СМС — довершает самостоятельную регистрацию,
+    начатую в login_by_phone. Пароль сюда уже не передаётся — он хэширован
+    и лежит в payload кода (см. verification.consume_code)."""
+    phone = request.form.get("phone", "").strip()
+    code = request.form.get("code", "").strip()
+    digits = _normalize_phone_digits(phone)
+
+    person = _person_by_phone_digits(digits)
+    ok, password_hash = verification.consume_code(VerificationCodePurpose.PHONE_REGISTER, digits, code)
+    if not ok or person is None or password_hash is None:
+        database.db_session.commit()  # попытка (attempts) должна сохраниться, даже если код неверный
+        flash(_("Неверный или истёкший код."), "danger")
+        return render_template("auth/verify_phone_code.html", phone=phone)
+
+    # На случай, если аккаунт уже успели создать другим путём между
+    # запросом кода и его подтверждением (например, открыли форму в двух
+    # вкладках) — не создаём второй.
+    existing_user = database.db_session.query(User).filter_by(person_id=person.id).first()
+    if existing_user is not None:
+        database.db_session.commit()
+        flash(_("Учётная запись для этого номера уже существует — войдите по логину или телефону."), "danger")
+        return redirect(url_for("auth.login"))
+
+    existing_usernames = {u for (u,) in database.db_session.query(User.username)}
+    username = generate_unique_login(person.full_name, existing_usernames)
+    initial_role = RoleEnum.CHAIRMAN if person.is_chairman else (
+        RoleEnum.ACCOUNTANT if person.is_accountant else (
+            RoleEnum.BOARD if person.is_board_member else RoleEnum.MEMBER
+        )
+    )
+    user = User(
+        username=username, password_hash=password_hash, role=initial_role,
+        person_id=person.id, is_active=True,
+    )
+    database.db_session.add(user)
+    database.db_session.flush()
+    audit.record(
+        "account.self_register_by_phone", entity_type="user", entity_id=user.id,
+        summary=f"Учётная запись «{username}» создана самостоятельно по номеру телефона для {person.full_name} (подтверждено СМС-кодом)",
+    )
+    return _complete_login(user, f"Успешный вход по телефону (новая учётная запись «{username}»)")
+
+
+# ---------------------------------------------------------------------------
+# Восстановление пароля — по email или по телефону (СМС)
+# ---------------------------------------------------------------------------
+
+def _looks_like_email(identifier: str) -> bool:
+    return "@" in identifier
+
+
+@bp.route("/forgot-password", methods=["GET", "POST"])
+@limiter.limit("10 per minute", methods=["POST"])
+def forgot_password():
+    """
+    Запрос на восстановление пароля — по email ИЛИ телефону (канал
+    определяется по виду введённого идентификатора: есть "@" — email,
+    иначе — телефон), защищено reCAPTCHA v2 (см. app/recaptcha.py).
+
+    Показывает ОДНО И ТО ЖЕ сообщение независимо от того, нашёлся ли
+    аккаунт — не подтверждаем и не опровергаем существование учётной
+    записи по введённому email/телефону (защита от перебора чужих
+    данных на этой форме).
+    """
+    if request.method == "POST":
+        identifier = request.form.get("identifier", "").strip()
+        token = request.form.get("g-recaptcha-response", "")
+
+        if not identifier:
+            flash(_("Введите email или номер телефона."), "danger")
+            return render_template("auth/forgot_password.html")
+
+        if not recaptcha.verify(token, request.remote_addr):
+            flash(_("Не пройдена проверка «Я не робот» — попробуйте ещё раз."), "danger")
+            return render_template("auth/forgot_password.html")
+
+        # Дальше — ОДИН выход независимо от того, нашёлся ли аккаунт и
+        # удалось ли реально отправить код (не настроена почта/СМС,
+        # сетевая ошибка): и статус ответа, и сообщение, и редирект должны
+        # быть одинаковыми во всех случаях — иначе сам факт, что ответ
+        # иначе оформлен (200 вместо 302 и т.п.), уже выдаёт, существует
+        # ли аккаунт с таким email/телефоном, сводя на нет весь смысл
+        # общего сообщения ниже.
+        if _looks_like_email(identifier):
+            target = identifier.lower()
+            person = _person_by_email(target)
+        else:
+            target = _normalize_phone_digits(identifier)
+            person = _person_by_phone_digits(target) if len(target) >= 7 else None
+
+        user = database.db_session.query(User).filter_by(person_id=person.id).first() if person else None
+
+        if user is not None:
+            code = verification.issue_code(VerificationCodePurpose.PASSWORD_RESET, target)
+            if _looks_like_email(identifier):
+                settings = database.db_session.query(MailboxSettings).first()
+                if settings is not None and settings.incoming_host and settings.username and settings.password_encrypted:
+                    try:
+                        mail_client.send_message(
+                            settings, to_addrs=[identifier], subject=_("Восстановление пароля"),
+                            body_text=_("Код для восстановления пароля: {code}\n\nЕсли вы не запрашивали восстановление пароля, просто проигнорируйте это письмо.", code=code),
+                        )
+                    except MailError:
+                        pass
+            else:
+                sms_settings = database.db_session.query(SmsSettings).first()
+                client = get_sms_client(sms_settings)
+                if client is not None:
+                    try:
+                        client.send(target, _("Код для восстановления пароля: {code}", code=code))
+                    except SmsError:
+                        pass
+
+        database.db_session.commit()
+        flash(_(
+            "Если такой email или номер телефона найден в базе кооператива — код для сброса пароля отправлен.",
+        ), "info")
+        return redirect(url_for("auth.reset_password", target=request.form.get("identifier", "").strip()))
+
+    return render_template("auth/forgot_password.html")
+
+
+@bp.route("/reset-password", methods=["GET", "POST"])
+@limiter.limit("10 per minute", methods=["POST"])
+def reset_password():
+    """Вторая половина восстановления пароля — код (из письма/СМС) + новый
+    пароль. target — тот же идентификатор, что вводили на forgot_password
+    (просто чтобы не заставлять вводить его снова — сам код всё равно
+    привязан к конкретному normalized target, см. verification.consume_code)."""
+    target_raw = request.args.get("target", "") if request.method == "GET" else request.form.get("target", "")
+    target_raw = target_raw.strip()
+    target = target_raw.lower() if _looks_like_email(target_raw) else _normalize_phone_digits(target_raw)
+
+    if request.method == "POST":
+        code = request.form.get("code", "").strip()
+        new_password = request.form.get("new_password", "")
+        confirm_password = request.form.get("confirm_password", "")
+
+        if len(new_password) < 4:
+            flash(_("Новый пароль слишком короткий (минимум 4 символа)."), "danger")
+            return render_template("auth/reset_password.html", target=target_raw)
+        if new_password != confirm_password:
+            flash(_("Новый пароль и подтверждение не совпадают."), "danger")
+            return render_template("auth/reset_password.html", target=target_raw)
+
+        ok, _payload = verification.consume_code(VerificationCodePurpose.PASSWORD_RESET, target, code)
+        if not ok:
+            database.db_session.commit()
+            flash(_("Неверный или истёкший код."), "danger")
+            return render_template("auth/reset_password.html", target=target_raw)
+
+        if _looks_like_email(target_raw):
+            person = _person_by_email(target)
+        else:
+            person = _person_by_phone_digits(target)
+        user = database.db_session.query(User).filter_by(person_id=person.id).first() if person else None
+        if user is None:
+            database.db_session.commit()
+            flash(_("Не удалось найти учётную запись — обратитесь к председателю."), "danger")
+            return redirect(url_for("auth.login"))
+
+        user.password_hash = generate_password_hash(new_password)
+        audit.record(
+            "account.password_reset", entity_type="user", entity_id=user.id,
+            summary=f"Пароль восстановлен через {'email' if _looks_like_email(target_raw) else 'СМС'}: «{user.username}»",
+        )
+        database.db_session.commit()
+        flash(_("Пароль изменён — теперь можно войти."), "success")
+        return redirect(url_for("auth.login"))
+
+    return render_template("auth/reset_password.html", target=target_raw)
 
 
 @bp.route("/change-password", methods=["GET", "POST"])

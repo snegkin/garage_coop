@@ -685,6 +685,19 @@ def current_tariff(as_of: dt.date | None = None) -> ElectricityTariff | None:
     )
 
 
+def bank_fee_multiplier(coop: Cooperative) -> Decimal:
+    """1 + % банка за обслуживание счёта (Cooperative.bank_fee_percent) —
+    множитель, на который умножается сумма к оплате, чтобы после
+    удержания банком комиссии на счёт кооператива поступила ровно нужная
+    сумма. Используется и при начислении земельного налога
+    (compute_land_tax — комиссия уже входит в само начисление), и при
+    печати квитанции/QR-кода на оплату электроэнергии (pd4.py) — там долг
+    считается без комиссии (это реальная стоимость потреблённого
+    ресурса), комиссия добавляется только в сумму К ОПЛАТЕ именно этим
+    переводом."""
+    return Decimal("1") + (coop.bank_fee_percent or Decimal("0")) / Decimal("100")
+
+
 def compute_land_tax(year: int) -> dict[int, Decimal] | None:
     """
     Автоматический расчёт земельного налога на гараж.
@@ -745,7 +758,7 @@ def compute_land_tax(year: int) -> dict[int, Decimal] | None:
     # умножением на его coefficient при формировании garage_tax ниже.
     common_area_tax = price_per_sqm * (coop.common_area / total_coefficient)
     standard_area = coop.standard_garage_land_area or Decimal("30")
-    bank_multiplier = Decimal("1") + (coop.bank_fee_percent or Decimal("0")) / Decimal("100")
+    bank_multiplier = bank_fee_multiplier(coop)
 
     result = {}
     for garage in garages:

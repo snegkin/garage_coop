@@ -12,6 +12,7 @@ from .permissions import is_board, is_privileged
 from .models import MemberAccount, Person, PD4Document, Cooperative, Garage, GarageOwnership, PersonalAccount, FeeType
 from .accounting import (
     balance, penalty_sibling_account, get_primary_bank_account, pd4_qr_payload, pd4_qr_payload_electricity,
+    bank_fee_multiplier,
 )
 
 bp = Blueprint("pd4", __name__, url_prefix="/pd4")
@@ -248,7 +249,14 @@ def _build_mixed_slips(member_account_ids: list[int], electricity_garage_ids: li
             debt = balance(garage)
             if debt >= 0:
                 continue
-            amount = -debt
+            # Долг за электроэнергию считается по факту потребления, без
+            # комиссии банка (это реальная стоимость ресурса) — комиссия
+            # добавляется только здесь, в сумму К ОПЛАТЕ именно этим
+            # переводом, тем же множителем, что и в начислении земельного
+            # налога (см. accounting.bank_fee_multiplier), иначе после
+            # удержания банком комиссии на счёт кооператива поступит
+            # меньше, чем реальный долг.
+            amount = (-debt * bank_fee_multiplier(coop)).quantize(Decimal("0.01"))
             qr_payload = pd4_qr_payload_electricity(coop, bank_account, garage, account, amount)
             qr_data_uri = _qr_data_uri(qr_payload)
             database.db_session.add(PD4Document(

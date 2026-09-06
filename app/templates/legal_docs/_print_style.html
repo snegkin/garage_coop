@@ -35,13 +35,23 @@
 .legal-print .print-table tfoot td { font-weight: bold; }
 
 .legal-print .print-signatures { margin-top: 12mm; }
-.legal-print .signature-rows { text-align: left; width: 100mm; margin-left: auto; }
+/* Прижатие подписей/места под печать к правому краю через width+margin-left:auto —
+   ВАЖНО: оба должны быть !important, иначе их клобберит более общее правило
+   сброса печати ниже (`body div { width: auto !important; margin-left: 0
+   !important; ... }`, нужное для сброса обёрток base.html) — оно матчит
+   вообще ЛЮБОЙ <div> в body, включая эти, и как !important побеждает
+   несмотря на более узкий селектор здесь. Без !important круглое место
+   под печать растягивается в горизонтальный овал во всю ширину таблицы
+   (уже встречалось и было исправлено в persons/statement.html и
+   persons/penalty_calculation.html — см. git-историю: 483da64, b21a073,
+   d905087). */
+.legal-print .signature-rows { text-align: left; width: 100mm !important; margin-left: auto !important; }
 .legal-print .signature-line { margin-bottom: 7mm; white-space: nowrap; }
 .legal-print .sig-role { display: inline-block; width: 28mm; }
 .legal-print .sig-blank { display: inline-block; width: 45mm; border-bottom: 1px solid #000; margin: 0 2mm; }
 .legal-print .sig-name { font-size: 10px; }
 .legal-print .stamp-place {
-  width: 24mm; height: 24mm; margin: 4mm 0 0 auto; border: 1px dashed #666; border-radius: 50%;
+  width: 24mm !important; height: 24mm; margin: 4mm 0 0 auto !important; border: 1px dashed #666; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
   font-size: 9px; color: #666; text-align: center;
 }

@@ -20,15 +20,18 @@ scripts/dvr_snapshot.py. По одной камере отдельно не см
 Регистратор выставлен наружу на нестандартном порту.
 
 Кадр каждой отдельной камеры (snapshot_path — один файл, перезаписывается
-каждый прогон) — это просто СЫРЬЁ для сборки общего кадра регистратора
+каждый прогон) отдаётся и сам по себе (snapshot()) — по просьбе смотреть
+не только общий смонтированный кадр регистратора, но и по каждой камере
+отдельно — и служит СЫРЬЁМ для сборки общего кадра регистратора
 (scripts/dvr_snapshot.py: _build_combined_snapshot, фильтр ffmpeg xstack,
-без масштабирования — в исходном разрешении каждой камеры), сам по себе
-нигде не отдаётся и не показывается. Общий кадр регистратора копируется
-в его историю (combined_history_dir — по файлу на снимок, имя = отметка
-времени UTC) глубиной HISTORY_RETENTION_HOURS (см. сам скрипт: обрезка
-старых файлов — там же, при каждом прогоне). Галерея истории —
-combined_history() ниже, тем же общим лайтбоксом, что и остальные
-картинки в приложении (см. base.html: initLightbox, класс "js-lightbox").
+без масштабирования — в исходном разрешении каждой камеры). Кадр каждой
+камеры откладывается ещё и в свою историю (history_dir — по файлу на
+снимок, имя = отметка времени UTC), и общий кадр регистратора — в свою
+(combined_history_dir, тот же принцип), обе глубиной
+HISTORY_RETENTION_HOURS (см. сам скрипт: обрезка старых файлов — там же,
+при каждом прогоне). Галереи истории — camera_history()/combined_history()
+ниже, тем же общим лайтбоксом, что и остальные картинки в приложении (см.
+base.html: initLightbox, класс "js-lightbox").
 """
 import datetime as dt
 import os
@@ -69,9 +72,13 @@ def snapshot_dir(recorder_id: int) -> str:
 
 
 def snapshot_path(recorder_id: int, camera_id: int) -> str:
-    """Кадр одной камеры — сырьё для сборки общего кадра регистратора
-    (см. docstring модуля), сам по себе никакому роуту не отдаётся."""
     return os.path.join(snapshot_dir(recorder_id), f"camera_{camera_id}.jpg")
+
+
+def history_dir(recorder_id: int, camera_id: int) -> str:
+    """Папка с историей кадров одной камеры (по файлу на снимок) — отдельно
+    от "живого" snapshot_path, который всего один и перезаписывается."""
+    return os.path.join(current_app.config["DVR_SNAPSHOT_FOLDER"], str(recorder_id), "history", f"camera_{camera_id}")
 
 
 def combined_dir(recorder_id: int) -> str:
@@ -105,7 +112,10 @@ def view():
 
 
 def _list_history_frames(dir_path: str) -> list[tuple[str, dt.datetime]]:
-    """Список (имя файла, метка времени) для галереи истории регистратора."""
+    """Общий список (имя файла, метка времени) для галереи истории — и по
+    одной камере (camera_history), и по общему смонтированному кадру
+    регистратора (combined_history): та же схема имён (см.
+    HISTORY_FRAME_NAME_RE)."""
     frames = []
     if os.path.isdir(dir_path):
         for name in os.listdir(dir_path):
@@ -116,6 +126,47 @@ def _list_history_frames(dir_path: str) -> list[tuple[str, dt.datetime]]:
             frames.append((name, ts))
     frames.sort(key=lambda pair: pair[1], reverse=True)
     return frames
+
+
+@bp.route("/cameras/<int:camera_id>/snapshot")
+def snapshot(camera_id):
+    camera = database.db_session.get(DvrCamera, camera_id)
+    if camera is None:
+        abort(404)
+    path = snapshot_path(camera.recorder_id, camera.id)
+    if not os.path.exists(path):
+        abort(404)
+    # Кадр обновляется раз в минуту поверх того же файла — без max_age=0
+    # браузер мог бы закэшировать старый и не увидеть новый даже после
+    # смены cache-busting параметра в src (см. surveillance/view.html) при
+    # повторном показе того же <img>.
+    return send_file(path, mimetype="image/jpeg", max_age=0)
+
+
+@bp.route("/cameras/<int:camera_id>/history")
+def camera_history(camera_id):
+    """Галерея кадров камеры за последние сутки (см. history_dir,
+    scripts/dvr_snapshot.py — там же обрезка старше HISTORY_RETENTION_HOURS).
+    Общедоступно, как и остальной раздел — см. докстринг модуля."""
+    camera = database.db_session.get(DvrCamera, camera_id)
+    if camera is None:
+        abort(404)
+    frames = _list_history_frames(history_dir(camera.recorder_id, camera.id))
+    return render_template("surveillance/camera_history.html", camera=camera, frames=frames)
+
+
+@bp.route("/cameras/<int:camera_id>/history/<filename>")
+def camera_history_frame(camera_id, filename):
+    camera = database.db_session.get(DvrCamera, camera_id)
+    if camera is None:
+        abort(404)
+    if not HISTORY_FRAME_NAME_RE.match(filename):  # защита от path traversal — только ожидаемое имя файла
+        abort(404)
+    path = os.path.join(history_dir(camera.recorder_id, camera.id), filename)
+    if not os.path.exists(path):
+        abort(404)
+    # Кадры истории неизменны после создания (в отличие от "живого" snapshot) — кэш браузера безопасен.
+    return send_file(path, mimetype="image/jpeg", max_age=3600)
 
 
 @bp.route("/recorders/<int:recorder_id>/combined/snapshot")
@@ -296,6 +347,7 @@ def edit_recorder(recorder_id):
             snap_path = snapshot_path(recorder.id, cam_id)
             if os.path.exists(snap_path):
                 os.remove(snap_path)
+            shutil.rmtree(history_dir(recorder.id, cam_id), ignore_errors=True)
 
     database.db_session.commit()
     flash(_("Регистратор изменён."), "success")

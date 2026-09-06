@@ -18,7 +18,7 @@ import pytest
 
 from app.models import DvrRecorder, DvrCamera
 from app.bank_api import crypto
-from app.surveillance import snapshot_path, combined_snapshot_path, combined_history_dir
+from app.surveillance import snapshot_path, history_dir, combined_snapshot_path, combined_history_dir
 
 
 def _load_dvr_snapshot_module():
@@ -105,9 +105,69 @@ def _fake_run_factory():
 
 
 # ---------------------------------------------------------------------------
-# _prune_history — общая функция, используется только для истории общего
-# смонтированного кадра регистратора (per-camera история убрана вместе с
-# per-camera отображением, см. app/surveillance.py).
+# История отдельной камеры (_capture копирует туда же кадр) — общая функция
+# _prune_history используется и здесь, и для истории общего смонтированного
+# кадра регистратора.
+# ---------------------------------------------------------------------------
+
+def test_capture_saves_a_copy_into_history(app, db, dvr_snapshot_module, monkeypatch, tmp_path):
+    monkeypatch.setitem(app.config, "DVR_SNAPSHOT_FOLDER", str(tmp_path))
+    recorder = make_recorder(db)
+    camera = make_camera(db, recorder)
+    db.commit()
+
+    monkeypatch.setattr(dvr_snapshot_module.subprocess, "run", _fake_run_factory())
+    fixed_now = dt.datetime(2026, 9, 5, 12, 30, 0)
+    monkeypatch.setattr(dvr_snapshot_module, "_utcnow", lambda: fixed_now)
+
+    error = dvr_snapshot_module._capture(camera)
+    assert error is None
+
+    hist_dir = history_dir(camera.recorder_id, camera.id)
+    assert os.listdir(hist_dir) == ["20260905_123000.jpg"]
+    with open(os.path.join(hist_dir, "20260905_123000.jpg"), "rb") as fh:
+        assert fh.read() == b"fake-jpeg-bytes"
+
+
+def test_capture_accumulates_multiple_history_frames_across_runs(app, db, dvr_snapshot_module, monkeypatch, tmp_path):
+    monkeypatch.setitem(app.config, "DVR_SNAPSHOT_FOLDER", str(tmp_path))
+    recorder = make_recorder(db)
+    camera = make_camera(db, recorder)
+    db.commit()
+
+    monkeypatch.setattr(dvr_snapshot_module.subprocess, "run", _fake_run_factory())
+
+    for minute in (0, 1, 2):
+        monkeypatch.setattr(dvr_snapshot_module, "_utcnow", lambda m=minute: dt.datetime(2026, 9, 5, 12, m, 0))
+        assert dvr_snapshot_module._capture(camera) is None
+
+    hist_dir = history_dir(camera.recorder_id, camera.id)
+    assert sorted(os.listdir(hist_dir)) == ["20260905_120000.jpg", "20260905_120100.jpg", "20260905_120200.jpg"]
+
+
+def test_capture_prunes_stale_history_frames_on_each_run(app, db, dvr_snapshot_module, monkeypatch, tmp_path):
+    monkeypatch.setitem(app.config, "DVR_SNAPSHOT_FOLDER", str(tmp_path))
+    recorder = make_recorder(db)
+    camera = make_camera(db, recorder)
+    db.commit()
+
+    hist_dir = history_dir(camera.recorder_id, camera.id)
+    os.makedirs(hist_dir, exist_ok=True)
+    stale_path = os.path.join(hist_dir, "20260101_000000.jpg")
+    with open(stale_path, "wb") as fh:
+        fh.write(b"old")
+
+    monkeypatch.setattr(dvr_snapshot_module.subprocess, "run", _fake_run_factory())
+    monkeypatch.setattr(dvr_snapshot_module, "_utcnow", lambda: dt.datetime(2026, 9, 5, 12, 0, 0))
+
+    assert dvr_snapshot_module._capture(camera) is None
+    assert not os.path.exists(stale_path)
+    assert os.path.exists(os.path.join(hist_dir, "20260905_120000.jpg"))
+
+
+# ---------------------------------------------------------------------------
+# _prune_history — общая функция, используется и историей отдельной камеры,
+# и историей общего смонтированного кадра регистратора.
 # ---------------------------------------------------------------------------
 
 def test_prune_history_removes_only_files_older_than_retention_window(tmp_path, dvr_snapshot_module):
@@ -128,9 +188,8 @@ def test_prune_history_removes_only_files_older_than_retention_window(tmp_path, 
 # ---------------------------------------------------------------------------
 # Общий смонтированный кадр (_build_combined_snapshot) — все камеры ОДНОГО
 # регистратора сразу в одну сетку, см. app.surveillance:
-# combined_dir/combined_snapshot_path. По одной камере отдельно не
-# смотрим, кросс-регистраторного общего кадра тоже больше нет — см.
-# docstring скрипта, п.5.
+# combined_dir/combined_snapshot_path. Кросс-регистраторного общего кадра
+# нет — см. docstring скрипта, п.5.
 # ---------------------------------------------------------------------------
 
 def test_build_combined_snapshot_returns_false_for_empty_list(dvr_snapshot_module, tmp_path):

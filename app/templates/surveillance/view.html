@@ -27,16 +27,47 @@
   </div>
   {% if not recorder.cameras %}
   <p class="text-muted small">{{ _("У этого регистратора ещё нет камер.") }}</p>
-  {% elif recorder.id in combined_updated_at %}
-  <a href="{{ url_for('surveillance.combined_history', recorder_id=recorder.id) }}" title="{{ _('Открыть историю') }}">
-    <img src="{{ url_for('surveillance.combined_snapshot', recorder_id=recorder.id) }}?t={{ combined_updated_at[recorder.id].timestamp()|int }}"
-         class="js-dvr-frame" data-recorder-id="{{ recorder.id }}" alt="{{ recorder.name }}"
-         style="max-width:100%;background:#000;cursor:pointer">
-  </a>
-  <div class="text-muted small mt-1">{{ _("обновлено") }} <span data-utc-datetime="{{ combined_updated_at[recorder.id].isoformat() }}Z">{{ combined_updated_at[recorder.id].strftime('%H:%M:%S') }}</span></div>
   {% else %}
-  <div class="d-flex align-items-center justify-content-center text-white-50 small"
-       style="aspect-ratio:4/3; background:#222;">{{ _("Кадр пока не получен") }}</div>
+    {% if recorder.id in combined_updated_at %}
+    <a href="{{ url_for('surveillance.combined_history', recorder_id=recorder.id) }}" title="{{ _('Открыть историю') }}">
+      <img src="{{ url_for('surveillance.combined_snapshot', recorder_id=recorder.id) }}?t={{ combined_updated_at[recorder.id].timestamp()|int }}"
+           class="js-dvr-frame" data-recorder-id="{{ recorder.id }}" alt="{{ recorder.name }}"
+           style="max-width:100%;background:#000;cursor:pointer">
+    </a>
+    <div class="text-muted small mt-1">{{ _("обновлено") }} <span data-utc-datetime="{{ combined_updated_at[recorder.id].isoformat() }}Z">{{ combined_updated_at[recorder.id].strftime('%H:%M:%S') }}</span></div>
+    {% else %}
+    <div class="d-flex align-items-center justify-content-center text-white-50 small"
+         style="aspect-ratio:4/3; background:#222;">{{ _("Кадр пока не получен") }}</div>
+    {% endif %}
+
+    <div class="row g-3 mt-1">
+      {% for camera in recorder.cameras %}
+      <div class="col-sm-6 col-md-4 col-lg-3">
+        <div class="card h-100">
+          {% if camera.last_snapshot_at %}
+          <img src="{{ url_for('surveillance.snapshot', camera_id=camera.id) }}?t={{ camera.last_snapshot_at.timestamp()|int }}"
+               class="card-img-top js-dvr-frame js-lightbox" data-camera-id="{{ camera.id }}" alt="{{ camera.label }}"
+               style="aspect-ratio:4/3; object-fit:cover; background:#000; cursor:zoom-in;">
+          {% else %}
+          <div class="card-img-top d-flex align-items-center justify-content-center text-white-50 small"
+               style="aspect-ratio:4/3; background:#222;">{{ _("Кадр пока не получен") }}</div>
+          {% endif %}
+          <div class="card-body py-2">
+            <div class="d-flex justify-content-between align-items-center">
+              <div class="small">{{ camera.label }}</div>
+              <a href="{{ url_for('surveillance.camera_history', camera_id=camera.id) }}" class="small">{{ _("История") }}</a>
+            </div>
+            {% if camera.last_snapshot_at %}
+            <div class="text-muted small">{{ _("обновлено") }} <span data-utc-datetime="{{ camera.last_snapshot_at.isoformat() }}Z">{{ camera.last_snapshot_at.strftime('%H:%M:%S') }}</span></div>
+            {% endif %}
+            {% if camera.last_error %}
+            <div class="text-danger small" title="{{ camera.last_error }}">⚠ {{ _("последняя попытка снять кадр не удалась") }}</div>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
   {% endif %}
 </div>
 {% endfor %}

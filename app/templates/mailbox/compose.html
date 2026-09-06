@@ -53,14 +53,21 @@
   // (см. news/form.html, wiki/form.html: data-md-wrap/data-md-prefix/data-md-link),
   // без кнопки вставки картинки — для писем нет своей инфраструктуры
   // inline-вложений с загрузкой "на лету", как у новостей/вики.
+  // Порядок ниже — сначала selectionStart/End, ПОТОМ focus(): иначе браузер
+  // при самом focus() уже прокручивает textarea к каретке на конце текста
+  // (там, где её сбросило присвоение .value), а к позиции, выставленной
+  // мгновением позже, повторно не прокручивает — курсор логически на месте
+  // правки, а видимая прокрутка уезжает в конец письма (см. тот же фикс и
+  // подробный разбор в wiki/form.html).
+
   function wrapSelection(marker) {
     var start = textarea.selectionStart, end = textarea.selectionEnd;
     var value = textarea.value;
     var selected = value.slice(start, end);
     textarea.value = value.slice(0, start) + marker + selected + marker + value.slice(end);
-    textarea.focus();
     textarea.selectionStart = start + marker.length;
     textarea.selectionEnd = start + marker.length + selected.length;
+    textarea.focus();
   }
 
   function prefixLines(prefix) {
@@ -72,13 +79,9 @@
     var block = value.slice(lineStart, lineEnd);
     var withPrefix = block.length ? block.split("\n").map(function (l) { return prefix + l; }).join("\n") : prefix;
     textarea.value = value.slice(0, lineStart) + withPrefix + value.slice(lineEnd);
-    textarea.focus();
-    // Присвоение textarea.value сбрасывает selectionStart/End в конец ВСЕГО
-    // текста (поведение браузера) — без явного восстановления курсор
-    // "прыгал" бы в конец письма при клике по кнопке из этой группы
-    // (см. тот же фикс в wiki/form.html).
     textarea.selectionStart = lineStart;
     textarea.selectionEnd = lineStart + withPrefix.length;
+    textarea.focus();
   }
 
   document.querySelectorAll("[data-md-wrap]").forEach(function (btn) {
@@ -97,6 +100,7 @@
       if (!url) return;
       var replacement = "[" + selected + "](" + url + ")";
       textarea.value = value.slice(0, start) + replacement + value.slice(end);
+      textarea.selectionStart = textarea.selectionEnd = start + replacement.length;
       textarea.focus();
     });
   }

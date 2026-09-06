@@ -145,9 +145,24 @@ def login():
         user = database.db_session.query(User).filter_by(username=username).first()
 
         if user is None or not check_password_hash(user.password_hash, password):
-            audit.record(
-                "auth.login_failed", summary=f"Неудачная попытка входа: логин «{username}»",
-            )
+            summary = f"Неудачная попытка входа: логин «{username}»"
+            if user is None:
+                # Похоже, человек перепутал вкладки и ввёл номер телефона в
+                # поле обычного логина (а не воспользовался вкладкой «По
+                # телефону») — если такой номер привязан к чьей-то карточке
+                # с учётной записью, подсказываем в журнале её логин, чтобы
+                # председатель сразу видел, кому помочь, а не гадал по
+                # голому номеру.
+                phone_digits = _normalize_phone_digits(username)
+                if len(phone_digits) >= 7:
+                    phone_person = _person_by_phone_digits(phone_digits)
+                    phone_user = (
+                        database.db_session.query(User).filter_by(person_id=phone_person.id).first()
+                        if phone_person is not None else None
+                    )
+                    if phone_user is not None:
+                        summary += f" (телефон привязан к «{phone_user.username}»)"
+            audit.record("auth.login_failed", summary=summary)
             database.db_session.commit()
             flash(_("Неверный логин или пароль."), "danger")
         elif not user.is_active:

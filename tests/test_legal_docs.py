@@ -227,6 +227,46 @@ def test_suggest_state_duty_brackets():
     assert suggest_state_duty(Decimal("200000")) == Decimal("7000.00")
 
 
+def test_state_duty_review_shows_writ_proceeding_toggle(db, client):
+    """Чек-бокс «приказное производство» на странице проверки сумм —
+    JS на клиенте пересчитывает 100%/50% от суммы, зашитой в data-full-duty
+    (см. state_duty_review.html); здесь только проверяем, что нужная
+    разметка/данные для этого расчёта присутствуют на странице."""
+    _make_coop(db)
+    _board_login(db, client)
+    person = make_person(db, full_name="Приказников Приказ Приказович")
+    garage = make_garage(db, number="32")
+    make_ownership(db, garage, person)
+    _make_debt(db, person, garage, amount="50000.00")
+    db.commit()
+
+    resp = client.post("/legal-docs/state-duty/review", data={"person_id": [str(person.id)]})
+    body = resp.get_data(as_text=True)
+    assert f'data-full-duty="4000.00"' in body
+    assert "js-writ-toggle" in body
+    assert "50% (судебный приказ)" in body
+
+
+def test_state_duty_print_accepts_halved_writ_proceeding_amount(db, client):
+    """Итоговая сумма квитанции остаётся тем, что реально отправлено формой
+    (в т.ч. пересчитанное чек-боксом на клиенте значение 50%) — сервер не
+    пересчитывает её заново."""
+    _make_coop(db)
+    _board_login(db, client)
+    person = make_person(db, full_name="Половинкин Полу Половинкин")
+    garage = make_garage(db, number="33")
+    make_ownership(db, garage, person)
+    _make_debt(db, person, garage, amount="50000.00")
+    db.commit()
+
+    resp = client.post("/legal-docs/state-duty/print", data={
+        "person_id": [str(person.id)],
+        f"duty_amount_{person.id}": "2000.00",  # 50% от 4000 — как посчитал бы чек-бокс
+    })
+    assert resp.status_code == 200
+    assert "2000,00" in resp.get_data(as_text=True)
+
+
 def test_state_duty_review_then_print_uses_edited_amount(db, client):
     _make_coop(db)
     _board_login(db, client)

@@ -13,6 +13,7 @@
         <th>{{ _("Должник") }}</th>
         <th>{{ _("Цена иска (долг + пеня)") }}</th>
         <th>{{ _("Судебный участок") }}</th>
+        <th>{{ _("Приказное производство") }}</th>
         <th>{{ _("Сумма госпошлины, ₽") }}</th>
       </tr>
     </thead>
@@ -28,16 +29,41 @@
           {% if item.section %}{{ item.section.name }}
           {% else %}<span class="text-danger">{{ _("не определён") }}</span>{% endif %}
         </td>
+        <td>
+          <div class="form-check">
+            <input type="checkbox" class="form-check-input js-writ-toggle" id="writ{{ item.person.id }}"
+                   data-target="dutyAmount{{ item.person.id }}" data-full-duty="{{ item.suggested_duty }}">
+            <label class="form-check-label small" for="writ{{ item.person.id }}">{{ _("50% (судебный приказ)") }}</label>
+          </div>
+        </td>
         <td style="max-width:160px">
-          <input type="text" inputmode="decimal" class="form-control" name="duty_amount_{{ item.person.id }}" value="{{ item.suggested_duty }}" required>
+          <input type="text" inputmode="decimal" class="form-control" id="dutyAmount{{ item.person.id }}"
+                 name="duty_amount_{{ item.person.id }}" value="{{ item.suggested_duty }}" required>
         </td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
+  <p class="text-muted small">
+    {{ _("Заявление о вынесении судебного приказа (упрощённое производство, без судебного заседания) — госпошлина 50% от обычной ставки (пп. 2 п. 1 ст. 333.19 НК РФ). Обычное исковое заявление, рассматриваемое в очном гражданском процессе — госпошлина в полном размере. Переключатель только пересчитывает подсказанную сумму; итоговое значение по-прежнему можно поправить вручную.") }}
+  </p>
   <div class="d-flex gap-2">
     <button class="btn btn-primary">{{ _("Сформировать квитанции") }}</button>
     <a class="btn btn-outline-secondary" href="{{ url_for('legal_docs.state_duty') }}">{{ _("Назад к выбору") }}</a>
   </div>
 </form>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  document.querySelectorAll(".js-writ-toggle").forEach(function (checkbox) {
+    checkbox.addEventListener("change", function () {
+      const input = document.getElementById(checkbox.dataset.target);
+      const fullDuty = parseFloat(checkbox.dataset.fullDuty.replace(",", "."));
+      if (!input || isNaN(fullDuty)) return;
+      const amount = checkbox.checked ? fullDuty / 2 : fullDuty;
+      input.value = amount.toFixed(2);
+    });
+  });
+});
+</script>
 {% endblock %}

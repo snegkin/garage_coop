@@ -3,66 +3,85 @@
 {% block content %}
 <h3 class="mb-3">{{ _("Мой гараж") }}</h3>
 
-{% if person is none %}
-<p class="text-muted">{{ _("Ваша учётная запись пока не привязана к карточке члена кооператива. Обратитесь в правление.") }}</p>
-{% elif not ownerships %}
-<p class="text-muted">{{ _("За вами не числится ни одного гаража.") }}</p>
-{% else %}
-<div class="row g-3">
-  {% for o in ownerships %}
-  <div class="col-md-6">
-    <div class="card">
-      <div class="card-body">
-        <h5 class="card-title">{{ _("Гараж №{n}", n=o.garage.number) }}</h5>
-        <p class="card-text mb-1"><strong>{{ _("Площадь") }}:</strong> {{ fmt2(o.garage.area_sqm) }} м²</p>
-        <p class="card-text mb-1"><strong>{{ _("Доля") }}:</strong> {{ fmt2(o.share) }}</p>
-        <p class="card-text mb-3"><strong>{{ _("Кадастровый номер гаража") }}:</strong> {{ o.garage.cadastral_number or "—" }}</p>
-        <a class="btn btn-sm btn-primary" href="{{ url_for('garages.detail', garage_id=o.garage.id) }}">{{ _("Открыть и обновить данные") }}</a>
+{% macro garage_card(garage, title, share=none) %}
+<div class="col-md-6">
+  <div class="card">
+    <div class="card-body">
+      <h5 class="card-title">{{ title }}</h5>
+      <p class="card-text mb-1"><strong>{{ _("Площадь") }}:</strong> {{ fmt2(garage.area_sqm) }} м²</p>
+      {% if share is not none %}
+      <p class="card-text mb-1"><strong>{{ _("Доля") }}:</strong> {{ fmt2(share) }}</p>
+      {% endif %}
+      <p class="card-text mb-3"><strong>{{ _("Кадастровый номер гаража") }}:</strong> {{ garage.cadastral_number or "—" }}</p>
+      <a class="btn btn-sm btn-primary" href="{{ url_for('garages.detail', garage_id=garage.id) }}">{{ _("Открыть и обновить данные") }}</a>
 
-        {% set my_accounts = member_accounts_by_garage.get(o.garage.id, []) %}
-        {% set elec = electricity_by_garage.get(o.garage.id) %}
-        {% if my_accounts or elec %}
-        <table class="table table-sm mt-3 mb-0">
-          <thead><tr><th>{{ _("Вид взноса") }}</th><th class="text-end">{{ _("Счёт") }}</th><th class="text-end">{{ _("Баланс") }}</th><th class="no-sort"></th></tr></thead>
-          <tbody>
-            {% if elec %}
-            {% set elec_account, elec_balance = elec %}
-            <tr>
-              <td onclick="window.location='{{ url_for('garages.detail', garage_id=o.garage.id, tab='account') }}'" style="cursor:pointer">{{ _("Электроэнергия") }}</td>
-              <td onclick="window.location='{{ url_for('garages.detail', garage_id=o.garage.id, tab='account') }}'" style="cursor:pointer" class="text-end">{{ elec_account.account_number }}</td>
-              <td class="text-end {{ 'text-danger' if elec_balance < 0 else 'text-success' }}" onclick="window.location='{{ url_for('garages.detail', garage_id=o.garage.id, tab='account') }}'" style="cursor:pointer">
-                {{ fmt2(elec_balance) }} ₽
-              </td>
-              <td class="text-end">
-                {% if elec_balance < 0 %}
-                <a class="btn btn-sm btn-outline-success" href="{{ url_for('pd4.print_slips', garage_id=o.garage.id) }}" title="{{ _('Оплатить') }}">💳</a>
-                {% endif %}
-              </td>
-            </tr>
-            {% endif %}
-            {% for acc in my_accounts %}
-            {% set acc_balance = acc.payments|sum(attribute='amount') - acc.charges|sum(attribute='amount') %}
-            <tr>
-              <td onclick="window.location='{{ url_for('finance.member_account_detail', account_id=acc.id) }}'" style="cursor:pointer">{{ acc.fee_type.name }}</td>
-              <td onclick="window.location='{{ url_for('finance.member_account_detail', account_id=acc.id) }}'" style="cursor:pointer" class="text-end">{{ acc.account_number }}</td>
-              <td class="text-end {{ 'text-danger' if acc_balance < 0 else 'text-success' }}" onclick="window.location='{{ url_for('finance.member_account_detail', account_id=acc.id) }}'" style="cursor:pointer">
-                {{ fmt2(acc_balance) }} ₽
-              </td>
-              <td class="text-end">
-                {% if acc_balance < 0 %}
-                <a class="btn btn-sm btn-outline-success" href="{{ url_for('pd4.print_slips', account_id=acc.id) }}" title="{{ _('Оплатить') }}">💳</a>
-                {% endif %}
-              </td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-        {% endif %}
-      </div>
+      {% set my_accounts = member_accounts_by_garage.get(garage.id, []) %}
+      {% set elec = electricity_by_garage.get(garage.id) %}
+      {% if my_accounts or elec %}
+      <table class="table table-sm mt-3 mb-0">
+        <thead><tr><th>{{ _("Вид взноса") }}</th><th class="text-end">{{ _("Счёт") }}</th><th class="text-end">{{ _("Баланс") }}</th><th class="no-sort"></th></tr></thead>
+        <tbody>
+          {% if elec %}
+          {% set elec_account, elec_balance = elec %}
+          <tr>
+            <td onclick="window.location='{{ url_for('garages.detail', garage_id=garage.id, tab='account') }}'" style="cursor:pointer">{{ _("Электроэнергия") }}</td>
+            <td onclick="window.location='{{ url_for('garages.detail', garage_id=garage.id, tab='account') }}'" style="cursor:pointer" class="text-end">{{ elec_account.account_number }}</td>
+            <td class="text-end {{ 'text-danger' if elec_balance < 0 else 'text-success' }}" onclick="window.location='{{ url_for('garages.detail', garage_id=garage.id, tab='account') }}'" style="cursor:pointer">
+              {{ fmt2(elec_balance) }} ₽
+            </td>
+            <td class="text-end">
+              {% if elec_balance < 0 %}
+              <a class="btn btn-sm btn-outline-success" href="{{ url_for('pd4.print_slips', garage_id=garage.id) }}" title="{{ _('Оплатить') }}">💳</a>
+              {% endif %}
+            </td>
+          </tr>
+          {% endif %}
+          {% for acc in my_accounts %}
+          {% set acc_balance = acc.payments|sum(attribute='amount') - acc.charges|sum(attribute='amount') %}
+          <tr>
+            <td onclick="window.location='{{ url_for('finance.member_account_detail', account_id=acc.id) }}'" style="cursor:pointer">{{ acc.fee_type.name }}</td>
+            <td onclick="window.location='{{ url_for('finance.member_account_detail', account_id=acc.id) }}'" style="cursor:pointer" class="text-end">{{ acc.account_number }}</td>
+            <td class="text-end {{ 'text-danger' if acc_balance < 0 else 'text-success' }}" onclick="window.location='{{ url_for('finance.member_account_detail', account_id=acc.id) }}'" style="cursor:pointer">
+              {{ fmt2(acc_balance) }} ₽
+            </td>
+            <td class="text-end">
+              {% if acc_balance < 0 %}
+              <a class="btn btn-sm btn-outline-success" href="{{ url_for('pd4.print_slips', account_id=acc.id) }}" title="{{ _('Оплатить') }}">💳</a>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
     </div>
   </div>
+</div>
+{% endmacro %}
+
+{% if person is none %}
+<p class="text-muted">{{ _("Ваша учётная запись пока не привязана к карточке члена кооператива. Обратитесь в правление.") }}</p>
+{% elif not ownerships and not contact_garages %}
+<p class="text-muted">{{ _("За вами не числится ни одного гаража.") }}</p>
+{% else %}
+{% if ownerships %}
+<div class="row g-3">
+  {% for o in ownerships %}
+  {{ garage_card(o.garage, _("Гараж №{n}", n=o.garage.number), share=o.share) }}
   {% endfor %}
 </div>
+{% endif %}
+
+{% if contact_garages %}
+<h5 class="mt-4 mb-3">{{ _("Гаражи, где вы указаны лицом для связи") }}</h5>
+<div class="row g-3">
+  {% for garage in contact_garages %}
+  {% set owner_names = garage.ownerships|map(attribute='person.full_name')|join(", ") %}
+  {{ garage_card(garage, _("Гараж №{n} ({owner})", n=garage.number, owner=owner_names) if owner_names else _("Гараж №{n}", n=garage.number)) }}
+  {% endfor %}
+</div>
+{% endif %}
+
 <p class="text-muted small mt-3">{{ _("На странице гаража вы можете обновить комментарий, фото и список лиц для связи. Площадь, номер и кадастровые данные меняет только правление.") }}</p>
 {% endif %}
 {% endblock %}

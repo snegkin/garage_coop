@@ -771,6 +771,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "If this information is outdated or incorrect, please tell the chairman or a board member.",
         "Данные обновлены.": "Details updated.",
         "За вами не числится ни одного гаража.": "No garages are registered under your name.",
+        "Гаражи, где вы указаны лицом для связи": "Garages where you're listed as a contact",
+        "Гараж №{n} ({owner})": "Garage No. {n} ({owner})",
         "Открыть и обновить данные": "Open and update details",
         "На странице гаража вы можете обновить комментарий, фото и список лиц для связи. Площадь, номер и кадастровые данные меняет только правление.":
             "On the garage page you can update the comment, photos, and contact persons. Area, number, and cadastral data are changed by the board only.",

@@ -1578,6 +1578,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
 
         # app/surveillance.py, surveillance/view.html
         "Видеонаблюдение": "Video surveillance",
+        "Видеонаблюдение (снапшоты за последние 24 часа, с интервалом 5 минут)": "Video surveillance (snapshots for the last 24 hours, every 5 minutes)",
         "Добавить регистратор": "Add recorder",
         "Регистраторы видеонаблюдения ещё не добавлены.": "No video recorders added yet.",
         "Удалить регистратор и все его камеры? Сохранённые кадры на диске тоже будут удалены.":

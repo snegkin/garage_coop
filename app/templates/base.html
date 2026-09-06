@@ -186,39 +186,24 @@
   <div class="lightbox-counter"></div>
 </div>
 
-{% if current_user and is_board() %}
-<div id="boardChatWidget">
-  <button type="button" id="boardChatToggle" class="board-chat-bubble" aria-label="{{ _('Чат правления') }}">
-    &#128172;
-    <span id="boardChatBadge" class="board-chat-badge {{ 'd-none' if not board_chat_unread_count }}">{{ board_chat_unread_count }}</span>
-  </button>
-  <div id="boardChatPanel" class="board-chat-panel d-none">
-    <div class="board-chat-header">
-      <span>{{ _("Чат правления") }}</span>
-      <button type="button" id="boardChatClose" class="btn-close btn-close-white" aria-label="{{ _('Закрыть') }}"></button>
-    </div>
-    <div id="boardChatMessages" class="board-chat-messages"></div>
-    <form id="boardChatForm" class="board-chat-form">
-      <textarea id="boardChatInput" class="form-control form-control-sm" rows="1" placeholder="{{ _('Написать сообщение…') }}"></textarea>
-      <button type="submit" class="btn btn-sm btn-primary">{{ _("Отправить") }}</button>
-    </form>
-  </div>
-</div>
+{% if current_user and (is_board() or is_revision_commission_member) %}
 <script>
-// Чат правления — плавающий виджет (см. app/board_chat.py). Опрос новых
-// сообщений идёт ТОЛЬКО пока панель открыта (setInterval стартует при
-// открытии, останавливается при закрытии) — закрытый виджет не долбит
-// сервер, бейдж непрочитанных обновляется сам собой при обычной
-// навигации по страницам (board_chat_unread_count — контекст-процессор
-// в app/__init__.py).
-(function () {
-  var toggleBtn = document.getElementById("boardChatToggle");
-  var closeBtn = document.getElementById("boardChatClose");
-  var panel = document.getElementById("boardChatPanel");
-  var badge = document.getElementById("boardChatBadge");
-  var messagesEl = document.getElementById("boardChatMessages");
-  var form = document.getElementById("boardChatForm");
-  var input = document.getElementById("boardChatInput");
+// Общий движок для обоих плавающих чатов — правления (app/board_chat.py)
+// и ревизионной комиссии (app/revision_chat.py), одинаковых по
+// устройству, разных только правом доступа. Опрос новых сообщений идёт
+// ТОЛЬКО пока панель открыта (setInterval стартует при открытии,
+// останавливается при закрытии) — закрытый виджет не долбит сервер,
+// бейдж непрочитанных обновляется сам собой при обычной навигации по
+// страницам (board_chat_unread_count/revision_chat_unread_count —
+// контекст-процессор в app/__init__.py).
+function initChatWidget(cfg) {
+  var toggleBtn = document.getElementById(cfg.prefix + "ChatToggle");
+  var closeBtn = document.getElementById(cfg.prefix + "ChatClose");
+  var panel = document.getElementById(cfg.prefix + "ChatPanel");
+  var badge = document.getElementById(cfg.prefix + "ChatBadge");
+  var messagesEl = document.getElementById(cfg.prefix + "ChatMessages");
+  var form = document.getElementById(cfg.prefix + "ChatForm");
+  var input = document.getElementById(cfg.prefix + "ChatInput");
 
   var lastId = 0;
   var pollTimer = null;
@@ -226,10 +211,10 @@
 
   function renderMessage(msg) {
     var el = document.createElement("div");
-    el.className = "board-chat-message" + (msg.is_mine ? " is-mine" : "");
+    el.className = "chat-widget-message" + (msg.is_mine ? " is-mine" : "");
 
     var author = document.createElement("span");
-    author.className = "board-chat-author";
+    author.className = "chat-widget-author";
     author.textContent = msg.author_name;  // textContent — не innerHTML, обычный текст, не разметка
     el.appendChild(author);
 
@@ -238,7 +223,7 @@
     el.appendChild(body);
 
     var time = document.createElement("span");
-    time.className = "board-chat-time";
+    time.className = "chat-widget-time";
     time.textContent = new Date(msg.created_at).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"});
     el.appendChild(time);
 
@@ -251,7 +236,7 @@
   }
 
   function poll() {
-    fetch("{{ url_for('board_chat.list_messages') }}?after_id=" + lastId)
+    fetch(cfg.listUrl + "?after_id=" + lastId)
       .then(function (r) { return r.json(); })
       .then(function (data) {
         if (!data.messages || !data.messages.length) return;
@@ -262,7 +247,7 @@
   }
 
   function loadInitial() {
-    fetch("{{ url_for('board_chat.list_messages') }}")
+    fetch(cfg.listUrl)
       .then(function (r) { return r.json(); })
       .then(function (data) {
         messagesEl.innerHTML = "";
@@ -298,7 +283,7 @@
     if (!body) return;
     var formData = new FormData();
     formData.append("body", body);
-    fetch("{{ url_for('board_chat.send_message') }}", {
+    fetch(cfg.sendUrl, {
       method: "POST",
       headers: csrfMeta ? { "X-CSRFToken": csrfMeta.getAttribute("content") } : {},
       body: formData,
@@ -320,7 +305,61 @@
       form.requestSubmit();
     }
   });
-})();
+}
+</script>
+{% endif %}
+
+{% if current_user and is_board() %}
+<div id="boardChatWidget">
+  <button type="button" id="boardChatToggle" class="chat-widget-bubble" aria-label="{{ _('Чат правления') }}">
+    &#128172;
+    <span id="boardChatBadge" class="chat-widget-badge {{ 'd-none' if not board_chat_unread_count }}">{{ board_chat_unread_count }}</span>
+  </button>
+  <div id="boardChatPanel" class="chat-widget-panel d-none">
+    <div class="chat-widget-header">
+      <span>{{ _("Чат правления") }}</span>
+      <button type="button" id="boardChatClose" class="btn-close btn-close-white" aria-label="{{ _('Закрыть') }}"></button>
+    </div>
+    <div id="boardChatMessages" class="chat-widget-messages"></div>
+    <form id="boardChatForm" class="chat-widget-form">
+      <textarea id="boardChatInput" class="form-control form-control-sm" rows="1" placeholder="{{ _('Написать сообщение…') }}"></textarea>
+      <button type="submit" class="btn btn-sm btn-primary">{{ _("Отправить") }}</button>
+    </form>
+  </div>
+</div>
+<script>
+  initChatWidget({
+    prefix: "board",
+    listUrl: "{{ url_for('board_chat.list_messages') }}",
+    sendUrl: "{{ url_for('board_chat.send_message') }}",
+  });
+</script>
+{% endif %}
+
+{% if current_user and is_revision_commission_member %}
+<div id="revisionChatWidget">
+  <button type="button" id="revisionChatToggle" class="chat-widget-bubble chat-widget-bubble--left" aria-label="{{ _('Чат ревизионной комиссии') }}">
+    &#128172;
+    <span id="revisionChatBadge" class="chat-widget-badge {{ 'd-none' if not revision_chat_unread_count }}">{{ revision_chat_unread_count }}</span>
+  </button>
+  <div id="revisionChatPanel" class="chat-widget-panel chat-widget-panel--left d-none">
+    <div class="chat-widget-header">
+      <span>{{ _("Чат ревизионной комиссии") }}</span>
+      <button type="button" id="revisionChatClose" class="btn-close btn-close-white" aria-label="{{ _('Закрыть') }}"></button>
+    </div>
+    <div id="revisionChatMessages" class="chat-widget-messages"></div>
+    <form id="revisionChatForm" class="chat-widget-form">
+      <textarea id="revisionChatInput" class="form-control form-control-sm" rows="1" placeholder="{{ _('Написать сообщение…') }}"></textarea>
+      <button type="submit" class="btn btn-sm btn-primary">{{ _("Отправить") }}</button>
+    </form>
+  </div>
+</div>
+<script>
+  initChatWidget({
+    prefix: "revision",
+    listUrl: "{{ url_for('revision_chat.list_messages') }}",
+    sendUrl: "{{ url_for('revision_chat.send_message') }}",
+  });
 </script>
 {% endif %}
 
@@ -556,36 +595,42 @@ tr.table-info-subtle { --bs-table-bg: var(--bs-info-bg-subtle); --bs-table-borde
 /* Плавающий чат правления (см. app/board_chat.py) — кнопка-пузырь всегда
    поверх страницы, панель раскрывается над ней. z-index ниже, чем у
    лайтбокса (2000) — открытый лайтбокс не должен просвечивать чатом. */
-.board-chat-bubble {
+/* .chat-widget-* — общий каркас для обоих чатов (правления и ревизионной
+   комиссии, см. app/board_chat.py/app/revision_chat.py) — правый и левый
+   нижний угол соответственно (--left), чтобы у человека, который состоит
+   в обоих органах сразу, пузыри не перекрывали друг друга. */
+.chat-widget-bubble {
   position: fixed; right: 1.25rem; bottom: 1.25rem; z-index: 1500;
   width: 3.25rem; height: 3.25rem; border-radius: 50%; border: none;
   background: var(--bs-primary); color: #fff; font-size: 1.4rem;
   display: flex; align-items: center; justify-content: center;
   box-shadow: 0 .25rem .75rem rgba(0, 0, 0, .3); cursor: pointer;
 }
-.board-chat-badge {
+.chat-widget-bubble--left { right: auto; left: 1.25rem; }
+.chat-widget-badge {
   position: absolute; top: -.25rem; right: -.25rem; background: var(--bs-danger);
   color: #fff; border-radius: 50%; min-width: 1.35rem; height: 1.35rem;
   font-size: .7rem; display: flex; align-items: center; justify-content: center;
   padding: 0 .25rem; line-height: 1;
 }
-.board-chat-panel {
+.chat-widget-panel {
   position: fixed; right: 1.25rem; bottom: 5rem; z-index: 1500;
   width: 320px; max-width: calc(100vw - 2rem); height: 420px; max-height: calc(100vh - 8rem);
   background: var(--bs-body-bg); border: 1px solid var(--bs-border-color); border-radius: .5rem;
   box-shadow: 0 .5rem 1.5rem rgba(0, 0, 0, .35); display: flex; flex-direction: column; overflow: hidden;
 }
-.board-chat-header {
+.chat-widget-panel--left { right: auto; left: 1.25rem; }
+.chat-widget-header {
   background: var(--bs-primary); color: #fff; padding: .5rem .75rem;
   display: flex; justify-content: space-between; align-items: center; font-weight: 600;
 }
-.board-chat-messages { flex: 1; overflow-y: auto; padding: .5rem .75rem; display: flex; flex-direction: column; gap: .5rem; }
-.board-chat-message { max-width: 85%; padding: .35rem .6rem; border-radius: .75rem; background: var(--bs-tertiary-bg); white-space: pre-wrap; word-break: break-word; }
-.board-chat-message.is-mine { align-self: flex-end; background: var(--bs-primary-bg-subtle); }
-.board-chat-message .board-chat-author { font-size: .75rem; font-weight: 600; opacity: .75; display: block; }
-.board-chat-message .board-chat-time { font-size: .7rem; opacity: .6; display: block; margin-top: .15rem; }
-.board-chat-form { display: flex; gap: .4rem; padding: .5rem; border-top: 1px solid var(--bs-border-color); }
-.board-chat-form textarea { resize: none; }
+.chat-widget-messages { flex: 1; overflow-y: auto; padding: .5rem .75rem; display: flex; flex-direction: column; gap: .5rem; }
+.chat-widget-message { max-width: 85%; padding: .35rem .6rem; border-radius: .75rem; background: var(--bs-tertiary-bg); white-space: pre-wrap; word-break: break-word; }
+.chat-widget-message.is-mine { align-self: flex-end; background: var(--bs-primary-bg-subtle); }
+.chat-widget-message .chat-widget-author { font-size: .75rem; font-weight: 600; opacity: .75; display: block; }
+.chat-widget-message .chat-widget-time { font-size: .7rem; opacity: .6; display: block; margin-top: .15rem; }
+.chat-widget-form { display: flex; gap: .4rem; padding: .5rem; border-top: 1px solid var(--bs-border-color); }
+.chat-widget-form textarea { resize: none; }
 .wiki-tree-toggle { display: inline-block; width: 1.1rem; text-align: center; }
 .wiki-tree-toggle .chevron { display: inline-block; transition: transform .15s; }
 .wiki-tree-toggle.collapsed .chevron { transform: rotate(-90deg); }

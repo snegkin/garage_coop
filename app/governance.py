@@ -49,6 +49,17 @@ def _current_commission():
     )
 
 
+def current_revision_commission_member_ids() -> set[int]:
+    """ID людей — членов текущей (не закрытой) ревизионной комиссии.
+    Публичная обёртка над _current_commission(), тот же приём, что и
+    current_board_member_ids() выше — используется вне этого модуля, см.
+    app/revision_chat.py (доступ к чату комиссии не завязан на User.role,
+    в отличие от чата правления, — комиссия избирается отдельно от
+    правления, см. docstring RevisionCommission в models.py)."""
+    commission = _current_commission()
+    return {m.person_id for m in commission.members} if commission else set()
+
+
 @bp.route("/")
 @login_required
 def view():

@@ -174,3 +174,80 @@ def test_url_outside_spoiler_is_still_auto_linked():
     from app.news_format import render_html
     html = str(render_html("Смотрите https://example.com/public — открыто всем."))
     assert '<a href="https://example.com/public"' in html
+
+
+def test_punycode_domain_is_linkified_whole_not_cut_at_xn():
+    """Регресс: встроенный список доменных зон bleach (bleach.linkifier.TLDS)
+    по ошибке содержит "xn" отдельной зоной (это ACE/punycode-префикс
+    "xn--", не сама зона) — из-за этого punycode-домен (например,
+    кириллический ".рф" в punycode) обрывался ровно на "xn":
+    "xn----dtbbg1boax0b.xn--p1ai" превращалось в ссылку
+    "xn----dtbbg1boax0b.xn", а "--p1ai" оставалось обычным текстом рядом.
+    См. app/news_format.py: _TLDS_WITH_PUNYCODE."""
+    from app.news_format import render_html
+    html = str(render_html("см. xn----dtbbg1boax0b.xn--p1ai пример"))
+    assert '<a href="http://xn----dtbbg1boax0b.xn--p1ai"' in html
+    assert ">xn----dtbbg1boax0b.xn--p1ai</a> пример" in html  # весь домен внутри ссылки, "--p1ai" не остаётся снаружи
+
+
+# ---------------------------------------------------------------------------
+# Сворачивание длинного блока кода (см. app/news_format.py:
+# _wrap_long_code_block, CODE_BLOCK_COLLAPSE_LINES) — включено только у
+# вики (render_wiki_html/wiki.py:preview), НЕ у новостей и не у почты
+# (кнопка сворачивания не работает без JS в письме).
+# ---------------------------------------------------------------------------
+
+def _indented_code(n_lines: int) -> str:
+    return "\n".join(f"    line{i}" for i in range(1, n_lines + 1)) + "\n"
+
+
+def test_render_html_default_does_not_collapse_long_code_block():
+    from app.news_format import render_html
+    html = str(render_html(_indented_code(20)))
+    assert "wiki-code-block" not in html
+    assert "<pre><code>" in html
+
+
+def test_render_html_collapses_long_code_block_when_enabled(db):
+    """collapse_long_code=True зовёт _() (app/i18n.py: translate), а тому
+    нужен g.locale — отсюда фикстура db (только ради app_context, сама БД
+    здесь не нужна)."""
+    from app.news_format import render_html, CODE_BLOCK_COLLAPSE_LINES
+    html = str(render_html(_indented_code(CODE_BLOCK_COLLAPSE_LINES + 5), collapse_long_code=True))
+    assert 'class="wiki-code-block is-collapsed"' in html
+    assert "wiki-code-toggle" in html
+    assert f"({CODE_BLOCK_COLLAPSE_LINES + 5} строк)" in html
+    assert "line1" in html and f"line{CODE_BLOCK_COLLAPSE_LINES + 5}" in html  # содержимое никуда не делось, только свёрнуто CSS
+
+
+def test_render_html_does_not_collapse_short_code_block_even_when_enabled(db):
+    from app.news_format import render_html, CODE_BLOCK_COLLAPSE_LINES
+    html = str(render_html(_indented_code(CODE_BLOCK_COLLAPSE_LINES), collapse_long_code=True))
+    assert "wiki-code-block" not in html
+
+
+def test_wiki_preview_collapses_long_code_block(db, client):
+    """Предпросмотр из тулбара формы должен вести себя так же, как
+    сохранённая страница (см. test_wiki_preview_uses_same_renderer_as_news) —
+    в т.ч. сворачивать длинный блок кода."""
+    from app.news_format import CODE_BLOCK_COLLAPSE_LINES
+    _board_user(db)
+    login(client, "board1", "pass1234")
+
+    resp = client.post("/wiki/preview", data={"body": _indented_code(CODE_BLOCK_COLLAPSE_LINES + 1)})
+    assert resp.status_code == 200
+    html = resp.get_json()["html"]
+    assert "wiki-code-block" in html
+
+
+def test_news_preview_does_not_collapse_long_code_block(db, client):
+    """Новости — короче, кнопка сворачивания там не нужна (см. docstring
+    render_html в app/news_format.py)."""
+    from app.news_format import CODE_BLOCK_COLLAPSE_LINES
+    _board_user(db)
+    login(client, "board1", "pass1234")
+
+    resp = client.post("/news/preview", data={"body": _indented_code(CODE_BLOCK_COLLAPSE_LINES + 1)})
+    assert resp.status_code == 200
+    html = resp.get_json()["html"]
+    assert "wiki-code-block" not in html

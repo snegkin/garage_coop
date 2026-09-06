@@ -450,6 +450,31 @@ tr.table-info-subtle { --bs-table-bg: var(--bs-info-bg-subtle); --bs-table-borde
    без темы: достаточно контрастен и на светлом, и на тёмном фоне. */
 .wiki-spoiler { background-color: #6c757d; color: #6c757d; border-radius: .25rem; padding: 0 .3em; cursor: pointer; user-select: none; }
 .wiki-spoiler.revealed { background-color: transparent; color: inherit; cursor: text; user-select: text; }
+/* Код в тексте вики/новости — раньше выделялся только моноширинным
+   шрифтом, визуально не отличался от обычного абзаца. Инлайн-код (`код`) —
+   компактная "таблетка" с фоном; блок кода (```/отступ) — отдельная рамка
+   с акцентной полосой слева и своим фоном, заметно отделяющая его от
+   остального текста. */
+.card-text code { background-color: var(--bs-tertiary-bg); border-radius: .25rem; padding: .1em .4em; font-size: .9em; }
+.card-text pre { background-color: var(--bs-tertiary-bg); border: 1px solid var(--bs-border-color); border-left: 3px solid var(--bs-secondary-color); border-radius: .375rem; padding: .75rem 1rem; overflow-x: auto; margin: 1rem 0; }
+.card-text pre code { background: none; padding: 0; border-radius: 0; font-size: .875em; }
+/* Цитата (markdown "> ") — тоже никак не выделялась (обычный абзац без
+   отступа), теперь отдельная полоса слева и приглушённый цвет текста, тем
+   же приёмом, что и у блока кода выше (акцентная полоса), но БЕЗ фона —
+   цитата это не код, заливка тут была бы лишней. */
+.card-text blockquote { border-left: 3px solid var(--bs-border-color); padding: .25rem 1rem; margin: 1rem 0; color: var(--bs-secondary-color); }
+.card-text blockquote p:last-child { margin-bottom: 0; }
+/* Длинный блок кода в вики (см. news_format.py: _wrap_long_code_block,
+   CODE_BLOCK_COLLAPSE_LINES) сворачивается по умолчанию — при обзорном
+   чтении страницы не приходится скроллить длинный листинг, кнопка
+   разворачивает его на полную высоту. max-height подобран примерно под
+   CODE_BLOCK_COLLAPSE_LINES строк тем же font-size/line-height, что и .pre
+   code выше. */
+.wiki-code-block { position: relative; }
+.wiki-code-block pre { margin: 0 0 .5rem; }
+.wiki-code-block.is-collapsed pre { max-height: 14em; overflow: hidden; }
+.wiki-code-block.is-collapsed::before { content: ""; position: absolute; left: 1px; right: 1px; bottom: calc(.5rem + 3em); height: 3em; background: linear-gradient(transparent, var(--bs-tertiary-bg)); pointer-events: none; }
+.wiki-code-toggle { display: block; width: 100%; }
 </style>
 <script>
 // Скрытый текст (.wiki-spoiler, см. <style> выше и news_format.py:
@@ -464,6 +489,18 @@ document.addEventListener("keydown", function (e) {
   if (e.key !== "Enter" && e.key !== " ") return;
   var el = e.target.closest && e.target.closest(".wiki-spoiler");
   if (el) { e.preventDefault(); el.classList.toggle("revealed"); }
+});
+// Свернуть/развернуть длинный блок кода (.wiki-code-block, см. <style>
+// выше и news_format.py: _wrap_long_code_block) — оба подписанных лейбла
+// уже готовы на кнопке (data-collapsed-label/data-expanded-label,
+// собраны на сервере через _()), JS только переключает класс и текст.
+document.addEventListener("click", function (e) {
+  var btn = e.target.closest(".wiki-code-toggle");
+  if (!btn) return;
+  var wrapper = btn.closest(".wiki-code-block");
+  if (!wrapper) return;
+  var collapsed = wrapper.classList.toggle("is-collapsed");
+  btn.textContent = collapsed ? btn.dataset.collapsedLabel : btn.dataset.expandedLabel;
 });
 </script>
 <script>

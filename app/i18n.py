@@ -97,6 +97,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Нельзя удалить раздел, в котором есть подразделы/страницы — сначала удалите или перенесите их.":
             "Can't delete a section that still has subsections/pages — delete or move them first.",
         "Нельзя сделать родителем саму страницу или её же подраздел.": "The page itself or its own subsection can't be set as its parent.",
+        "Показать полностью ({n} строк)": "Show full code ({n} lines)",
+        "Свернуть": "Collapse",
 
         "Форматирование": "Formatting",
         "Вставить картинку": "Insert image",

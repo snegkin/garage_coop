@@ -22,6 +22,8 @@ import bleach
 import markdown as md_lib
 from markupsafe import Markup, escape
 
+from .i18n import translate as _
+
 ALLOWED_TAGS = [
     "p", "br", "strong", "em", "b", "i", "u", "a", "ul", "ol", "li",
     "blockquote", "code", "pre", "h3", "h4", "hr", "img", "span",
@@ -61,9 +63,58 @@ def _spoiler_sub(match: re.Match) -> str:
 _SPOILER_SPAN_RE = re.compile(r'<span class="wiki-spoiler"[^>]*>.*?</span>')
 _SPOILER_PLACEHOLDER_RE = re.compile(r"SPOILERSTASH(\d+)ENDSTASH")
 
+# bleach.linkifier.TLDS (встроенный список доменных зон, по которым linkify
+# распознаёт ссылку БЕЗ протокола — просто "домен.зона") по ошибке содержит
+# "xn" отдельной зоной — это ACE/punycode-префикс "xn--" (см. RFC 3492,
+# используется для не-ASCII доменов вроде кириллического ".рф"), а не сама
+# зона. Из-за этого punycode-домен целиком (например,
+# "xn----dtbbg1boax0b.xn--p1ai") обрывался ровно на этом "xn":
+# "...xn----dtbbg1boax0b.xn" уходило в ссылку, а "--p1ai" оставалось
+# обычным текстом (воспроизведено и проверено). Чинится своим списком зон:
+# убираем бесполезную "xn", добавляем regex-альтернативу для ЛЮБОЙ
+# punycode-зоны — bleach просто склеивает список через "|" без экранирования
+# каждого элемента, так что валидный фрагмент регулярки в списке работает
+# как есть, отдельный список punycode-зон целиком (там их сотни) не нужен.
+_TLDS_WITH_PUNYCODE = [tld for tld in bleach.linkifier.TLDS if tld != "xn"] + ["xn--[a-z0-9]+"]
+_LINKER = bleach.linkifier.Linker(
+    url_re=bleach.linkifier.build_url_re(tlds=_TLDS_WITH_PUNYCODE),
+    callbacks=[*bleach.linkifier.DEFAULT_CALLBACKS],
+)
 
-def render_html(text: str) -> Markup:
-    """Markdown -> безопасный HTML для отображения новости целиком."""
+# Длинный блок кода (```/отступ в markdown -> <pre><code>...</code></pre>) —
+# сворачивается под кнопку "Показать полностью", чтобы при обзорном чтении
+# статьи не приходилось скроллить длинный листинг целиком (см. .wiki-code-block
+# в base.html — там же делегированный JS-обработчик клика по кнопке).
+# Короткие блоки (в пределах порога) не трогаются — оборачивать их незачем.
+CODE_BLOCK_COLLAPSE_LINES = 12
+_CODE_BLOCK_RE = re.compile(r"<pre><code>.*?</code></pre>", re.DOTALL)
+
+
+def _wrap_long_code_block(match: re.Match) -> str:
+    pre_html = match.group(0)
+    line_count = pre_html.count("\n")
+    if line_count <= CODE_BLOCK_COLLAPSE_LINES:
+        return pre_html
+    collapsed_label = _("Показать полностью ({n} строк)", n=line_count)
+    expanded_label = _("Свернуть")
+    return (
+        '<div class="wiki-code-block is-collapsed">'
+        f"{pre_html}"
+        '<button type="button" class="btn btn-sm btn-outline-secondary wiki-code-toggle" '
+        f'data-collapsed-label="{escape(collapsed_label)}" data-expanded-label="{escape(expanded_label)}">'
+        f"{escape(collapsed_label)}</button></div>"
+    )
+
+
+def render_html(text: str, collapse_long_code: bool = False) -> Markup:
+    """Markdown -> безопасный HTML для отображения новости/страницы вики
+    целиком. collapse_long_code — сворачивать ли длинные блоки кода под
+    кнопку (см. _wrap_long_code_block); включено только для готовой
+    страницы вики (app/__init__.py: render_wiki_html) и её предпросмотра
+    (wiki.py: preview) — НЕ для новостей и НЕ для исходящей почты
+    (mailbox.py: compose), где кнопка сворачивания не сможет работать
+    (нет JS в письме) и просто обрежет часть кода без возможности
+    развернуть."""
     _md.reset()
     pre = _SPOILER_RE.sub(_spoiler_sub, text or "")
     html = _md.convert(pre)
@@ -76,8 +127,10 @@ def render_html(text: str) -> Markup:
         return f"SPOILERSTASH{len(stash) - 1}ENDSTASH"
 
     stashed = _SPOILER_SPAN_RE.sub(_stash, clean)
-    linked = bleach.linkify(stashed, callbacks=[*bleach.linkifier.DEFAULT_CALLBACKS])
+    linked = _LINKER.linkify(stashed)
     final = _SPOILER_PLACEHOLDER_RE.sub(lambda m: stash[int(m.group(1))], linked)
+    if collapse_long_code:
+        final = _CODE_BLOCK_RE.sub(_wrap_long_code_block, final)
     return Markup(final)
 
 

@@ -183,8 +183,10 @@ def _save_attachments(page: WikiPage):
 def preview():
     """AJAX-предпросмотр markdown из тулбара формы страницы вики — см.
     news.py: preview, тот же приём (тот же render_html, что и у новостей —
-    вики использует тот же markdown-рендер)."""
-    return jsonify(html=render_html(request.form.get("body", "")))
+    вики использует тот же markdown-рендер). collapse_long_code=True — тем
+    же приёмом, что и render_wiki_html в app/__init__.py, иначе предпросмотр
+    длинного блока кода выглядел бы иначе, чем сохранённая страница."""
+    return jsonify(html=render_html(request.form.get("body", ""), collapse_long_code=True))
 
 
 @bp.route("/attachments/upload", methods=["POST"])

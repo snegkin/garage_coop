@@ -50,8 +50,11 @@ def create_app(config_class=Config):
     app.jinja_env.globals["news_excerpt"] = news_format.excerpt
     # Вики использует тот же markdown-рендер, что и новости (news_format.py
     # не завязан на модель News) — отдельное имя jinja-глобала для ясности
-    # в шаблонах wiki/*.html, функция та же самая.
-    app.jinja_env.globals["render_wiki_html"] = news_format.render_html
+    # в шаблонах wiki/*.html. collapse_long_code=True — только у вики:
+    # длинные страницы вики (например, конфиги устройств) чаще всего и есть
+    # причина сворачивать листинги; новости короче, кнопка сворачивания там
+    # не нужна (см. news_format.render_html docstring).
+    app.jinja_env.globals["render_wiki_html"] = lambda text: news_format.render_html(text, collapse_long_code=True)
     app.jinja_env.globals["phone_link"] = contact_format.phone_link
     app.jinja_env.globals["phones_html"] = contact_format.phones_html
     app.jinja_env.globals["email_link"] = contact_format.email_link

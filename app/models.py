@@ -1037,6 +1037,12 @@ class User(Base):
     # где пароль генерируется автоматически и человек его не выбирал.
     # Снимается в auth.force_change_password при успешной смене.
     must_change_password: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Момент последнего опроса чата правления (см. app/board_chat.py) —
+    # общий на все сообщения, не по каждому отдельно: этого достаточно для
+    # бейджа непрочитанных (app/__init__.py: _inject_user). Обновляется
+    # при каждом успешном GET /board-chat/messages, отдельного роута
+    # "отметить прочитанным" не нужно.
+    board_chat_read_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
 
     person: Mapped["Person | None"] = relationship(foreign_keys=[person_id])
 
@@ -2178,3 +2184,21 @@ class VerificationCode(Base):
     # если бы гонять его туда-обратно скрытым полем формы), только его хэш
     # хранится здесь до момента подтверждения. См. app/verification.py.
     payload: Mapped[str | None] = mapped_column(Text)
+
+
+# ---------------------------------------------------------------------------
+# Чат правления — плавающий виджет на всех страницах (см. app/board_chat.py)
+# ---------------------------------------------------------------------------
+
+class BoardChatMessage(Base):
+    """Общий чат правления — простой хронологический лог, без
+    редактирования и удаления (тот же принцип неизменности, что у
+    AuditLog), без вложений и разметки (обычный текст)."""
+    __tablename__ = "board_chat_message"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    author_id: Mapped[int] = mapped_column(ForeignKey("user.id", ondelete="CASCADE"), index=True)
+    body: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.utcnow, index=True)
+
+    author: Mapped["User"] = relationship()

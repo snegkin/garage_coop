@@ -68,6 +68,27 @@ class Config:
     # работать вообще, даже если токены и клиентский сертификат настроены верно.
     SBERBANK_API_CA_BUNDLE = os.environ.get("SBERBANK_API_CA_BUNDLE")
 
+    # Google reCAPTCHA v2 (чекбокс «Я не робот») на странице восстановления
+    # пароля (см. app/recaptcha.py, app/auth.py: forgot_password) — ключи
+    # выпускаются на конкретный домен в консоли Google, поэтому это
+    # деплой-секрет (как SECRET_KEY), а не бизнес-данные кооператива:
+    # переменные окружения, не форма в админке. Если не заданы —
+    # app/recaptcha.py:verify() пропускает проверку (не блокирует
+    # локальную разработку и тесты) — но предупреждаем в логе при старте,
+    # тем же приёмом, что и у SECRET_KEY без переменной окружения, чтобы
+    # отсутствие защиты на проде не было тихим.
+    RECAPTCHA_SITE_KEY = os.environ.get("RECAPTCHA_SITE_KEY")
+    RECAPTCHA_SECRET_KEY = os.environ.get("RECAPTCHA_SECRET_KEY")
+    if not (RECAPTCHA_SITE_KEY and RECAPTCHA_SECRET_KEY):
+        warnings.warn(
+            "RECAPTCHA_SITE_KEY/RECAPTCHA_SECRET_KEY не заданы переменными окружения — "
+            "страница восстановления пароля работает БЕЗ защиты от автоматических запросов. "
+            "Это допустимо только для локальной разработки. Ключи можно получить на "
+            "https://www.google.com/recaptcha/admin (тип reCAPTCHA v2 «Я не робот»).",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+
     SQLALCHEMY_DATABASE_URI = os.environ.get(
         "DATABASE_URL", f"sqlite:///{os.path.join(BASE_DIR, 'instance', 'coop.db')}"
     )

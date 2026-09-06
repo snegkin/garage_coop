@@ -39,12 +39,19 @@ def is_privileged() -> bool:
 
 
 def is_owner_or_board(garage) -> bool:
-    """Правление/бухгалтер/председатель — любой гараж; рядовой член — только свой (по владению)."""
+    """Правление/бухгалтер/председатель — любой гараж; рядовой член — свой
+    (по владению) ИЛИ гараж, где он указан лицом для связи (GarageContact
+    — «может не быть собственником», см. models.py, например супруга или
+    доверенное лицо: тем же людям, которых собственник вписал как контакт,
+    должно быть можно управлять фото/документами/показаниями наравне с
+    собственником, а не только значиться в списке)."""
     if is_board():
         return True
     if g.user.person_id is None:
         return False
-    return g.user.person_id in {o.person_id for o in garage.ownerships}
+    if g.user.person_id in {o.person_id for o in garage.ownerships}:
+        return True
+    return g.user.person_id in {c.person_id for c in garage.contacts}
 
 
 def can_view_member_account(account) -> bool:

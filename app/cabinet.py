@@ -13,7 +13,7 @@ from . import database
 from . import audit
 from .auth import login_required
 from .i18n import translate as _
-from .models import Person, Phone, GarageOwnership, MemberAccount, PersonDataRevision, PersonDataRevisionStatus, User
+from .models import Person, Phone, GarageOwnership, GarageContact, MemberAccount, PersonDataRevision, PersonDataRevisionStatus, User
 from .accounting import balance as account_balance
 from sqlalchemy.orm import joinedload
 
@@ -162,6 +162,7 @@ def change_password():
 def garages():
     person = _current_person()
     ownerships = []
+    contact_garages = []
     member_accounts_by_garage = {}
     electricity_by_garage = {}
     if person is not None:
@@ -170,6 +171,26 @@ def garages():
             .filter_by(person_id=person.id)
             .all()
         )
+        owned_garage_ids = {o.garage_id for o in ownerships}
+
+        # Гаражи, где человек указан лицом для связи (GarageContact — может
+        # не быть собственником, напр. супруга/доверенное лицо), но своих
+        # гаражей у него при этом может и не быть вовсе — то же право
+        # смотреть/вести гараж, что и у собственника (см.
+        # permissions.is_owner_or_board), просто карточка помечена, чей
+        # это гараж, а не выдаётся за собственный.
+        contacts = (
+            database.db_session.query(GarageContact)
+            .filter_by(person_id=person.id)
+            .all()
+        )
+        seen_contact_garage_ids = set()
+        for c in contacts:
+            if c.garage_id in owned_garage_ids or c.garage_id in seen_contact_garage_ids:
+                continue
+            seen_contact_garage_ids.add(c.garage_id)
+            contact_garages.append(c.garage)
+
         accounts = (
             database.db_session.query(MemberAccount)
             .filter_by(person_id=person.id)
@@ -180,12 +201,11 @@ def garages():
             if acc.fee_type.is_penalty and not acc.charges:
                 continue
             member_accounts_by_garage.setdefault(acc.garage_id, []).append(acc)
-        for o in ownerships:
-            garage = o.garage
+        for garage in [o.garage for o in ownerships] + contact_garages:
             if garage.account is not None:
                 electricity_by_garage[garage.id] = (garage.account, account_balance(garage))
     return render_template(
-        "cabinet/garages.html", person=person, ownerships=ownerships,
+        "cabinet/garages.html", person=person, ownerships=ownerships, contact_garages=contact_garages,
         member_accounts_by_garage=member_accounts_by_garage,
         electricity_by_garage=electricity_by_garage,
     )

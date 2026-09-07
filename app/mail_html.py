@@ -38,6 +38,18 @@ ALLOWED_MAIL_ATTRS = {
 
 _CID_RE = re.compile(r'src=(["\'])cid:([^"\']+)\1')
 _REMOTE_IMG_RE = re.compile(r'<img\b[^>]*\bsrc=["\']https?://', re.IGNORECASE)
+# html5lib (парсер, на котором работает bleach) токенизирует содержимое
+# <style>/<script> как raw text уже на этапе парсинга — это фиксированное
+# правило HTML5, не зависящее от whitelist тегов. Поэтому bleach.clean(...,
+# strip=True), не найдя эти теги в ALLOWED_MAIL_TAGS, вырезает сам тег, но
+# ОСТАВЛЯЕТ его текстовое содержимое как обычный видимый текст письма —
+# реальный случай: письмо от SMS Aero показывало исходный CSS открытым
+# текстом в начале письма. Вырезаем такие блоки целиком ДО bleach.
+_STYLE_OR_SCRIPT_RE = re.compile(r"<(style|script)\b[^>]*>.*?</\1\s*>", re.IGNORECASE | re.DOTALL)
+
+
+def _strip_style_and_script_blocks(html: str) -> str:
+    return _STYLE_OR_SCRIPT_RE.sub("", html)
 
 
 def _substitute_cid_images(html: str, inline_images: dict[str, tuple[object, bytes]]) -> str:
@@ -77,6 +89,7 @@ def render_email_body(detail: MessageDetail, allow_remote_images: bool) -> tuple
         raw_html = detail.body_html
         had_blocked = bool(_REMOTE_IMG_RE.search(raw_html)) if not allow_remote_images else False
         raw_html = _substitute_cid_images(raw_html, detail.inline_images)
+        raw_html = _strip_style_and_script_blocks(raw_html)
     else:
         raw_html = f"<pre>{html_module.escape(detail.body_text or '')}</pre>"
         had_blocked = False

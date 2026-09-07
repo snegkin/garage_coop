@@ -426,13 +426,6 @@ def debt_notice():
     coop, chairman = _coop_and_chairman()
     docs = [{"person": p, "summary": build_statement(p)} for p in persons]
 
-    for p in persons:
-        audit.record(
-            "legal.debt_notice_printed", entity_type="person", entity_id=p.id,
-            summary=f"Сформировано уведомление о задолженности для {p.full_name}",
-        )
-    database.db_session.commit()
-
     context = dict(docs=docs, coop=coop, chairman=chairman, today=dt.date.today(), hide_chat_widgets=True)
     if request.form.get("format") == "pdf":
         return _render_pdf_or_fallback(
@@ -566,11 +559,6 @@ def lawsuit_print():
             "person": p, "text": text,
             "penalty_entries": totals["penalty_entries"], "penalty_total": totals["penalty_total"],
         })
-        audit.record(
-            "legal.lawsuit_generated", entity_type="person", entity_id=p.id,
-            summary=f"Сформировано исковое заявление к {p.full_name}",
-        )
-    database.db_session.commit()
 
     context = dict(docs=docs, coop=coop, target_date=target_date, hide_chat_widgets=True)
     if request.form.get("format") == "pdf":

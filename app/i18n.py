@@ -1814,8 +1814,17 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Кому": "To",
         "Ответчик": "Defendant",
         "В {court}": "To {court}",
-        "Шапка (суд, ответчик) и заголовок «Исковое заявление» формируются автоматически по данным карточек и печатаются отдельно — здесь редактируется только основной текст ниже.":
-            "The header (court, defendant) and the \"Statement of Claim\" title are generated automatically from the records and printed separately — only the main text below is editable here.",
+
+        # legal_docs — приказное vs исковое производство (чек-бокс на странице выбора должников для иска)
+        "Приказное производство (без заседания, госпошлина 50%)": "Writ proceeding (no hearing, 50% state duty)",
+        "Доступно по требованиям о взыскании обязательных платежей и взносов с членов кооператива (абз. 10 ст. 122 ГПК РФ). Если не отмечено — обычное исковое заявление (очный процесс, госпошлина в полном размере). Выбор один на весь пакет — вид документа и текст зависят от него.":
+            "Available for claims to recover mandatory payments and dues from cooperative members (para. 10, Art. 122 of the Code of Civil Procedure). If unchecked — a regular statement of claim (full trial, full state duty). One choice for the whole batch — it changes the document type and text, not just a number.",
+        "Приказное производство — без судебного заседания, госпошлина 50% от обычной ставки.":
+            "Writ proceeding — no court hearing, state duty is 50% of the regular rate.",
+        "Шапка (суд, {party}) и заголовок «{title}» формируются автоматически по данным карточек и печатаются отдельно — здесь редактируется только основной текст ниже.":
+            "The header (court, {party}) and the \"{title}\" title are generated automatically from the records and printed separately — only the main text below is editable here.",
+        "Заявление о вынесении судебного приказа": "Application for a court order",
+        "о взыскании задолженности по членским (целевым) взносам и пени": "to recover debt on membership (special-purpose) dues and penalty",
     }
 }
 

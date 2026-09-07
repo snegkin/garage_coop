@@ -3,10 +3,11 @@
 {% block title %}{{ _("Исковое заявление") }}{% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3 no-print">
-  <h3 class="mb-0">{{ _("Исковое заявление") }}</h3>
+  <h3 class="mb-0">{{ docs[0].header.doc_title if docs else _("Исковое заявление") }}</h3>
   <div class="d-flex gap-2">
     <button class="btn btn-primary" onclick="window.print()">{{ _("Печать") }}</button>
     <form method="post" action="{{ url_for('legal_docs.lawsuit_print') }}" class="d-inline">
+      <input type="hidden" name="proceeding_type" value="{{ proceeding_type }}">
       {% for doc in docs %}
       <input type="hidden" name="person_id" value="{{ doc.person.id }}">
       <textarea name="text_{{ doc.person.id }}" hidden>{{ doc.text }}</textarea>

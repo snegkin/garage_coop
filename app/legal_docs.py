@@ -28,6 +28,7 @@ from markupsafe import Markup, escape
 from . import database
 from . import audit
 from . import penalty
+from . import name_declension
 from .i18n import translate as _
 from .auth import roles_required
 from .accounting import balance
@@ -188,47 +189,96 @@ def _fmt_amount(value: Decimal) -> str:
     return audit.format_amount(value)
 
 
-def build_lawsuit_header(person: Person, coop: Cooperative, court_section: CourtSection | None) -> dict:
+# Приказное производство (гл. 11 ГПК РФ) для взыскания задолженности по
+# обязательным платежам/взносам с членов потребительского кооператива
+# прямо предусмотрено абзацем десятым ст. 122 ГПК РФ (введён/действует в
+# редакции Федерального закона от 28.11.2018 № 451-ФЗ) — без судебного
+# заседания, госпошлина 50% от обычной ставки (см. state_duty.
+# suggest_state_duty/пп. 2 п. 1 ст. 333.19 НК РФ). Исковое — обычный
+# гражданский процесс с заседанием (ст. 131-132 ГПК РФ), госпошлина в
+# полном размере. Правление выбирает вид на странице выбора должников
+# (см. legal_docs/_debtor_picker.html: proceeding_type) один раз на весь
+# пакет — оба вида требуют разного оформления шапки/текста, это не просто
+# другая цифра, как у чек-бокса на странице оплаты госпошлины.
+_PROCEEDING_LABELS = {
+    "claim": {
+        "doc_title": "Исковое заявление",
+        "doc_subtitle": "о взыскании задолженности по членским (целевым) взносам, пени и судебных расходов",
+        "party_label": "Ответчик",
+        "form_basis": "ст. 131-132 Гражданского процессуального кодекса Российской Федерации",
+        "demand_intro": "Взыскать с",
+        "doc_name_genitive": "искового заявления",
+    },
+    "writ": {
+        "doc_title": "Заявление о вынесении судебного приказа",
+        "doc_subtitle": "о взыскании задолженности по членским (целевым) взносам и пени",
+        "party_label": "Должник",
+        "form_basis": (
+            "абзацем десятым ст. 122, ст. 121, 123, 124 Гражданского процессуального "
+            "кодекса Российской Федерации"
+        ),
+        "demand_intro": "Вынести судебный приказ о взыскании с",
+        "doc_name_genitive": "заявления о вынесении судебного приказа",
+    },
+}
+
+
+def build_lawsuit_header(person: Person, coop: Cooperative, court_section: CourtSection | None,
+                          proceeding_type: str = "claim") -> dict:
     """
-    Данные для правой колонки шапки искового заявления (суд + ответчик —
-    реквизиты истца/кооператива уже даны слева, в общем бланке-шапке
+    Данные для правой колонки шапки искового заявления/заявления о
+    вынесении судебного приказа (суд + должник — реквизиты истца/
+    взыскателя-кооператива уже даны слева, в общем бланке-шапке
     _letterhead.html, повторять их справа незачем) — фактические данные,
     не редактируемый текст: поправить их можно только через сами карточки
     (участок должника/кооператива, адрес человека), не вручную в черновике.
     """
+    labels = _PROCEEDING_LABELS[proceeding_type]
     court_name = court_section.name if court_section else "____________________ (судебный участок не определён)"
     court_address = court_section.court_address if court_section and court_section.court_address else "____________________"
     address = person.residence_address or person.registration_address or "адрес не известен, см. материалы дела"
     return {
         "court_name": court_name, "court_address": court_address,
         "defendant_name": person.full_name, "defendant_address": address,
+        "party_label": _(labels["party_label"]),
+        "doc_title": _(labels["doc_title"]), "doc_subtitle": _(labels["doc_subtitle"]),
     }
 
 
 def build_lawsuit_body(person: Person, coop: Cooperative, totals: dict, duty_amount: Decimal | None,
-                        today: dt.date) -> str:
+                        today: dt.date, proceeding_type: str = "claim") -> str:
     """
-    Черновик ОСНОВНОЙ, содержательной части искового заявления —
-    обстоятельства, правовое основание, расчёт, просительная часть,
-    приложения. ЧИСТЫЙ ТЕКСТ (не HTML), подаётся в редактируемый
-    <textarea>: правление обязано просмотреть и при необходимости
-    поправить формулировки/суммы перед подачей в суд. Шапка (суд, истец,
-    ответчик) и заголовок «Исковое заявление» — фактические данные,
-    рисуются отдельно вокруг этого текста (см. build_lawsuit_header,
-    legal_docs/_macros.html: lawsuit_doc) и в этот текст не входят.
+    Черновик ОСНОВНОЙ, содержательной части искового заявления/заявления о
+    вынесении судебного приказа — обстоятельства, правовое основание,
+    расчёт, просительная часть, приложения. ЧИСТЫЙ ТЕКСТ (не HTML),
+    подаётся в редактируемый <textarea>: правление обязано просмотреть и
+    при необходимости поправить формулировки/суммы перед подачей в суд.
+    Шапка (суд, истец, ответчик/должник) и заголовок — фактические
+    данные, рисуются отдельно вокруг этого текста (см.
+    build_lawsuit_header, legal_docs/_macros.html: lawsuit_doc) и в этот
+    текст не входят.
 
     Правовое основание — 338-ФЗ «О гаражных объединениях…» от 24.07.2023
-    ст. 26 ч. 9 (право взыскания взносов и пеней в судебном порядке; сам
-    порядок/размер пени — по уставу кооператива, см. app/penalty.py) и
-    ГПК РФ ст. 131-132 (форма и приложения искового заявления). Сумма
-    пени — тот же официальный расчёт день-в-день, что уже готовится
-    отдельным приложением к выписке для суда (см.
-    persons.penalty_calculation), госпошлина — фигурирует как судебные
-    расходы, взыскиваемые с ответчика, той же суммой, что была уплачена
-    по квитанции (см. state_duty_print) — если квитанция ещё не
-    сформирована для этого человека, оставляем сумму пустой для ручного
-    заполнения.
+    ст. 26 ч. 9 (право взыскания взносов и пеней в судебном порядке) и,
+    в зависимости от proceeding_type ("claim"/"writ"), либо ст. 131-132
+    ГПК РФ (обычное исковое), либо абзац десятый ст. 122 + ст. 121, 123,
+    124 ГПК РФ (приказное — доступно именно для взыскания обязательных
+    платежей/взносов с членов потребительского кооператива). Госпошлина
+    для приказного — 50% от суммы для искового (см. lawsuit_draft/
+    lawsuit_print: duty_amount уже уполовинен на момент вызова этой
+    функции, здесь просто подставляется).
+
+    Про пеню: устав кооператива обычно тоже предусматривает её взимание
+    (ч. 8 ст. 26 338-ФЗ прямо отдаёт размер/порядок на усмотрение устава),
+    но если порядок расчёта, закреплённый в уставе, не соответствует
+    действующему законодательству — начисление ведётся по закону (по
+    аналогии со ст. 155 ЖК РФ, см. app/penalty.py), а не по формуле
+    устава: именно так фактически считает сама программа (functions
+    penalty.compute_charge_penalty_breakdown), поэтому и в тексте иска
+    указана именно эта, а не уставная формула — иначе цифры в тексте и в
+    приложенном расчёте пени разойдутся между собой.
     """
+    labels = _PROCEEDING_LABELS[proceeding_type]
     ownerships = (
         database.db_session.query(GarageOwnership)
         .filter_by(person_id=person.id)
@@ -254,32 +304,41 @@ def build_lawsuit_body(person: Person, coop: Cooperative, totals: dict, duty_amo
         else (f"за {year_from} г." if year_from else "за период образования задолженности")
     )
 
+    party_label = labels["party_label"]
+    coop_label = coop.short_name if coop and coop.short_name else (coop.full_name if coop else "кооператива")
+    defendant_genitive = name_declension.genitive(person.full_name)
+
     return (
-        f"Ответчик является членом кооператива и собственником гаража(ей) {garages_text}. "
-        f"В соответствии с уставом кооператива ответчик обязан своевременно вносить членские "
+        f"{party_label} является членом кооператива и собственником гаража(ей) {garages_text}. "
+        f"В соответствии с уставом кооператива {party_label.lower()} обязан своевременно вносить членские "
         f"и/или целевые взносы, однако допустил образование задолженности {period_text}.\n\n"
         f"Согласно ч. 9 ст. 26 Федерального закона от 24.07.2023 № 338-ФЗ «О гаражных объединениях "
         f"и о внесении изменений в отдельные законодательные акты Российской Федерации» в случае "
         f"неуплаты взносов и пеней кооператив вправе взыскать их с члена кооператива в судебном "
-        f"порядке. Размер и порядок начисления пени установлены уставом кооператива.\n\n"
-        f"Расчёт суммы иска:\n"
+        f"порядке. Уставом кооператива предусмотрено взимание пени за несвоевременную уплату взносов, "
+        f"однако предусмотренный уставом порядок её расчёта не соответствует действующему "
+        f"законодательству Российской Федерации, в связи с чем пеня рассчитана по аналогии со "
+        f"статьёй 155 Жилищного кодекса Российской Федерации: исходя из ключевой ставки Центрального "
+        f"банка Российской Федерации в размере 1/300 за каждый день просрочки в течение первых 30 дней "
+        f"и 1/150 — начиная с 31-го дня просрочки (расчёт прилагается).\n\n"
+        f"Расчёт суммы {'требования' if proceeding_type == 'writ' else 'иска'}:\n"
         f"— основной долг по взносам: {_fmt_amount(debt)};\n"
         f"— пеня за просрочку (расчёт прилагается): {_fmt_amount(penalty_total)};\n"
         f"— судебные расходы (уплаченная государственная пошлина): {duty_text}.\n"
         f"Итого ко взысканию: {_fmt_amount(total_claim)}.\n\n"
         f"На основании изложенного, руководствуясь ст. 26 Федерального закона от 24.07.2023 № 338-ФЗ, "
-        f"ст. 131-132 Гражданского процессуального кодекса Российской Федерации,\n\n"
+        f"{labels['form_basis']},\n\n"
         f"ПРОШУ:\n"
-        f"Взыскать с {person.full_name} в пользу {coop.short_name if coop and coop.short_name else (coop.full_name if coop else 'кооператива')} "
+        f"{labels['demand_intro']} {defendant_genitive} в пользу {coop_label} "
         f"задолженность по взносам в размере {_fmt_amount(debt)}, пеню в размере {_fmt_amount(penalty_total)} "
         f"и судебные расходы по уплате государственной пошлины в размере {duty_text}, "
         f"а всего {_fmt_amount(total_claim)}.\n\n"
         f"Приложения:\n"
         f"1. Расчёт задолженности и пени.\n"
-        f"2. Копия искового заявления и приложений для ответчика.\n"
+        f"2. Копия {labels['doc_name_genitive']} и приложений для {party_label.lower()}а.\n"
         f"3. Документ об уплате государственной пошлины.\n"
-        f"4. Доказательства направления ответчику уведомления о задолженности.\n"
-        f"5. Документы, подтверждающие членство/право собственности ответчика на гараж."
+        f"4. Доказательства направления {party_label.lower()}у уведомления о задолженности.\n"
+        f"5. Документы, подтверждающие членство/право собственности {party_label.lower()}а на гараж."
     )
 
 
@@ -318,6 +377,20 @@ def suggest_state_duty(claim_amount: Decimal) -> Decimal:
     lower = _STATE_DUTY_BRACKETS[-1][0]
     amount = Decimal("314000") + (claim_amount - lower) * Decimal("0.0015")
     return min(amount, _STATE_DUTY_MAX).quantize(Decimal("0.01"))
+
+
+def suggest_lawsuit_duty(claim_amount: Decimal, proceeding_type: str) -> Decimal:
+    """Госпошлина для искового заявления/судебного приказа, формируемого
+    в тот же приём — приказное производство (пп. 2 п. 1 ст. 333.19 НК РФ)
+    вдвое дешевле обычного искового, тот же принцип, что и в чек-боксе на
+    странице оплаты госпошлины (state_duty_review.html), только выбор
+    делается заранее, на странице выбора должников для иска (см.
+    legal_docs/_debtor_picker.html: proceeding_type), поскольку меняет не
+    только сумму, но и вид/текст всего документа."""
+    full = suggest_state_duty(claim_amount)
+    if proceeding_type == "writ":
+        return (full / 2).quantize(Decimal("0.01"))
+    return full
 
 
 # ---------------------------------------------------------------------------
@@ -547,18 +620,21 @@ def lawsuit_draft():
     if persons is None:
         return redirect(url_for("legal_docs.lawsuit"))
 
+    proceeding_type = "writ" if request.form.get("proceeding_type") == "writ" else "claim"
     coop, _chairman = _coop_and_chairman()
     target_date = dt.date.today()
     drafts = []
     for p in persons:
         totals = compute_claim_totals(p, coop, target_date)
         section = resolve_court_section(p, coop) if coop else None
-        duty_amount = suggest_state_duty(totals["claim_amount"])
-        header = build_lawsuit_header(p, coop, section)
-        text = build_lawsuit_body(p, coop, totals, duty_amount, target_date)
+        duty_amount = suggest_lawsuit_duty(totals["claim_amount"], proceeding_type)
+        header = build_lawsuit_header(p, coop, section, proceeding_type)
+        text = build_lawsuit_body(p, coop, totals, duty_amount, target_date, proceeding_type)
         drafts.append({"person": p, "header": header, "text": text})
 
-    return render_template("legal_docs/lawsuit_draft.html", drafts=drafts, coop=coop)
+    return render_template(
+        "legal_docs/lawsuit_draft.html", drafts=drafts, coop=coop, proceeding_type=proceeding_type,
+    )
 
 
 @bp.route("/lawsuit/print", methods=["POST"])
@@ -569,6 +645,7 @@ def lawsuit_print():
         flash(_("Выберите хотя бы одного должника."), "danger")
         return redirect(url_for("legal_docs.lawsuit"))
 
+    proceeding_type = "writ" if request.form.get("proceeding_type") == "writ" else "claim"
     coop, chairman = _coop_and_chairman()
     target_date = dt.date.today()
     persons = database.db_session.query(Person).filter(Person.id.in_(person_ids)).order_by(Person.full_name).all()
@@ -576,7 +653,7 @@ def lawsuit_print():
     for p in persons:
         text = request.form.get(f"text_{p.id}", "")
         section = resolve_court_section(p, coop) if coop else None
-        header = build_lawsuit_header(p, coop, section)
+        header = build_lawsuit_header(p, coop, section, proceeding_type)
         # Расчёт пени прикладывается к иску отдельным приложением, если она
         # начислена — тот же официальный расчёт день-в-день, что уже
         # использовался при формировании черновика (см. build_lawsuit_body),
@@ -589,7 +666,10 @@ def lawsuit_print():
             "penalty_entries": totals["penalty_entries"], "penalty_total": totals["penalty_total"],
         })
 
-    context = dict(docs=docs, coop=coop, chairman=chairman, target_date=target_date, hide_chat_widgets=True)
+    context = dict(
+        docs=docs, coop=coop, chairman=chairman, target_date=target_date,
+        proceeding_type=proceeding_type, hide_chat_widgets=True,
+    )
     if request.form.get("format") == "pdf":
         return _render_pdf_or_fallback(
             "legal_docs/lawsuit_pdf.html", "iskovoe_zayavlenie.pdf",

@@ -41,7 +41,7 @@ def create_app(config_class=Config):
     engine, _db_session = init_engine(app.config["SQLALCHEMY_DATABASE_URI"])
     init_db_lifecycle(app)
 
-    from . import auth, i18n, theme, news_format, contact_format, comment_format, audit, mail_client
+    from . import auth, i18n, theme, news_format, contact_format, comment_format, audit, mail_client, name_declension
     app.register_blueprint(auth.bp)
     i18n.init_app(app)
     theme.init_app(app)
@@ -62,6 +62,11 @@ def create_app(config_class=Config):
     app.jinja_env.globals["vk_link"] = contact_format.vk_link
     app.jinja_env.globals["max_link"] = contact_format.max_link
     app.jinja_env.globals["linkify_related_person"] = comment_format.linkify_related_person
+    # Склонение ФИО для грамматически верных формулировок в исковых
+    # документах («иск к Иванову Ивану Ивановичу», не «к Иванов Иван
+    # Иванович») — см. app/name_declension.py.
+    app.jinja_env.globals["fio_genitive"] = name_declension.genitive
+    app.jinja_env.globals["fio_dative"] = name_declension.dative
     # Раскодированный (не-punycode) вид почтового адреса для показа — см.
     # mail_client.decode_idn_address. Фильтр (не global), чтобы работал и
     # через |map('decode_idn_address') для списка адресов (mailbox/message.html: to_addrs).

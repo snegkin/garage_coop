@@ -22,6 +22,13 @@
     {% endfor %}
   </div>
   <p class="text-muted small mb-3 mt-1"><span id="debtorPickerCount">0</span> {{ _("должников выбрано") }}</p>
+  {% if show_proceeding_type_choice %}
+  <div class="form-check mb-3">
+    <input class="form-check-input" type="checkbox" name="proceeding_type" id="pickerProceedingWrit" value="writ">
+    <label class="form-check-label" for="pickerProceedingWrit">{{ _("Приказное производство (без заседания, госпошлина 50%)") }}</label>
+    <div class="form-text">{{ _("Доступно по требованиям о взыскании обязательных платежей и взносов с членов кооператива (абз. 10 ст. 122 ГПК РФ). Если не отмечено — обычное исковое заявление (очный процесс, госпошлина в полном размере). Выбор один на весь пакет — вид документа и текст зависят от него.") }}</div>
+  </div>
+  {% endif %}
   <button class="btn btn-primary" {{ "disabled" if not debtors }}>{{ _("Сформировать документы") }}</button>
 </form>
 

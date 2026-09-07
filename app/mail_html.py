@@ -4,10 +4,14 @@
 Тело письма — НЕДОВЕРЕННЫЙ внешний HTML (в отличие от app/news_format.py,
 который чистит HTML, полученный из markdown, написанного доверенным членом
 правления) — поэтому здесь отдельный, специально подобранный под почту
-whitelist, и рендер идёт в песочнице (<iframe sandbox="allow-same-origin"
-srcdoc="...">, см. mailbox/message.html) как второй эшелон защиты ПОВЕРХ
-bleach: даже если санитайзер что-то пропустит, sandbox не даст этому
-выполниться (allow-scripts не выдан) или вырваться за пределы iframe.
+whitelist, и рендер идёт в песочнице (<iframe sandbox="allow-same-origin
+allow-popups allow-popups-to-escape-sandbox" srcdoc="...">, см.
+mailbox/message.html) как второй эшелон защиты ПОВЕРХ bleach: даже если
+санитайзер что-то пропустит, sandbox не даст этому выполниться
+(allow-scripts не выдан) или вырваться за пределы iframe.
+allow-popups(-to-escape-sandbox) нужны специально для ссылок (см. ниже) —
+без них клик по ссылке с target="_blank" внутри такого iframe просто
+ничего не делает (спецификация HTML), а не открывает новую вкладку.
 
 Внешние картинки (http/https) по умолчанию вырезаются — типичный вектор
 трекинг-пикселей (сам факт загрузки картинки подтверждает отправителю, что
@@ -15,6 +19,13 @@ bleach: даже если санитайзер что-то пропустит, s
 запросу (allow_remote_images=True, см. mailbox.view_message: ?allow_images=1).
 Встроенные (cid:) картинки самого письма показываются всегда — это не
 новый сетевой запрос, они уже полностью получены вместе с письмом.
+Вырезаются регэкспом ДО bleach (см. _REMOTE_IMG_TAG_RE) — не через
+protocols= у bleach.clean(), это раньше заодно ломало и обычные ссылки
+(http/https были запрещены глобально, на любом href/src, если картинки
+не показаны). Ссылки — независимо от allow_remote_images — всегда
+работают и всегда принудительно открываются в новой вкладке
+(target="_blank" rel="noopener noreferrer", см. _A_TAG_RE), а не
+внутри iframe письма.
 
 Инлайновый style="..." — реальные HTML-письма (в т.ч. рассылки от
 SMS Aero) практически всегда свёрстаны вложенными <table> на инлайновых
@@ -71,6 +82,25 @@ _CSS_SANITIZER = CSSSanitizer(allowed_css_properties=_SAFE_CSS_PROPERTIES)
 
 _CID_RE = re.compile(r'src=(["\'])cid:([^"\']+)\1')
 _REMOTE_IMG_RE = re.compile(r'<img\b[^>]*\bsrc=["\']https?://', re.IGNORECASE)
+# Тот же признак, что и _REMOTE_IMG_RE (только для показа плашки "картинки
+# скрыты"), но с захватом всего тега целиком — для реального вырезания
+# (см. render_email_body: раньше внешние картинки блокировались побочным
+# эффектом bleach(protocols=...) — не пропускать http/https вообще, если
+# allow_remote_images=False, — но это заодно ломало и обычные ссылки
+# <a href="https://...">, которые должны работать всегда, независимо от
+# показа картинок; теперь протоколы http/https разрешены всегда, а внешние
+# картинки вырезаются этим регэкспом отдельно, ДО bleach).
+_REMOTE_IMG_TAG_RE = re.compile(r'<img\b[^>]*\bsrc=["\']https?://[^"\']*["\'][^>]*>', re.IGNORECASE)
+# Ссылки открываются в новой вкладке, а не внутри iframe письма (там и так
+# нет allow-top-navigation, поэтому клик по <a> без target либо открыл бы
+# письмо поверх самого себя внутри песочницы, либо — после этого изменения
+# — просто ничего не делал бы без sandbox="allow-popups" на iframe, см.
+# mailbox/message.html). Применяется ПОСЛЕ bleach.clean(), когда html уже
+# полностью санитайзирован и его структуру целиком контролирует сериализатор
+# bleach (весь текст — гарантированно "<a " с пробелом сразу после), а не
+# исходное письмо — поэтому здесь безопасен простой regex-replace, в
+# отличие от разбора недоверенного html выше.
+_A_TAG_RE = re.compile(r"<a\s", re.IGNORECASE)
 # html5lib (парсер, на котором работает bleach) токенизирует содержимое
 # <style>/<script>/<title> (и ряда более редких тегов вроде <textarea>) как
 # raw/RCDATA-text уже на этапе парсинга — фиксированное правило HTML5, не
@@ -128,16 +158,21 @@ def render_email_body(detail: MessageDetail, allow_remote_images: bool) -> tuple
     if detail.body_html is not None:
         raw_html = detail.body_html
         had_blocked = bool(_REMOTE_IMG_RE.search(raw_html)) if not allow_remote_images else False
+        if not allow_remote_images:
+            raw_html = _REMOTE_IMG_TAG_RE.sub("", raw_html)
         raw_html = _substitute_cid_images(raw_html, detail.inline_images)
         raw_html = _strip_head_and_rawtext_blocks(raw_html)
     else:
         raw_html = f"<pre>{html_module.escape(detail.body_text or '')}</pre>"
         had_blocked = False
 
-    protocols = ["data", "mailto"] + (["http", "https"] if allow_remote_images else [])
+    # http/https разрешены всегда (для обычных ссылок <a href> — см.
+    # _A_TAG_RE выше) — внешние картинки вырезаны отдельно уже выше, ДО
+    # bleach, не через protocols (иначе это ломало бы и ссылки заодно).
     clean = bleach.clean(
         raw_html, tags=ALLOWED_MAIL_TAGS, attributes=ALLOWED_MAIL_ATTRS,
         css_sanitizer=_CSS_SANITIZER,
-        protocols=protocols, strip=True, strip_comments=True,
+        protocols=["data", "mailto", "http", "https"], strip=True, strip_comments=True,
     )
+    clean = _A_TAG_RE.sub('<a target="_blank" rel="noopener noreferrer" ', clean)
     return _wrap_html_document(clean), had_blocked

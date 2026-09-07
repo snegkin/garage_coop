@@ -39,7 +39,7 @@
     </div>
     {% endif %}
 
-    <iframe id="mailBody" sandbox="allow-same-origin" srcdoc="{{ body_srcdoc }}" style="width:100%;min-height:200px;height:200px;resize:vertical;border:1px solid var(--bs-border-color);background:#fff"></iframe>
+    <iframe id="mailBody" sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox" srcdoc="{{ body_srcdoc }}" style="width:100%;min-height:200px;height:200px;resize:vertical;border:1px solid var(--bs-border-color);background:#fff"></iframe>
   </div>
 </div>
 <script>
@@ -51,6 +51,12 @@
 // исполняется) даёт родительской странице доступ к contentDocument именно
 // для этого замера; resize:vertical остаётся как ручной запасной вариант,
 // если высота посчиталась не совсем точно.
+// allow-popups + allow-popups-to-escape-sandbox — чтобы ссылки в письме
+// (принудительно target="_blank", см. app/mail_html.py: _A_TAG_RE)
+// открывались в обычной новой вкладке, а не внутри этого iframe и не
+// глушились сандбоксом молча; escape-sandbox — чтобы у открытой вкладки
+// НЕ было тех же ограничений (иначе там тоже не работали бы скрипты
+// обычного сайта, на который ведёт ссылка).
 (function () {
   var frame = document.getElementById("mailBody");
   if (!frame) return;

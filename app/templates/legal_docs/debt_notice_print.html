@@ -14,7 +14,6 @@
     <a class="btn btn-outline-secondary" href="{{ url_for('legal_docs.debt_notice') }}">{{ _("Назад к выбору") }}</a>
   </div>
 </div>
-{% set legal_orientation = "landscape" %}
 {% include "legal_docs/_print_style.html" %}
 <div class="legal-print">
   {% for doc in docs %}

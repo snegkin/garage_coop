@@ -8,7 +8,7 @@
 {% import "legal_docs/_macros.html" as m %}
 <div class="legal-print">
   {% for doc in docs %}
-  {{ m.lawsuit_doc(doc.text, coop, doc.penalty_entries, doc.penalty_total, target_date) }}
+  {{ m.lawsuit_doc(doc.header, doc.body_html, coop, chairman, doc.penalty_entries, doc.penalty_total, target_date) }}
   {% endfor %}
 </div>
 </body>

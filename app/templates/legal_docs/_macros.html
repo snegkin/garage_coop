@@ -1,13 +1,38 @@
+{% macro signature_block(chairman) %}
+<div class="print-signatures">
+  <div class="signature-rows">
+    <div class="signature-line">
+      <span class="sig-role">{{ _("Председатель") }}</span><span class="sig-blank"></span>
+      {% if chairman %}<span class="sig-name">/{{ chairman.short_name }}/</span>{% endif %}
+    </div>
+  </div>
+  <div class="stamp-place">{{ _("М.П.") }}</div>
+</div>
+{% endmacro %}
+
+
 {% macro debt_notice_doc(person, summary, coop, chairman, today) %}
 <div class="legal-doc">
-  {% include "legal_docs/_letterhead.html" %}
+  <div class="legal-header-columns">
+    <div class="legal-header-left">
+      {% include "legal_docs/_letterhead.html" %}
+    </div>
+    <div class="legal-header-right">
+      <p>{{ _("Кому") }}: <strong>{{ person.full_name }}</strong></p>
+      {% if person.residence_address or person.registration_address %}
+      <p>{{ _("Адрес") }}: {{ person.residence_address or person.registration_address }}</p>
+      {% endif %}
+    </div>
+  </div>
+
   <p class="print-title">{{ _("Уведомление о задолженности") }}</p>
   <p class="print-meta">{{ fmt_date(today) }}</p>
-  <p>
+
+  <p class="legal-p">
     {{ _("Уважаемый(ая)") }} {{ person.full_name }}{% if person.residence_address or person.registration_address %},<br>
     {{ person.residence_address or person.registration_address }}{% else %}!{% endif %}
   </p>
-  <p>
+  <p class="legal-p">
     {{ _("Настоящим уведомляем Вас о наличии задолженности перед {coop} по членским и/или целевым взносам и иным платежам, предусмотренным уставом кооператива. Ниже приведён полный расчёт по всем Вашим лицевым счетам по состоянию на {date}.", coop=(coop.short_name or coop.full_name) if coop else "", date=fmt_date(today)) }}
   </p>
 
@@ -52,19 +77,11 @@
   </table>
   {% endif %}
 
-  <p>
+  <p class="legal-p">
     {{ _("Просим погасить указанную задолженность в кратчайшие сроки. В случае неисполнения кооператив будет вынужден обратиться за взысканием задолженности, пени и понесённых судебных расходов в судебном порядке.") }}
   </p>
 
-  <div class="print-signatures">
-    <div class="signature-rows">
-      <div class="signature-line">
-        <span class="sig-role">{{ _("Председатель") }}</span><span class="sig-blank"></span>
-        {% if chairman %}<span class="sig-name">/{{ chairman.short_name }}/</span>{% endif %}
-      </div>
-    </div>
-    <div class="stamp-place">{{ _("М.П.") }}</div>
-  </div>
+  {{ signature_block(chairman) }}
 </div>
 {% endmacro %}
 
@@ -99,47 +116,70 @@
 {% endmacro %}
 
 
-{% macro lawsuit_doc(text, coop, penalty_entries, penalty_total, target_date) %}
+{% macro penalty_appendix_table(entries) %}
+{% for entry in entries %}
+<p><strong>{{ entry.account.fee_type.name }}, {{ _("гараж") }} №{{ entry.account.garage.number }}</strong> — {{ _("начисление за {year} г. на {amount} ₽ (счёт {number})", year=entry.charge.year, amount=fmt2(entry.charge.amount), number=entry.account.account_number) }}</p>
+<table class="print-table">
+  <thead>
+    <tr>
+      <th>{{ _("Период просрочки") }}</th>
+      <th class="num">{{ _("Дней") }}</th>
+      <th class="num">{{ _("Остаток долга, ₽") }}</th>
+      <th class="num">{{ _("Ставка ЦБ РФ, %") }}</th>
+      <th class="num">{{ _("Формула") }}</th>
+      <th class="num">{{ _("Пеня, ₽") }}</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for p in entry.periods %}
+    <tr>
+      <td>{{ fmt_date(p.start) }} — {{ fmt_date(p.end) }}</td>
+      <td class="num">{{ p.days }}</td>
+      <td class="num">{{ fmt2(p.unpaid) }}</td>
+      <td class="num">{{ fmt2(p.rate) }}</td>
+      <td class="num">1/{{ p.divisor|int }}</td>
+      <td class="num">{{ fmt2(p.amount) }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+  <tfoot>
+    <tr><td colspan="5">{{ _("Итого по начислению") }}</td><td class="num">{{ fmt2(entry.subtotal) }}</td></tr>
+  </tfoot>
+</table>
+{% endfor %}
+{% endmacro %}
+
+
+{% macro lawsuit_doc(header, body_html, coop, chairman, penalty_entries, penalty_total, target_date) %}
 <div class="legal-doc">
-  {% include "legal_docs/_letterhead.html" %}
-  <div class="legal-text">{{ text }}</div>
+  <div class="legal-header-columns">
+    <div class="legal-header-left">
+      {% include "legal_docs/_letterhead.html" %}
+    </div>
+    <div class="legal-header-right">
+      <p>{{ _("В {court}", court=header.court_name) }}</p>
+      <p>{{ header.court_address }}</p>
+      <p>{{ _("Ответчик") }}: <strong>{{ header.defendant_name }}</strong></p>
+      <p>{{ _("Адрес") }}: {{ header.defendant_address }}</p>
+    </div>
+  </div>
+
+  <p class="print-title">{{ _("Исковое заявление") }}</p>
+  <p class="print-subtitle">{{ _("о взыскании задолженности по членским (целевым) взносам, пени и судебных расходов") }}</p>
+
+  <div class="legal-text">{{ body_html }}</div>
+
+  {{ signature_block(chairman) }}
 
   {% if penalty_entries %}
   <div class="legal-appendix">
     <p class="print-title">{{ _("Приложение") }}. {{ _("Расчёт пени") }}</p>
     <p class="print-meta">{{ _("по состоянию на") }} {{ fmt_date(target_date) }}</p>
     <p style="color:#333; font-size:11px;">{{ _("Формула: сумма непогашенного остатка × ключевая ставка ЦБ РФ × 1/300 (первые 30 дней просрочки) или 1/150 (с 31-го дня), по дням.") }}</p>
-    {% for entry in penalty_entries %}
-    <p><strong>{{ entry.account.fee_type.name }}, {{ _("гараж") }} №{{ entry.account.garage.number }}</strong> — {{ _("начисление за {year} г. на {amount} ₽ (счёт {number})", year=entry.charge.year, amount=fmt2(entry.charge.amount), number=entry.account.account_number) }}</p>
-    <table class="print-table">
-      <thead>
-        <tr>
-          <th>{{ _("Период просрочки") }}</th>
-          <th class="num">{{ _("Дней") }}</th>
-          <th class="num">{{ _("Остаток долга, ₽") }}</th>
-          <th class="num">{{ _("Ставка ЦБ РФ, %") }}</th>
-          <th class="num">{{ _("Формула") }}</th>
-          <th class="num">{{ _("Пеня, ₽") }}</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for p in entry.periods %}
-        <tr>
-          <td>{{ fmt_date(p.start) }} — {{ fmt_date(p.end) }}</td>
-          <td class="num">{{ p.days }}</td>
-          <td class="num">{{ fmt2(p.unpaid) }}</td>
-          <td class="num">{{ fmt2(p.rate) }}</td>
-          <td class="num">1/{{ p.divisor|int }}</td>
-          <td class="num">{{ fmt2(p.amount) }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-      <tfoot>
-        <tr><td colspan="5">{{ _("Итого по начислению") }}</td><td class="num">{{ fmt2(entry.subtotal) }}</td></tr>
-      </tfoot>
-    </table>
-    {% endfor %}
+    {{ penalty_appendix_table(penalty_entries) }}
     <p style="text-align:right; font-weight:bold;">{{ _("Итого пени") }}: {{ fmt2(penalty_total) }} ₽</p>
+
+    {{ signature_block(chairman) }}
   </div>
   {% endif %}
 </div>

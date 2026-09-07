@@ -28,10 +28,18 @@
   box-shadow: 0 0 10px rgba(0, 0, 0, .15);
 }
 .legal-print .legal-doc { padding: 10mm 0; }
-.legal-print .print-letterhead {
-  display: flex; align-items: center; gap: 5mm;
+/* Шапка в две колонки: реквизиты кооператива (бланк с логотипом) слева,
+   данные адресата/суда — справа. Общая нижняя линия — на всём блоке
+   .legal-header-columns, а не на .print-letterhead отдельно: он теперь
+   только часть половины ширины, а не полноширинный элемент сам по себе. */
+.legal-print .legal-header-columns {
+  display: flex; justify-content: space-between; align-items: flex-start; gap: 8mm;
   border-bottom: 1px solid #000; padding-bottom: 3mm; margin-bottom: 6mm;
 }
+.legal-print .legal-header-left { flex: 1 1 55%; min-width: 0; }
+.legal-print .legal-header-right { flex: 1 1 45%; min-width: 0; text-align: right; }
+.legal-print .legal-header-right p { margin: 0 0 2mm; }
+.legal-print .print-letterhead { display: flex; align-items: center; gap: 5mm; }
 .legal-print .print-logo { height: 16mm; width: auto; flex: none; }
 .legal-print .print-org-name { font-size: 12px; font-weight: bold; }
 .legal-print .print-org-requisites { font-size: 10px; color: #333; }
@@ -68,8 +76,16 @@
   display: flex; align-items: center; justify-content: center;
   font-size: 9px; color: #666; text-align: center;
 }
-.legal-print .legal-text { white-space: pre-wrap; line-height: 1.5; }
-.legal-print .legal-appendix { margin-top: 10mm; padding-top: 6mm; border-top: 1px dashed #999; }
+.legal-print .legal-text { line-height: 1.5; }
+/* Абзацный отступ (красная строка) — типографская норма для официальных
+   документов (ГОСТ Р 7.0.97-2016). Возможен только на отдельных <p>, не
+   на едином white-space:pre-wrap блоке текста — см. legal_docs.py:
+   _paragraphs_html, которая режет отредактированный правлением текст на
+   параграфы и оборачивает каждый в <p class="legal-p">. */
+.legal-print p.legal-p { text-indent: 1.25cm; margin: 0 0 3mm; }
+/* Приложение — с новой страницы (обязательное требование: расчёт пени
+   подшивается отдельным документом, не продолжением текста иска). */
+.legal-print .legal-appendix { page-break-before: always; }
 .legal-print .legal-appendix .print-title { font-size: 13px; }
 
 @media print {

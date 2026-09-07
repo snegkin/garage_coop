@@ -1809,6 +1809,13 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Пеня, ₽": "Penalty, ₽",
         "Итого по начислению": "Subtotal for this charge",
         "Итого пени": "Total penalty",
+
+        # legal_docs/_macros.html — шапка в две колонки (кооператив слева, суд/адресат справа)
+        "Кому": "To",
+        "Ответчик": "Defendant",
+        "В {court}": "To {court}",
+        "Шапка (суд, ответчик) и заголовок «Исковое заявление» формируются автоматически по данным карточек и печатаются отдельно — здесь редактируется только основной текст ниже.":
+            "The header (court, defendant) and the \"Statement of Claim\" title are generated automatically from the records and printed separately — only the main text below is editable here.",
     }
 }
 

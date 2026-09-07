@@ -229,12 +229,11 @@ def test_debt_notice_print_hides_board_chat_widget(db, client):
     assert 'id="boardChatWidget"' not in body
 
 
-def test_debt_notice_print_uses_landscape_orientation(db, client):
-    """Широкая таблица полной выписки по счетам — печатается на альбомном
-    листе (см. _print_style.html: legal_orientation)."""
+def test_debt_notice_print_uses_portrait_orientation(db, client):
+    """Обычная деловая переписка — книжная ориентация (не альбомная)."""
     _make_coop(db)
     _board_login(db, client)
-    person = make_person(db, full_name="Альбомов Альбом Альбомович")
+    person = make_person(db, full_name="Портретов Портрет Портретович")
     garage = make_garage(db, number="22")
     make_ownership(db, garage, person)
     _make_debt(db, person, garage, amount="1000.00")
@@ -242,8 +241,7 @@ def test_debt_notice_print_uses_landscape_orientation(db, client):
 
     resp = client.post("/legal-docs/debt-notice", data={"person_id": [str(person.id)]})
     body = resp.get_data(as_text=True)
-    assert "A4 landscape" in body
-    assert "297mm" in body
+    assert "A4 landscape" not in body
 
 
 # ---------------------------------------------------------------------------
@@ -463,3 +461,70 @@ def test_lawsuit_requires_at_least_one_person(db, client):
     _board_login(db, client)
     resp = client.post("/legal-docs/lawsuit/draft", data={})
     assert resp.status_code == 302
+
+
+def test_lawsuit_print_has_two_column_header_and_centered_title(db, client):
+    """Реквизиты кооператива — слева, данные суда и ответчика — справа;
+    заголовок «Исковое заявление» — отдельным центрированным жирным
+    элементом, а не частью свободного текста черновика."""
+    coop = _make_coop(db)
+    _board_login(db, client)
+    section = CourtSection(name="Судебный участок №9", court_address="г. Тестоград, ул. Судебная, 9")
+    db.add(section)
+    db.flush()
+    person = make_person(db, full_name="Колонкин Колонка Колонкович", court_section_id=section.id)
+    db.commit()
+
+    resp = client.post("/legal-docs/lawsuit/print", data={
+        "person_id": [str(person.id)],
+        f"text_{person.id}": "основной текст иска",
+    })
+    body = resp.get_data(as_text=True)
+    assert "legal-header-columns" in body
+    assert "legal-header-left" in body
+    assert "legal-header-right" in body
+    assert "Судебный участок №9" in body
+    assert person.full_name in body
+    assert '<p class="print-title">Исковое заявление</p>' in body
+    # заголовок больше не часть редактируемого текста
+    assert "ИСКОВОЕ ЗАЯВЛЕНИЕ" not in body
+
+
+def test_lawsuit_print_body_paragraphs_get_indent_class(db, client):
+    _make_coop(db)
+    _board_login(db, client)
+    person = make_person(db, full_name="Отступов Отступ Отступович")
+    db.commit()
+
+    resp = client.post("/legal-docs/lawsuit/print", data={
+        "person_id": [str(person.id)],
+        f"text_{person.id}": "Первый абзац.\n\nВторой абзац.",
+    })
+    body = resp.get_data(as_text=True)
+    assert '<p class="legal-p">Первый абзац.</p>' in body
+    assert '<p class="legal-p">Второй абзац.</p>' in body
+
+
+def test_lawsuit_print_appendix_is_signed_and_on_own_page(db, client):
+    """Приложение печатается с новой страницы и заверяется той же подписью
+    председателя и печатью, что и основной текст иска."""
+    coop = _make_coop(db, dues_due_day=1, dues_due_month=6)
+    board_person = make_person(db, full_name="Председателев Пред Предович")
+    board_person.is_chairman = True
+    make_user(db, "chair1", "pass1234", role=RoleEnum.CHAIRMAN, person=board_person)
+    db.add(KeyRate(rate_percent=Decimal("16.0"), effective_date=dt.date(2023, 1, 1)))
+    person = make_person(db, full_name="Заверенов Заверен Заверенович")
+    garage = make_garage(db, number="43")
+    make_ownership(db, garage, person)
+    _make_debt(db, person, garage, amount="12000.00")
+    db.commit()
+    login(client, "chair1", "pass1234")
+
+    resp = client.post("/legal-docs/lawsuit/print", data={
+        "person_id": [str(person.id)],
+        f"text_{person.id}": "текст иска",
+    })
+    body = resp.get_data(as_text=True)
+    assert body.count("stamp-place") >= 2  # печать и у основного текста, и у приложения
+    assert body.count(board_person.short_name) >= 2  # подпись председателя дважды
+    assert "page-break-before" in body

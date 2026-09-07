@@ -330,19 +330,16 @@ function initChatWidget(cfg) {
       row.className = "chat-widget-participant";
 
       var dot = document.createElement("span");
-      dot.className = "chat-widget-dot" + (p.online ? " is-online" : "");
+      // Отдельным цветом, не текстовой плашкой — переменная по ширине
+      // подпись "чат открыт"/её отсутствие сдвигала остальные строки
+      // списка при каждом обновлении (см. loadParticipants).
+      dot.className = "chat-widget-dot" + (p.chat_open ? " is-chat-open" : (p.online ? " is-online" : ""));
+      dot.title = p.chat_open ? cfg.chatOpenLabel : "";
       row.appendChild(dot);
 
       var name = document.createElement("span");
       name.textContent = p.username + (p.is_mine ? " (" + cfg.youLabel + ")" : "");
       row.appendChild(name);
-
-      if (p.chat_open) {
-        var openBadge = document.createElement("span");
-        openBadge.className = "chat-widget-open-badge";
-        openBadge.textContent = "· " + cfg.chatOpenLabel;
-        row.appendChild(openBadge);
-      }
 
       participantsEl.appendChild(row);
     });
@@ -809,7 +806,7 @@ tr.table-info-subtle { --bs-table-bg: var(--bs-info-bg-subtle); --bs-table-borde
 .chat-widget-participant { display: inline-flex; align-items: center; gap: .3rem; }
 .chat-widget-dot { width: .5rem; height: .5rem; border-radius: 50%; flex: none; background: var(--bs-secondary); }
 .chat-widget-dot.is-online { background: var(--bs-success); }
-.chat-widget-open-badge { font-size: .65rem; opacity: .7; }
+.chat-widget-dot.is-chat-open { background: var(--bs-primary); }
 /* min-height:0 — без него flex-итем с overflow:auto по умолчанию не
    сжимается меньше высоты своего контента (min-height:auto), из-за чего
    при большом числе сообщений раздувался бы уже весь .chat-widget-panel

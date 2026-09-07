@@ -58,6 +58,46 @@ def test_inline_cid_image_always_shown_regardless_of_allow_remote_images():
     assert had_blocked is False  # inline-картинка не в счёт «внешних заблокированных»
 
 
+# ---------------------------------------------------------------------------
+# Ссылки — всегда работают, всегда открываются в новой вкладке
+# ---------------------------------------------------------------------------
+
+def test_link_opens_in_new_tab_not_iframe():
+    html, _ = render_email_body(_detail(body_html='<a href="https://example.com">click</a>'), allow_remote_images=False)
+    assert 'href="https://example.com"' in html
+    assert 'target="_blank"' in html
+    assert 'rel="noopener noreferrer"' in html
+
+
+def test_link_works_even_when_remote_images_are_blocked():
+    """Раньше протокол http/https для ссылок был завязан на тот же флаг,
+    что и внешние картинки (bleach protocols=), — из-за чего обычная
+    ссылка в письме молча ломалась (href вырезался), пока получатель не
+    нажимал «Показать изображения». Теперь ссылки не зависят от этого
+    флага вообще."""
+    html, had_blocked = render_email_body(
+        _detail(body_html='<p><a href="https://example.com/info">инфо</a></p><img src="https://tracker.example/pixel.gif">'),
+        allow_remote_images=False,
+    )
+    assert 'href="https://example.com/info"' in html
+    assert "tracker.example" not in html  # картинка всё равно вырезана
+    assert had_blocked is True
+
+
+def test_link_target_forced_even_if_email_sets_its_own():
+    """target/rel из самого письма не пропускаются bleach (не в
+    whitelist атрибутов <a>) — подставляются только наши, независимо от
+    того, что пытался задать отправитель."""
+    html, _ = render_email_body(
+        _detail(body_html='<a href="https://example.com" target="_self" rel="opener">click</a>'),
+        allow_remote_images=False,
+    )
+    assert 'target="_self"' not in html
+    assert 'rel="opener"' not in html
+    assert 'target="_blank"' in html
+    assert 'rel="noopener noreferrer"' in html
+
+
 def test_plain_text_only_message_is_escaped_and_wrapped():
     html, had_blocked = render_email_body(_detail(body_html=None, body_text="<b>не тег</b> & спецсимволы"), allow_remote_images=False)
     assert "&lt;b&gt;" in html

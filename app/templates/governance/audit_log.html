@@ -25,7 +25,7 @@
           {{ entry.actor_username }}
           {% if entry.actor_role %}<span class="badge bg-secondary">{{ role_label(entry.actor_role) }}</span>{% endif %}
         {% else %}
-          <span class="text-muted">{{ _("аноним/неизвестно") }}</span>
+          <span class="badge bg-secondary">{{ _("Система") }}</span>
         {% endif %}
       </td>
       <td>

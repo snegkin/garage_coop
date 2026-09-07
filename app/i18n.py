@@ -958,7 +958,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Когда": "When",
         "Кто": "Who",
         "Что": "What",
-        "аноним/неизвестно": "anonymous/unknown",
+        "Система": "System",
         "Далее": "Next",
         "Созывы правления": "Board terms",
         "Новый созыв": "New term",

@@ -12,7 +12,7 @@ from .auth import login_required, roles_required
 from .permissions import sync_user_role
 from .models import (
     BoardTerm, BoardMember, RevisionCommission, RevisionCommissionMember,
-    Person, GeneralMeeting, RoleEnum, AuditLog, User,
+    Person, GeneralMeeting, RoleEnum, AuditLog, User, MemberAccount, PersonalAccount,
 )
 
 bp = Blueprint("governance", __name__, url_prefix="/governance")
@@ -478,7 +478,9 @@ def audit_log():
 
     persons = database.db_session.query(Person).options(joinedload(Person.phones)).all()
     users = database.db_session.query(User).all()
-    linkify_index = audit_format.build_linkify_index(persons, users)
+    member_accounts = database.db_session.query(MemberAccount).all()
+    personal_accounts = database.db_session.query(PersonalAccount).all()
+    linkify_index = audit_format.build_linkify_index(persons, users, member_accounts, personal_accounts)
     summaries_html = {entry.id: audit_format.linkify_summary(entry.summary, linkify_index) for entry in entries}
 
     return render_template(

@@ -616,7 +616,8 @@ class DocumentType(str, enum.Enum):
     CERTIFICATE = "certificate"
     ESTIMATE = "estimate"
     REPORT = "report"
-    AGREEMENT = "agreement"
+    AGREEMENT = "agreement"  # соглашение — не то же самое, что договор (см. CONTRACT), напр. соглашение о расторжении договора
+    CONTRACT = "contract"    # договор — с подрядчиком/поставщиком и т.п.
     OTHER = "other"
 
 

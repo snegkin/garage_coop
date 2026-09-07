@@ -147,6 +147,29 @@ def test_new_document_types_are_valid_enum_values():
     assert {"invoice", "statement", "certificate", "estimate", "report"} <= values
 
 
+def test_contract_document_type_is_distinct_from_agreement():
+    """«Договор» — отдельный вид, не то же самое, что уже существующее
+    «Соглашение» (напр. соглашение о расторжении договора — разные вещи)."""
+    values = {t.value for t in DocumentType}
+    assert "contract" in values
+    assert "agreement" in values
+    assert DocumentType.CONTRACT != DocumentType.AGREEMENT
+
+
+def test_board_can_create_contract_document(app, db, client):
+    _make_board(db)
+    login(client, "board1", "pass1234")
+
+    resp = client.post("/cooperative/documents/new", data={
+        "doc_type": DocumentType.CONTRACT.value,
+        "date": "2026-01-01",
+        "title": "Договор подряда",
+    })
+    assert resp.status_code == 302
+    doc = db.query(Document).filter_by(title="Договор подряда").one()
+    assert doc.doc_type == DocumentType.CONTRACT
+
+
 def test_edit_form_does_not_render_none_for_unset_number(app, db, client):
     """Document.number необязателен (None, если не заполнен при создании) —
     форма правки не должна выводить туда буквальный текст "None"

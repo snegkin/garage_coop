@@ -11,7 +11,7 @@
 {% endmacro %}
 
 
-{% macro debt_notice_doc(person, summary, coop, chairman, today) %}
+{% macro debt_notice_doc(person, summary, years, coop, chairman, today) %}
 <div class="legal-doc">
   <div class="legal-header-columns">
     <div class="legal-header-left">
@@ -36,22 +36,24 @@
     {{ _("Настоящим уведомляем Вас о наличии задолженности перед {coop} по членским и/или целевым взносам и иным платежам, предусмотренным уставом кооператива. Ниже приведён полный расчёт по всем Вашим лицевым счетам по состоянию на {date}.", coop=(coop.short_name or coop.full_name) if coop else "", date=fmt_date(today)) }}
   </p>
 
-  {% if summary.rows %}
+  {% if years %}
   <table class="print-table">
-    <thead><tr><th>{{ _("Л/С") }}</th><th>{{ _("Назначение") }}</th><th class="num">{{ _("Начислено") }}</th><th class="num">{{ _("Оплачено") }}</th><th class="num">{{ _("Сумма") }}</th></tr></thead>
+    <thead><tr><th>{{ _("Год") }}</th><th class="num">{{ _("Начислено") }}</th><th class="num">{{ _("Оплачено") }}</th></tr></thead>
     <tbody>
-      {% for row in summary.rows %}
+      {% for row in years %}
       <tr>
-        <td>{{ row.account_number }}</td>
-        <td>{{ row.label }}</td>
+        <td>{{ row.year }}</td>
         <td class="num">{{ fmt2(row.charged) }}</td>
         <td class="num">{{ fmt2(row.paid) }}</td>
-        <td class="num">{{ fmt2(row.balance) }}</td>
       </tr>
       {% endfor %}
     </tbody>
     <tfoot>
-      <tr><td colspan="4">{{ _("Баланс") }}{% if summary.penalty_rows %} ({{ _("без пени") }}){% endif %}</td><td class="num">{{ fmt2(summary.balance_excl_penalty) }} ₽</td></tr>
+      <tr>
+        <td>{{ _("Итого") }}{% if summary.penalty_rows %} ({{ _("без пени") }}){% endif %}</td>
+        <td class="num">{{ fmt2(years|sum(attribute="charged")) }}</td>
+        <td class="num">{{ fmt2(years|sum(attribute="paid")) }}</td>
+      </tr>
     </tfoot>
   </table>
   {% endif %}
@@ -72,10 +74,16 @@
     </tbody>
     <tfoot>
       <tr><td colspan="4">{{ _("Пеня") }}</td><td class="num">{{ fmt2(summary.penalty_total) }} ₽</td></tr>
-      <tr><td colspan="4"><strong>{{ _("Итого") }}</strong></td><td class="num"><strong>{{ fmt2(summary.grand_total) }} ₽</strong></td></tr>
     </tfoot>
   </table>
   {% endif %}
+
+  <table class="print-table">
+    <tbody>
+      <tr><td>{{ _("Итого задолженность (со всеми пенями)") }}</td><td class="num">{{ fmt2(summary.grand_total) }} ₽</td></tr>
+      <tr><td><strong>{{ _("Сумма к погашению") }}</strong></td><td class="num"><strong>{{ fmt2(-summary.grand_total if summary.grand_total < 0 else 0) }} ₽</strong></td></tr>
+    </tbody>
+  </table>
 
   <p class="legal-p">
     {{ _("Просим погасить указанную задолженность в кратчайшие сроки. В случае неисполнения кооператив будет вынужден обратиться за взысканием задолженности, пени и понесённых судебных расходов в судебном порядке.") }}

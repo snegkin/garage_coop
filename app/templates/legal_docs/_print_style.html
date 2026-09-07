@@ -76,13 +76,19 @@
   display: flex; align-items: center; justify-content: center;
   font-size: 9px; color: #666; text-align: center;
 }
-.legal-print .legal-text { line-height: 1.5; }
+/* Отступ сверху — «одна строка пропуска» между заголовком/подзаголовком
+   и содержательным текстом (для уведомления о задолженности этот же
+   пропуск уже даёт margin-bottom у .print-meta с датой; здесь он нужен
+   отдельно — у искового после подзаголовка сразу шёл текст без зазора). */
+.legal-print .legal-text { line-height: 1.5; margin-top: 6mm; }
 /* Абзацный отступ (красная строка) — типографская норма для официальных
    документов (ГОСТ Р 7.0.97-2016). Возможен только на отдельных <p>, не
    на едином white-space:pre-wrap блоке текста — см. legal_docs.py:
    _paragraphs_html, которая режет отредактированный правлением текст на
-   параграфы и оборачивает каждый в <p class="legal-p">. */
-.legal-print p.legal-p { text-indent: 1.25cm; margin: 0 0 3mm; }
+   параграфы и оборачивает каждый в <p class="legal-p">. Выравнивание по
+   ширине (justify) — вместе с красной строкой это обычное оформление
+   официальных писем/заявлений. */
+.legal-print p.legal-p { text-indent: 1.25cm; margin: 0 0 3mm; text-align: justify; }
 /* Приложение — с новой страницы (обязательное требование: расчёт пени
    подшивается отдельным документом, не продолжением текста иска). */
 .legal-print .legal-appendix { page-break-before: always; }

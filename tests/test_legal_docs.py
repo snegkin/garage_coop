@@ -244,6 +244,32 @@ def test_debt_notice_print_uses_portrait_orientation(db, client):
     assert "A4 landscape" not in body
 
 
+def test_debt_notice_shows_yearly_breakdown_not_lifetime_sum(db, client):
+    """Вместо суммирования по счёту за всё время — разбивка по годам:
+    видно отдельно, что начислено/оплачено в 2023-м и что в 2024-м, а
+    внизу — итог и сумма к погашению."""
+    _make_coop(db)
+    _board_login(db, client)
+    person = make_person(db, full_name="Погодов Год Годович")
+    garage = make_garage(db, number="23")
+    make_ownership(db, garage, person)
+    account = _make_debt(db, person, garage, amount="5000.00")
+    db.add(Charge(account_id=account.id, year=2023, amount=Decimal("3000.00")))
+    db.add(Payment(account_id=account.id, date=dt.date(2023, 6, 1), amount=Decimal("1000.00")))
+    db.commit()
+
+    resp = client.post("/legal-docs/debt-notice", data={"person_id": [str(person.id)]})
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert "2023" in body
+    assert "2024" in body
+    assert "3000,00" in body
+    assert "5000,00" in body
+    assert "1000,00" in body
+    assert "Сумма к погашению" in body
+    assert "7000,00" in body  # 5000 (2024) + 3000 (2023) - 1000 (оплачено) = 7000 к погашению
+
+
 # ---------------------------------------------------------------------------
 # 2. Оплата госпошлины
 # ---------------------------------------------------------------------------
@@ -398,6 +424,23 @@ def test_lawsuit_print_preserves_edited_text_verbatim(db, client):
     assert edited_text in body
 
 
+def test_legal_paragraphs_are_justified_and_have_gap_after_title(db, client):
+    """Выравнивание по ширине страницы (как в деловой переписке) и
+    зазор в одну строку между заголовком/подзаголовком и текстом — общий
+    для уведомления и искового заявления стиль (см. _print_style.html)."""
+    _make_coop(db)
+    _board_login(db, client)
+    person = make_person(db, full_name="Ширинов Отступ Отступович")
+    db.commit()
+
+    resp = client.post("/legal-docs/lawsuit/print", data={
+        "person_id": [str(person.id)], f"text_{person.id}": "текст иска",
+    })
+    body = resp.get_data(as_text=True)
+    assert "text-align: justify" in body
+    assert "margin-top: 6mm" in body
+
+
 def test_lawsuit_print_has_letterhead_and_hides_chat_widget(db, client):
     """Исковое заявление печатается на бланке (шапка с логотипом и
     реквизитами кооператива), как остальные документы раздела, а не
@@ -518,13 +561,11 @@ def test_lawsuit_writ_state_duty_is_half_of_claim(db, client):
     assert "2000,00" in resp_writ.get_data(as_text=True)
 
 
-def test_lawsuit_penalty_wording_cites_law_not_charter(db, client):
-    """Пеня начисляется по закону (по аналогии со ст. 155 ЖК РФ), а не по
-    формуле устава — устав может предусматривать взимание пени, но его
-    порядок расчёта не соответствует закону, поэтому в тексте иска должна
-    быть именно эта, а не уставная формулировка (иначе разойдётся с
-    приложенным расчётом, который всегда считает по закону — см.
-    app/penalty.py)."""
+def test_lawsuit_penalty_wording_cites_central_bank_methodology(db, client):
+    """Пеня начисляется по методике ЦБ РФ — короткая формулировка, без
+    подробного цитирования ст. 155 ЖК РФ по аналогии (упрощено по просьбе
+    правления: цифры и так не совпадут с уставной формулой, объяснять это
+    в тексте иска подробно незачем)."""
     _make_coop(db)
     _board_login(db, client)
     person = make_person(db, full_name="Пенистов Пеня Петрович")
@@ -532,9 +573,25 @@ def test_lawsuit_penalty_wording_cites_law_not_charter(db, client):
 
     resp = client.post("/legal-docs/lawsuit/draft", data={"person_id": [str(person.id)]})
     body = resp.get_data(as_text=True)
-    assert "155 Жилищного кодекса" in body
-    assert "не соответствует действующему законодательству" in body
-    assert "Размер и порядок начисления пени установлены уставом кооператива" not in body
+    assert "методике" in body and "Центрального банка" in body
+    assert "155 Жилищного кодекса" not in body
+
+
+def test_lawsuit_does_not_presuppose_defendant_is_cooperative_member(db, client):
+    """Ответчик/должник может не быть членом кооператива — если его гараж
+    в границах территории, где кооператив действует, взносы всё равно
+    обязательны (ч. 3 ст. 27 338-ФЗ) — текст не должен безусловно
+    утверждать членство ответчика."""
+    _make_coop(db)
+    _board_login(db, client)
+    person = make_person(db, full_name="Негагаражов Не Членович")
+    db.commit()
+
+    resp = client.post("/legal-docs/lawsuit/draft", data={"person_id": [str(person.id)]})
+    body = resp.get_data(as_text=True)
+    assert "является членом кооператива и собственником" not in body
+    assert "ст. 27" in body
+    assert "не являющихся его членами" in body
 
 
 def test_lawsuit_print_carries_proceeding_type_through_to_pdf_resubmit(db, client):

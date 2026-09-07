@@ -24,6 +24,7 @@ from decimal import Decimal
 
 from flask import Blueprint, render_template, request, redirect, url_for, flash, abort, Response
 from markupsafe import Markup, escape
+from sqlalchemy.orm import joinedload
 
 from . import database
 from . import audit
@@ -34,7 +35,7 @@ from .auth import roles_required
 from .accounting import balance
 from .persons import build_statement
 from .models import (
-    Person, Cooperative, CourtSection, RoleEnum, MemberAccount,
+    Person, Cooperative, CourtSection, RoleEnum, MemberAccount, PersonalAccount,
     GarageOwnership, Charge, FeeType, KeyRate,
 )
 
@@ -258,25 +259,28 @@ def build_lawsuit_body(person: Person, coop: Cooperative, totals: dict, duty_amo
     build_lawsuit_header, legal_docs/_macros.html: lawsuit_doc) и в этот
     текст не входят.
 
-    Правовое основание — 338-ФЗ «О гаражных объединениях…» от 24.07.2023
-    ст. 26 ч. 9 (право взыскания взносов и пеней в судебном порядке) и,
-    в зависимости от proceeding_type ("claim"/"writ"), либо ст. 131-132
-    ГПК РФ (обычное исковое), либо абзац десятый ст. 122 + ст. 121, 123,
-    124 ГПК РФ (приказное — доступно именно для взыскания обязательных
-    платежей/взносов с членов потребительского кооператива). Госпошлина
-    для приказного — 50% от суммы для искового (см. lawsuit_draft/
+    Правовое основание — 338-ФЗ «О гаражных объединениях…» от 24.07.2023:
+    ст. 26 ч. 9 (право взыскания взносов и пеней в судебном порядке) и
+    ст. 27 ч. 3 (обязанность вносить те же платежи распространяется и на
+    собственников гаражей, НЕ являющихся членами кооператива, если их
+    гараж находится в границах территории, где кооператив действует, —
+    в том же порядке, что и для членов). Ответчик/должник может не быть
+    членом кооператива, поэтому вступительный абзац не предполагает
+    членство, а прямо указывает обе нормы — применимая к конкретному
+    ответчику определяется судом по факту членства, значения для
+    обязанности платить это не имеет. Далее, в зависимости от
+    proceeding_type ("claim"/"writ"), либо ст. 131-132 ГПК РФ (обычное
+    исковое), либо абзац десятый ст. 122 + ст. 121, 123, 124 ГПК РФ
+    (приказное — доступно именно для взыскания обязательных платежей/
+    взносов с членов потребительского кооператива). Госпошлина для
+    приказного — 50% от суммы для искового (см. lawsuit_draft/
     lawsuit_print: duty_amount уже уполовинен на момент вызова этой
     функции, здесь просто подставляется).
 
-    Про пеню: устав кооператива обычно тоже предусматривает её взимание
-    (ч. 8 ст. 26 338-ФЗ прямо отдаёт размер/порядок на усмотрение устава),
-    но если порядок расчёта, закреплённый в уставе, не соответствует
-    действующему законодательству — начисление ведётся по закону (по
-    аналогии со ст. 155 ЖК РФ, см. app/penalty.py), а не по формуле
-    устава: именно так фактически считает сама программа (functions
-    penalty.compute_charge_penalty_breakdown), поэтому и в тексте иска
-    указана именно эта, а не уставная формула — иначе цифры в тексте и в
-    приложенном расчёте пени разойдутся между собой.
+    Про пеню: программа считает её не по формуле устава, а по методике
+    Банка России (см. app/penalty.py) — в тексте иска это указывается
+    коротко, без цитирования норм ЖК РФ по аналогии, чтобы не запутывать
+    формулировку правовым основанием из другой отрасли законодательства.
     """
     labels = _PROCEEDING_LABELS[proceeding_type]
     ownerships = (
@@ -309,18 +313,16 @@ def build_lawsuit_body(person: Person, coop: Cooperative, totals: dict, duty_amo
     defendant_genitive = name_declension.genitive(person.full_name)
 
     return (
-        f"{party_label} является членом кооператива и собственником гаража(ей) {garages_text}. "
-        f"В соответствии с уставом кооператива {party_label.lower()} обязан своевременно вносить членские "
-        f"и/или целевые взносы, однако допустил образование задолженности {period_text}.\n\n"
-        f"Согласно ч. 9 ст. 26 Федерального закона от 24.07.2023 № 338-ФЗ «О гаражных объединениях "
-        f"и о внесении изменений в отдельные законодательные акты Российской Федерации» в случае "
-        f"неуплаты взносов и пеней кооператив вправе взыскать их с члена кооператива в судебном "
-        f"порядке. Уставом кооператива предусмотрено взимание пени за несвоевременную уплату взносов, "
-        f"однако предусмотренный уставом порядок её расчёта не соответствует действующему "
-        f"законодательству Российской Федерации, в связи с чем пеня рассчитана по аналогии со "
-        f"статьёй 155 Жилищного кодекса Российской Федерации: исходя из ключевой ставки Центрального "
-        f"банка Российской Федерации в размере 1/300 за каждый день просрочки в течение первых 30 дней "
-        f"и 1/150 — начиная с 31-го дня просрочки (расчёт прилагается).\n\n"
+        f"{party_label} является собственником гаража(ей) {garages_text}, расположенного(ых) в "
+        f"границах территории, на которой действует {coop_label}. Обязанность вносить членские и/или "
+        f"целевые взносы установлена уставом кооператива для его членов и Федеральным законом от "
+        f"24.07.2023 № 338-ФЗ «О гаражных объединениях и о внесении изменений в отдельные "
+        f"законодательные акты Российской Федерации» — как для членов кооператива (ч. 9 ст. 26), так "
+        f"и для собственников гаражей, не являющихся его членами (ч. 3 ст. 27), в одинаковом порядке. "
+        f"Несмотря на это, {party_label.lower()} допустил образование задолженности {period_text}.\n\n"
+        f"В случае неуплаты взносов и пеней кооператив вправе взыскать их в судебном порядке (ч. 9 "
+        f"ст. 26 Федерального закона от 24.07.2023 № 338-ФЗ). Пеня рассчитана по методике "
+        f"Центрального банка Российской Федерации (расчёт прилагается).\n\n"
         f"Расчёт суммы {'требования' if proceeding_type == 'writ' else 'иска'}:\n"
         f"— основной долг по взносам: {_fmt_amount(debt)};\n"
         f"— пеня за просрочку (расчёт прилагается): {_fmt_amount(penalty_total)};\n"
@@ -511,6 +513,66 @@ def person_court_section_assign(person_id):
 # 1. Уведомление о задолженности
 # ---------------------------------------------------------------------------
 
+def build_yearly_debt_breakdown(person: Person) -> list[dict]:
+    """
+    Разбивка ОСНОВНОГО долга (без пени) по годам — сколько начислено и
+    сколько оплачено в КАЖДОМ году отдельно, а не суммирование каждого
+    лицевого счёта за всё время его существования сразу (как раньше
+    показывало уведомление о задолженности). Должнику так понятнее:
+    видно, что накопилось в прошлом году, а что — в этом, а не одну
+    непрозрачную сумму за произвольный срок. Оплата относится к тому
+    году, когда она СДЕЛАНА (Payment.date), а не к году начисления,
+    которое она гасит (порядок разнесения FIFO может закрывать старые
+    начисления новым платежом — см. accounting.reallocate_garage_charges) —
+    это соответствует тому, как сам должник помнит свои платежи.
+
+    Пеня — санкция другой природы (не долг за взнос/услугу, а начисление
+    за просрочку), в разбивку не входит и здесь не считается: её итог
+    показывается отдельной строкой (см. persons.build_statement,
+    используемую для суммарных цифр в том же уведомлении).
+    """
+    member_accounts = (
+        database.db_session.query(MemberAccount)
+        .join(FeeType, MemberAccount.fee_type_id == FeeType.id)
+        .filter(MemberAccount.person_id == person.id, FeeType.is_penalty.is_(False))
+        .options(joinedload(MemberAccount.charges), joinedload(MemberAccount.payments))
+        .all()
+    )
+    owned_garage_ids = [
+        o.garage_id for o in
+        database.db_session.query(GarageOwnership).filter_by(person_id=person.id).all()
+    ]
+    personal_accounts = []
+    if owned_garage_ids:
+        personal_accounts = (
+            database.db_session.query(PersonalAccount)
+            .filter(PersonalAccount.garage_id.in_(owned_garage_ids))
+            .options(joinedload(PersonalAccount.garage))
+            .all()
+        )
+
+    by_year: dict[int, dict[str, Decimal]] = {}
+
+    def _row(year: int) -> dict:
+        return by_year.setdefault(year, {"charged": Decimal("0"), "paid": Decimal("0")})
+
+    for ma in member_accounts:
+        for c in ma.charges:
+            _row(c.year)["charged"] += c.amount
+        for p in ma.payments:
+            _row(p.date.year)["paid"] += p.amount
+    for pa in personal_accounts:
+        for c in pa.garage.charges:
+            _row(c.year)["charged"] += c.amount
+        for p in pa.garage.payments:
+            _row(p.date.year)["paid"] += p.amount
+
+    return [
+        {"year": year, "charged": v["charged"], "paid": v["paid"], "balance": v["paid"] - v["charged"]}
+        for year, v in sorted(by_year.items())
+    ]
+
+
 @bp.route("/debt-notice", methods=["GET", "POST"])
 @roles_required(RoleEnum.BOARD)
 def debt_notice():
@@ -523,7 +585,10 @@ def debt_notice():
         return redirect(url_for("legal_docs.debt_notice"))
 
     coop, chairman = _coop_and_chairman()
-    docs = [{"person": p, "summary": build_statement(p)} for p in persons]
+    docs = [
+        {"person": p, "summary": build_statement(p), "years": build_yearly_debt_breakdown(p)}
+        for p in persons
+    ]
 
     context = dict(docs=docs, coop=coop, chairman=chairman, today=dt.date.today(), hide_chat_widgets=True)
     if request.form.get("format") == "pdf":

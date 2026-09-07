@@ -317,7 +317,7 @@ function initChatWidget(cfg) {
 </script>
 {% endif %}
 
-{% if current_user and is_board() %}
+{% if current_user and is_board() and not hide_chat_widgets %}
 <div id="boardChatWidget">
   <button type="button" id="boardChatToggle" class="chat-widget-bubble" aria-label="{{ _('Чат правления') }}">
     &#128172;
@@ -344,7 +344,7 @@ function initChatWidget(cfg) {
 </script>
 {% endif %}
 
-{% if current_user and is_revision_commission_member %}
+{% if current_user and is_revision_commission_member and not hide_chat_widgets %}
 <div id="revisionChatWidget">
   <button type="button" id="revisionChatToggle" class="chat-widget-bubble chat-widget-bubble--left" aria-label="{{ _('Чат ревизионной комиссии') }}">
     &#128172;

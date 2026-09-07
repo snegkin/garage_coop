@@ -1792,6 +1792,21 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "50% (судебный приказ)": "50% (court order)",
         "Заявление о вынесении судебного приказа (упрощённое производство, без судебного заседания) — госпошлина 50% от обычной ставки (пп. 2 п. 1 ст. 333.19 НК РФ). Обычное исковое заявление, рассматриваемое в очном гражданском процессе — госпошлина в полном размере. Переключатель только пересчитывает подсказанную сумму; итоговое значение по-прежнему можно поправить вручную.":
             "An application for a court order (simplified proceeding, no hearing) — state duty is 50% of the regular rate (para. 2, cl. 1, Art. 333.19 of the Tax Code). A regular statement of claim heard in a full civil trial — full state duty. The toggle only recalculates the suggested amount; the final value can still be corrected manually.",
+
+        # legal_docs/_macros.html — приложение с расчётом пени к исковому заявлению
+        "Приложение": "Appendix",
+        "Расчёт пени": "Penalty calculation",
+        "Формула: сумма непогашенного остатка × ключевая ставка ЦБ РФ × 1/300 (первые 30 дней просрочки) или 1/150 (с 31-го дня), по дням.":
+            "Formula: outstanding balance × the Central Bank's key rate × 1/300 (first 30 days overdue) or 1/150 (from day 31), per day.",
+        "начисление за {year} г. на {amount} ₽ (счёт {number})": "charge for {year} for {amount} ₽ (account {number})",
+        "Период просрочки": "Overdue period",
+        "Дней": "Days",
+        "Остаток долга, ₽": "Outstanding balance, ₽",
+        "Ставка ЦБ РФ, %": "Central Bank rate, %",
+        "Формула": "Formula",
+        "Пеня, ₽": "Penalty, ₽",
+        "Итого по начислению": "Subtotal for this charge",
+        "Итого пени": "Total penalty",
     }
 }
 

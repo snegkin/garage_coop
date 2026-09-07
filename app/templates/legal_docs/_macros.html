@@ -99,8 +99,48 @@
 {% endmacro %}
 
 
-{% macro lawsuit_doc(text) %}
+{% macro lawsuit_doc(text, coop, penalty_entries, penalty_total, target_date) %}
 <div class="legal-doc">
+  {% include "legal_docs/_letterhead.html" %}
   <div class="legal-text">{{ text }}</div>
+
+  {% if penalty_entries %}
+  <div class="legal-appendix">
+    <p class="print-title">{{ _("Приложение") }}. {{ _("Расчёт пени") }}</p>
+    <p class="print-meta">{{ _("по состоянию на") }} {{ fmt_date(target_date) }}</p>
+    <p style="color:#333; font-size:11px;">{{ _("Формула: сумма непогашенного остатка × ключевая ставка ЦБ РФ × 1/300 (первые 30 дней просрочки) или 1/150 (с 31-го дня), по дням.") }}</p>
+    {% for entry in penalty_entries %}
+    <p><strong>{{ entry.account.fee_type.name }}, {{ _("гараж") }} №{{ entry.account.garage.number }}</strong> — {{ _("начисление за {year} г. на {amount} ₽ (счёт {number})", year=entry.charge.year, amount=fmt2(entry.charge.amount), number=entry.account.account_number) }}</p>
+    <table class="print-table">
+      <thead>
+        <tr>
+          <th>{{ _("Период просрочки") }}</th>
+          <th class="num">{{ _("Дней") }}</th>
+          <th class="num">{{ _("Остаток долга, ₽") }}</th>
+          <th class="num">{{ _("Ставка ЦБ РФ, %") }}</th>
+          <th class="num">{{ _("Формула") }}</th>
+          <th class="num">{{ _("Пеня, ₽") }}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in entry.periods %}
+        <tr>
+          <td>{{ fmt_date(p.start) }} — {{ fmt_date(p.end) }}</td>
+          <td class="num">{{ p.days }}</td>
+          <td class="num">{{ fmt2(p.unpaid) }}</td>
+          <td class="num">{{ fmt2(p.rate) }}</td>
+          <td class="num">1/{{ p.divisor|int }}</td>
+          <td class="num">{{ fmt2(p.amount) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr><td colspan="5">{{ _("Итого по начислению") }}</td><td class="num">{{ fmt2(entry.subtotal) }}</td></tr>
+      </tfoot>
+    </table>
+    {% endfor %}
+    <p style="text-align:right; font-weight:bold;">{{ _("Итого пени") }}: {{ fmt2(penalty_total) }} ₽</p>
+  </div>
+  {% endif %}
 </div>
 {% endmacro %}

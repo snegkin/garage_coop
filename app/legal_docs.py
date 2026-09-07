@@ -433,7 +433,7 @@ def debt_notice():
         )
     database.db_session.commit()
 
-    context = dict(docs=docs, coop=coop, chairman=chairman, today=dt.date.today())
+    context = dict(docs=docs, coop=coop, chairman=chairman, today=dt.date.today(), hide_chat_widgets=True)
     if request.form.get("format") == "pdf":
         return _render_pdf_or_fallback(
             "legal_docs/debt_notice_pdf.html", "uvedomlenie_o_zadolzhennosti.pdf",
@@ -501,7 +501,7 @@ def state_duty_print():
         )
     database.db_session.commit()
 
-    context = dict(items=items, coop=coop, today=dt.date.today())
+    context = dict(items=items, coop=coop, today=dt.date.today(), hide_chat_widgets=True)
     if request.form.get("format") == "pdf":
         return _render_pdf_or_fallback(
             "legal_docs/state_duty_pdf.html", "gosposhlina.pdf",
@@ -549,18 +549,30 @@ def lawsuit_print():
         flash(_("Выберите хотя бы одного должника."), "danger")
         return redirect(url_for("legal_docs.lawsuit"))
 
+    coop, _chairman = _coop_and_chairman()
+    target_date = dt.date.today()
     persons = database.db_session.query(Person).filter(Person.id.in_(person_ids)).order_by(Person.full_name).all()
     docs = []
     for p in persons:
         text = request.form.get(f"text_{p.id}", "")
-        docs.append({"person": p, "text": text})
+        # Расчёт пени прикладывается к иску отдельным приложением, если она
+        # начислена — тот же официальный расчёт день-в-день, что уже
+        # использовался при формировании черновика (см. build_lawsuit_draft),
+        # пересчитан заново на сегодня (см. compute_claim_totals), а не
+        # перенесён из момента составления черновика: правление могло
+        # сформировать черновик раньше, чем распечатало готовый иск.
+        totals = compute_claim_totals(p, coop, target_date)
+        docs.append({
+            "person": p, "text": text,
+            "penalty_entries": totals["penalty_entries"], "penalty_total": totals["penalty_total"],
+        })
         audit.record(
             "legal.lawsuit_generated", entity_type="person", entity_id=p.id,
             summary=f"Сформировано исковое заявление к {p.full_name}",
         )
     database.db_session.commit()
 
-    context = dict(docs=docs)
+    context = dict(docs=docs, coop=coop, target_date=target_date, hide_chat_widgets=True)
     if request.form.get("format") == "pdf":
         return _render_pdf_or_fallback(
             "legal_docs/lawsuit_pdf.html", "iskovoe_zayavlenie.pdf",

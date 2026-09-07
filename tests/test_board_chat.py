@@ -228,6 +228,21 @@ def test_widget_present_for_board_member(db, client):
     assert 'id="boardChatWidget"' in body
 
 
+def test_widget_panel_is_resizable_and_draggable(db, client):
+    """Окно чата можно менять в размере (нативная ручка resize:both) и
+    перетаскивать за шапку (JS-обработчик на .chat-widget-header); поле
+    ввода — тоже с изменяемой высотой (resize:vertical), не resize:none."""
+    _board_user(db)
+    login(client, "board1", "pass1234")
+    resp = client.get("/dashboard")
+    body = resp.get_data(as_text=True)
+    assert "resize: both" in body
+    assert "cursor: move" in body
+    assert "ResizeObserver" in body
+    assert "resize: vertical" in body
+    assert "resize: none" not in body
+
+
 def test_widget_absent_for_plain_member(db, client):
     person = make_person(db, full_name="Member Three")
     make_user(db, "member3", "pass1234", role=RoleEnum.MEMBER, person=person)

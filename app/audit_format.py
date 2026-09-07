@@ -1,5 +1,6 @@
 """
-Кликабельные логины/телефоны/ФИО в тексте журнала аудита (governance.audit_log).
+Кликабельные логины/телефоны/ФИО/номера лицевых счетов в тексте журнала
+аудита (governance.audit_log).
 
 Записи журнала — обычные русские предложения с именами/логинами/номерами,
 собранные множеством разных audit.record(...) по всему коду (см. docstring
@@ -7,11 +8,11 @@ audit.record) — не структурированные данные со сс
 сущность, в отличие, например, от comment_format.linkify_related_person
 (та знает related_person_id заранее). Поэтому ссылки здесь строятся поиском
 по АКТУАЛЬНЫМ данным на момент ПРОСМОТРА журнала: сам текст записи не
-меняется (это факт истории на момент события), но если с тех пор логин
-или ФИО сменились — ссылка ведёт на текущую карточку под текущим именем.
+меняется (это факт истории на момент события), но если с тех пор логин,
+ФИО или владелец счёта сменились — ссылка ведёт на текущую карточку.
 
 Правила (во всех вызовах audit.record в коде логины и телефоны пишутся в
-кавычках «...», ФИО/краткое имя — как есть, без кавычек):
+кавычках «...», ФИО/краткое имя и номера счетов — как есть, без кавычек):
 - логин — только внутри «кавычек» и только при точном совпадении с
   User.username: голое слово без кавычек не линкуем, слишком велик риск
   случайно превратить в ссылку обычный текст записи;
@@ -21,7 +22,14 @@ audit.record) — не структурированные данные со сс
 - ФИО и краткое имя (Фамилия И.О.) — прямой поиск подстроки по ВСЕМ людям
   сразу (тот же приём, что и linkify_related_person), самые длинные имена
   проверяются первыми, чтобы короткое имя не «откусило» кусок более
-  длинного при пересечении (напр. «Иванов И.» внутри «Иванов Иван И.»).
+  длинного при пересечении (напр. «Иванов И.» внутри «Иванов Иван И.»);
+- номер лицевого счёта — отдельно стоящая последовательность цифр (\\b\\d+\\b),
+  сравнение точное с реальным MemberAccount/PersonalAccount.account_number.
+
+Все четыре вида ищутся ОДНИМ комбинированным регэкспом за один проход по
+исходному тексту (не последовательными подстановками одна поверх другой):
+иначе номер счёта, случайно совпавший с id в уже вставленном
+`<a href="/persons/12">`, задвоил бы ссылку и сломал разметку.
 """
 import re
 
@@ -29,8 +37,6 @@ from flask import url_for
 from markupsafe import Markup, escape
 
 from .auth import _normalize_phone_digits
-
-_QUOTED_RE = re.compile(r"«([^»]+)»")
 
 
 def _unambiguous(pairs: list[tuple[str, str]]) -> dict[str, str]:
@@ -47,10 +53,10 @@ def _unambiguous(pairs: list[tuple[str, str]]) -> dict[str, str]:
     return {text: next(iter(urls)) for text, urls in urls_by_text.items() if len(urls) == 1}
 
 
-def build_linkify_index(persons, users) -> dict:
+def build_linkify_index(persons, users, member_accounts=(), personal_accounts=()) -> dict:
     """
     Готовит справочники один раз на весь журнал (не на каждую запись) —
-    persons/users передаются извне, чтобы не гонять запросы к БД повторно.
+    все объекты передаются извне, чтобы не гонять запросы к БД повторно.
     """
     username_to_url = {
         u.username: url_for("persons.detail", person_id=u.person_id)
@@ -74,16 +80,32 @@ def build_linkify_index(persons, users) -> dict:
     phone_to_url = _unambiguous(phone_pairs)
     name_to_url = _unambiguous(name_pairs)
 
-    names_re = None
-    if name_to_url:
-        names_by_length = sorted(name_to_url, key=len, reverse=True)
-        names_re = re.compile("|".join(re.escape(name) for name in names_by_length))
+    # Номер лицевого счёта после смены собственника переходит новому счёту,
+    # а прежний (архивный) остаётся с тем же номером для истории — это НЕ
+    # случайная неоднозначность вроде общего телефона, а осознанное
+    # устройство (см. docstring MemberAccount.is_archived), поэтому вместо
+    # отказа от ссылки предпочитаем активный счёт: архивные добавляются в
+    # словарь первыми, активные — следом и перезаписывают их.
+    account_number_to_url: dict[str, str] = {}
+    for ma in sorted(member_accounts, key=lambda a: a.is_archived, reverse=True):
+        if ma.account_number:
+            account_number_to_url[ma.account_number] = url_for("finance.member_account_detail", account_id=ma.id)
+    for pa in personal_accounts:
+        if pa.account_number:
+            account_number_to_url[pa.account_number] = url_for("garages.detail", garage_id=pa.garage_id)
+
+    name_alternation = "|".join(re.escape(name) for name in sorted(name_to_url, key=len, reverse=True))
+    pattern = r"«[^»]+»|\b\d+\b"
+    if name_alternation:
+        pattern += "|" + name_alternation
+    token_re = re.compile(pattern)
 
     return {
         "username_to_url": username_to_url,
         "phone_to_url": phone_to_url,
         "name_to_url": name_to_url,
-        "names_re": names_re,
+        "account_number_to_url": account_number_to_url,
+        "token_re": token_re,
     }
 
 
@@ -93,33 +115,34 @@ def linkify_summary(summary: str | None, index: dict) -> Markup | str | None:
 
     username_to_url = index["username_to_url"]
     phone_to_url = index["phone_to_url"]
+    name_to_url = index["name_to_url"]
+    account_number_to_url = index["account_number_to_url"]
 
-    def _quoted_repl(m: "re.Match[str]") -> str:
-        inner = m.group(1)
-        url = username_to_url.get(inner)
+    def _repl(m: "re.Match[str]") -> str:
+        token = m.group(0)
+
+        if token[0] == "«" and token[-1] == "»":
+            inner = token[1:-1]
+            url = username_to_url.get(inner)
+            if url is None:
+                digits = _normalize_phone_digits(inner)
+                if digits:
+                    url = phone_to_url.get(digits)
+            if url is None:
+                url = name_to_url.get(inner)  # напр. «Иванов И.И.» — краткое имя тоже пишут в кавычках
+            if url is None:
+                return token
+            return f'«<a href="{url}">{inner}</a>»'
+
+        url = name_to_url.get(token) or account_number_to_url.get(token)
         if url is None:
-            digits = _normalize_phone_digits(inner)
-            if digits:
-                url = phone_to_url.get(digits)
-        if url is None:
-            return m.group(0)
-        return f'«<a href="{url}">{inner}</a>»'
+            return token
+        return f'<a href="{url}">{token}</a>'
 
     # escape() — самая первая обработка сырого текста (защита от обычных
-    # <>&"' в свободных полях вроде комментария к причине архивации),
-    # дальше обе подстановки работают уже по безопасной строке и вставляют
-    # только собственный, доверенный HTML (<a href="...">).
+    # <>&"' в свободных полях вроде комментария к причине архивации);
+    # весь дальнейший разбор идёт уже по безопасной строке ОДНИМ проходом
+    # (см. docstring модуля — почему не несколько последовательных).
     text = str(escape(summary))
-    text = _QUOTED_RE.sub(_quoted_repl, text)
-
-    names_re = index["names_re"]
-    if names_re is not None:
-        name_to_url = index["name_to_url"]
-
-        def _name_repl(m: "re.Match[str]") -> str:
-            name = m.group(0)
-            return f'<a href="{name_to_url[name]}">{name}</a>'
-
-        text = names_re.sub(_name_repl, text)
-
+    text = index["token_re"].sub(_repl, text)
     return Markup(text)

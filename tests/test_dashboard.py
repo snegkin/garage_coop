@@ -134,6 +134,16 @@ def test_dashboard_debt_card_links_to_member_accounts(app, db, client):
     assert 'href="/finance/member-accounts"' in resp.get_data(as_text=True)
 
 
+def test_dashboard_balance_card_links_to_bank_accounts(app, db, client):
+    make_user(db, "board105", "pass12345", role=RoleEnum.BOARD)
+    db.commit()
+    login(client, "board105", "pass12345")
+
+    resp = client.get("/dashboard")
+    assert resp.status_code == 200
+    assert 'href="/finance/bank-accounts"' in resp.get_data(as_text=True)
+
+
 def test_dashboard_shows_collection_rate_for_current_and_previous_year(app, db, client):
     current_year = dt.date.today().year
     person = make_person(db, full_name="Собираемость Проверяемая")

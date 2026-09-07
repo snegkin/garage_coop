@@ -1,9 +1,10 @@
-{% macro signature_block(chairman) %}
+{% macro signature_block(chairman, date=None) %}
 <div class="print-signatures">
   <div class="signature-rows">
     <div class="signature-line">
       <span class="sig-role">{{ _("Председатель") }}</span><span class="sig-blank"></span>
       {% if chairman %}<span class="sig-name">/{{ chairman.short_name }}/</span>{% endif %}
+      {% if date %}<span class="sig-date">{{ fmt_date(date) }}</span>{% endif %}
     </div>
   </div>
   <div class="stamp-place">{{ _("М.П.") }}</div>
@@ -88,7 +89,7 @@
     {{ _("Просим погасить указанную задолженность в кратчайшие сроки. В случае неисполнения кооператив будет вынужден обратиться за взысканием задолженности, пени и понесённых судебных расходов в судебном порядке.") }}
   </p>
 
-  {{ signature_block(chairman) }}
+  {{ signature_block(chairman, today) }}
 </div>
 {% endmacro %}
 
@@ -176,7 +177,7 @@
 
   <div class="legal-text">{{ body_html }}</div>
 
-  {{ signature_block(chairman) }}
+  {{ signature_block(chairman, target_date) }}
 
   {% if penalty_entries %}
   <div class="legal-appendix">
@@ -186,7 +187,7 @@
     {{ penalty_appendix_table(penalty_entries) }}
     <p style="text-align:right; font-weight:bold;">{{ _("Итого пени") }}: {{ fmt2(penalty_total) }} ₽</p>
 
-    {{ signature_block(chairman) }}
+    {{ signature_block(chairman, target_date) }}
   </div>
   {% endif %}
 </div>

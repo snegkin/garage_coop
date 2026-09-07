@@ -232,6 +232,13 @@ def build_lawsuit_header(person: Person, coop: Cooperative, court_section: Court
     _letterhead.html, повторять их справа незачем) — фактические данные,
     не редактируемый текст: поправить их можно только через сами карточки
     (участок должника/кооператива, адрес человека), не вручную в черновике.
+
+    В шапке ответчик указан как «Фамилия И.О.» (person.short_name), а не
+    полным ФИО — так же, как председатель указан в подписях (см.
+    _macros.html: signature_block) — по просьбе правления, для краткости
+    официальной формы. Полное ФИО в родительном падеже по-прежнему
+    используется в тексте просительной части (build_lawsuit_body) — там
+    оно необходимо для точной идентификации взыскиваемого лица.
     """
     labels = _PROCEEDING_LABELS[proceeding_type]
     court_name = court_section.name if court_section else "____________________ (судебный участок не определён)"
@@ -239,7 +246,7 @@ def build_lawsuit_header(person: Person, coop: Cooperative, court_section: Court
     address = person.residence_address or person.registration_address or "адрес не известен, см. материалы дела"
     return {
         "court_name": court_name, "court_address": court_address,
-        "defendant_name": person.full_name, "defendant_address": address,
+        "defendant_name": person.short_name, "defendant_address": address,
         "party_label": _(labels["party_label"]),
         "doc_title": _(labels["doc_title"]), "doc_subtitle": _(labels["doc_subtitle"]),
     }

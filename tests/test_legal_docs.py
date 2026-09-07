@@ -573,7 +573,7 @@ def test_lawsuit_penalty_wording_cites_central_bank_methodology(db, client):
 
     resp = client.post("/legal-docs/lawsuit/draft", data={"person_id": [str(person.id)]})
     body = resp.get_data(as_text=True)
-    assert "методике" in body and "Центрального банка" in body
+    assert "методике" in body and "ЦБ РФ" in body
     assert "155 Жилищного кодекса" not in body
 
 
@@ -650,7 +650,7 @@ def test_lawsuit_print_has_two_column_header_and_centered_title(db, client):
     assert "legal-header-left" in body
     assert "legal-header-right" in body
     assert "Судебный участок №9" in body
-    assert person.full_name in body
+    assert person.short_name in body  # в шапке — фамилия и инициалы, не полное ФИО
     assert '<p class="print-title">Исковое заявление</p>' in body
     # заголовок больше не часть редактируемого текста
     assert "ИСКОВОЕ ЗАЯВЛЕНИЕ" not in body
@@ -694,3 +694,60 @@ def test_lawsuit_print_appendix_is_signed_and_on_own_page(db, client):
     assert body.count("stamp-place") >= 2  # печать и у основного текста, и у приложения
     assert body.count(board_person.short_name) >= 2  # подпись председателя дважды
     assert "page-break-before" in body
+
+
+def test_lawsuit_signature_has_date_next_to_it(db, client):
+    """Рядом с подписью председателя должна стоять дата (и у основного
+    текста, и у приложения с расчётом пени, если оно печатается)."""
+    coop = _make_coop(db, dues_due_day=1, dues_due_month=6)
+    board_person = make_person(db, full_name="Председателев Пред Предович")
+    board_person.is_chairman = True
+    make_user(db, "chair1", "pass1234", role=RoleEnum.CHAIRMAN, person=board_person)
+    db.add(KeyRate(rate_percent=Decimal("16.0"), effective_date=dt.date(2023, 1, 1)))
+    person = make_person(db, full_name="Датированов Дата Датович")
+    garage = make_garage(db, number="47")
+    make_ownership(db, garage, person)
+    _make_debt(db, person, garage, amount="12000.00")
+    db.commit()
+    login(client, "chair1", "pass1234")
+
+    resp = client.post("/legal-docs/lawsuit/print", data={
+        "person_id": [str(person.id)], f"text_{person.id}": "текст иска",
+    })
+    body = resp.get_data(as_text=True)
+    today_str = dt.date.today().strftime("%d.%m.%Y")
+    assert body.count('class="sig-date"') >= 2  # у основного текста и у приложения
+    assert body.count(today_str) >= 2
+
+
+def test_debt_notice_signature_has_date_next_to_it(db, client):
+    _make_coop(db)
+    _board_login(db, client)
+    person = make_person(db, full_name="Датировкин Дата Датович")
+    garage = make_garage(db, number="48")
+    make_ownership(db, garage, person)
+    _make_debt(db, person, garage, amount="1000.00")
+    db.commit()
+
+    resp = client.post("/legal-docs/debt-notice", data={"person_id": [str(person.id)]})
+    body = resp.get_data(as_text=True)
+    assert 'class="sig-date"' in body
+    assert dt.date.today().strftime("%d.%m.%Y") in body
+
+
+def test_lawsuit_header_uses_surname_and_initials_for_defendant(db, client):
+    """В шапке искового заявления ответчик указан кратко — «Фамилия И.О.»,
+    как и председатель в подписях — не полным ФИО."""
+    _make_coop(db)
+    _board_login(db, client)
+    person = make_person(db, full_name="Головин Заголовок Заголовкович")
+    db.commit()
+
+    resp = client.post("/legal-docs/lawsuit/print", data={
+        "person_id": [str(person.id)], f"text_{person.id}": "текст иска",
+    })
+    body = resp.get_data(as_text=True)
+    header_idx = body.index('class="legal-header-right"')
+    header_chunk = body[header_idx:header_idx + 800]
+    assert person.short_name in header_chunk
+    assert person.full_name not in header_chunk

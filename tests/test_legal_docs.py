@@ -213,6 +213,39 @@ def test_debt_notice_requires_at_least_one_person(db, client):
     assert resp.status_code == 302
 
 
+def test_debt_notice_print_hides_board_chat_widget(db, client):
+    """Плавающий чат правления мешает превью формального документа —
+    на странице печати его быть не должно (см. hide_chat_widgets)."""
+    _make_coop(db)
+    _board_login(db, client)
+    person = make_person(db, full_name="Тихонов Тихон Тихонович")
+    garage = make_garage(db, number="21")
+    make_ownership(db, garage, person)
+    _make_debt(db, person, garage, amount="1000.00")
+    db.commit()
+
+    resp = client.post("/legal-docs/debt-notice", data={"person_id": [str(person.id)]})
+    body = resp.get_data(as_text=True)
+    assert 'id="boardChatWidget"' not in body
+
+
+def test_debt_notice_print_uses_landscape_orientation(db, client):
+    """Широкая таблица полной выписки по счетам — печатается на альбомном
+    листе (см. _print_style.html: legal_orientation)."""
+    _make_coop(db)
+    _board_login(db, client)
+    person = make_person(db, full_name="Альбомов Альбом Альбомович")
+    garage = make_garage(db, number="22")
+    make_ownership(db, garage, person)
+    _make_debt(db, person, garage, amount="1000.00")
+    db.commit()
+
+    resp = client.post("/legal-docs/debt-notice", data={"person_id": [str(person.id)]})
+    body = resp.get_data(as_text=True)
+    assert "A4 landscape" in body
+    assert "297mm" in body
+
+
 # ---------------------------------------------------------------------------
 # 2. Оплата госпошлины
 # ---------------------------------------------------------------------------
@@ -295,6 +328,22 @@ def test_state_duty_review_then_print_uses_edited_amount(db, client):
     assert "18210803010011000110" in body
 
 
+def test_state_duty_print_hides_board_chat_widget(db, client):
+    _make_coop(db)
+    _board_login(db, client)
+    person = make_person(db, full_name="Тихонов Госпошлинов")
+    garage = make_garage(db, number="34")
+    make_ownership(db, garage, person)
+    _make_debt(db, person, garage, amount="1000.00")
+    db.commit()
+
+    resp = client.post("/legal-docs/state-duty/print", data={
+        "person_id": [str(person.id)],
+        f"duty_amount_{person.id}": "4000.00",
+    })
+    assert 'id="boardChatWidget"' not in resp.get_data(as_text=True)
+
+
 def test_state_duty_print_without_court_section_shows_warning(db, client):
     _make_coop(db)
     _board_login(db, client)
@@ -349,6 +398,64 @@ def test_lawsuit_print_preserves_edited_text_verbatim(db, client):
     assert resp.status_code == 200
     body = resp.get_data(as_text=True)
     assert edited_text in body
+
+
+def test_lawsuit_print_has_letterhead_and_hides_chat_widget(db, client):
+    """Исковое заявление печатается на бланке (шапка с логотипом и
+    реквизитами кооператива), как остальные документы раздела, а не
+    голым текстом — и без плавающего чата правления поверх превью."""
+    coop = _make_coop(db)
+    _board_login(db, client)
+    person = make_person(db, full_name="Бланков Бланк Бланкович")
+    db.commit()
+
+    resp = client.post("/legal-docs/lawsuit/print", data={
+        "person_id": [str(person.id)],
+        f"text_{person.id}": "текст иска",
+    })
+    body = resp.get_data(as_text=True)
+    assert "print-letterhead" in body
+    assert coop.full_name in body
+    assert 'id="boardChatWidget"' not in body
+
+
+def test_lawsuit_print_attaches_penalty_appendix_when_accrued(db, client):
+    coop = _make_coop(db, dues_due_day=1, dues_due_month=6)
+    _board_login(db, client)
+    db.add(KeyRate(rate_percent=Decimal("16.0"), effective_date=dt.date(2023, 1, 1)))
+    person = make_person(db, full_name="Пенистов Пеня Пенистович")
+    garage = make_garage(db, number="41")
+    make_ownership(db, garage, person)
+    _make_debt(db, person, garage, amount="12000.00")
+    db.commit()
+
+    resp = client.post("/legal-docs/lawsuit/print", data={
+        "person_id": [str(person.id)],
+        f"text_{person.id}": "текст иска",
+    })
+    body = resp.get_data(as_text=True)
+    assert "Приложение" in body
+    assert "Расчёт пени" in body
+    assert "Итого пени" in body
+
+
+def test_lawsuit_print_no_penalty_appendix_when_not_accrued(db, client):
+    """Без настроенного срока оплаты взносов (dues_due_day/month) пеня не
+    считается вовсе — приложения в иске быть не должно."""
+    _make_coop(db)
+    _board_login(db, client)
+    person = make_person(db, full_name="Безпенистов Без Пенистович")
+    garage = make_garage(db, number="42")
+    make_ownership(db, garage, person)
+    _make_debt(db, person, garage, amount="12000.00")
+    db.commit()
+
+    resp = client.post("/legal-docs/lawsuit/print", data={
+        "person_id": [str(person.id)],
+        f"text_{person.id}": "текст иска",
+    })
+    body = resp.get_data(as_text=True)
+    assert "Расчёт пени" not in body
 
 
 def test_lawsuit_requires_at_least_one_person(db, client):

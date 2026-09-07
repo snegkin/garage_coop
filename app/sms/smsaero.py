@@ -33,9 +33,15 @@ class SmsAeroClient(SmsClient):
         # страны, тут достраиваем "7", как везде в проекте для российских
         # номеров).
         number = f"7{phone_digits}"
-        data = {"number": number, "text": text}
-        if self.sign:
-            data["sign"] = self.sign
+        # "sign" — ОБЯЗАТЕЛЬНОЕ поле API (проверено на реальном аккаунте:
+        # без него запрос падает с {"success": false, "data": {"sign":
+        # ["required"]}, "message": "Validation error."}), а не
+        # опциональное, как предполагалось изначально. Если председатель
+        # не зарегистрировал/не указал своё имя отправителя в настройках
+        # (SmsSettings.sender_sign), подставляем "SMS Aero" — встроенный
+        # дефолт самого провайдера для аккаунтов без своей подписи (см.
+        # official-клиент smsaero/smsaero_python: SIGNATURE = "SMS Aero").
+        data = {"number": number, "text": text, "sign": self.sign or "SMS Aero"}
 
         try:
             resp = requests.post(
@@ -50,4 +56,16 @@ class SmsAeroClient(SmsClient):
             raise SmsError(f"SMS Aero вернул нераспознаваемый ответ (код {resp.status_code})") from exc
 
         if not payload.get("success"):
-            raise SmsError(payload.get("message") or f"SMS Aero отклонил отправку (код {resp.status_code})")
+            message = payload.get("message") or f"SMS Aero отклонил отправку (код {resp.status_code})"
+            # payload["data"] при 400 Validation error — {"поле": ["ошибка",
+            # ...], ...} по каждому невалидному полю сразу (не только
+            # первому) — без этого текст ошибки был просто "Validation
+            # error." без единой зацепки, какое поле не так (реальный
+            # случай, из-за которого нашли требование "sign" выше).
+            errors = payload.get("data")
+            if isinstance(errors, dict) and errors:
+                details = "; ".join(
+                    f"{field}: {', '.join(field_errors)}" for field, field_errors in errors.items()
+                )
+                message = f"{message} ({details})"
+            raise SmsError(message)

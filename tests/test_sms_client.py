@@ -38,17 +38,32 @@ def test_send_success():
     assert kwargs["json"]["sign"] == "COOP"
 
 
-def test_send_without_sign_omits_it():
+def test_send_without_configured_sign_uses_provider_default():
+    """"sign" — ОБЯЗАТЕЛЬНОЕ поле API (без него реальный аккаунт отвечает
+    {"data": {"sign": ["required"]}}) — если председатель не указал своё
+    имя отправителя, подставляем встроенный дефолт провайдера."""
     client = SmsAeroClient("me@example.com", "apikey123")
     with patch("app.sms.smsaero.requests.post", return_value=_fake_response({"success": True})) as mock_post:
         client.send("9991234567", "hello")
-    assert "sign" not in mock_post.call_args.kwargs["json"]
+    assert mock_post.call_args.kwargs["json"]["sign"] == "SMS Aero"
 
 
 def test_send_raises_on_provider_failure():
     client = SmsAeroClient("me@example.com", "apikey123")
     with patch("app.sms.smsaero.requests.post", return_value=_fake_response({"success": False, "message": "no money"})):
         with pytest.raises(SmsError, match="no money"):
+            client.send("9991234567", "hello")
+
+
+def test_send_raises_with_field_validation_details():
+    """Ответ 400 Validation error несёт детали по каждому невалидному
+    полю в payload["data"] — без них текст ошибки был просто "Validation
+    error." без единой зацепки, что именно не так (реальный случай — так
+    и нашли требование поля "sign")."""
+    client = SmsAeroClient("me@example.com", "apikey123")
+    payload = {"success": False, "message": "Validation error.", "data": {"sign": ["required"]}}
+    with patch("app.sms.smsaero.requests.post", return_value=_fake_response(payload, status_code=400)):
+        with pytest.raises(SmsError, match=r"Validation error\..*sign.*required"):
             client.send("9991234567", "hello")
 
 

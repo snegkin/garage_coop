@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Журнал отправленных СМС") }}{% endblock %}
+{% block content %}
+<h3 class="mb-3">{{ _("Журнал отправленных СМС") }}</h3>
+<p class="text-muted small">{{ _("Каждая попытка отправки — регистрация по телефону, восстановление пароля, тестовое сообщение. Показаны последние 500 записей.") }}</p>
+
+<div class="mb-3">
+  <input class="form-control" data-table-filter-for="smsLogTable" placeholder="{{ _('Поиск по номеру, тексту или ошибке...') }}">
+</div>
+
+<table class="table table-bordered bg-body table-sm sortable" id="smsLogTable" data-page-size="50">
+  <thead>
+    <tr>
+      <th>{{ _("Когда") }}</th>
+      <th>{{ _("Телефон") }}</th>
+      <th>{{ _("Текст") }}</th>
+      <th>{{ _("Статус") }}</th>
+      <th>{{ _("Ошибка") }}</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for entry in entries %}
+    <tr data-filter-text="{{ (entry.phone ~ ' ' ~ entry.text ~ ' ' ~ (entry.error or ''))|lower }}">
+      <td class="text-nowrap" data-sort-value="{{ entry.sent_at.isoformat() }}"><span data-utc-datetime="{{ entry.sent_at.isoformat() }}Z">{{ fmt_date(entry.sent_at) }} {{ entry.sent_at.strftime("%H:%M") }}</span></td>
+      <td class="text-nowrap">{{ entry.phone }}</td>
+      <td>{{ entry.text }}</td>
+      <td>
+        {% if entry.status.value == "sent" %}
+        <span class="badge bg-success">{{ _("Отправлено") }}</span>
+        {% else %}
+        <span class="badge bg-danger">{{ _("Ошибка") }}</span>
+        {% endif %}
+      </td>
+      <td class="text-danger small">{{ entry.error or "" }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="5" class="text-muted">{{ _("Записей пока нет.") }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+<p class="text-muted d-none" data-no-results-for="smsLogTable">{{ _("Ничего не найдено.") }}</p>
+
+<nav class="d-none" data-pager-for="smsLogTable">
+  <ul class="pagination pagination-sm mb-0"></ul>
+</nav>
+{% endblock %}

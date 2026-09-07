@@ -18,7 +18,7 @@ from . import database
 from . import audit
 from .i18n import translate as _
 from .auth import roles_required
-from .models import RoleEnum, SmsSettings, SmsProvider
+from .models import RoleEnum, SmsSettings, SmsProvider, SmsLog
 from .bank_api import crypto
 from .sms import get_sms_client, SmsError
 
@@ -102,3 +102,24 @@ def send_test():
     settings.last_test_at = dt.datetime.utcnow()
     database.db_session.commit()
     return redirect(url_for("sms_settings.view"))
+
+
+@bp.route("/log")
+@roles_required(RoleEnum.CHAIRMAN)
+def log():
+    """
+    Журнал КАЖДОЙ попытки отправки СМС (см. models.SmsLog, app/sms/
+    __init__.py: _LoggingSmsClient) — единственный способ понять причину
+    «СМС не приходят» (провайдер отклонил, кончился баланс на счету,
+    неверный номер и т.п.), поскольку сам SMS Aero не даёт отдельного
+    доступа к своей истории отправок отсюда. Пишется независимо от
+    исхода вызывающего кода (см. docstring SmsLog), поэтому даже
+    неудачные попытки регистрации/восстановления пароля здесь видны.
+    """
+    entries = (
+        database.db_session.query(SmsLog)
+        .order_by(SmsLog.sent_at.desc(), SmsLog.id.desc())
+        .limit(500)
+        .all()
+    )
+    return render_template("sms_settings/log.html", entries=entries)

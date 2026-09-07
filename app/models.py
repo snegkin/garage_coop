@@ -2256,6 +2256,35 @@ class VerificationCode(Base):
     payload: Mapped[str | None] = mapped_column(Text)
 
 
+class SmsLogStatus(str, enum.Enum):
+    SENT = "sent"      # провайдер принял отправку (success=true в ответе API)
+    FAILED = "failed"  # сетевая ошибка или провайдер отклонил (см. SmsLog.error)
+
+
+class SmsLog(Base):
+    """Журнал КАЖДОЙ попытки отправки SMS через провайдера (см. app/sms/
+    __init__.py: _LoggingSmsClient — оборачивает любой SmsClient, не
+    только SMS Aero) — регистрация по телефону, восстановление пароля,
+    тестовая отправка со страницы настроек. Единственный способ
+    диагностировать «SMS не приходят» (провайдер отклонил, кончился
+    баланс, неверный номер и т.п.), поскольку сам провайдер не даёт
+    отдельного личного кабинета для чтения отсюда.
+
+    Пишется НЕЗАВИСИМО от исхода транзакции вызывающего кода — если бы
+    запись лежала в общей сессии запроса, откат при ошибке отправки (см.
+    auth.py: register_phone_confirm/forgot_password) стирал бы её вместе
+    с остальным, и в логе не осталось бы как раз самых интересных случаев
+    (неудачных отправок)."""
+    __tablename__ = "sms_log"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    sent_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.utcnow, index=True)
+    phone: Mapped[str] = mapped_column(String(20))  # нормализованные цифры, без кода страны (см. auth._normalize_phone_digits)
+    text: Mapped[str] = mapped_column(Text)
+    status: Mapped[SmsLogStatus] = mapped_column(Enum(SmsLogStatus), index=True)
+    error: Mapped[str | None] = mapped_column(Text)  # текст ошибки провайдера/сети — только при status=failed
+
+
 # ---------------------------------------------------------------------------
 # Чат правления — плавающий виджет на всех страницах (см. app/board_chat.py)
 # ---------------------------------------------------------------------------

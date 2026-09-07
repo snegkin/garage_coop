@@ -124,6 +124,12 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Сначала укажите email и API-ключ SMS Aero.": "First enter the SMS Aero email and API key.",
         "Укажите корректный номер телефона для теста.": "Enter a valid phone number for the test.",
         "необязательно": "optional",
+        "Журнал отправленных СМС": "SMS send log",
+        "Каждая попытка отправки — регистрация по телефону, восстановление пароля, тестовое сообщение. Показаны последние 500 записей.":
+            "Every send attempt — phone registration, password recovery, test message. The last 500 records are shown.",
+        "Поиск по номеру, тексту или ошибке...": "Search by number, text or error...",
+        "Отправлено": "Sent",
+        "Ошибка": "Error",
 
         # news
         "Новости кооператива": "Cooperative news",

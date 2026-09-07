@@ -463,6 +463,115 @@ def test_lawsuit_requires_at_least_one_person(db, client):
     assert resp.status_code == 302
 
 
+def test_lawsuit_draft_defaults_to_claim_proceeding(db, client):
+    _make_coop(db)
+    _board_login(db, client)
+    person = make_person(db, full_name="Исковов Иван Петрович")
+    db.commit()
+
+    resp = client.post("/legal-docs/lawsuit/draft", data={"person_id": [str(person.id)]})
+    body = resp.get_data(as_text=True)
+    assert "Исковое заявление" in body
+    assert "Ответчик" in body
+    assert "Взыскать с Исковова Ивана Петровича" in body
+    assert "ст. 131-132" in body
+    assert "судебного приказа" not in body
+
+
+def test_lawsuit_draft_writ_proceeding_changes_title_party_and_wording(db, client):
+    """Приказное — не просто другая цифра госпошлины: меняется заголовок,
+    наименование стороны (должник, не ответчик), ссылка на ГПК РФ и
+    формулировка просительной части."""
+    _make_coop(db)
+    _board_login(db, client)
+    person = make_person(db, full_name="Приказов Пётр Петрович")
+    garage = make_garage(db, number="45")
+    make_ownership(db, garage, person)
+    _make_debt(db, person, garage, amount="12000.00")
+    db.commit()
+
+    resp = client.post("/legal-docs/lawsuit/draft", data={
+        "person_id": [str(person.id)], "proceeding_type": "writ",
+    })
+    body = resp.get_data(as_text=True)
+    assert "Заявление о вынесении судебного приказа" in body
+    assert "Должник" in body
+    assert "ст. 122" in body
+    assert "Вынести судебный приказ о взыскании с Приказова Петра Петровича" in body
+
+
+def test_lawsuit_writ_state_duty_is_half_of_claim(db, client):
+    _make_coop(db)
+    _board_login(db, client)
+    person = make_person(db, full_name="Половинов Полу Полуевич")
+    garage = make_garage(db, number="46")
+    make_ownership(db, garage, person)
+    _make_debt(db, person, garage, amount="50000.00")
+    db.commit()
+
+    resp_claim = client.post("/legal-docs/lawsuit/draft", data={"person_id": [str(person.id)]})
+    resp_writ = client.post("/legal-docs/lawsuit/draft", data={
+        "person_id": [str(person.id)], "proceeding_type": "writ",
+    })
+    # долг 50000 <= 100000 => полная госпошлина 4000, приказная — 2000
+    assert "4000,00" in resp_claim.get_data(as_text=True)
+    assert "2000,00" in resp_writ.get_data(as_text=True)
+
+
+def test_lawsuit_penalty_wording_cites_law_not_charter(db, client):
+    """Пеня начисляется по закону (по аналогии со ст. 155 ЖК РФ), а не по
+    формуле устава — устав может предусматривать взимание пени, но его
+    порядок расчёта не соответствует закону, поэтому в тексте иска должна
+    быть именно эта, а не уставная формулировка (иначе разойдётся с
+    приложенным расчётом, который всегда считает по закону — см.
+    app/penalty.py)."""
+    _make_coop(db)
+    _board_login(db, client)
+    person = make_person(db, full_name="Пенистов Пеня Петрович")
+    db.commit()
+
+    resp = client.post("/legal-docs/lawsuit/draft", data={"person_id": [str(person.id)]})
+    body = resp.get_data(as_text=True)
+    assert "155 Жилищного кодекса" in body
+    assert "не соответствует действующему законодательству" in body
+    assert "Размер и порядок начисления пени установлены уставом кооператива" not in body
+
+
+def test_lawsuit_print_carries_proceeding_type_through_to_pdf_resubmit(db, client):
+    _make_coop(db)
+    _board_login(db, client)
+    person = make_person(db, full_name="Приказнов Иван Иванович")
+    db.commit()
+
+    resp = client.post("/legal-docs/lawsuit/print", data={
+        "person_id": [str(person.id)], "proceeding_type": "writ",
+        f"text_{person.id}": "текст",
+    })
+    body = resp.get_data(as_text=True)
+    assert "Заявление о вынесении судебного приказа" in body
+    assert 'name="proceeding_type" value="writ"' in body
+
+
+def test_state_duty_receipt_uses_dative_case_for_defendant_name(db, client):
+    """«Государственная пошлина за подачу искового заявления к Иванову
+    Ивану Ивановичу», а не буквально «к Иванов Иван Иванович» — см.
+    app/name_declension.py."""
+    _make_coop(db)
+    _board_login(db, client)
+    person = make_person(db, full_name="Иванов Иван Иванович")
+    garage = make_garage(db, number="48")
+    make_ownership(db, garage, person)
+    _make_debt(db, person, garage, amount="1000.00")
+    db.commit()
+
+    resp = client.post("/legal-docs/state-duty/print", data={
+        "person_id": [str(person.id)],
+        f"duty_amount_{person.id}": "4000.00",
+    })
+    body = resp.get_data(as_text=True)
+    assert "к Иванову Ивану Ивановичу" in body
+
+
 def test_lawsuit_print_has_two_column_header_and_centered_title(db, client):
     """Реквизиты кооператива — слева, данные суда и ответчика — справа;
     заголовок «Исковое заявление» — отдельным центрированным жирным

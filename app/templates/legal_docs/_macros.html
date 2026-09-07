@@ -105,7 +105,7 @@
       <tr><td>{{ _("ОКТМО") }}</td><td>{{ item.section.treasury_oktmo if item.section else "—" }}</td></tr>
       <tr><td>{{ _("КБК") }}</td><td>{{ item.section.treasury_kbk if item.section else "—" }}</td></tr>
       <tr><td>{{ _("Плательщик") }}</td><td>{{ (coop.short_name or coop.full_name) if coop else "" }}, {{ _("ИНН") }} {{ coop.inn if coop else "" }}</td></tr>
-      <tr><td>{{ _("Назначение платежа") }}</td><td>{{ _("Государственная пошлина за подачу искового заявления к {name}", name=item.person.full_name) }}</td></tr>
+      <tr><td>{{ _("Назначение платежа") }}</td><td>{{ _("Государственная пошлина за подачу искового заявления к {name}", name=fio_dative(item.person.full_name)) }}</td></tr>
       <tr><td><strong>{{ _("Сумма") }}</strong></td><td><strong>{{ fmt2(item.duty_amount) }} ₽</strong></td></tr>
     </tbody>
   </table>
@@ -159,13 +159,13 @@
     <div class="legal-header-right">
       <p>{{ _("В {court}", court=header.court_name) }}</p>
       <p>{{ header.court_address }}</p>
-      <p>{{ _("Ответчик") }}: <strong>{{ header.defendant_name }}</strong></p>
+      <p>{{ header.party_label }}: <strong>{{ header.defendant_name }}</strong></p>
       <p>{{ _("Адрес") }}: {{ header.defendant_address }}</p>
     </div>
   </div>
 
-  <p class="print-title">{{ _("Исковое заявление") }}</p>
-  <p class="print-subtitle">{{ _("о взыскании задолженности по членским (целевым) взносам, пени и судебных расходов") }}</p>
+  <p class="print-title">{{ header.doc_title }}</p>
+  <p class="print-subtitle">{{ header.doc_subtitle }}</p>
 
   <div class="legal-text">{{ body_html }}</div>
 

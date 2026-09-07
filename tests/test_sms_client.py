@@ -28,16 +28,21 @@ def test_send_success():
     args, kwargs = mock_post.call_args
     assert args[0] == "https://gate.smsaero.ru/v2/sms/send"
     assert kwargs["auth"] == ("me@example.com", "apikey123")
-    assert kwargs["data"]["number"] == "79991234567"  # достроен код страны "7"
-    assert kwargs["data"]["text"] == "hello"
-    assert kwargs["data"]["sign"] == "COOP"
+    # Тело запроса — JSON (json=...), НЕ application/x-www-form-urlencoded
+    # (data=...) — API v2 отвечает {"success": false, "message":
+    # "Validation error."} на form-encoded тело (проверено на реальном
+    # аккаунте), см. docstring smsaero.py.
+    assert "data" not in kwargs
+    assert kwargs["json"]["number"] == "79991234567"  # достроен код страны "7"
+    assert kwargs["json"]["text"] == "hello"
+    assert kwargs["json"]["sign"] == "COOP"
 
 
 def test_send_without_sign_omits_it():
     client = SmsAeroClient("me@example.com", "apikey123")
     with patch("app.sms.smsaero.requests.post", return_value=_fake_response({"success": True})) as mock_post:
         client.send("9991234567", "hello")
-    assert "sign" not in mock_post.call_args.kwargs["data"]
+    assert "sign" not in mock_post.call_args.kwargs["json"]
 
 
 def test_send_raises_on_provider_failure():

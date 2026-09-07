@@ -3,7 +3,13 @@
 HTTP Basic (email аккаунта + API-ключ, а не пароль от личного кабинета —
 ключ выдаётся в настройках аккаунта SMS Aero). Формат запроса/ответа
 подтверждён по официальным клиентским библиотекам SMS Aero (сама
-документация — SPA без серверного рендера, не читается простым HTTP GET).
+документация — SPA без серверного рендера, не читается простым HTTP GET):
+github.com/smsaero/smsaero_python (requests.post(url, json=data, ...)) и
+github.com/smsaero/smsaero_c (Content-Type: application/json) — ТЕЛО
+ЗАПРОСА ДОЛЖНО БЫТЬ JSON, не application/x-www-form-urlencoded (см. send()
+ниже — раньше здесь было requests.post(..., data=data, ...), из-за чего
+API v2 отвечал {"success": false, "message": "Validation error."} на
+любую отправку, не имея возможности разобрать form-encoded тело).
 """
 from __future__ import annotations
 
@@ -33,7 +39,7 @@ class SmsAeroClient(SmsClient):
 
         try:
             resp = requests.post(
-                API_URL, data=data, auth=(self.email, self.api_key), timeout=REQUEST_TIMEOUT,
+                API_URL, json=data, auth=(self.email, self.api_key), timeout=REQUEST_TIMEOUT,
             )
         except requests.RequestException as exc:
             raise SmsError(f"не удалось связаться с SMS Aero: {exc}") from exc

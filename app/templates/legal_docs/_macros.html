@@ -26,14 +26,13 @@
   </div>
 
   <p class="print-title">{{ _("Уведомление о задолженности") }}</p>
-  <p class="print-meta">{{ fmt_date(today) }}</p>
 
   <p class="legal-p">
     {{ _("Уважаемый(ая)") }} {{ person.full_name }}{% if person.residence_address or person.registration_address %},<br>
     {{ person.residence_address or person.registration_address }}{% else %}!{% endif %}
   </p>
   <p class="legal-p">
-    {{ _("Настоящим уведомляем Вас о наличии задолженности перед {coop} по членским и/или целевым взносам и иным платежам, предусмотренным уставом кооператива. Ниже приведён полный расчёт по всем Вашим лицевым счетам по состоянию на {date}.", coop=(coop.short_name or coop.full_name) if coop else "", date=fmt_date(today)) }}
+    {{ _("Настоящим уведомляем Вас о наличии задолженности перед {coop} по взносам, предусмотренным уставом кооператива. Ниже приведён полный расчёт по всем Вашим лицевым счетам по состоянию на {date}.", coop=(coop.short_name or coop.full_name) if coop else "", date=fmt_date(today)) }}
   </p>
 
   {% if years %}

@@ -1766,8 +1766,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Выберите должников — на каждого будет сформировано уведомление с полной распечаткой всех счетов, начислений и оплат.":
             "Select debtors — each will get a notice with a full printout of all their accounts, charges and payments.",
         "Уважаемый(ая)": "Dear",
-        "Настоящим уведомляем Вас о наличии задолженности перед {coop} по членским и/или целевым взносам и иным платежам, предусмотренным уставом кооператива. Ниже приведён полный расчёт по всем Вашим лицевым счетам по состоянию на {date}.":
-            "This is to notify you of an outstanding debt to {coop} for membership and/or special-purpose dues and other payments required by the cooperative's charter. A full breakdown of all your accounts as of {date} is provided below.",
+        "Настоящим уведомляем Вас о наличии задолженности перед {coop} по взносам, предусмотренным уставом кооператива. Ниже приведён полный расчёт по всем Вашим лицевым счетам по состоянию на {date}.":
+            "This is to notify you of an outstanding debt to {coop} for dues and other payments required by the cooperative's charter. A full breakdown of all your accounts as of {date} is provided below.",
         "Просим погасить указанную задолженность в кратчайшие сроки. В случае неисполнения кооператив будет вынужден обратиться за взысканием задолженности, пени и понесённых судебных расходов в судебном порядке.":
             "Please settle this debt as soon as possible. Otherwise, the cooperative will be forced to seek recovery of the debt, penalty and court costs through the courts.",
         "Выберите должников — для каждого будет предложена (справочно, с возможностью правки) сумма госпошлины и реквизиты нужного судебного участка.":

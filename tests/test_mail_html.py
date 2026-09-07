@@ -22,10 +22,10 @@ def _detail(body_html=None, body_text=None, inline_images=None):
     )
 
 
-def test_script_tag_is_stripped():
+def test_script_tag_and_its_content_are_stripped():
     html, _ = render_email_body(_detail(body_html="<p>hi</p><script>alert(1)</script>"), allow_remote_images=False)
     assert "<script" not in html
-    assert "alert(1)" not in html or "<script" not in html  # текст может остаться, тег — нет
+    assert "alert(1)" not in html
 
 
 def test_event_handler_attribute_is_stripped():
@@ -79,6 +79,22 @@ def test_disallowed_tags_stripped_but_content_kept():
     html, _ = render_email_body(_detail(body_html="<style>body{color:red}</style><p>視覚的</p>"), allow_remote_images=False)
     assert "<style" not in html
     assert "視覚的" in html
+
+
+def test_style_tag_content_does_not_leak_as_visible_text():
+    """Регресс: bleach.clean(strip=True) сам по себе вырезает тег <style>,
+    но не его текстовое содержимое — html5lib парсит содержимое style/
+    script как raw text уже на этапе токенизации, независимо от whitelist
+    тегов, поэтому bleach лишь разворачивает тег, оставляя CSS видимым
+    текстом письма. Реальный случай — письмо от SMS Aero показывало
+    исходный CSS открытым текстом в начале письма."""
+    css = "#outlook a { padding: 0; } .es-button { mso-style-priority: 100 !important; }"
+    html, _ = render_email_body(
+        _detail(body_html=f"<style>{css}</style><p>Текст письма</p>"), allow_remote_images=False,
+    )
+    assert "mso-style-priority" not in html
+    assert "es-button" not in html
+    assert "Текст письма" in html
 
 
 def test_table_structure_is_allowed():

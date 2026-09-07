@@ -39,7 +39,28 @@
     </div>
     {% endif %}
 
-    <iframe sandbox="" srcdoc="{{ body_srcdoc }}" style="width:100%;min-height:400px;resize:vertical;border:1px solid var(--bs-border-color);background:#fff"></iframe>
+    <iframe id="mailBody" sandbox="allow-same-origin" srcdoc="{{ body_srcdoc }}" style="width:100%;min-height:200px;height:200px;resize:vertical;border:1px solid var(--bs-border-color);background:#fff"></iframe>
   </div>
 </div>
+<script>
+// iframe не тянется по высоте под своё содержимое сам по себе (это окно в
+// другой документ, а не обычный блочный элемент) — без явного измерения
+// оставался фиксированный min-height, из-за чего письмо читалось внутри
+// маленького окошка с собственной прокруткой вместо обычной страницы.
+// allow-same-origin (без allow-scripts — встроенный HTML по-прежнему не
+// исполняется) даёт родительской странице доступ к contentDocument именно
+// для этого замера; resize:vertical остаётся как ручной запасной вариант,
+// если высота посчиталась не совсем точно.
+(function () {
+  var frame = document.getElementById("mailBody");
+  if (!frame) return;
+  frame.addEventListener("load", function () {
+    try {
+      var doc = frame.contentDocument;
+      var height = Math.max(doc.documentElement.scrollHeight, doc.body ? doc.body.scrollHeight : 0);
+      if (height > 0) frame.style.height = (height + 20) + "px";
+    } catch (e) {}
+  });
+})();
+</script>
 {% endblock %}

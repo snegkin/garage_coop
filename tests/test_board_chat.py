@@ -89,14 +89,17 @@ def test_send_empty_message_is_rejected(db, client):
     assert db.query(BoardChatMessage).count() == 0
 
 
-def test_author_name_prefers_full_name_over_username(db, client):
+def test_author_name_is_always_username_not_full_name(db, client):
+    """В чате правления участников немного и полное ФИО только удлиняет
+    строку — показываем логин, даже если у автора есть привязанная
+    карточка с полным именем."""
     _board_user(db)
     login(client, "board1", "pass1234")
     resp = client.post("/board-chat/messages", data={"body": "привет"})
-    assert resp.get_json()["message"]["author_name"] == "Board One"
+    assert resp.get_json()["message"]["author_name"] == "board1"
 
 
-def test_author_name_falls_back_to_username_without_person(db, client):
+def test_author_name_without_person(db, client):
     make_user(db, "noPerson1", "pass1234", role=RoleEnum.BOARD)
     db.commit()
     login(client, "noPerson1", "pass1234")
@@ -240,3 +243,74 @@ def test_widget_absent_for_anonymous(client):
     resp = client.get("/auth/login")
     body = resp.get_data(as_text=True)
     assert 'id="boardChatWidget"' not in body
+
+
+# ---------------------------------------------------------------------------
+# Присутствие: heartbeat + список участников (онлайн/офлайн, открыт ли чат)
+# ---------------------------------------------------------------------------
+
+def test_heartbeat_marks_user_online_and_records_panel_state(db, client):
+    _board_user(db, "board1")
+    login(client, "board1", "pass1234")
+
+    resp = client.post("/board-chat/heartbeat", data={"open": "1"})
+    assert resp.status_code == 200
+
+    user = db.query(User).filter_by(username="board1").one()
+    assert user.board_chat_last_seen_at is not None
+    assert user.board_chat_open is True
+
+    client.post("/board-chat/heartbeat", data={"open": "0"})
+    db.refresh(user)
+    assert user.board_chat_open is False
+
+
+def test_participants_lists_board_users_with_online_status(db, client):
+    _board_user(db, "board1")
+    _board_user(db, "board2")
+    login(client, "board1", "pass1234")
+    client.post("/board-chat/heartbeat", data={"open": "1"})
+
+    resp = client.get("/board-chat/participants")
+    data = {p["username"]: p for p in resp.get_json()["participants"]}
+
+    assert data["board1"]["online"] is True
+    assert data["board1"]["is_mine"] is True
+    assert data["board1"]["chat_open"] is True
+    assert data["board2"]["online"] is False
+    assert data["board2"]["is_mine"] is False
+    assert data["board2"]["chat_open"] is False
+
+
+def test_participants_excludes_plain_members_and_inactive_accounts(db, client):
+    _board_user(db, "board1")
+    member_person = make_person(db, full_name="Просто Член")
+    make_user(db, "member1", "pass1234", role=RoleEnum.MEMBER, person=member_person)
+    inactive_person = make_person(db, full_name="Отключённый Правленец")
+    inactive_user = make_user(db, "inactive1", "pass1234", role=RoleEnum.BOARD, person=inactive_person)
+    inactive_user.is_active = False
+    db.commit()
+    login(client, "board1", "pass1234")
+
+    resp = client.get("/board-chat/participants")
+    usernames = {p["username"] for p in resp.get_json()["participants"]}
+    assert usernames == {"board1"}
+
+
+def test_stale_last_seen_is_offline_even_if_open_flag_stuck_true(db, client):
+    """Человек закрыл вкладку не нажав "закрыть" — board_chat_open остаётся
+    True навсегда, но как только last_seen_at устарел, статус должен
+    показывать офлайн и не показывать чат открытым (см. docstring
+    board_chat_open в models.py)."""
+    _board_user(db, "board1")
+    person = make_person(db, full_name="Устаревший Правленец")
+    user = make_user(db, "stale2", "pass1234", role=RoleEnum.BOARD, person=person)
+    user.board_chat_last_seen_at = dt.datetime.utcnow() - dt.timedelta(minutes=10)
+    user.board_chat_open = True
+    db.commit()
+    login(client, "board1", "pass1234")
+
+    resp = client.get("/board-chat/participants")
+    data = {p["username"]: p for p in resp.get_json()["participants"]}
+    assert data["stale2"]["online"] is False
+    assert data["stale2"]["chat_open"] is False

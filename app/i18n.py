@@ -115,6 +115,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Чат правления": "Board chat",
         "Чат ревизионной комиссии": "Revision commission chat",
         "Написать сообщение…": "Write a message…",
+        "вы": "you",
+        "чат открыт": "chat open",
         "Тестовая отправка": "Test send",
         "Отправить": "Send",
         "Последний результат": "Last result",

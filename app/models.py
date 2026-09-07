@@ -1098,6 +1098,21 @@ class User(Base):
     # То же самое, но для чата ревизионной комиссии (app/revision_chat.py).
     revision_chat_read_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
 
+    # Присутствие в чате правления — для списка участников с онлайн/офлайн
+    # статусом (app/board_chat.py: participants). last_seen_at обновляется
+    # heartbeat'ом виджета (см. base.html: initChatWidget) пока у человека
+    # открыта хоть одна страница сайта с виджетом, не только пока сам чат
+    # открыт — "онлайн" считается по свежести этой отметки (см.
+    # board_chat.ONLINE_THRESHOLD), отдельного поля is_online не нужно.
+    # board_chat_open — открыта ли у ЭТОГО человека прямо сейчас панель
+    # чата (не свёрнута ли в пузырь) — обновляется тем же heartbeat'ом при
+    # открытии/закрытии панели. Устаревает вместе с last_seen_at: если
+    # человек ушёл с сайта не закрыв панель явно (закрыл вкладку), запись
+    # просто перестаёт быть "онлайн" и там, и там — сам board_chat_open
+    # при этом не сбрасывается, но не показывается как актуальный статус.
+    board_chat_last_seen_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
+    board_chat_open: Mapped[bool] = mapped_column(Boolean, default=False)
+
     person: Mapped["Person | None"] = relationship(foreign_keys=[person_id])
 
 

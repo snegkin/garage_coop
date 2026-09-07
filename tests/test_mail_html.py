@@ -81,6 +81,41 @@ def test_disallowed_tags_stripped_but_content_kept():
     assert "視覚的" in html
 
 
+def test_title_tag_content_does_not_leak_as_visible_text():
+    """Тот же баг, что и со <style> (см. соседний тест), но для <title> —
+    html5lib парсит его содержимое как RCDATA уже на этапе токенизации;
+    letter в реальном письме от SMS Aero показывал заголовок страницы
+    («SMS Aero») открытым текстом перед самим содержимым письма."""
+    html, _ = render_email_body(
+        _detail(body_html="<head><title>SMS Aero</title></head><p>Текст письма</p>"), allow_remote_images=False,
+    )
+    assert "<title" not in html
+    assert "SMS Aero" not in html
+    assert "Текст письма" in html
+
+
+def test_inline_style_layout_is_preserved_but_dangerous_properties_stripped():
+    """Реальные HTML-письма свёрстаны на инлайновых style — без него
+    рушится вся вёрстка (центрирование в т.ч.). Разрешаем style, но через
+    CSSSanitizer с урезанным списком свойств: держим типографские/
+    табличные (text-align, padding, border-*), но не cursor (cursor:
+    url(...) — рабочий вектор трекинг-пикселя в обход блокировки внешних
+    <img>) и не background (background: url(...) — тот же вектор)."""
+    html_in = (
+        '<table><tr><td align="center" '
+        'style="text-align:center; padding:10px; border-bottom-width:3px; border-bottom-style:solid; '
+        'cursor:url(https://tracker.example/pixel.png); background:url(https://tracker.example/pixel2.png);">'
+        "hi</td></tr></table>"
+    )
+    html, _ = render_email_body(_detail(body_html=html_in), allow_remote_images=True)
+    assert 'align="center"' in html
+    assert "text-align:center" in html
+    assert "padding:10px" in html
+    assert "border-bottom-width:3px" in html
+    assert "cursor" not in html
+    assert "tracker.example" not in html
+
+
 def test_style_tag_content_does_not_leak_as_visible_text():
     """Регресс: bleach.clean(strip=True) сам по себе вырезает тег <style>,
     но не его текстовое содержимое — html5lib парсит содержимое style/

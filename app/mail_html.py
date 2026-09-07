@@ -4,10 +4,10 @@
 Тело письма — НЕДОВЕРЕННЫЙ внешний HTML (в отличие от app/news_format.py,
 который чистит HTML, полученный из markdown, написанного доверенным членом
 правления) — поэтому здесь отдельный, специально подобранный под почту
-whitelist, и рендер идёт в песочнице (<iframe sandbox="" srcdoc="...">,
-см. mailbox/message.html) как второй эшелон защиты ПОВЕРХ bleach: даже
-если санитайзер что-то пропустит, sandbox не даст этому выполниться или
-вырваться за пределы iframe.
+whitelist, и рендер идёт в песочнице (<iframe sandbox="allow-same-origin"
+srcdoc="...">, см. mailbox/message.html) как второй эшелон защиты ПОВЕРХ
+bleach: даже если санитайзер что-то пропустит, sandbox не даст этому
+выполниться (allow-scripts не выдан) или вырваться за пределы iframe.
 
 Внешние картинки (http/https) по умолчанию вырезаются — типичный вектор
 трекинг-пикселей (сам факт загрузки картинки подтверждает отправителю, что
@@ -15,11 +15,29 @@ whitelist, и рендер идёт в песочнице (<iframe sandbox="" sr
 запросу (allow_remote_images=True, см. mailbox.view_message: ?allow_images=1).
 Встроенные (cid:) картинки самого письма показываются всегда — это не
 новый сетевой запрос, они уже полностью получены вместе с письмом.
+
+Инлайновый style="..." — реальные HTML-письма (в т.ч. рассылки от
+SMS Aero) практически всегда свёрстаны вложенными <table> на инлайновых
+стилях, без внешнего/<style>-CSS вообще; без style рушится вся вёрстка,
+включая банальное центрирование — заметили именно на реальном письме.
+Разрешаем его на любом теге, но не бланково: bleach.css_sanitizer.CSSSanitizer
+фильтрует style по списку конкретных БЕЗОПАСНЫХ CSS-свойств (см.
+_SAFE_CSS_PROPERTIES) — со своей поправкой поверх дефолтного списка bleach:
+он держит "cursor", а `cursor: url(...)` — рабочий вектор трекинг-пикселя
+в обход блокировки внешних <img> (проверено вручную), поэтому cursor из
+списка исключён; добавлены padding/margin/border(-width/-style) — часто
+встречаются в реальной вёрстке писем и не дают url()-значений в принципе.
+Сам тег <style> (стили классов, а не атрибут) по-прежнему вырезается
+целиком (см. _strip_head_and_rawtext_blocks) — bleach умеет чистить только
+style-АТРИБУТ, а не содержимое style-ТЕГА (проверено вручную), так что
+оставлять тег значило бы пропускать любой CSS, включая трекинг-пиксели
+через background/cursor с url(), без всякой фильтрации.
 """
 import html as html_module
 import re
 
 import bleach
+from bleach.css_sanitizer import CSSSanitizer, ALLOWED_CSS_PROPERTIES
 
 from .mail_client import MessageDetail
 
@@ -30,26 +48,48 @@ ALLOWED_MAIL_TAGS = [
     "table", "thead", "tbody", "tr", "td", "th", "img",
 ]
 ALLOWED_MAIL_ATTRS = {
+    # style — на любом теге (см. docstring модуля), align/valign — для
+    # табличной вёрстки старым, но безопасным (не CSS) способом.
+    "*": ["style", "align", "valign"],
     "a": ["href", "title"],
-    "img": ["src", "alt", "width", "height"],  # намеренно без style/class — не даём вектор CSS-инъекции/фингерпринтинга через атрибуты
-    "td": ["colspan", "rowspan"],
-    "th": ["colspan", "rowspan"],
+    "img": ["src", "alt", "width", "height"],
+    "table": ["width", "height", "border", "cellpadding", "cellspacing", "bgcolor", "role"],
+    "td": ["colspan", "rowspan", "width", "height", "bgcolor"],
+    "th": ["colspan", "rowspan", "width", "height", "bgcolor"],
 }
+
+_SAFE_CSS_PROPERTIES = sorted((ALLOWED_CSS_PROPERTIES - {"cursor"}) | {
+    "padding", "padding-top", "padding-right", "padding-bottom", "padding-left",
+    "margin", "margin-top", "margin-right", "margin-bottom", "margin-left",
+    "border", "border-width", "border-style",
+    "border-top", "border-top-width", "border-top-style",
+    "border-right", "border-right-width", "border-right-style",
+    "border-bottom", "border-bottom-width", "border-bottom-style",
+    "border-left", "border-left-width", "border-left-style",
+})
+_CSS_SANITIZER = CSSSanitizer(allowed_css_properties=_SAFE_CSS_PROPERTIES)
 
 _CID_RE = re.compile(r'src=(["\'])cid:([^"\']+)\1')
 _REMOTE_IMG_RE = re.compile(r'<img\b[^>]*\bsrc=["\']https?://', re.IGNORECASE)
 # html5lib (парсер, на котором работает bleach) токенизирует содержимое
-# <style>/<script> как raw text уже на этапе парсинга — это фиксированное
-# правило HTML5, не зависящее от whitelist тегов. Поэтому bleach.clean(...,
-# strip=True), не найдя эти теги в ALLOWED_MAIL_TAGS, вырезает сам тег, но
-# ОСТАВЛЯЕТ его текстовое содержимое как обычный видимый текст письма —
-# реальный случай: письмо от SMS Aero показывало исходный CSS открытым
-# текстом в начале письма. Вырезаем такие блоки целиком ДО bleach.
-_STYLE_OR_SCRIPT_RE = re.compile(r"<(style|script)\b[^>]*>.*?</\1\s*>", re.IGNORECASE | re.DOTALL)
+# <style>/<script>/<title> (и ряда более редких тегов вроде <textarea>) как
+# raw/RCDATA-text уже на этапе парсинга — фиксированное правило HTML5, не
+# зависящее от whitelist тегов. Поэтому bleach.clean(..., strip=True), не
+# найдя эти теги в ALLOWED_MAIL_TAGS, вырезает сам тег, но ОСТАВЛЯЕТ его
+# текстовое содержимое как обычный видимый текст письма — реальный случай:
+# письмо от SMS Aero показывало и исходный CSS из <style>, и заголовок
+# страницы из <title> открытым текстом в начале письма. <head> целиком не
+# предназначен для показа в теле письма в принципе (мета-теги, title,
+# стили, условные комментарии для Outlook) — вырезаем его одним куском;
+# <style>/<script>/<title> отдельно — на случай, если разметка письма
+# рваная и такой тег затесался вне <head> (в реальной почте случается).
+_HEAD_RE = re.compile(r"<head\b[^>]*>.*?</head\s*>", re.IGNORECASE | re.DOTALL)
+_RAWTEXT_TAG_RE = re.compile(r"<(style|script|title)\b[^>]*>.*?</\1\s*>", re.IGNORECASE | re.DOTALL)
 
 
-def _strip_style_and_script_blocks(html: str) -> str:
-    return _STYLE_OR_SCRIPT_RE.sub("", html)
+def _strip_head_and_rawtext_blocks(html: str) -> str:
+    html = _HEAD_RE.sub("", html)
+    return _RAWTEXT_TAG_RE.sub("", html)
 
 
 def _substitute_cid_images(html: str, inline_images: dict[str, tuple[object, bytes]]) -> str:
@@ -89,7 +129,7 @@ def render_email_body(detail: MessageDetail, allow_remote_images: bool) -> tuple
         raw_html = detail.body_html
         had_blocked = bool(_REMOTE_IMG_RE.search(raw_html)) if not allow_remote_images else False
         raw_html = _substitute_cid_images(raw_html, detail.inline_images)
-        raw_html = _strip_style_and_script_blocks(raw_html)
+        raw_html = _strip_head_and_rawtext_blocks(raw_html)
     else:
         raw_html = f"<pre>{html_module.escape(detail.body_text or '')}</pre>"
         had_blocked = False
@@ -97,6 +137,7 @@ def render_email_body(detail: MessageDetail, allow_remote_images: bool) -> tuple
     protocols = ["data", "mailto"] + (["http", "https"] if allow_remote_images else [])
     clean = bleach.clean(
         raw_html, tags=ALLOWED_MAIL_TAGS, attributes=ALLOWED_MAIL_ATTRS,
+        css_sanitizer=_CSS_SANITIZER,
         protocols=protocols, strip=True, strip_comments=True,
     )
     return _wrap_html_document(clean), had_blocked

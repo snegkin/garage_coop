@@ -106,20 +106,14 @@ def test_send_test_failure_records_error(db, client):
 
 
 # ---------------------------------------------------------------------------
-# Журнал отправленных СМС (/sms/log)
+# Журнал отправленных СМС — на той же странице /sms/, что и настройки
+# (см. sms_settings/page.html: журнал + модалка «Настройки»)
 # ---------------------------------------------------------------------------
 
-def test_sms_log_requires_chairman(db, client):
-    make_user(db, "board1", "pass12345", role=RoleEnum.BOARD)
-    db.commit()
-    login(client, "board1", "pass12345")
-
-    resp = client.get("/sms/log")
-    assert resp.status_code == 302
-    assert resp.headers["Location"] != "/sms/log"
-
-
-def test_sms_log_shows_sent_and_failed_entries(db, client):
+def test_sms_log_shown_on_settings_page_for_chairman(db, client):
+    """Раньше журнал был на отдельной странице /sms/log — объединили с
+    /sms/, чтобы не прыгать между страницами при разборе жалоб «SMS не
+    приходят»."""
     _chairman(db)
     db.add(SmsLog(sent_at=dt.datetime.utcnow(), phone="9991234567", text="Код: 123456", status=SmsLogStatus.SENT))
     db.add(SmsLog(
@@ -129,12 +123,25 @@ def test_sms_log_shows_sent_and_failed_entries(db, client):
     db.commit()
     login(client, "chair1", "pass12345")
 
-    resp = client.get("/sms/log")
+    resp = client.get("/sms/")
     assert resp.status_code == 200
     body = resp.get_data(as_text=True)
     assert "9991234567" in body
     assert "9997654321" in body
     assert "insufficient funds" in body
+
+
+def test_settings_modal_present_on_settings_page(db, client):
+    """Настройки провайдера и тестовая отправка — в модальном окне по
+    кнопке «Настройки», а не отдельной страницей/формой на весь экран."""
+    _chairman(db)
+    login(client, "chair1", "pass12345")
+
+    resp = client.get("/sms/")
+    body = resp.get_data(as_text=True)
+    assert 'id="smsSettingsModal"' in body
+    assert 'data-bs-target="#smsSettingsModal"' in body
+    assert 'name="smsaero_email"' in body
 
 
 def test_send_test_is_logged_via_real_client(db, client):

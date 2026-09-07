@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Настройки СМС") }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h3 class="mb-0">{{ _("Настройки СМС") }}</h3>
+  <button class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#smsSettingsModal">{{ _("Настройки") }}</button>
+</div>
+<p class="text-muted">{{ _("Используется для подтверждения номера телефона при самостоятельной регистрации и для восстановления пароля по телефону.") }}</p>
+
+{% if is_configured %}
+<div class="alert alert-success">{{ _("СМС настроены и готовы к отправке.") }}</div>
+{% else %}
+<div class="alert alert-warning">{{ _("СМС ещё не настроены — регистрация и восстановление пароля по телефону не будут работать, пока не заполните email и API-ключ SMS Aero.") }}</div>
+{% endif %}
+
+<h5 class="mb-3">{{ _("Журнал отправленных СМС") }}</h5>
+<p class="text-muted small">{{ _("Каждая попытка отправки — регистрация по телефону, восстановление пароля, тестовое сообщение. Показаны последние 500 записей.") }}</p>
+
+<div class="mb-3">
+  <input class="form-control" data-table-filter-for="smsLogTable" placeholder="{{ _('Поиск по номеру, тексту или ошибке...') }}">
+</div>
+
+<table class="table table-bordered bg-body table-sm sortable" id="smsLogTable" data-page-size="50">
+  <thead>
+    <tr>
+      <th>{{ _("Когда") }}</th>
+      <th>{{ _("Телефон") }}</th>
+      <th>{{ _("Текст") }}</th>
+      <th>{{ _("Статус") }}</th>
+      <th>{{ _("Ошибка") }}</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for entry in entries %}
+    <tr data-filter-text="{{ (entry.phone ~ ' ' ~ entry.text ~ ' ' ~ (entry.error or ''))|lower }}">
+      <td class="text-nowrap" data-sort-value="{{ entry.sent_at.isoformat() }}"><span data-utc-datetime="{{ entry.sent_at.isoformat() }}Z">{{ fmt_date(entry.sent_at) }} {{ entry.sent_at.strftime("%H:%M") }}</span></td>
+      <td class="text-nowrap">{{ entry.phone }}</td>
+      <td>{{ entry.text }}</td>
+      <td>
+        {% if entry.status.value == "sent" %}
+        <span class="badge bg-success">{{ _("Отправлено") }}</span>
+        {% else %}
+        <span class="badge bg-danger">{{ _("Ошибка") }}</span>
+        {% endif %}
+      </td>
+      <td class="text-danger small">{{ entry.error or "" }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="5" class="text-muted">{{ _("Записей пока нет.") }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+<p class="text-muted d-none" data-no-results-for="smsLogTable">{{ _("Ничего не найдено.") }}</p>
+
+<nav class="d-none" data-pager-for="smsLogTable">
+  <ul class="pagination pagination-sm mb-0"></ul>
+</nav>
+
+<div class="modal fade" id="smsSettingsModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">{{ _("Настройки СМС") }}</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <form method="post" action="{{ url_for('sms_settings.save_settings') }}" id="smsSettingsForm">
+          <div class="mb-3">
+            <label class="form-label">{{ _("Провайдер") }}</label>
+            <input class="form-control" value="SMS Aero" disabled>
+            <div class="form-text">{{ _("Пока поддерживается только SMS Aero.") }}</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">{{ _("Email аккаунта SMS Aero") }}</label>
+            <input class="form-control" type="text" name="smsaero_email" value="{{ settings.smsaero_email or '' }}">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">{{ _("API-ключ") }}</label>
+            <input class="form-control" type="password" name="smsaero_api_key" placeholder="{{ _('оставьте пустым, чтобы не менять') if settings.smsaero_api_key_encrypted else '' }}">
+            <div class="form-text">{{ _("Личный кабинет SMS Aero → Профиль → API-ключ (не пароль от личного кабинета).") }}</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">{{ _("Имя отправителя (sign)") }}</label>
+            <input class="form-control" type="text" name="sender_sign" value="{{ settings.sender_sign or '' }}" placeholder="{{ _('необязательно') }}">
+            <div class="form-text">{{ _("Если зарегистрировано у провайдера — иначе используется значение по умолчанию SMS Aero.") }}</div>
+          </div>
+        </form>
+
+        {% if settings.smsaero_email and settings.smsaero_api_key_encrypted %}
+        <hr>
+        <h6 class="mb-3">{{ _("Тестовая отправка") }}</h6>
+        <form method="post" action="{{ url_for('sms_settings.send_test') }}" class="row g-2 align-items-end">
+          <div class="col-8">
+            <label class="form-label">{{ _("Номер телефона") }}</label>
+            <input class="form-control" type="tel" name="test_phone" placeholder="+7 900 123-45-67" required>
+          </div>
+          <div class="col-4">
+            <button class="btn btn-outline-primary w-100">{{ _("Отправить") }}</button>
+          </div>
+        </form>
+        {% if settings.last_test_result %}
+        <div class="text-muted small mt-2">
+          {{ _("Последний результат") }} ({{ fmt_date(settings.last_test_at.date()) if settings.last_test_at else "—" }}): {{ settings.last_test_result }}
+        </div>
+        {% endif %}
+        {% endif %}
+      </div>
+      <div class="modal-footer d-flex justify-content-end">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+        <button class="btn btn-primary" form="smsSettingsForm">{{ _("Сохранить") }}</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

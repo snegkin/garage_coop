@@ -63,6 +63,21 @@ def _spoiler_sub(match: re.Match) -> str:
 _SPOILER_SPAN_RE = re.compile(r'<span class="wiki-spoiler"[^>]*>.*?</span>')
 _SPOILER_PLACEHOLDER_RE = re.compile(r"SPOILERSTASH(\d+)ENDSTASH")
 
+# Код (`инлайн` или отступ/```-блок, markdown даёт в обоих случаях
+# <code>...</code>, во втором случае — обёрнутый ещё и в <pre>) — тем же
+# приёмом стэша, что и спойлеры выше, исключается из linkify целиком.
+# Нужно на практике: bleach.linkifier даже с починенным списком TLD (см.
+# _TLDS_WITH_PUNYCODE ниже) не универсален для ЛЮБОГО punycode-домена —
+# например "pravlenie@xn----dtbbg1boax0b.xn--p1ai" всё равно линкуется не
+# целиком, а с середины домена ("...@xn" остаётся текстом, дальше —
+# ссылка) — воспроизведено и не чинится дальнейшей правкой regex-а TLD,
+# это уже про то, где именно внутренний regex bleach решает, что начинается
+# домен. Вместо борьбы с этим конкретным случаем — общий выход для автора
+# статьи: обернуть техническую строку (логин, punycode-домен, что угодно)
+# в код, чтобы поиск ссылок в ней не производился вообще.
+_CODE_TAG_RE = re.compile(r"<code>.*?</code>", re.DOTALL)
+_CODE_PLACEHOLDER_RE = re.compile(r"CODESTASH(\d+)ENDSTASH")
+
 # bleach.linkifier.TLDS (встроенный список доменных зон, по которым linkify
 # распознаёт ссылку БЕЗ протокола — просто "домен.зона") по ошибке содержит
 # "xn" отдельной зоной — это ACE/punycode-префикс "xn--" (см. RFC 3492,
@@ -127,7 +142,17 @@ def render_html(text: str, collapse_long_code: bool = False) -> Markup:
         return f"SPOILERSTASH{len(stash) - 1}ENDSTASH"
 
     stashed = _SPOILER_SPAN_RE.sub(_stash, clean)
+
+    code_stash: list[str] = []
+
+    def _stash_code(match: re.Match) -> str:
+        code_stash.append(match.group(0))
+        return f"CODESTASH{len(code_stash) - 1}ENDSTASH"
+
+    stashed = _CODE_TAG_RE.sub(_stash_code, stashed)
+
     linked = _LINKER.linkify(stashed)
+    linked = _CODE_PLACEHOLDER_RE.sub(lambda m: code_stash[int(m.group(1))], linked)
     final = _SPOILER_PLACEHOLDER_RE.sub(lambda m: stash[int(m.group(1))], linked)
     if collapse_long_code:
         final = _CODE_BLOCK_RE.sub(_wrap_long_code_block, final)

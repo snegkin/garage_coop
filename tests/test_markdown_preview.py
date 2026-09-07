@@ -190,6 +190,36 @@ def test_punycode_domain_is_linkified_whole_not_cut_at_xn():
     assert ">xn----dtbbg1boax0b.xn--p1ai</a> пример" in html  # весь домен внутри ссылки, "--p1ai" не остаётся снаружи
 
 
+def test_inline_code_is_not_auto_linked():
+    """Реальный случай: "Login: pravlenie@xn----dtbbg1boax0b.xn--p1ai" —
+    punycode-домен вида "xn----..." сразу после "@" линкуется bleach НЕ
+    целиком (даже с починенным списком TLD выше) — ссылка начинается с
+    середины слова, сразу после "xn": "...@xn" остаётся текстом. Общий
+    выход для автора статьи — обернуть техническую строку в код, внутри
+    него ссылки не ищутся вообще (см. app/news_format.py: _CODE_TAG_RE)."""
+    from app.news_format import render_html
+    html = str(render_html("Login: `pravlenie@xn----dtbbg1boax0b.xn--p1ai`"))
+    assert "<a " not in html
+    assert "<code>pravlenie@xn----dtbbg1boax0b.xn--p1ai</code>" in html
+
+
+def test_code_block_url_is_not_auto_linked():
+    """Тот же принцип для отступного/```-блока кода (<pre><code>...), не
+    только для инлайн `кода`."""
+    from app.news_format import render_html
+    html = str(render_html("    https://example.com/in-code-block\n"))
+    assert "<a " not in html
+    assert "<pre><code>https://example.com/in-code-block" in html
+
+
+def test_url_outside_code_is_still_auto_linked():
+    """Стэш кода не должен ломать linkify для обычного текста рядом."""
+    from app.news_format import render_html
+    html = str(render_html("`login123` смотрите https://example.com/public"))
+    assert "<code>login123</code>" in html
+    assert '<a href="https://example.com/public"' in html
+
+
 # ---------------------------------------------------------------------------
 # Сворачивание длинного блока кода (см. app/news_format.py:
 # _wrap_long_code_block, CODE_BLOCK_COLLAPSE_LINES) — включено только у

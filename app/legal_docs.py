@@ -23,6 +23,7 @@ import datetime as dt
 from decimal import Decimal
 
 from flask import Blueprint, render_template, request, redirect, url_for, flash, abort, Response
+from markupsafe import Markup, escape
 
 from . import database
 from . import audit
@@ -187,28 +188,47 @@ def _fmt_amount(value: Decimal) -> str:
     return audit.format_amount(value)
 
 
-def build_lawsuit_draft(person: Person, coop: Cooperative, court_section: CourtSection | None,
-                         totals: dict, duty_amount: Decimal | None, today: dt.date) -> str:
+def build_lawsuit_header(person: Person, coop: Cooperative, court_section: CourtSection | None) -> dict:
     """
-    Черновик искового заявления — ЧИСТЫЙ ТЕКСТ (не HTML), подаётся в
-    редактируемый <textarea>: правление обязано просмотреть и при
-    необходимости поправить формулировки/суммы перед подачей в суд, это
-    не готовый к печати официальный бланк, как уведомление о
-    задолженности. Правовое основание — 338-ФЗ «О гаражных объединениях…»
-    от 24.07.2023 ст. 26 ч. 9 (право взыскания взносов и пеней в судебном
-    порядке; сам порядок/размер пени — по уставу кооператива, см.
-    app/penalty.py) и ГПК РФ ст. 131-132 (форма и приложения искового
-    заявления). Сумма пени — тот же официальный расчёт день-в-день, что
-    уже готовится отдельным приложением к выписке для суда (см.
+    Данные для правой колонки шапки искового заявления (суд + ответчик —
+    реквизиты истца/кооператива уже даны слева, в общем бланке-шапке
+    _letterhead.html, повторять их справа незачем) — фактические данные,
+    не редактируемый текст: поправить их можно только через сами карточки
+    (участок должника/кооператива, адрес человека), не вручную в черновике.
+    """
+    court_name = court_section.name if court_section else "____________________ (судебный участок не определён)"
+    court_address = court_section.court_address if court_section and court_section.court_address else "____________________"
+    address = person.residence_address or person.registration_address or "адрес не известен, см. материалы дела"
+    return {
+        "court_name": court_name, "court_address": court_address,
+        "defendant_name": person.full_name, "defendant_address": address,
+    }
+
+
+def build_lawsuit_body(person: Person, coop: Cooperative, totals: dict, duty_amount: Decimal | None,
+                        today: dt.date) -> str:
+    """
+    Черновик ОСНОВНОЙ, содержательной части искового заявления —
+    обстоятельства, правовое основание, расчёт, просительная часть,
+    приложения. ЧИСТЫЙ ТЕКСТ (не HTML), подаётся в редактируемый
+    <textarea>: правление обязано просмотреть и при необходимости
+    поправить формулировки/суммы перед подачей в суд. Шапка (суд, истец,
+    ответчик) и заголовок «Исковое заявление» — фактические данные,
+    рисуются отдельно вокруг этого текста (см. build_lawsuit_header,
+    legal_docs/_macros.html: lawsuit_doc) и в этот текст не входят.
+
+    Правовое основание — 338-ФЗ «О гаражных объединениях…» от 24.07.2023
+    ст. 26 ч. 9 (право взыскания взносов и пеней в судебном порядке; сам
+    порядок/размер пени — по уставу кооператива, см. app/penalty.py) и
+    ГПК РФ ст. 131-132 (форма и приложения искового заявления). Сумма
+    пени — тот же официальный расчёт день-в-день, что уже готовится
+    отдельным приложением к выписке для суда (см.
     persons.penalty_calculation), госпошлина — фигурирует как судебные
     расходы, взыскиваемые с ответчика, той же суммой, что была уплачена
     по квитанции (см. state_duty_print) — если квитанция ещё не
     сформирована для этого человека, оставляем сумму пустой для ручного
     заполнения.
     """
-    court_name = court_section.name if court_section else "____________________ (судебный участок не определён)"
-    court_address = court_section.court_address if court_section and court_section.court_address else "____________________"
-
     ownerships = (
         database.db_session.query(GarageOwnership)
         .filter_by(person_id=person.id)
@@ -220,8 +240,6 @@ def build_lawsuit_draft(person: Person, coop: Cooperative, court_section: CourtS
         )
     else:
         garages_text = "____________________"
-
-    address = person.residence_address or person.registration_address or "адрес не известен, см. материалы дела"
 
     debt = totals["debt"]
     penalty_total = totals["penalty_total"]
@@ -237,16 +255,6 @@ def build_lawsuit_draft(person: Person, coop: Cooperative, court_section: CourtS
     )
 
     return (
-        f"В {court_name}\n"
-        f"Адрес суда: {court_address}\n\n"
-        f"Истец: {coop.full_name if coop else '____________________'}"
-        f"{f', ИНН {coop.inn}' if coop else ''}{f', ОГРН {coop.ogrn}' if coop and coop.ogrn else ''}\n"
-        f"Адрес: {(coop.legal_address or coop.postal_address) if coop else '____________________'}\n"
-        f"{f'Email: {coop.email}' if coop and coop.email else ''}\n\n"
-        f"Ответчик: {person.full_name}\n"
-        f"Адрес: {address}\n\n"
-        f"ИСКОВОЕ ЗАЯВЛЕНИЕ\n"
-        f"о взыскании задолженности по членским (целевым) взносам, пени и судебных расходов\n\n"
         f"Ответчик является членом кооператива и собственником гаража(ей) {garages_text}. "
         f"В соответствии с уставом кооператива ответчик обязан своевременно вносить членские "
         f"и/или целевые взносы, однако допустил образование задолженности {period_text}.\n\n"
@@ -271,9 +279,27 @@ def build_lawsuit_draft(person: Person, coop: Cooperative, court_section: CourtS
         f"2. Копия искового заявления и приложений для ответчика.\n"
         f"3. Документ об уплате государственной пошлины.\n"
         f"4. Доказательства направления ответчику уведомления о задолженности.\n"
-        f"5. Документы, подтверждающие членство/право собственности ответчика на гараж.\n\n"
-        f"«____» ____________ {today.year} г.        Председатель ____________________\n"
+        f"5. Документы, подтверждающие членство/право собственности ответчика на гараж."
     )
+
+
+def _paragraphs_html(text: str) -> Markup:
+    """
+    Превращает отредактированный правлением черновик (обычный текст,
+    абзацы разделены пустой строкой) в HTML-параграфы — только так к
+    каждому абзацу применяется typографский отступ красной строки (см.
+    _print_style.html: p.legal-p), недостижимый чистым CSS на едином
+    white-space:pre-wrap блоке. Одиночный перенос строки внутри абзаца
+    (напр. между пунктами списка приложений) сохраняется как <br>, не
+    начинает новый абзац с отступом. Текст экранируется до вставки HTML.
+    """
+    parts = []
+    for para in text.split("\n\n"):
+        para = para.strip("\n")
+        if not para:
+            continue
+        parts.append(f'<p class="legal-p">{str(escape(para)).replace(chr(10), "<br>")}</p>')
+    return Markup("\n".join(parts))
 
 
 def suggest_state_duty(claim_amount: Decimal) -> Decimal:
@@ -528,10 +554,11 @@ def lawsuit_draft():
         totals = compute_claim_totals(p, coop, target_date)
         section = resolve_court_section(p, coop) if coop else None
         duty_amount = suggest_state_duty(totals["claim_amount"])
-        text = build_lawsuit_draft(p, coop, section, totals, duty_amount, target_date)
-        drafts.append({"person": p, "text": text})
+        header = build_lawsuit_header(p, coop, section)
+        text = build_lawsuit_body(p, coop, totals, duty_amount, target_date)
+        drafts.append({"person": p, "header": header, "text": text})
 
-    return render_template("legal_docs/lawsuit_draft.html", drafts=drafts)
+    return render_template("legal_docs/lawsuit_draft.html", drafts=drafts, coop=coop)
 
 
 @bp.route("/lawsuit/print", methods=["POST"])
@@ -542,25 +569,27 @@ def lawsuit_print():
         flash(_("Выберите хотя бы одного должника."), "danger")
         return redirect(url_for("legal_docs.lawsuit"))
 
-    coop, _chairman = _coop_and_chairman()
+    coop, chairman = _coop_and_chairman()
     target_date = dt.date.today()
     persons = database.db_session.query(Person).filter(Person.id.in_(person_ids)).order_by(Person.full_name).all()
     docs = []
     for p in persons:
         text = request.form.get(f"text_{p.id}", "")
+        section = resolve_court_section(p, coop) if coop else None
+        header = build_lawsuit_header(p, coop, section)
         # Расчёт пени прикладывается к иску отдельным приложением, если она
         # начислена — тот же официальный расчёт день-в-день, что уже
-        # использовался при формировании черновика (см. build_lawsuit_draft),
+        # использовался при формировании черновика (см. build_lawsuit_body),
         # пересчитан заново на сегодня (см. compute_claim_totals), а не
         # перенесён из момента составления черновика: правление могло
         # сформировать черновик раньше, чем распечатало готовый иск.
         totals = compute_claim_totals(p, coop, target_date)
         docs.append({
-            "person": p, "text": text,
+            "person": p, "header": header, "text": text, "body_html": _paragraphs_html(text),
             "penalty_entries": totals["penalty_entries"], "penalty_total": totals["penalty_total"],
         })
 
-    context = dict(docs=docs, coop=coop, target_date=target_date, hide_chat_widgets=True)
+    context = dict(docs=docs, coop=coop, chairman=chairman, target_date=target_date, hide_chat_widgets=True)
     if request.form.get("format") == "pdf":
         return _render_pdf_or_fallback(
             "legal_docs/lawsuit_pdf.html", "iskovoe_zayavlenie.pdf",

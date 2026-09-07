@@ -11,6 +11,14 @@
   <div class="mb-4 bg-body p-3 rounded border">
     <h5>{{ draft.person.full_name }}</h5>
     <input type="hidden" name="person_id" value="{{ draft.person.id }}">
+    <p class="text-muted small mb-2">
+      {{ _("Шапка (суд, ответчик) и заголовок «Исковое заявление» формируются автоматически по данным карточек и печатаются отдельно — здесь редактируется только основной текст ниже.") }}
+    </p>
+    <div class="border rounded p-2 mb-2 bg-body-tertiary small">
+      <div>{{ _("В") }} {{ draft.header.court_name }}</div>
+      <div>{{ draft.header.court_address }}</div>
+      <div>{{ _("Ответчик") }}: <strong>{{ draft.header.defendant_name }}</strong>, {{ draft.header.defendant_address }}</div>
+    </div>
     <textarea class="form-control" name="text_{{ draft.person.id }}" rows="24" style="font-family: monospace; font-size: 0.9em;">{{ draft.text }}</textarea>
   </div>
   {% endfor %}

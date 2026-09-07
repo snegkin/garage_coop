@@ -20,7 +20,7 @@
 {% include "legal_docs/_print_style.html" %}
 <div class="legal-print">
   {% for doc in docs %}
-  {{ m.lawsuit_doc(doc.text, coop, doc.penalty_entries, doc.penalty_total, target_date) }}
+  {{ m.lawsuit_doc(doc.header, doc.body_html, coop, chairman, doc.penalty_entries, doc.penalty_total, target_date) }}
   {% endfor %}
 </div>
 {% endblock %}

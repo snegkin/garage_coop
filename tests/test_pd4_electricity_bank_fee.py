@@ -148,6 +148,29 @@ def test_electricity_slip_prints_note_about_bank_fee(db, client):
     assert "комиссия банка" in body
 
 
+def test_electricity_slip_purpose_includes_account_number(db, client):
+    """«Назначение платежа» на бланке должно содержать тот же номер Л/С,
+    что и Purpose в QR-коде (accounting.pd4_qr_payload_electricity), а не
+    только отдельную строку «Лицевой счёт (код) плательщика» выше по
+    бланку — иначе текст назначения платежа не совпадает с тем, что
+    закодировано в самом QR."""
+    _make_coop(db, bank_fee_percent=Decimal("1.6"))
+    person = make_person(db, full_name="Электричество Лицсчетов")
+    garage = make_garage(db, number="407")
+    make_ownership(db, garage, person)
+    db.add(PersonalAccount(garage_id=garage.id, account_number="40701"))
+    db.add(Charge(garage_id=garage.id, year=2026, amount=Decimal("1000.00")))
+    make_user(db, "elecowner6", "pass12345", role=RoleEnum.MEMBER, person=person)
+    db.commit()
+    login(client, "elecowner6", "pass12345")
+
+    resp = client.get(f"/pd4/print?garage_id={garage.id}")
+    body = resp.get_data(as_text=True)
+    purpose_idx = body.index("Назначение платежа")
+    purpose_chunk = body[purpose_idx:purpose_idx + 300]
+    assert "40701" in purpose_chunk
+
+
 def test_member_dues_slip_amount_unaffected_by_bank_fee(db, client):
     """Взнос без баковской комиссии, заложенной в начисление (обычный
     членский взнос, не земельный налог) — печать квитанции НЕ добавляет

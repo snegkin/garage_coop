@@ -70,6 +70,27 @@ def test_electricity_slip_amount_includes_bank_fee(db, client):
     body = resp.get_data(as_text=True)
     assert "1016,00" in body  # fmt2 без разделителя тысяч, запятая — дробная часть (ru-локаль)
 
+
+def test_electricity_slip_preview_forces_white_background(db, client):
+    """Бланк — печатная форма банка, а не элемент интерфейса: должен
+    оставаться белым листом с чёрным текстом даже в тёмной теме сайта,
+    иначе унаследованный светлый текст на прозрачном фоне нечитаем на
+    чёрных бордюрах таблицы (см. .pd4-table в pd4/print.html)."""
+    _make_coop(db, bank_fee_percent=Decimal("1.6"))
+    person = make_person(db, full_name="Электричество Темнотемов")
+    garage = make_garage(db, number="406")
+    make_ownership(db, garage, person)
+    db.add(PersonalAccount(garage_id=garage.id, account_number="40601"))
+    db.add(Charge(garage_id=garage.id, year=2026, amount=Decimal("1000.00")))
+    make_user(db, "elecowner5", "pass12345", role=RoleEnum.MEMBER, person=person)
+    db.commit()
+    login(client, "elecowner5", "pass12345")
+
+    resp = client.get(f"/pd4/print?garage_id={garage.id}")
+    body = resp.get_data(as_text=True)
+    assert ".pd4-table { width: 700px" in body and "background: #fff; color: #000;" in body
+    assert ".pd4-table td { border: 1px solid black; padding: 4px; vertical-align: top; background: #fff; }" in body
+
     doc = db.query(PD4Document).one()
     assert doc.amount == Decimal("1016.00")
 

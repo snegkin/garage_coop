@@ -125,29 +125,39 @@ def _collection_years() -> list[int]:
 def _collection_progress(coop: Cooperative | None, year: int) -> dict | None:
     """
     Собираемость взносов ВНУТРИ одного выбранного года — по активным
-    счетам членов (без пени), нарастающим итогом по месяцам: какая доля
-    начисленного за год уже была оплачена к концу каждого месяца. Нужно
-    видеть саму динамику сбора платежей в течение года (на что похожа
-    кривая — ровная, скачком к сроку, растянутая до конца года), а не
-    только годовые итоги "к сроку"/"на сегодня" одним числом (см. историю
-    в context.md — так график выглядел раньше).
+    счетам членов (без пени), нарастающим итогом ПО ДНЯМ: какая доля
+    начисленного за год уже была оплачена на каждый день. Нужно видеть
+    саму динамику сбора платежей в течение года (на что похожа кривая —
+    ровная, скачком к сроку, растянутая до конца года), а не только
+    годовые итоги "к сроку"/"на сегодня" одним числом или помесячную
+    ступеньку (см. историю в context.md — так график выглядел раньше).
 
-    Месяц платежа берётся по ДАТЕ ПЛАТЕЖА (Payment.date), не по дате
+    Точки — только на дни, когда реально был хоть один платёж (плюс
+    искусственные первая точка 1 января с 0% и последняя точка на конец
+    года/сегодня — с последним достигнутым значением, чтобы линия
+    визуально доходила до края графика, а не обрывалась на последнем
+    платеже); между точками Chart.js рисует "ступеньку" (stepped: true в
+    шаблоне) — значение не растёт плавно между платежами, это неверно
+    показывало бы деньги как поступающие непрерывно.
+
+    День платежа берётся по ДАТЕ ПЛАТЕЖА (Payment.date), не по дате
     начисления — важно, когда человек реально заплатил. Платежи за это же
     начисление, сделанные уже в СЛЕДУЮЩЕМ году (просрочка через границу
     года), в кривую этого года не попадают — они про динамику следующего
-    года, а не этого; итог на конец декабря поэтому может быть меньше
+    года, а не этого; итог на конец года поэтому может быть меньше
     итоговой собираемости "на сегодня" из более ранних версий этого
     графика, если часть долга гасится уже после Нового года — это
     ожидаемо, а не баг.
 
-    Разнесение — через ChargeAllocation (точное FIFO), группировка по
-    месяцу — в Python, не SQL (нет `func.strftime` — не используется больше
-    нигде в проекте, ORM-объекты собираются и группируются на стороне
+    Разнесение — через ChargeAllocation (точное FIFO), группировка по дню
+    — в Python, не SQL (нет `func.strftime` — не используется больше нигде
+    в проекте, ORM-объекты собираются и группируются на стороне
     приложения, как и everywhere else, напр. main._collection_rate).
 
     None, если за этот год не было ни одного начисления — тогда графику
-    нечего показывать.
+    нечего показывать. Даты в возвращаемых точках — уже ISO-строки (не
+    date), чтобы результат можно было напрямую отдать в шаблон через
+    |tojson.
     """
     total_charged = (
         database.db_session.query(func.sum(Charge.amount))
@@ -159,6 +169,8 @@ def _collection_progress(coop: Cooperative | None, year: int) -> dict | None:
     if total_charged == 0:
         return None
 
+    year_start = dt.date(year, 1, 1)
+    year_end = dt.date(year, 12, 31)
     allocations = (
         database.db_session.query(ChargeAllocation.amount, Payment.date)
         .join(Charge, ChargeAllocation.charge_id == Charge.id)
@@ -167,26 +179,32 @@ def _collection_progress(coop: Cooperative | None, year: int) -> dict | None:
         .join(Payment, ChargeAllocation.payment_id == Payment.id)
         .filter(
             MemberAccount.is_archived.is_(False), FeeType.is_penalty.is_(False),
-            Charge.year == year, Payment.date >= dt.date(year, 1, 1), Payment.date <= dt.date(year, 12, 31),
+            Charge.year == year, Payment.date >= year_start, Payment.date <= year_end,
         )
         .all()
     )
-    paid_by_month = [Decimal("0")] * 12
+    paid_by_day: dict[dt.date, Decimal] = {}
     for amount, payment_date in allocations:
-        paid_by_month[payment_date.month - 1] += amount
+        paid_by_day[payment_date] = paid_by_day.get(payment_date, Decimal("0")) + amount
 
+    def _rate(amount: Decimal) -> float:
+        return float((amount / total_charged * 100).quantize(Decimal("0.1")))
+
+    points = [{"date": year_start.isoformat(), "rate": 0.0}]
     running = Decimal("0")
-    cumulative_rate = []
-    for amount in paid_by_month:
-        running += amount
-        cumulative_rate.append(float((running / total_charged * 100).quantize(Decimal("0.1"))))
+    for day in sorted(paid_by_day):
+        running += paid_by_day[day]
+        points.append({"date": day.isoformat(), "rate": _rate(running)})
+
+    end_date = min(year_end, dt.date.today()) if year == dt.date.today().year else year_end
+    if points[-1]["date"] != end_date.isoformat():
+        points.append({"date": end_date.isoformat(), "rate": _rate(running)})
 
     due_date = dues_due_date(coop, year) if coop else None
     return {
         "year": year,
-        "months": list(range(1, 13)),
-        "cumulative_rate": cumulative_rate,
-        "due_month": due_date.month if due_date is not None else None,
+        "points": points,
+        "due_date_iso": due_date.isoformat() if due_date is not None else None,
         "due_date": format_date(due_date) if due_date is not None else None,
         "total_charged": float(total_charged),
     }

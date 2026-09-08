@@ -1724,9 +1724,6 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "No dues deadline is set in the cooperative's details.",
         "За этот год не было начислений.": "There were no charges in this year.",
         "Собрано нарастающим итогом": "Collected, cumulative",
-        "янв": "Jan", "фев": "Feb", "мар": "Mar", "апр": "Apr",
-        "май": "May", "июн": "Jun", "июл": "Jul", "авг": "Aug",
-        "сен": "Sep", "окт": "Oct", "ноя": "Nov", "дек": "Dec",
 
         # garages/list.html, persons/list.html — подсветка строк + легенда
         "Нет счётчика электричества": "No electricity meter",

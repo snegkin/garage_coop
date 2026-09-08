@@ -133,27 +133,23 @@
 </div>
 {% if collection_progress %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
 <script>
 (function () {
   var canvas = document.getElementById("collectionRateChart");
   if (!canvas) return;
   var progress = {{ collection_progress|tojson }};
-  var monthLabels = [
-    {{ _("янв") | tojson }}, {{ _("фев") | tojson }}, {{ _("мар") | tojson }}, {{ _("апр") | tojson }},
-    {{ _("май") | tojson }}, {{ _("июн") | tojson }}, {{ _("июл") | tojson }}, {{ _("авг") | tojson }},
-    {{ _("сен") | tojson }}, {{ _("окт") | tojson }}, {{ _("ноя") | tojson }}, {{ _("дек") | tojson }},
-  ];
 
-  // Пунктирная вертикальная линия на месяце крайнего срока оплаты —
+  // Пунктирная вертикальная линия на дне крайнего срока оплаты —
   // Chart.js не умеет такое из коробки без отдельного плагина аннотаций
   // (лишняя внешняя библиотека ради одной линии), рисуем сами через
   // afterDraw на низком уровне canvas API.
   var dueLinePlugin = {
     id: "dueLine",
     afterDraw: function (chart) {
-      if (!progress.due_month) return;
+      if (!progress.due_date_iso) return;
       var xScale = chart.scales.x, yScale = chart.scales.y;
-      var x = xScale.getPixelForValue(progress.due_month - 1);
+      var x = xScale.getPixelForValue(new Date(progress.due_date_iso).getTime());
       var ctx = chart.ctx;
       ctx.save();
       ctx.strokeStyle = "#dc3545";
@@ -169,13 +165,13 @@
   new Chart(canvas.getContext("2d"), {
     type: "line",
     data: {
-      labels: monthLabels,
       datasets: [{
         label: {{ _("Собрано нарастающим итогом") | tojson }},
-        data: progress.cumulative_rate,
+        data: progress.points.map(function (p) { return { x: p.date, y: p.rate }; }),
         borderColor: "#0d6efd",
         backgroundColor: "#0d6efd",
-        tension: 0.15,
+        stepped: true,
+        pointRadius: 2,
         fill: false,
       }],
     },
@@ -183,6 +179,7 @@
       responsive: true,
       maintainAspectRatio: false,
       scales: {
+        x: { type: "time", time: { unit: "month", displayFormats: { month: "MMM" } } },
         y: { beginAtZero: true, max: 100, title: { display: true, text: "%" } },
       },
       plugins: { legend: { display: false } },

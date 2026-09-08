@@ -2,8 +2,8 @@
 График «Собираемость взносов в течение года» на finance/member_accounts.html
 (app/finance.py: _collection_years/_collection_progress) — по выбранному
 году считает % начислений (активные счета членов, без пени), собранных
-НАРАСТАЮЩИМ ИТОГОМ к концу каждого месяца, плюс месяц единого по уставу
-срока оплаты взносов (Cooperative.dues_due_day/dues_due_month, см.
+НАРАСТАЮЩИМ ИТОГОМ ПО ДНЯМ, плюс дату единого по уставу срока оплаты
+взносов (Cooperative.dues_due_day/dues_due_month, см.
 accounting.dues_due_date) для пунктирной отметки на графике.
 """
 import datetime as dt
@@ -53,9 +53,11 @@ def test_chart_absent_when_no_charges(db, client):
     assert "collectionRateChart" not in resp.get_data(as_text=True)
 
 
-def test_collection_progress_cumulative_by_month(db):
+def test_collection_progress_cumulative_points(db):
+    """Один прошлый год (2025, уже полностью в прошлом) — конечная точка
+    графика зафиксирована на 31 декабря, а не «на сегодня»."""
     coop = _make_coop(db, dues_due_day=1, dues_due_month=6)
-    person = make_person(db, full_name="Собираемость Помесячная")
+    person = make_person(db, full_name="Собираемость Подневная")
     garage = make_garage(db, number="90")
     make_ownership(db, garage, person)
     account = _make_account(db, person, garage, "col1")
@@ -68,13 +70,34 @@ def test_collection_progress_cumulative_by_month(db):
 
     progress = _collection_progress(coop, 2025)
     assert progress["year"] == 2025
-    assert progress["due_month"] == 6
+    assert progress["due_date_iso"] == "2025-06-01"
     assert progress["due_date"] == "01.06.2025"
     assert progress["total_charged"] == 1000.0
-    # Нарастающим итогом: 300 с марта (30%) держится по июль, с августа — 500 (50%)
-    assert progress["cumulative_rate"] == [
-        0.0, 0.0, 30.0, 30.0, 30.0, 30.0, 30.0, 50.0, 50.0, 50.0, 50.0, 50.0,
+    assert progress["points"] == [
+        {"date": "2025-01-01", "rate": 0.0},
+        {"date": "2025-03-01", "rate": 30.0},
+        {"date": "2025-08-01", "rate": 50.0},
+        {"date": "2025-12-31", "rate": 50.0},
     ]
+
+
+def test_collection_progress_multiple_payments_same_day_summed(db):
+    coop = _make_coop(db)
+    person = make_person(db, full_name="Два Платежа В День")
+    garage = make_garage(db, number="96")
+    make_ownership(db, garage, person)
+    account = _make_account(db, person, garage, "col6")
+    db.add(Charge(account_id=account.id, year=2025, amount=Decimal("1000.00")))
+    db.add(Payment(account_id=account.id, date=dt.date(2025, 3, 1), amount=Decimal("100.00")))
+    db.add(Payment(account_id=account.id, date=dt.date(2025, 3, 1), amount=Decimal("150.00")))
+    db.flush()
+    reallocate_member_charges(account)
+    db.commit()
+
+    progress = _collection_progress(coop, 2025)
+    day_points = [p for p in progress["points"] if p["date"] == "2025-03-01"]
+    assert len(day_points) == 1
+    assert day_points[0]["rate"] == 25.0
 
 
 def test_collection_progress_ignores_payments_from_other_years(db):
@@ -93,10 +116,10 @@ def test_collection_progress_ignores_payments_from_other_years(db):
     db.commit()
 
     progress = _collection_progress(coop, 2025)
-    assert progress["cumulative_rate"] == [0.0] * 12
+    assert all(p["rate"] == 0.0 for p in progress["points"])
 
 
-def test_collection_progress_none_when_due_date_not_configured(db):
+def test_collection_progress_no_due_date_when_not_configured(db):
     coop = _make_coop(db)  # dues_due_day/month не заданы
     person = make_person(db, full_name="Без Срока Оплаты")
     garage = make_garage(db, number="91")
@@ -109,14 +132,32 @@ def test_collection_progress_none_when_due_date_not_configured(db):
     db.commit()
 
     progress = _collection_progress(coop, 2025)
-    assert progress["due_month"] is None
+    assert progress["due_date_iso"] is None
     assert progress["due_date"] is None
-    assert progress["cumulative_rate"][-1] == 100.0
+    assert progress["points"][-1]["rate"] == 100.0
 
 
 def test_collection_progress_returns_none_for_year_without_charges(db):
     coop = _make_coop(db)
     assert _collection_progress(coop, 2025) is None
+
+
+def test_collection_progress_flat_line_when_no_payments_at_all(db):
+    coop = _make_coop(db)
+    person = make_person(db, full_name="Без Единого Платежа")
+    garage = make_garage(db, number="97")
+    make_ownership(db, garage, person)
+    account = _make_account(db, person, garage, "col7")
+    db.add(Charge(account_id=account.id, year=2025, amount=Decimal("1000.00")))
+    db.flush()
+    reallocate_member_charges(account)
+    db.commit()
+
+    progress = _collection_progress(coop, 2025)
+    assert progress["points"] == [
+        {"date": "2025-01-01", "rate": 0.0},
+        {"date": "2025-12-31", "rate": 0.0},
+    ]
 
 
 def test_archived_accounts_excluded_from_years(db):

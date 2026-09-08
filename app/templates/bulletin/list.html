@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Доска объявлений") }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h3 class="mb-0">{{ _("Доска объявлений") }}</h3>
+  {% if current_user %}
+  <a class="btn btn-primary btn-sm" href="{{ url_for('bulletin.create') }}">+ {{ _("Разместить объявление") }}</a>
+  {% endif %}
+</div>
+
+<div class="mb-3 d-flex gap-2 flex-wrap">
+  <a class="btn btn-sm {{ 'btn-primary' if not selected_category else 'btn-outline-secondary' }}" href="{{ url_for('bulletin.list_posts') }}">{{ _("Все") }}</a>
+  {% for cat in category_order %}
+  <a class="btn btn-sm {{ 'btn-primary' if selected_category == cat else 'btn-outline-secondary' }}" href="{{ url_for('bulletin.list_posts', category=cat.value) }}">{{ _(category_labels[cat]) }}</a>
+  {% endfor %}
+</div>
+
+{% if posts %}
+{% for post in posts %}
+<div class="card bg-body mb-3">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-start gap-2">
+      <div>
+        <span class="badge bg-secondary mb-1">{{ _(category_labels[post.category]) }}</span>
+        <h5 class="card-title mb-1">{{ post.title }}</h5>
+      </div>
+      {% if post.price is not none %}
+      <div class="fs-5 fw-bold text-nowrap">{{ fmt2(post.price) }} ₽</div>
+      {% endif %}
+    </div>
+    <p class="card-subtitle text-muted small mb-2">{{ fmt_date(post.created_at.date()) }}</p>
+    <p class="card-text" style="white-space:pre-wrap">{{ post.description }}</p>
+    <p class="mb-0"><strong>{{ _("Контакт") }}:</strong> {{ post.contact }}</p>
+    {% if current_user and (is_board() or post.author_id == current_user.id) %}
+    <div class="mt-2 d-flex gap-2">
+      <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('bulletin.edit', post_id=post.id) }}">{{ _("Изменить") }}</a>
+      <form method="post" action="{{ url_for('bulletin.delete', post_id=post.id) }}" onsubmit="return confirm('{{ _('Удалить объявление?') }}')">
+        <button class="btn btn-sm btn-outline-danger">{{ _("Удалить") }}</button>
+      </form>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endfor %}
+{% else %}
+<p class="text-muted">{{ _("Объявлений пока нет.") }}</p>
+{% endif %}
+{% endblock %}

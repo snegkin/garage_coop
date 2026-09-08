@@ -1180,6 +1180,39 @@ class NewsAttachment(Base):
         return ext in {"jpg", "jpeg", "png", "gif", "webp"}
 
 
+class BulletinCategory(str, enum.Enum):
+    BUY = "buy"          # куплю
+    SELL = "sell"        # продам
+    RENT = "rent"        # сдам
+    SERVICES = "services"  # услуги
+
+
+class BulletinPost(Base):
+    """Доска объявлений на главной странице — общедоступная, как
+    новостная лента (видна и анонимным посетителям сайта), но в отличие
+    от новостей размещать объявления может любой ВОШЕДШИЙ пользователь,
+    не только правление (см. app/bulletin.py). Автор может удалить своё
+    объявление сам; правление — любое (модерация постфактум, без
+    предварительного одобрения — по прямой просьбе).
+
+    Контакт для связи — то, что автор сам решил указать В САМОМ
+    объявлении (не подставляется автоматически из его карточки Person —
+    иначе телефон/telegram члена утекли бы в открытый интернет без его
+    явного решения на каждый конкретный случай)."""
+    __tablename__ = "bulletin_post"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    category: Mapped[BulletinCategory] = mapped_column(Enum(BulletinCategory), index=True)
+    title: Mapped[str] = mapped_column(String(255))
+    description: Mapped[str] = mapped_column(Text)
+    price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    contact: Mapped[str] = mapped_column(String(255))
+    author_id: Mapped[int | None] = mapped_column(ForeignKey("user.id", ondelete="SET NULL"), index=True)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.utcnow, index=True)
+
+    author: Mapped["User | None"] = relationship()
+
+
 class WikiPage(Base):
     """Вики кооператива: справочные заметки для правления и/или всех членов
     (параметры видеонаблюдения, структура сети, телефоны контрагентов и

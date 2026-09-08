@@ -199,6 +199,7 @@ def create_app(config_class=Config):
     from .voting import bp as voting_bp
     from .proposals import bp as proposals_bp
     from .news import bp as news_bp
+    from .bulletin import bp as bulletin_bp
     from .wiki import bp as wiki_bp
     from .setup_wizard import bp as setup_wizard_bp
     from .surveillance import bp as surveillance_bp
@@ -227,6 +228,7 @@ def create_app(config_class=Config):
     app.register_blueprint(voting_bp)
     app.register_blueprint(proposals_bp)
     app.register_blueprint(news_bp)
+    app.register_blueprint(bulletin_bp)
     app.register_blueprint(wiki_bp)
     app.register_blueprint(setup_wizard_bp)
     app.register_blueprint(surveillance_bp)

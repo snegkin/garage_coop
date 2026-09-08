@@ -155,6 +155,34 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Ко всем новостям": "Back to news",
         "Файлы": "Files",
 
+        # bulletin — доска объявлений (общедоступна, как новости, но разместить
+        # может любой вошедший пользователь, не только правление)
+        "Доска объявлений": "Bulletin board",
+        "Разместить объявление": "Post an ad",
+        "Куплю": "Buy",
+        "Продам": "Sell",
+        "Сдам": "Rent out",
+        "Услуги": "Services",
+        "Контакт": "Contact",
+        "Объявлений пока нет.": "No ads yet.",
+        "Удалить объявление?": "Delete this ad?",
+        "Новое объявление": "New ad",
+        "Изменить объявление": "Edit ad",
+        "Вид объявления": "Ad type",
+        "Выберите...": "Select...",
+        "Текст объявления": "Ad text",
+        "Цена, ₽ (необязательно)": "Price, ₽ (optional)",
+        "не указана": "not specified",
+        "Контакт для связи": "Contact info",
+        "телефон, telegram и т.п.": "phone, Telegram, etc.",
+        "Будет виден всем посетителям сайта, включая тех, кто не вошёл в систему.":
+            "Will be visible to every site visitor, including those who aren't signed in.",
+        "Заполните вид объявления, заголовок, текст и контакт для связи.":
+            "Fill in the ad type, title, text and contact info.",
+        "Объявление опубликовано.": "Ad published.",
+        "Объявление сохранено.": "Ad saved.",
+        "Объявление удалено.": "Ad deleted.",
+
         # wiki
         "Вики": "Wiki",
         "Добавить страницу": "Add page",

@@ -24,8 +24,12 @@
   margin: 0;
 }
 
-.pd4-table { width: 700px; border-collapse: collapse; font-family: Arial, sans-serif; font-size: 11px; margin: 10mm auto 8mm auto; }
-.pd4-table td { border: 1px solid black; padding: 4px; vertical-align: top; }
+/* Бланк — печатная форма банка, а не элемент интерфейса: всегда белый
+   лист с чёрным текстом, даже в тёмной теме сайта (иначе унаследованный
+   от body светлый текст на прозрачном фоне становится нечитаемым на
+   чёрных бордюрах таблицы). */
+.pd4-table { width: 700px; border-collapse: collapse; font-family: Arial, sans-serif; font-size: 11px; margin: 10mm auto 8mm auto; background: #fff; color: #000; }
+.pd4-table td { border: 1px solid black; padding: 4px; vertical-align: top; background: #fff; }
 .pd4-table .vertical-text { border-right: 2px solid black !important; text-align: center; font-weight: bold; width: 140px; }
 .pd4-table .text-center { text-align: center; }
 .pd4-table .line { border-bottom: 1px solid black; display: inline-block; }
@@ -87,7 +91,7 @@
         </td>
     </tr>
     <tr>
-        <td colspan="2">{{ _("Назначение платежа") }}: <strong>{{ account.fee_type.name }}, {{ _("гараж") }} №{{ account.garage.number }}</strong>{% if kind == "electricity" and coop.bank_fee_percent %} <span style="font-size:9px;">({{ _("сумма увеличена на {percent}% — комиссия банка за зачисление платежа", percent=fmt2(coop.bank_fee_percent)) }})</span>{% endif %}</td>
+        <td colspan="2">{{ _("Назначение платежа") }}: <strong>{{ account.fee_type.name }}, {{ _("гараж") }} №{{ account.garage.number }}</strong>{% if kind == "electricity" and coop.bank_fee_percent %} <span style="font-size:9px;">({{ _("{percent}% — комиссия банка", percent=fmt2(coop.bank_fee_percent)) }})</span>{% endif %}</td>
         <td>{{ _("Сумма") }}: <strong>{{ fmt2(amount) }} {{ _("руб") }}.</strong></td>
     </tr>
 
@@ -123,7 +127,7 @@
         </td>
     </tr>
     <tr>
-        <td colspan="2">{{ _("Назначение платежа") }}: <strong>{{ account.fee_type.name }}, {{ _("гараж") }} №{{ account.garage.number }}</strong>{% if kind == "electricity" and coop.bank_fee_percent %} <span style="font-size:9px;">({{ _("сумма увеличена на {percent}% — комиссия банка за зачисление платежа", percent=fmt2(coop.bank_fee_percent)) }})</span>{% endif %}</td>
+        <td colspan="2">{{ _("Назначение платежа") }}: <strong>{{ account.fee_type.name }}, {{ _("гараж") }} №{{ account.garage.number }}</strong>{% if kind == "electricity" and coop.bank_fee_percent %} <span style="font-size:9px;">({{ _("{percent}% — комиссия банка", percent=fmt2(coop.bank_fee_percent)) }})</span>{% endif %}</td>
         <td>{{ _("Сумма") }}: <strong>{{ fmt2(amount) }} {{ _("руб") }}.</strong></td>
     </tr>
 </table>

@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Изменить объявление") if post else _("Новое объявление") }}{% endblock %}
+{% block content %}
+<h3 class="mb-3">{{ _("Изменить объявление") if post else _("Новое объявление") }}</h3>
+<form method="post" class="bg-body p-4 rounded border" style="max-width:600px">
+  <div class="mb-3">
+    <label class="form-label">{{ _("Вид объявления") }}</label>
+    <select class="form-select" name="category" required>
+      <option value="" {{ "selected" if not post }} disabled>{{ _("Выберите...") }}</option>
+      {% for cat in category_order %}
+      <option value="{{ cat.value }}" {{ "selected" if post and post.category == cat }}>{{ _(category_labels[cat]) }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="mb-3">
+    <label class="form-label">{{ _("Заголовок") }}</label>
+    <input class="form-control" name="title" value="{{ post.title if post else '' }}" required maxlength="255">
+  </div>
+  <div class="mb-3">
+    <label class="form-label">{{ _("Текст объявления") }}</label>
+    <textarea class="form-control" name="description" rows="5" required>{{ post.description if post else '' }}</textarea>
+  </div>
+  <div class="mb-3">
+    <label class="form-label">{{ _("Цена, ₽ (необязательно)") }}</label>
+    <input class="form-control" inputmode="decimal" name="price" value="{{ fmt2(post.price) if post and post.price is not none else '' }}" placeholder="{{ _('не указана') }}">
+  </div>
+  <div class="mb-3">
+    <label class="form-label">{{ _("Контакт для связи") }}</label>
+    <input class="form-control" name="contact" value="{{ post.contact if post else '' }}" required maxlength="255" placeholder="{{ _('телефон, telegram и т.п.') }}">
+    <div class="form-text">{{ _("Будет виден всем посетителям сайта, включая тех, кто не вошёл в систему.") }}</div>
+  </div>
+  <div class="d-flex gap-2">
+    <button class="btn btn-primary">{{ _("Сохранить") }}</button>
+    <a class="btn btn-outline-secondary" href="{{ url_for('bulletin.list_posts') }}">{{ _("Отмена") }}</a>
+  </div>
+</form>
+{% endblock %}

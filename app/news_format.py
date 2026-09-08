@@ -96,11 +96,12 @@ _LINKER = bleach.linkifier.Linker(
     callbacks=[*bleach.linkifier.DEFAULT_CALLBACKS],
 )
 
-# Длинный блок кода (```/отступ в markdown -> <pre><code>...</code></pre>) —
-# сворачивается под кнопку "Показать полностью", чтобы при обзорном чтении
-# статьи не приходилось скроллить длинный листинг целиком (см. .wiki-code-block
-# в base.html — там же делегированный JS-обработчик клика по кнопке).
-# Короткие блоки (в пределах порога) не трогаются — оборачивать их незачем.
+# Каждый блок кода (```/отступ в markdown -> <pre><code>...</code></pre>)
+# оборачивается в .wiki-code-block — даёт кнопку "Скопировать" (наведение,
+# верхний правый угол — см. .wiki-copy-btn в base.html и делегированный
+# JS-обработчик там же) ЛЮБОМУ блоку, а длинный — ДОПОЛНИТЕЛЬНО сворачивается
+# под кнопку "Показать полностью", чтобы при обзорном чтении статьи не
+# приходилось скроллить длинный листинг целиком.
 CODE_BLOCK_COLLAPSE_LINES = 12
 _CODE_BLOCK_RE = re.compile(r"<pre><code>.*?</code></pre>", re.DOTALL)
 
@@ -108,13 +109,20 @@ _CODE_BLOCK_RE = re.compile(r"<pre><code>.*?</code></pre>", re.DOTALL)
 def _wrap_long_code_block(match: re.Match) -> str:
     pre_html = match.group(0)
     line_count = pre_html.count("\n")
+    copy_label = _("Скопировать")
+    copied_label = _("Скопировано")
+    copy_button = (
+        '<button type="button" class="wiki-copy-btn" '
+        f'data-copy-label="{escape(copy_label)}" data-copied-label="{escape(copied_label)}">'
+        f"{escape(copy_label)}</button>"
+    )
     if line_count <= CODE_BLOCK_COLLAPSE_LINES:
-        return pre_html
+        return f'<div class="wiki-code-block">{copy_button}{pre_html}</div>'
     collapsed_label = _("Показать полностью ({n} строк)", n=line_count)
     expanded_label = _("Свернуть")
     return (
         '<div class="wiki-code-block is-collapsed">'
-        f"{pre_html}"
+        f"{copy_button}{pre_html}"
         '<button type="button" class="btn btn-sm btn-outline-secondary wiki-code-toggle" '
         f'data-collapsed-label="{escape(collapsed_label)}" data-expanded-label="{escape(expanded_label)}">'
         f"{escape(collapsed_label)}</button></div>"
@@ -123,13 +131,15 @@ def _wrap_long_code_block(match: re.Match) -> str:
 
 def render_html(text: str, collapse_long_code: bool = False) -> Markup:
     """Markdown -> безопасный HTML для отображения новости/страницы вики
-    целиком. collapse_long_code — сворачивать ли длинные блоки кода под
-    кнопку (см. _wrap_long_code_block); включено только для готовой
-    страницы вики (app/__init__.py: render_wiki_html) и её предпросмотра
-    (wiki.py: preview) — НЕ для новостей и НЕ для исходящей почты
-    (mailbox.py: compose), где кнопка сворачивания не сможет работать
-    (нет JS в письме) и просто обрежет часть кода без возможности
-    развернуть."""
+    целиком. collapse_long_code — оборачивать ли блоки кода в
+    .wiki-code-block (см. _wrap_long_code_block): кнопка "Скопировать" —
+    у любого блока, а длинные ДОПОЛНИТЕЛЬНО сворачиваются под кнопку
+    "Показать полностью"; включено только для готовой страницы вики
+    (app/__init__.py: render_wiki_html) и её предпросмотра (wiki.py:
+    preview) — НЕ для новостей и НЕ для исходящей почты (mailbox.py:
+    compose), где обе кнопки не смогут работать (нет JS в письме) и
+    свернутый текст/кнопку без возможности развернуть/скопировать в
+    один клик лучше не показывать вовсе."""
     _md.reset()
     pre = _SPOILER_RE.sub(_spoiler_sub, text or "")
     html = _md.convert(pre)

@@ -186,6 +186,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Нельзя сделать родителем саму страницу или её же подраздел.": "The page itself or its own subsection can't be set as its parent.",
         "Показать полностью ({n} строк)": "Show full code ({n} lines)",
         "Свернуть": "Collapse",
+        "Скопировать": "Copy",
+        "Скопировано": "Copied",
 
         "Форматирование": "Formatting",
         "Вставить картинку": "Insert image",

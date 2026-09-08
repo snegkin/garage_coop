@@ -221,20 +221,21 @@ def test_url_outside_code_is_still_auto_linked():
 
 
 # ---------------------------------------------------------------------------
-# Сворачивание длинного блока кода (см. app/news_format.py:
-# _wrap_long_code_block, CODE_BLOCK_COLLAPSE_LINES) — включено только у
-# вики (render_wiki_html/wiki.py:preview), НЕ у новостей и не у почты
-# (кнопка сворачивания не работает без JS в письме).
+# Кнопка "Скопировать" и сворачивание длинного блока кода (см.
+# app/news_format.py: _wrap_long_code_block, CODE_BLOCK_COLLAPSE_LINES) —
+# включено только у вики (render_wiki_html/wiki.py:preview), НЕ у новостей
+# и не у почты (обе кнопки не работают без JS в письме).
 # ---------------------------------------------------------------------------
 
 def _indented_code(n_lines: int) -> str:
     return "\n".join(f"    line{i}" for i in range(1, n_lines + 1)) + "\n"
 
 
-def test_render_html_default_does_not_collapse_long_code_block():
+def test_render_html_default_does_not_wrap_code_block():
     from app.news_format import render_html
     html = str(render_html(_indented_code(20)))
     assert "wiki-code-block" not in html
+    assert "wiki-copy-btn" not in html
     assert "<pre><code>" in html
 
 
@@ -246,14 +247,21 @@ def test_render_html_collapses_long_code_block_when_enabled(db):
     html = str(render_html(_indented_code(CODE_BLOCK_COLLAPSE_LINES + 5), collapse_long_code=True))
     assert 'class="wiki-code-block is-collapsed"' in html
     assert "wiki-code-toggle" in html
+    assert "wiki-copy-btn" in html
     assert f"({CODE_BLOCK_COLLAPSE_LINES + 5} строк)" in html
     assert "line1" in html and f"line{CODE_BLOCK_COLLAPSE_LINES + 5}" in html  # содержимое никуда не делось, только свёрнуто CSS
 
 
-def test_render_html_does_not_collapse_short_code_block_even_when_enabled(db):
+def test_render_html_wraps_short_code_block_with_copy_button_but_not_collapsed(db):
+    """Короткий блок при collapse_long_code=True тоже оборачивается — ради
+    кнопки "Скопировать" — но БЕЗ is-collapsed и без кнопки разворачивания:
+    сворачивать короткий блок незачем."""
     from app.news_format import render_html, CODE_BLOCK_COLLAPSE_LINES
     html = str(render_html(_indented_code(CODE_BLOCK_COLLAPSE_LINES), collapse_long_code=True))
-    assert "wiki-code-block" not in html
+    assert 'class="wiki-code-block"' in html
+    assert "is-collapsed" not in html
+    assert "wiki-code-toggle" not in html
+    assert "wiki-copy-btn" in html
 
 
 def test_wiki_preview_collapses_long_code_block(db, client):

@@ -486,8 +486,13 @@ def add_member_payment(account_id):
     if amount <= 0:
         return respond(False, _("Сумма платежа должна быть больше нуля."))
 
+    # Номер Л/С — всегда первым в комментарии (не только когда правление
+    # что-то дописало вручную): удобно искать/сверять платежи по счёту
+    # позже — в журнале аудита, в выгрузках, в поиске по комментарию.
+    raw_comment = (f.get("comment") or "").strip()
+    comment = f"Л/С {account.account_number}" + (f": {raw_comment}" if raw_comment else "")
     database.db_session.add(Payment(
-        account_id=account.id, date=date, amount=amount, comment=f.get("comment") or None,
+        account_id=account.id, date=date, amount=amount, comment=comment,
     ))
     database.db_session.flush()
     reallocate_member_charges(account)

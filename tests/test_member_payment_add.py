@@ -96,6 +96,39 @@ def test_explicit_amount_still_works(app, db, client):
     assert balance(account) == Decimal("500.00")
 
 
+def test_payment_comment_always_starts_with_account_number(app, db, client):
+    """Номер Л/С — всегда первым в комментарии платежа, даже если
+    правление ничего не написало вручную: удобно искать/сверять платежи
+    по счёту позже (журнал аудита, поиск по комментарию)."""
+    account = _setup_account(db, account_number="19602")
+    make_user(db, "board34", "pass12345", role=RoleEnum.BOARD)
+    db.commit()
+    login(client, "board34", "pass12345")
+
+    resp = client.post(
+        f"/finance/member-accounts/{account.id}/payments/add",
+        data={"date": "2026-01-15", "amount": "500.00"},
+    )
+    assert resp.status_code == 302
+    payment = db.query(Payment).filter_by(account_id=account.id).one()
+    assert payment.comment == "Л/С 19602"
+
+
+def test_payment_comment_appends_user_text_after_account_number(app, db, client):
+    account = _setup_account(db, account_number="19603")
+    make_user(db, "board35", "pass12345", role=RoleEnum.BOARD)
+    db.commit()
+    login(client, "board35", "pass12345")
+
+    resp = client.post(
+        f"/finance/member-accounts/{account.id}/payments/add",
+        data={"date": "2026-01-15", "amount": "500.00", "comment": "оплата за январь"},
+    )
+    assert resp.status_code == 302
+    payment = db.query(Payment).filter_by(account_id=account.id).one()
+    assert payment.comment == "Л/С 19603: оплата за январь"
+
+
 def test_payment_form_placeholder_shows_debt_amount(app, db, client):
     """Плейсхолдер поля суммы — сумма долга, когда баланс отрицательный."""
     account = _setup_account(db)

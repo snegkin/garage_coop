@@ -2,21 +2,21 @@ import datetime as dt
 from decimal import Decimal, InvalidOperation
 
 from flask import Blueprint, render_template, request, redirect, url_for, flash, g, abort
-from sqlalchemy import or_
+from sqlalchemy import or_, func
 
 from . import database
 from . import audit
-from .i18n import translate as _, fmt2, parse_decimal
+from .i18n import translate as _, fmt2, parse_decimal, format_date
 from .auth import login_required, roles_required
 from .permissions import can_view_member_account, is_board, is_privileged
 from .models import (
-    GarageOwnership, Charge, Payment, Garage, PersonalAccount,
+    GarageOwnership, Charge, Payment, ChargeAllocation, Garage, PersonalAccount,
     FeeType, MemberAccount, Person, RoleEnum,
     Cooperative, BankAccount,
 )
 from .accounting import (
     get_settings, electricity_account_number, member_account_number, owner_index_for, balance as _balance,
-    compute_land_tax, reallocate_member_charges,
+    compute_land_tax, reallocate_member_charges, dues_due_date,
 )
 
 bp = Blueprint("finance", __name__, url_prefix="/finance")
@@ -107,6 +107,84 @@ def _account_stats(rows: list[tuple[MemberAccount, Decimal]]) -> dict:
     }
 
 
+def _collection_timeline(coop: Cooperative | None) -> list[dict]:
+    """
+    Собираемость взносов по ГОДАМ (по активным счетам членов, без пени) —
+    для наглядного графика на finance/member_accounts.html: сколько было
+    начислено за год, сколько уже оплачено (на сегодня, rate_total), и
+    сколько было оплачено К СРОКУ (rate_by_due_date) — единая по уставу
+    дата в году, Cooperative.dues_due_day/dues_due_month, см.
+    accounting.dues_due_date. Так видно не только итоговую собираемость
+    задним числом, но и какая доля членов платит вовремя.
+
+    «Оплачено к сроку» считается через ChargeAllocation (точное разнесение
+    FIFO платежей по начислениям — тот же принцип, что и в
+    main._collection_rate), отфильтрованное по ДАТЕ ПЛАТЕЖА (Payment.date),
+    а не по дате самого начисления: важно, когда человек реально заплатил,
+    а не за какой год начислен долг, который этот платёж в итоге закрыл.
+
+    Возвращает список за все годы, где было хоть одно начисление
+    (отсортировано по возрастанию) — значения rate_* уже float и due_date
+    уже отформатирован строкой (не Decimal/date), чтобы результат можно
+    было напрямую отдать в шаблон через |tojson.
+    """
+    years = [
+        y for (y,) in database.db_session.query(Charge.year)
+        .join(MemberAccount, Charge.account_id == MemberAccount.id)
+        .join(FeeType, MemberAccount.fee_type_id == FeeType.id)
+        .filter(MemberAccount.is_archived.is_(False), FeeType.is_penalty.is_(False))
+        .distinct()
+        .order_by(Charge.year)
+        .all()
+    ]
+
+    rows = []
+    for year in years:
+        total_charged = (
+            database.db_session.query(func.sum(Charge.amount))
+            .join(MemberAccount, Charge.account_id == MemberAccount.id)
+            .join(FeeType, MemberAccount.fee_type_id == FeeType.id)
+            .filter(MemberAccount.is_archived.is_(False), FeeType.is_penalty.is_(False), Charge.year == year)
+            .scalar()
+        ) or Decimal("0")
+        if total_charged == 0:
+            continue
+
+        total_paid = (
+            database.db_session.query(func.sum(ChargeAllocation.amount))
+            .join(Charge, ChargeAllocation.charge_id == Charge.id)
+            .join(MemberAccount, Charge.account_id == MemberAccount.id)
+            .join(FeeType, MemberAccount.fee_type_id == FeeType.id)
+            .filter(MemberAccount.is_archived.is_(False), FeeType.is_penalty.is_(False), Charge.year == year)
+            .scalar()
+        ) or Decimal("0")
+
+        due_date = dues_due_date(coop, year) if coop else None
+        rate_by_due_date = None
+        if due_date is not None:
+            paid_by_due = (
+                database.db_session.query(func.sum(ChargeAllocation.amount))
+                .join(Charge, ChargeAllocation.charge_id == Charge.id)
+                .join(MemberAccount, Charge.account_id == MemberAccount.id)
+                .join(FeeType, MemberAccount.fee_type_id == FeeType.id)
+                .join(Payment, ChargeAllocation.payment_id == Payment.id)
+                .filter(
+                    MemberAccount.is_archived.is_(False), FeeType.is_penalty.is_(False),
+                    Charge.year == year, Payment.date <= due_date,
+                )
+                .scalar()
+            ) or Decimal("0")
+            rate_by_due_date = float((paid_by_due / total_charged * 100).quantize(Decimal("0.1")))
+
+        rows.append({
+            "year": year,
+            "due_date": format_date(due_date) if due_date is not None else None,
+            "rate_total": float((total_paid / total_charged * 100).quantize(Decimal("0.1"))),
+            "rate_by_due_date": rate_by_due_date,
+        })
+    return rows
+
+
 @bp.route("/member-accounts")
 @roles_required(RoleEnum.BOARD)
 def member_accounts():
@@ -123,10 +201,11 @@ def member_accounts():
     all_persons = database.db_session.query(Person).order_by(Person.full_name).all()
     all_garages = database.db_session.query(Garage).order_by(Garage.number).all()
     all_fee_types = database.db_session.query(FeeType).order_by(FeeType.name).all()
+    coop = database.db_session.query(Cooperative).first()
     return render_template(
         "finance/member_accounts.html", rows=rows, has_unpaid_penalty=has_unpaid_penalty,
         all_persons=all_persons, all_garages=all_garages, all_fee_types=all_fee_types,
-        account_stats=_account_stats(rows),
+        account_stats=_account_stats(rows), coop=coop, collection_timeline=_collection_timeline(coop),
     )
 
 

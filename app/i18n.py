@@ -1712,6 +1712,16 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Итоговый баланс": "Total balance",
         "Без учёта архивных счетов (закрытых при смене собственника гаража).": "Excludes archived accounts (closed on garage ownership transfer).",
 
+        # finance/member_accounts.html — график собираемости по годам
+        "Собираемость взносов по годам": "Dues collection rate by year",
+        "Крайний срок оплаты взносов по уставу — {day}.{month} каждого года; столбец «к сроку» показывает, какая доля начислений за год была погашена платежами не позже этой даты.":
+            "The bylaws-mandated dues deadline is {day}.{month} each year; the \"by deadline\" bar shows the share of that year's charges settled by payments made on or before that date.",
+        "Крайний срок оплаты взносов не задан в реквизитах кооператива — показана только итоговая собираемость на сегодня, без сравнения с оплатой в срок.":
+            "No dues deadline is set in the cooperative's details — only the overall collection rate to date is shown, without a comparison to on-time payment.",
+        "Оплачено к сроку": "Paid by deadline",
+        "Оплачено на сегодня": "Paid to date",
+        "Срок": "Deadline",
+
         # garages/list.html, persons/list.html — подсветка строк + легенда
         "Нет счётчика электричества": "No electricity meter",
         "Есть комментарий": "Has a comment",

@@ -2,18 +2,18 @@
 Реквизиты счёта кооператива (BankAccount.checking_account/bik/
 correspondent_account) в UI обычно вводятся с пробелами-разрядами для
 читаемости человеком (как на банковской выписке, напр.
-«40703 810 7 7703 0002079») — это нормально для печатной формы квитанции,
-но поля QR-кода по ГОСТ Р 56042-2014 (PersonalAcc/BIC/CorrespAcc) обязаны
-быть строго цифрами без разделителей и той же длины, что настоящий номер
-счёта (20 цифр у р/с и к/с, 9 у БИК). Лишние пробелы делали PersonalAcc
-длиннее 20 символов и невалидным — из-за этого Сбербанк отказывался
-принимать такой QR-код («Нельзя оплатить по этому QR-коду»), хотя те же
-самые реквизиты в текстовом виде на квитанции были совершенно корректны.
-См. accounting._qr_account_digits/pd4_qr_payload_electricity.
+«40703 810 7 7703 0002079»), но поля QR-кода по ГОСТ Р 56042-2014
+(PersonalAcc/BIC/CorrespAcc) обязаны быть строго цифрами без разделителей
+и той же длины, что настоящий номер счёта (20 цифр у р/с и к/с, 9 у БИК).
+Лишние пробелы делали PersonalAcc длиннее 20 символов и невалидным — из-за
+этого Сбербанк отказывался принимать такой QR-код («Нельзя оплатить по
+этому QR-коду»). Тем же способом (`accounting.account_digits`, Jinja-
+глобал) печатается и видимый номер Р/сч на самой квитанции — тоже без
+пробелов, по прямой просьбе.
 """
 from decimal import Decimal
 
-from app.accounting import pd4_qr_payload_electricity, _qr_account_digits
+from app.accounting import pd4_qr_payload_electricity, account_digits
 from app.models import Cooperative, RoleEnum, Garage, GarageOwnership, PersonalAccount, Charge, BankAccount
 
 from tests.conftest import make_person, make_garage, make_ownership, make_user, login
@@ -41,11 +41,11 @@ def _make_bank_account_with_spaces(db):
     return account
 
 
-def test_qr_account_digits_strips_all_non_digit_characters():
-    assert _qr_account_digits("40703 810 7 7703 0002079") == "40703810777030002079"
-    assert len(_qr_account_digits("40703 810 7 7703 0002079")) == 20
-    assert _qr_account_digits("30101-810-5-0000-0000609") == "30101810500000000609"
-    assert _qr_account_digits(None) == ""
+def test_account_digits_strips_all_non_digit_characters():
+    assert account_digits("40703 810 7 7703 0002079") == "40703810777030002079"
+    assert len(account_digits("40703 810 7 7703 0002079")) == 20
+    assert account_digits("30101-810-5-0000-0000609") == "30101810500000000609"
+    assert account_digits(None) == ""
 
 
 def test_electricity_qr_payload_personal_acc_has_no_spaces(db):
@@ -93,3 +93,23 @@ def test_electricity_slip_print_page_qr_has_clean_account_digits(db, client):
     # что реквизиты счёта, поэтому пробел ищем не по всему payload).
     assert fields["PersonalAcc"] == "40703810777030002079"
     assert " " not in fields["PersonalAcc"]
+
+
+def test_electricity_slip_print_page_shows_checking_account_without_spaces(db, client):
+    """Видимый текст «Р/сч» на самой квитанции — тоже без пробелов, даже
+    если в реквизитах кооператива номер внесён с ними для читаемости."""
+    coop = _make_coop(db)
+    _make_bank_account_with_spaces(db)
+    person = make_person(db, full_name="Расчётнов Расчёт Расчётнович")
+    garage = make_garage(db, number="503")
+    make_ownership(db, garage, person)
+    db.add(PersonalAccount(garage_id=garage.id, account_number="50301"))
+    db.add(Charge(garage_id=garage.id, year=2026, amount=Decimal("500.00")))
+    make_user(db, "qrowner2", "pass12345", role=RoleEnum.MEMBER, person=person)
+    db.commit()
+    login(client, "qrowner2", "pass12345")
+
+    resp = client.get(f"/pd4/print?garage_id={garage.id}")
+    body = resp.get_data(as_text=True)
+    assert "40703810777030002079" in body
+    assert "40703 810 7 7703 0002079" not in body

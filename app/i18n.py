@@ -388,8 +388,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Получатель": "Payee",
         "Плательщик": "Payer",
         "Назначение платежа": "Payment purpose",
-        "{percent}% — комиссия банка":
-            "{percent}% — bank crediting fee",
+        "{percent}% - комиссия банка":
+            "{percent}% - bank crediting fee",
         "Выберите хотя бы один лицевой счёт.": "Select at least one account.",
         "Сначала заполните реквизиты кооператива.": "Fill in the cooperative's details first.",
         "По выбранным счетам нет задолженности — печатать нечего.": "The selected accounts have no debt — nothing to print.",

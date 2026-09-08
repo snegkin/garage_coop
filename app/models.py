@@ -1225,15 +1225,16 @@ class BulletinPost(Base):
 
 
 class BulletinAttachment(Base):
-    """Файл, привязанный к объявлению доски — картинка, вставленная в
-    текст (![](url) в markdown BulletinPost.description), ИЛИ обычное
-    скачиваемое вложение, не встроенное в текст. is_inline различает эти
-    два случая — тот же приём, что у NewsAttachment/WikiAttachment (см.
-    их докстринги — здесь ровно та же механика: post_id nullable для
-    AJAX-загрузки картинки ДО сохранения самого объявления,
-    _sync_inline_attachments в app/bulletin.py «забирает» осиротевшие
-    свои же вложения при сохранении, cleanup_orphan_attachments.py по
-    cron подчищает так и не сохранённые).
+    """Картинка, вставленная в текст объявления (![](url) в markdown
+    BulletinPost.description) — в отличие от NewsAttachment/WikiAttachment
+    здесь нет отдельного «прикреплённого файла», не встроенного в текст:
+    для объявления достаточно фото в самом тексте, is_inline всегда True.
+
+    post_id nullable — картинка загружается по AJAX (см. bulletin.py:
+    upload_inline_attachment) ДО сохранения самого объявления;
+    _sync_inline_attachments в app/bulletin.py «забирает» осиротевшую
+    свою же картинку при сохранении, cleanup_orphan_attachments.py по
+    cron подчищает так и не сохранённые.
 
     Видимость файла при отдаче (см. bulletin.py: attachment()) наследуется
     от объявления: BulletinPost.is_members_only — та же логика, что и у
@@ -1252,11 +1253,6 @@ class BulletinAttachment(Base):
 
     post: Mapped["BulletinPost | None"] = relationship(back_populates="attachments")
     author: Mapped["User | None"] = relationship()
-
-    @property
-    def is_image(self) -> bool:
-        ext = self.original_filename.rsplit(".", 1)[-1].lower() if "." in self.original_filename else ""
-        return ext in {"jpg", "jpeg", "png", "gif", "webp"}
 
 
 class WikiPage(Base):

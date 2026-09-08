@@ -268,50 +268,6 @@ def test_preview_requires_login(client, db):
     assert resp.status_code == 302
 
 
-def test_gallery_attachment_upload_and_display(db, client):
-    from io import BytesIO
-
-    make_user(db, "member1", "pass12345", role=RoleEnum.MEMBER)
-    db.commit()
-    login(client, "member1", "pass12345")
-
-    resp = client.post("/bulletin/new", data={
-        "category": "sell", "title": "С файлом", "description": "x", "contact": "x", "price": "",
-        "attachments": (BytesIO(b"fake pdf content"), "smeta.pdf"),
-    }, content_type="multipart/form-data")
-    assert resp.status_code == 302
-
-    post = db.query(BulletinPost).one()
-    assert len(post.attachments) == 1
-    assert post.attachments[0].original_filename == "smeta.pdf"
-    assert post.attachments[0].is_inline is False
-
-    list_resp = client.get("/bulletin/")
-    assert "smeta.pdf" in list_resp.get_data(as_text=True)
-
-
-def test_gallery_attachment_can_be_removed_on_edit(db, client):
-    from io import BytesIO
-
-    make_user(db, "member1", "pass12345", role=RoleEnum.MEMBER)
-    db.commit()
-    login(client, "member1", "pass12345")
-    client.post("/bulletin/new", data={
-        "category": "sell", "title": "С файлом", "description": "x", "contact": "x", "price": "",
-        "attachments": (BytesIO(b"fake"), "file.txt"),
-    }, content_type="multipart/form-data")
-    post = db.query(BulletinPost).one()
-    att_id = post.attachments[0].id
-
-    resp = client.post(f"/bulletin/{post.id}/edit", data={
-        "category": "sell", "title": "С файлом", "description": "x", "contact": "x", "price": "",
-        "remove_attachment": str(att_id),
-    })
-    assert resp.status_code == 302
-    db.expire_all()
-    assert db.query(BulletinPost).one().attachments == []
-
-
 def test_upload_inline_attachment_requires_login(client, db):
     resp = client.post("/bulletin/attachments/upload", data={})
     assert resp.status_code == 302
@@ -366,14 +322,17 @@ def test_attachment_of_members_only_post_blocked_for_anonymous(db, client):
     make_user(db, "member1", "pass12345", role=RoleEnum.MEMBER)
     db.commit()
     login(client, "member1", "pass12345")
-    client.post("/bulletin/new", data={
-        "category": "sell", "title": "Секрет", "description": "x", "contact": "x", "price": "",
-        "is_members_only": "on",
-        "attachments": (BytesIO(b"fake"), "file.txt"),
+    upload_resp = client.post("/bulletin/attachments/upload", data={
+        "image": (BytesIO(b"\x89PNG\r\n\x1a\n"), "pic.png"),
     }, content_type="multipart/form-data")
+    url = upload_resp.get_json()["url"]
+    client.post("/bulletin/new", data={
+        "category": "sell", "title": "Секрет", "description": f"![]({url})", "contact": "x", "price": "",
+        "is_members_only": "on",
+    })
     post = db.query(BulletinPost).one()
     att_id = post.attachments[0].id
     client.get("/auth/logout")
 
-    resp = client.get(f"/bulletin/attachments/{att_id}/file.txt")
+    resp = client.get(f"/bulletin/attachments/{att_id}/pic.png")
     assert resp.status_code == 403

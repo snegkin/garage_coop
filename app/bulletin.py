@@ -9,10 +9,10 @@
 публикацией — по прямой просьбе).
 
 Текст объявления — та же упрощённая markdown-разметка, что у новостей и
-вики (см. news_format.py), с тем же тулбаром и AJAX-вставкой картинок в
-форме (bulletin/form.html) и возможностью прикрепить обычные файлы
-(BulletinAttachment) — реализация 1-в-1 повторяет news.py (см. его
-докстринги про inline/gallery-вложения), только под другую модель.
+вики (см. news_format.py), с тем же тулбаром и AJAX-вставкой картинок
+прямо в текст (BulletinAttachment, всегда is_inline) — в отличие от
+новостей/вики отдельного блока «прикреплённые файлы» здесь нет, для
+объявления достаточно фото в тексте.
 """
 import os
 import re
@@ -66,28 +66,6 @@ def _can_view(post: BulletinPost) -> bool:
     вошедшие (не обязательно автор/правление — любой вошедший пользователь,
     как и публикация)."""
     return not post.is_members_only or g.user is not None
-
-
-def _save_attachments(post: BulletinPost):
-    """Сохраняет все файлы из request.files['attachments'] (multiple) и
-    привязывает их к объявлению. save_upload() применяет белый список
-    расширений по умолчанию — как и у новостей, вложения общедоступны
-    (если само объявление не отмечено «только для членов»), поэтому важно
-    не дать залить .html/.svg и получить stored XSS."""
-    for file_storage in request.files.getlist("attachments"):
-        if not file_storage or not file_storage.filename:
-            continue
-        stored_name = save_upload(file_storage, current_app.config["UPLOAD_FOLDER"])
-        if not stored_name:
-            continue
-        database.db_session.add(BulletinAttachment(
-            post=post,
-            original_filename=file_storage.filename,
-            stored_filename=stored_name,
-            content_type=file_storage.content_type,
-            is_inline=False,
-            author_id=g.user.id,
-        ))
 
 
 def _sync_inline_attachments(post: BulletinPost, description_text: str):
@@ -193,7 +171,6 @@ def create():
     database.db_session.add(post)
     database.db_session.flush()
     _sync_inline_attachments(post, description)
-    _save_attachments(post)
     audit.record(
         "bulletin.create", entity_type="bulletin_post", entity_id=post.id,
         summary=f"Добавлено объявление «{title}» ({CATEGORY_LABELS[post.category]})",
@@ -232,14 +209,7 @@ def edit(post_id):
     post.price = price
     post.is_members_only = bool(f.get("is_members_only"))
 
-    remove_ids = {int(x) for x in request.form.getlist("remove_attachment")}
-    if remove_ids:
-        for att in list(post.attachments):
-            if att.id in remove_ids:
-                database.db_session.delete(att)
-
     _sync_inline_attachments(post, description)
-    _save_attachments(post)
     audit.record(
         "bulletin.edit", entity_type="bulletin_post", entity_id=post.id,
         summary=f"Изменено объявление «{title}»",

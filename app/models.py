@@ -1183,7 +1183,9 @@ class NewsAttachment(Base):
 class BulletinCategory(str, enum.Enum):
     BUY = "buy"          # куплю
     SELL = "sell"        # продам
-    RENT = "rent"        # сдам
+    RENT = "rent"        # сдам (предлагаю в аренду)
+    LEASE = "lease"      # аренда (ищу что-то в аренду — пара к "сдам")
+    SEEKING = "seeking"  # ищу (общее — не покупка/не аренда: человека, информацию и т.п.)
     SERVICES = "services"  # услуги
 
 
@@ -1198,7 +1200,12 @@ class BulletinPost(Base):
     Контакт для связи — то, что автор сам решил указать В САМОМ
     объявлении (не подставляется автоматически из его карточки Person —
     иначе телефон/telegram члена утекли бы в открытый интернет без его
-    явного решения на каждый конкретный случай)."""
+    явного решения на каждый конкретный случай).
+
+    is_members_only — автор может пометить объявление видимым только
+    вошедшим пользователям (напр. что-то внутрикооперативное, не для
+    посторонних из интернета); по умолчанию объявление общедоступно, как
+    и вся остальная доска."""
     __tablename__ = "bulletin_post"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -1207,10 +1214,49 @@ class BulletinPost(Base):
     description: Mapped[str] = mapped_column(Text)
     price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
     contact: Mapped[str] = mapped_column(String(255))
+    is_members_only: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     author_id: Mapped[int | None] = mapped_column(ForeignKey("user.id", ondelete="SET NULL"), index=True)
     created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.utcnow, index=True)
 
     author: Mapped["User | None"] = relationship()
+    attachments: Mapped[list["BulletinAttachment"]] = relationship(
+        back_populates="post", cascade="all, delete-orphan", order_by="BulletinAttachment.id"
+    )
+
+
+class BulletinAttachment(Base):
+    """Файл, привязанный к объявлению доски — картинка, вставленная в
+    текст (![](url) в markdown BulletinPost.description), ИЛИ обычное
+    скачиваемое вложение, не встроенное в текст. is_inline различает эти
+    два случая — тот же приём, что у NewsAttachment/WikiAttachment (см.
+    их докстринги — здесь ровно та же механика: post_id nullable для
+    AJAX-загрузки картинки ДО сохранения самого объявления,
+    _sync_inline_attachments в app/bulletin.py «забирает» осиротевшие
+    свои же вложения при сохранении, cleanup_orphan_attachments.py по
+    cron подчищает так и не сохранённые).
+
+    Видимость файла при отдаче (см. bulletin.py: attachment()) наследуется
+    от объявления: BulletinPost.is_members_only — та же логика, что и у
+    самого объявления, иначе файл объявления «только для членов» был бы
+    доступен по прямой ссылке в обход ограничения."""
+    __tablename__ = "bulletin_attachment"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    post_id: Mapped[int | None] = mapped_column(ForeignKey("bulletin_post.id", ondelete="CASCADE"), index=True)
+    original_filename: Mapped[str] = mapped_column(String(255))
+    stored_filename: Mapped[str] = mapped_column(String(255))
+    content_type: Mapped[str | None] = mapped_column(String(100))
+    is_inline: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    author_id: Mapped[int | None] = mapped_column(ForeignKey("user.id", ondelete="SET NULL"), index=True)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.utcnow, index=True)
+
+    post: Mapped["BulletinPost | None"] = relationship(back_populates="attachments")
+    author: Mapped["User | None"] = relationship()
+
+    @property
+    def is_image(self) -> bool:
+        ext = self.original_filename.rsplit(".", 1)[-1].lower() if "." in self.original_filename else ""
+        return ext in {"jpg", "jpeg", "png", "gif", "webp"}
 
 
 class WikiPage(Base):
@@ -1344,6 +1390,7 @@ def _delete_attachment_file(mapper, connection, target):
 
 event.listen(NewsAttachment, "after_delete", _delete_attachment_file)
 event.listen(WikiAttachment, "after_delete", _delete_attachment_file)
+event.listen(BulletinAttachment, "after_delete", _delete_attachment_file)
 
 
 # ---------------------------------------------------------------------------

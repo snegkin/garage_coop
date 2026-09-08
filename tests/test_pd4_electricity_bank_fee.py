@@ -107,6 +107,26 @@ def test_electricity_slip_no_fee_when_bank_fee_percent_is_zero(db, client):
     assert doc.amount == Decimal("777.00")
 
 
+def test_electricity_slip_prints_note_about_bank_fee(db, client):
+    """Раз сумма к оплате увеличена на комиссию банка, платёжка должна
+    явно об этом сообщать — иначе плательщику непонятно, откуда взялась
+    сумма больше реального долга за электричество."""
+    _make_coop(db, bank_fee_percent=Decimal("1.6"))
+    person = make_person(db, full_name="Электричество Примечанов")
+    garage = make_garage(db, number="405")
+    make_ownership(db, garage, person)
+    db.add(PersonalAccount(garage_id=garage.id, account_number="40501"))
+    db.add(Charge(garage_id=garage.id, year=2026, amount=Decimal("1000.00")))
+    make_user(db, "elecowner4", "pass12345", role=RoleEnum.MEMBER, person=person)
+    db.commit()
+    login(client, "elecowner4", "pass12345")
+
+    resp = client.get(f"/pd4/print?garage_id={garage.id}")
+    body = resp.get_data(as_text=True)
+    assert "1,60%" in body  # fmt2 — всегда 2 знака после запятой, как и везде в приложении
+    assert "комиссия банка" in body
+
+
 def test_member_dues_slip_amount_unaffected_by_bank_fee(db, client):
     """Взнос без баковской комиссии, заложенной в начисление (обычный
     членский взнос, не земельный налог) — печать квитанции НЕ добавляет
@@ -126,6 +146,7 @@ def test_member_dues_slip_amount_unaffected_by_bank_fee(db, client):
     db.commit()
     login(client, "duesowner1", "pass12345")
 
-    client.get(f"/pd4/print?account_id={account.id}")
+    resp = client.get(f"/pd4/print?account_id={account.id}")
     doc = db.query(PD4Document).one()
     assert doc.amount == Decimal("1000.00")  # без комиссии — она сюда не добавляется
+    assert "комиссия банка" not in resp.get_data(as_text=True)  # примечание — только у электроэнергии

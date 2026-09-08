@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Годовой отчёт за {year} год", year=report.year) }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h3 class="mb-0">{{ _("Годовой отчёт за {year} год", year=report.year) }}</h3>
+  {% if is_chairman() %}
+  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('annual_reports.edit', report_id=report.id) }}">{{ _("Изменить") }}</a>
+  {% endif %}
+</div>
+
+<div class="card bg-body mb-3">
+  <div class="card-body">
+    <p><strong>{{ _("Собрание") }}:</strong> <a href="{{ url_for('meetings.list_meetings') }}">{{ fmt_date(report.meeting.date) }}</a></p>
+    <p>
+      <strong>{{ _("Смета на следующий год") }}:</strong>
+      {% if report.budget_total is not none %}
+      {{ fmt2(report.budget_total) }} ₽
+      {% if report.budget_approved %}<span class="badge bg-success">{{ _("утверждена") }}</span>{% else %}<span class="badge bg-warning text-dark">{{ _("не утверждена") }}</span>{% endif %}
+      {% else %}—{% endif %}
+    </p>
+    <p>
+      <strong>{{ _("Отчёт о расходах") }}:</strong>
+      {% if report.spending_report_document %}<a href="{{ url_for('cooperative.download_document', doc_id=report.spending_report_document_id) }}">{{ report.spending_report_document.file_name or _("скачать") }}</a>{% else %}—{% endif %}
+    </p>
+    <p>
+      <strong>{{ _("Финансовая отчётность") }}:</strong>
+      {% if report.accounting_report_document %}<a href="{{ url_for('cooperative.download_document', doc_id=report.accounting_report_document_id) }}">{{ report.accounting_report_document.file_name or _("скачать") }}</a>{% else %}—{% endif %}
+    </p>
+    {% if report.comment %}<p class="mb-0"><strong>{{ _("Комментарий") }}:</strong> {{ report.comment }}</p>{% endif %}
+  </div>
+</div>
+
+{% if report.fee_rates %}
+<h5 class="mb-2">{{ _("Ставки взносов на следующий год") }}</h5>
+<table class="table table-sm bg-body">
+  <thead>
+    <tr>
+      <th>{{ _("Вид взноса") }}</th>
+      <th>{{ _("Ставка, ₽/м²") }}</th>
+      <th>{{ _("Фиксированная сумма, ₽") }}</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for rate in report.fee_rates %}
+    <tr>
+      <td>{{ rate.fee_type.name }}</td>
+      <td>{{ fmt2(rate.rate_per_sqm) if rate.rate_per_sqm is not none else "—" }}</td>
+      <td>{{ fmt2(rate.fixed_amount) if rate.fixed_amount is not none else "—" }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% endblock %}

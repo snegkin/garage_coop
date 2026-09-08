@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Изменить годовой отчёт") if report else _("Новый годовой отчёт") }}{% endblock %}
+{% block content %}
+<h3 class="mb-3">{{ _("Изменить годовой отчёт") if report else _("Новый годовой отчёт") }}</h3>
+<p class="text-muted">{{ _("Собрание от {date}", date=fmt_date(meeting.date)) }}</p>
+
+<form method="post" enctype="multipart/form-data" class="bg-body p-4 rounded border">
+  <div class="row g-3 mb-3">
+    <div class="col-md-3">
+      <label class="form-label">{{ _("Год") }}</label>
+      <input class="form-control" type="number" name="year" value="{{ report.year if report else meeting.date.year }}" required>
+    </div>
+    <div class="col-md-4">
+      <label class="form-label">{{ _("Смета на следующий год, ₽") }}</label>
+      <input class="form-control" inputmode="decimal" name="budget_total" value="{{ fmt2(report.budget_total) if report and report.budget_total is not none else '' }}" placeholder="{{ _('не указана') }}">
+    </div>
+    <div class="col-md-5 d-flex align-items-end">
+      <div class="form-check">
+        <input class="form-check-input" type="checkbox" name="budget_approved" id="budget_approved" {{ 'checked' if report and report.budget_approved }}>
+        <label class="form-check-label" for="budget_approved">{{ _("Смета утверждена собранием") }}</label>
+      </div>
+    </div>
+  </div>
+
+  <div class="row g-3 mb-3">
+    <div class="col-md-6">
+      <label class="form-label">{{ _("Отчёт о расходах (файл)") }}</label>
+      {% if report and report.spending_report_document %}
+      <div class="form-text mb-1"><a href="{{ url_for('cooperative.download_document', doc_id=report.spending_report_document_id) }}">{{ report.spending_report_document.file_name or _("текущий файл") }}</a></div>
+      {% endif %}
+      <input class="form-control" type="file" name="spending_report_file">
+    </div>
+    <div class="col-md-6">
+      <label class="form-label">{{ _("Финансовая отчётность (файл)") }}</label>
+      {% if report and report.accounting_report_document %}
+      <div class="form-text mb-1"><a href="{{ url_for('cooperative.download_document', doc_id=report.accounting_report_document_id) }}">{{ report.accounting_report_document.file_name or _("текущий файл") }}</a></div>
+      {% endif %}
+      <input class="form-control" type="file" name="accounting_report_file">
+    </div>
+    <div class="form-text">{{ _("Загрузка нового файла заменяет прежний. Если файл не выбран, ранее загруженный сохраняется.") }}</div>
+  </div>
+
+  <div class="mb-3">
+    <label class="form-label d-block">{{ _("Ставки взносов на следующий год") }}</label>
+    <table class="table table-sm bg-body">
+      <thead>
+        <tr>
+          <th>{{ _("Вид взноса") }}</th>
+          <th>{{ _("Ставка, ₽/м²") }}</th>
+          <th>{{ _("Фиксированная сумма, ₽") }}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for ft in fee_types %}
+        {% set rate = rates_by_fee_type.get(ft.id) %}
+        <tr>
+          <td>{{ ft.name }}</td>
+          <td><input class="form-control form-control-sm" inputmode="decimal" name="rate_per_sqm_{{ ft.id }}" value="{{ fmt2(rate.rate_per_sqm) if rate and rate.rate_per_sqm is not none else '' }}"></td>
+          <td><input class="form-control form-control-sm" inputmode="decimal" name="fixed_amount_{{ ft.id }}" value="{{ fmt2(rate.fixed_amount) if rate and rate.fixed_amount is not none else '' }}"></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <div class="form-text">{{ _("Заполняйте только те виды взноса, ставку которых утвердило собрание. Пустая строка — ставка не меняется.") }}</div>
+  </div>
+
+  <div class="mb-3">
+    <label class="form-label">{{ _("Комментарий") }}</label>
+    <textarea class="form-control" name="comment" rows="3">{{ report.comment if report else '' }}</textarea>
+  </div>
+
+  <div class="d-flex justify-content-end gap-2">
+    <button class="btn btn-primary">{{ _("Сохранить") }}</button>
+    <a class="btn btn-outline-secondary" href="{{ url_for('annual_reports.list_reports') }}">{{ _("Отмена") }}</a>
+  </div>
+</form>
+{% endblock %}

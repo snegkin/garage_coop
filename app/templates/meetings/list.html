@@ -17,7 +17,15 @@
     <tr data-filter-text="{{ (fmt_date(m.date) ~ ' ' ~ (m.agenda or '') ~ ' ' ~ (m.secretary.full_name if m.secretary else '') ~ ' ' ~ (m.chairman.full_name if m.chairman else ''))|lower }}">
       <td data-sort-value="{{ m.date }}">{{ fmt_date(m.date) }}</td>
       <td>{{ m.agenda or "—" }}</td>
-      <td>{{ _("да") if m.is_annual_report_meeting else "" }}</td>
+      <td>
+        {% if m.annual_report %}
+        <a href="{{ url_for('annual_reports.view', report_id=m.annual_report.id) }}">{{ _("Открыть отчёт") }}</a>
+        {% elif m.is_annual_report_meeting and is_chairman() %}
+        <a href="{{ url_for('annual_reports.create', meeting_id=m.id) }}">{{ _("Составить отчёт") }}</a>
+        {% elif m.is_annual_report_meeting %}
+        {{ _("да") }}
+        {% endif %}
+      </td>
       <td>{{ m.secretary.full_name if m.secretary else "—" }}</td>
       <td>{{ m.chairman.full_name if m.chairman else "—" }}</td>
       <td>{% if m.protocol_document_id %}<a href="{{ url_for('cooperative.download_document', doc_id=m.protocol_document_id) }}">{{ _("файл") }}</a>{% else %}—{% endif %}</td>

@@ -17,9 +17,9 @@ from . import recaptcha
 from .mail_client import MailError
 from .rate_limit import limiter
 from .i18n import translate as _
-from .models import User, RoleEnum, Person, Phone, MailboxSettings, SmsSettings, VerificationCode, VerificationCodePurpose
+from .models import User, RoleEnum, Person, Phone, MailboxSettings, SmsSettings, Cooperative, VerificationCode, VerificationCodePurpose
 from .login_generation import generate_unique_login
-from .sms import get_sms_client, SmsError
+from .sms import get_sms_client, SmsError, sms_site_identifier
 
 bp = Blueprint("auth", __name__, url_prefix="/auth")
 
@@ -36,6 +36,19 @@ def _normalize_phone_digits(raw: str) -> str:
     if len(digits) == 11 and digits[0] in "78":
         digits = digits[1:]
     return digits
+
+
+def _sms_code_text(label: str, code: str) -> str:
+    """Текст SMS с кодом — с названием/сайтом кооператива в скобках (см.
+    sms.sms_site_identifier): при отправке от чужого/бесплатного имени
+    отправителя операторы блокируют сообщения вида "Код: 1234" без
+    названия компании или адреса сайта (требование SMS Aero). label —
+    уже переведённая строка ("Код подтверждения"/"Код для восстановления
+    пароля"), само склеивание — не лингвистический контент, перевод не
+    нужен."""
+    coop = database.db_session.query(Cooperative).first()
+    site = sms_site_identifier(coop)
+    return f"{label}: {code} ({site})" if site else f"{label}: {code}"
 
 
 def _person_by_phone_digits(digits: str) -> "Person | None":
@@ -237,7 +250,7 @@ def login_by_phone():
             VerificationCodePurpose.PHONE_REGISTER, digits, payload=generate_password_hash(password),
         )
         try:
-            client.send(digits, _("Код подтверждения: {code}", code=code))
+            client.send(digits, _sms_code_text(_("Код подтверждения"), code))
         except SmsError as exc:
             database.db_session.rollback()
             flash(_("Не удалось отправить СМС: {error}", error=str(exc)), "danger")
@@ -308,7 +321,7 @@ def register_phone_resend():
 
     code = verification.issue_code(VerificationCodePurpose.PHONE_REGISTER, digits, payload=existing_payload)
     try:
-        client.send(digits, _("Код подтверждения: {code}", code=code))
+        client.send(digits, _sms_code_text(_("Код подтверждения"), code))
     except SmsError as exc:
         database.db_session.rollback()
         flash(_("Не удалось отправить СМС: {error}", error=str(exc)), "danger")
@@ -430,7 +443,7 @@ def forgot_password():
                 client = get_sms_client(sms_settings)
                 if client is not None:
                     try:
-                        client.send(target, _("Код для восстановления пароля: {code}", code=code))
+                        client.send(target, _sms_code_text(_("Код для восстановления пароля"), code))
                     except SmsError:
                         pass
 

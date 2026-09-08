@@ -18,9 +18,9 @@ from . import database
 from . import audit
 from .i18n import translate as _
 from .auth import roles_required
-from .models import RoleEnum, SmsSettings, SmsProvider, SmsLog
+from .models import RoleEnum, SmsSettings, SmsProvider, SmsLog, Cooperative
 from .bank_api import crypto
-from .sms import get_sms_client, SmsError
+from .sms import get_sms_client, SmsError, sms_site_identifier
 
 bp = Blueprint("sms_settings", __name__, url_prefix="/sms")
 
@@ -108,8 +108,16 @@ def send_test():
         flash(_("Укажите корректный номер телефона для теста."), "warning")
         return redirect(url_for("sms_settings.view"))
 
+    coop = database.db_session.query(Cooperative).first()
+    site = sms_site_identifier(coop)
+    # Название/сайт кооператива в тексте — то же требование SMS Aero, что
+    # и у кода подтверждения (см. auth._sms_code_text): "система учёта
+    # кооператива" сама по себе — общая фраза, одинаковая у всех
+    # инсталляций, не конкретное название компании/сайта.
+    test_text = _("Тестовое сообщение из системы учёта кооператива ({site}).", site=site) if site \
+        else _("Тестовое сообщение из системы учёта кооператива.")
     try:
-        client.send(digits, _("Тестовое сообщение из системы учёта кооператива."))
+        client.send(digits, test_text)
         settings.last_test_result = _("Успешно отправлено.")
     except SmsError as exc:
         settings.last_test_result = str(exc)

@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Годовые отчёты") }}{% endblock %}
+{% block content %}
+<h3 class="mb-3">{{ _("Годовые отчёты") }}</h3>
+
+{% if reports %}
+<table class="table bg-body">
+  <thead>
+    <tr>
+      <th>{{ _("Год") }}</th>
+      <th>{{ _("Собрание") }}</th>
+      <th>{{ _("Смета") }}</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for report in reports %}
+    <tr>
+      <td>{{ report.year }}</td>
+      <td><a href="{{ url_for('meetings.list_meetings') }}">{{ fmt_date(report.meeting.date) }}</a></td>
+      <td>
+        {% if report.budget_total is not none %}
+        {{ fmt2(report.budget_total) }} ₽
+        {% if report.budget_approved %}<span class="badge bg-success">{{ _("утверждена") }}</span>{% else %}<span class="badge bg-warning text-dark">{{ _("не утверждена") }}</span>{% endif %}
+        {% else %}—{% endif %}
+      </td>
+      <td><a class="btn btn-sm btn-outline-secondary" href="{{ url_for('annual_reports.view', report_id=report.id) }}">{{ _("Открыть") }}</a></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="text-muted">{{ _("Годовых отчётов пока нет. Составить отчёт можно со страницы собрания, отмеченного как годовое отчётное.") }}</p>
+{% endif %}
+{% endblock %}

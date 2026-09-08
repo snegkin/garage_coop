@@ -85,7 +85,11 @@
   <div class="col-md-3">
     <div class="card h-100"><div class="card-body">
       <div class="text-muted">{{ _("Последний годовой отчёт") }}</div>
-      <div class="fs-5">{{ stats.last_report.year if stats.last_report else "—" }}</div>
+      <div class="fs-5">
+        {% if stats.last_report %}
+        <a href="{{ url_for('annual_reports.view', report_id=stats.last_report.id) }}">{{ stats.last_report.year }}</a>
+        {% else %}—{% endif %}
+      </div>
     </div></div>
   </div>
 </div>

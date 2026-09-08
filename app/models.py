@@ -735,22 +735,29 @@ class GeneralMeeting(Base):
 
     secretary: Mapped["Person | None"] = relationship(foreign_keys=[secretary_person_id])
     chairman: Mapped["Person | None"] = relationship(foreign_keys=[chairman_person_id])
+    annual_report: Mapped["AnnualReport | None"] = relationship(back_populates="meeting")
 
 
 class AnnualReport(Base):
-    """Годовой отчёт председателя: отчёт по расходам, смета и взносы на следующий год."""
+    """Годовой отчёт председателя: отчёт по расходам, смета и взносы на
+    следующий год — составляется на конкретном годовом отчётном собрании
+    (GeneralMeeting.is_annual_report_meeting), meeting_id уникален: одно
+    такое собрание — один отчёт (см. app/annual_reports.py: create())."""
     __tablename__ = "annual_report"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     year: Mapped[int] = mapped_column(Integer, index=True)
-    meeting_id: Mapped[int] = mapped_column(ForeignKey("general_meeting.id"), index=True)
+    meeting_id: Mapped[int] = mapped_column(ForeignKey("general_meeting.id"), unique=True, index=True)
     spending_report_document_id: Mapped[int | None] = mapped_column(ForeignKey("document.id", ondelete="SET NULL"), index=True)
     accounting_report_document_id: Mapped[int | None] = mapped_column(ForeignKey("document.id", ondelete="SET NULL"), index=True)
     budget_approved: Mapped[bool] = mapped_column(Boolean, default=False)
     budget_total: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
     comment: Mapped[str | None] = mapped_column(Text)
 
-    fee_rates: Mapped[list["FeeRate"]] = relationship(back_populates="annual_report")
+    meeting: Mapped["GeneralMeeting"] = relationship(back_populates="annual_report")
+    spending_report_document: Mapped["Document | None"] = relationship(foreign_keys=[spending_report_document_id])
+    accounting_report_document: Mapped["Document | None"] = relationship(foreign_keys=[accounting_report_document_id])
+    fee_rates: Mapped[list["FeeRate"]] = relationship(back_populates="annual_report", cascade="all, delete-orphan", order_by="FeeRate.id")
 
 
 class FeeRate(Base):

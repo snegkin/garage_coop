@@ -35,6 +35,7 @@
            пункт вне {% if is_board() %}. #}
         <li class="nav-item"><a class="nav-link" href="{{ url_for('bulletin.list_posts') }}">{{ _("Доска объявлений") }}</a></li>
         <li class="nav-item"><a class="nav-link" href="{{ url_for('meetings.list_meetings') }}">{{ _("Собрания") }}</a></li>
+        <li class="nav-item"><a class="nav-link" href="{{ url_for('annual_reports.list_reports') }}">{{ _("Годовые отчёты") }}</a></li>
         <li class="nav-item dropdown">
           <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">{{ _("Голосования") }}</a>
           <ul class="dropdown-menu">

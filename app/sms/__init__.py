@@ -10,15 +10,13 @@ get_sms_client() и не импортируют конкретные клиен�
 """
 from __future__ import annotations
 
-import re
+from urllib.parse import urlparse
 
 from .. import database
 from ..models import SmsSettings, SmsProvider, SmsLog, SmsLogStatus, Cooperative
 from ..bank_api import crypto
 from .base import SmsClient, SmsError
 from .smsaero import SmsAeroClient
-
-_PROTOCOL_RE = re.compile(r"^https?://", re.IGNORECASE)
 
 
 def sms_site_identifier(coop: Cooperative | None) -> str:
@@ -27,12 +25,21 @@ def sms_site_identifier(coop: Cooperative | None) -> str:
     отправке от чужого/бесплатного имени отправителя ("SMS Aero" по
     умолчанию, см. smsaero.py): сообщение с кодом должно содержать
     название компании/системы или адрес сайта — просто "Код: 1234" без
-    этого операторы блокируют. Сайт — БЕЗ протокола (http(s)://): ссылка
-    с протоколом тоже под запретом — без него на смартфонах она всё
-    равно остаётся кликабельной, а с ним считается подозрительной.
-    Сайт предпочтительнее просто имени, если он указан в реквизитах."""
+    этого операторы блокируют. Сайт — БЕЗ схемы (http(s)://, вообще
+    любой — не только http/https) и без пути/параметров, один голый
+    домен: ссылка со схемой тоже под запретом (без неё на смартфонах она
+    всё равно остаётся кликабельной, а с ней считается подозрительной).
+    urlparse сам корректно достаёт netloc независимо от схемы; если её
+    в поле вообще нет (сайт записан как голый "coop.ru", возможно даже с
+    путём вроде "coop.ru/about") — добавляем "//" перед разбором, иначе
+    urlparse принимает весь ввод за path, а не за netloc (задокументированное
+    поведение urlparse без схемы). Сайт предпочтительнее просто имени,
+    если он указан в реквизитах."""
     if coop and coop.website:
-        return _PROTOCOL_RE.sub("", coop.website).rstrip("/")
+        raw = coop.website.strip()
+        if "//" not in raw:
+            raw = f"//{raw}"
+        return urlparse(raw).netloc
     if coop and (coop.short_name or coop.full_name):
         return coop.short_name or coop.full_name
     return ""

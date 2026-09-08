@@ -65,6 +65,27 @@ def test_strips_http_protocol():
     assert sms_site_identifier(coop) == "mycoop.ru"
 
 
+def test_strips_non_http_scheme_too():
+    """urlparse достаёт netloc независимо от схемы, не только http/https."""
+    coop = Cooperative(full_name="X", website="ftp://mycoop.ru")
+    assert sms_site_identifier(coop) == "mycoop.ru"
+
+
+def test_strips_path_and_query():
+    coop = Cooperative(full_name="X", website="https://mycoop.ru/about?ref=1")
+    assert sms_site_identifier(coop) == "mycoop.ru"
+
+
+def test_handles_bare_domain_without_scheme():
+    coop = Cooperative(full_name="X", website="mycoop.ru")
+    assert sms_site_identifier(coop) == "mycoop.ru"
+
+
+def test_handles_bare_domain_with_path_and_no_scheme():
+    coop = Cooperative(full_name="X", website="mycoop.ru/about")
+    assert sms_site_identifier(coop) == "mycoop.ru"
+
+
 def test_falls_back_to_short_name_when_no_website(db):
     coop = _make_coop(db, short_name="ГСК Ромашка")
     assert sms_site_identifier(coop) == "ГСК Ромашка"

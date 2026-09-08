@@ -103,6 +103,67 @@
 </div>
 {% endif %}
 
+{% if collection_timeline %}
+<div class="card mb-4">
+  <div class="card-body">
+    <h5 class="card-title">{{ _("Собираемость взносов по годам") }}</h5>
+    {% if coop and coop.dues_due_day and coop.dues_due_month %}
+    <p class="text-muted small">{{ _("Крайний срок оплаты взносов по уставу — {day}.{month} каждого года; столбец «к сроку» показывает, какая доля начислений за год была погашена платежами не позже этой даты.", day="%02d"|format(coop.dues_due_day), month="%02d"|format(coop.dues_due_month)) }}</p>
+    {% else %}
+    <p class="text-muted small">{{ _("Крайний срок оплаты взносов не задан в реквизитах кооператива — показана только итоговая собираемость на сегодня, без сравнения с оплатой в срок.") }}</p>
+    {% endif %}
+    <div style="position:relative; height:260px;">
+      <canvas id="collectionRateChart"></canvas>
+    </div>
+  </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script>
+(function () {
+  var canvas = document.getElementById("collectionRateChart");
+  if (!canvas) return;
+  var timeline = {{ collection_timeline|tojson }};
+
+  new Chart(canvas.getContext("2d"), {
+    type: "bar",
+    data: {
+      labels: timeline.map(function (r) { return r.year; }),
+      datasets: [
+        {
+          label: {{ _("Оплачено к сроку") | tojson }},
+          data: timeline.map(function (r) { return r.rate_by_due_date; }),
+          backgroundColor: "#198754",
+        },
+        {
+          label: {{ _("Оплачено на сегодня") | tojson }},
+          data: timeline.map(function (r) { return r.rate_total; }),
+          backgroundColor: "#0d6efd",
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        y: { beginAtZero: true, max: 100, title: { display: true, text: "%" } },
+      },
+      plugins: {
+        tooltip: {
+          callbacks: {
+            afterLabel: function (ctx) {
+              var dueDate = timeline[ctx.dataIndex].due_date;
+              if (ctx.datasetIndex !== 0 || !dueDate) return "";
+              return {{ _("Срок") | tojson }} + ": " + dueDate;
+            },
+          },
+        },
+      },
+    },
+  });
+})();
+</script>
+{% endif %}
+
 <div class="modal fade" id="createMemberAccountModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg">
     <div class="modal-content">

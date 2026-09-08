@@ -1716,15 +1716,17 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Итоговый баланс": "Total balance",
         "Без учёта архивных счетов (закрытых при смене собственника гаража).": "Excludes archived accounts (closed on garage ownership transfer).",
 
-        # finance/member_accounts.html — график собираемости по годам
-        "Собираемость взносов по годам": "Dues collection rate by year",
-        "Крайний срок оплаты взносов по уставу — {day}.{month} каждого года; столбец «к сроку» показывает, какая доля начислений за год была погашена платежами не позже этой даты.":
-            "The bylaws-mandated dues deadline is {day}.{month} each year; the \"by deadline\" bar shows the share of that year's charges settled by payments made on or before that date.",
-        "Крайний срок оплаты взносов не задан в реквизитах кооператива — показана только итоговая собираемость на сегодня, без сравнения с оплатой в срок.":
-            "No dues deadline is set in the cooperative's details — only the overall collection rate to date is shown, without a comparison to on-time payment.",
-        "Оплачено к сроку": "Paid by deadline",
-        "Оплачено на сегодня": "Paid to date",
-        "Срок": "Deadline",
+        # finance/member_accounts.html — график собираемости в течение года
+        "Собираемость взносов в течение года": "Dues collection progress within the year",
+        "Пунктиром — крайний срок оплаты взносов по уставу в этом году: {date}.":
+            "Dashed line — the bylaws-mandated dues deadline for this year: {date}.",
+        "Крайний срок оплаты взносов не задан в реквизитах кооператива.":
+            "No dues deadline is set in the cooperative's details.",
+        "За этот год не было начислений.": "There were no charges in this year.",
+        "Собрано нарастающим итогом": "Collected, cumulative",
+        "янв": "Jan", "фев": "Feb", "мар": "Mar", "апр": "Apr",
+        "май": "May", "июн": "Jun", "июл": "Jul", "авг": "Aug",
+        "сен": "Sep", "окт": "Oct", "ноя": "Nov", "дек": "Dec",
 
         # garages/list.html, persons/list.html — подсветка строк + легенда
         "Нет счётчика электричества": "No electricity meter",

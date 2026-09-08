@@ -162,6 +162,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Куплю": "Buy",
         "Продам": "Sell",
         "Сдам": "Rent out",
+        "Аренда": "Lease",
+        "Ищу": "Looking for",
         "Услуги": "Services",
         "Контакт": "Contact",
         "Объявлений пока нет.": "No ads yet.",
@@ -182,6 +184,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Объявление опубликовано.": "Ad published.",
         "Объявление сохранено.": "Ad saved.",
         "Объявление удалено.": "Ad deleted.",
+        "Только для членов": "Members only",
+        "Видно только вошедшим пользователям": "Visible only to signed-in users",
+        "Только для членов кооператива (видна только авторизованным пользователям)":
+            "Members of the cooperative only (visible only to signed-in users)",
 
         # wiki
         "Вики": "Wiki",
@@ -226,8 +232,12 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Не удалось загрузить файл.": "Failed to upload the file.",
         "Жирный": "Bold",
         "Курсив": "Italic",
+        "Подчёркнутый": "Underline",
+        "Код (в строке)": "Inline code",
         "Подзаголовок": "Heading",
         "Список": "List",
+        "Маркированный список": "Bulleted list",
+        "Нумерованный список": "Numbered list",
         "Ссылка": "Link",
         "текст ссылки": "link text",
         "Адрес ссылки:": "Link URL:",

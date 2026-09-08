@@ -53,6 +53,24 @@ def test_category_filter(db, client):
     assert "Продам велосипед" not in body
 
 
+def test_lease_and_seeking_categories(db, client):
+    make_user(db, "member1", "pass12345", role=RoleEnum.MEMBER)
+    db.commit()
+    login(client, "member1", "pass12345")
+    _post_ad(client, category="lease", title="Аренда бокса на зиму")
+    _post_ad(client, category="seeking", title="Ищу мастера по сигнализациям")
+
+    lease_post = db.query(BulletinPost).filter_by(title="Аренда бокса на зиму").one()
+    seeking_post = db.query(BulletinPost).filter_by(title="Ищу мастера по сигнализациям").one()
+    assert lease_post.category == BulletinCategory.LEASE
+    assert seeking_post.category == BulletinCategory.SEEKING
+
+    resp = client.get("/bulletin/?category=lease")
+    body = resp.get_data(as_text=True)
+    assert "Аренда бокса на зиму" in body
+    assert "Ищу мастера по сигнализациям" not in body
+
+
 # ---------------------------------------------------------------------------
 # Публикация — любой вошедший, без привязки к роли/карточке Person
 # ---------------------------------------------------------------------------
@@ -174,3 +192,188 @@ def test_author_can_delete_own_post(db, client):
     resp = client.post(f"/bulletin/{post.id}/delete")
     assert resp.status_code == 302
     assert db.query(BulletinPost).count() == 0
+
+
+# ---------------------------------------------------------------------------
+# «Только для членов кооператива»
+# ---------------------------------------------------------------------------
+
+def test_members_only_post_hidden_from_anonymous(db, client):
+    make_user(db, "member1", "pass12345", role=RoleEnum.MEMBER)
+    db.commit()
+    login(client, "member1", "pass12345")
+    client.post("/bulletin/new", data={
+        "category": "sell", "title": "Секретное объявление", "description": "x", "contact": "x", "price": "",
+        "is_members_only": "on",
+    })
+    post = db.query(BulletinPost).one()
+    assert post.is_members_only is True
+    client.get("/auth/logout")
+
+    resp = client.get("/bulletin/")
+    assert "Секретное объявление" not in resp.get_data(as_text=True)
+
+
+def test_members_only_post_visible_to_any_logged_in_user(db, client):
+    make_user(db, "member1", "pass12345", role=RoleEnum.MEMBER)
+    make_user(db, "member2", "pass12345", role=RoleEnum.MEMBER)
+    db.commit()
+    login(client, "member1", "pass12345")
+    client.post("/bulletin/new", data={
+        "category": "sell", "title": "Секретное объявление", "description": "x", "contact": "x", "price": "",
+        "is_members_only": "on",
+    })
+    client.get("/auth/logout")
+
+    login(client, "member2", "pass12345")
+    resp = client.get("/bulletin/")
+    assert "Секретное объявление" in resp.get_data(as_text=True)
+
+
+def test_public_post_by_default(db, client):
+    """Чекбокс не отмечен — объявление, как и раньше, общедоступно."""
+    make_user(db, "member1", "pass12345", role=RoleEnum.MEMBER)
+    db.commit()
+    login(client, "member1", "pass12345")
+    _post_ad(client)
+    assert db.query(BulletinPost).one().is_members_only is False
+
+
+# ---------------------------------------------------------------------------
+# Форматирование текста (markdown, как у новостей/вики) и вложения
+# ---------------------------------------------------------------------------
+
+def test_description_renders_markdown(db, client):
+    make_user(db, "member1", "pass12345", role=RoleEnum.MEMBER)
+    db.commit()
+    login(client, "member1", "pass12345")
+    _post_ad(client, description="**жирный текст**")
+
+    resp = client.get("/bulletin/")
+    assert "<strong>жирный текст</strong>" in resp.get_data(as_text=True)
+
+
+def test_preview_endpoint_renders_current_markdown(db, client):
+    make_user(db, "member1", "pass12345", role=RoleEnum.MEMBER)
+    db.commit()
+    login(client, "member1", "pass12345")
+
+    resp = client.post("/bulletin/preview", data={"description": "*курсив*"})
+    assert resp.status_code == 200
+    assert "<em>курсив</em>" in resp.get_json()["html"]
+
+
+def test_preview_requires_login(client, db):
+    resp = client.post("/bulletin/preview", data={"description": "x"})
+    assert resp.status_code == 302
+
+
+def test_gallery_attachment_upload_and_display(db, client):
+    from io import BytesIO
+
+    make_user(db, "member1", "pass12345", role=RoleEnum.MEMBER)
+    db.commit()
+    login(client, "member1", "pass12345")
+
+    resp = client.post("/bulletin/new", data={
+        "category": "sell", "title": "С файлом", "description": "x", "contact": "x", "price": "",
+        "attachments": (BytesIO(b"fake pdf content"), "smeta.pdf"),
+    }, content_type="multipart/form-data")
+    assert resp.status_code == 302
+
+    post = db.query(BulletinPost).one()
+    assert len(post.attachments) == 1
+    assert post.attachments[0].original_filename == "smeta.pdf"
+    assert post.attachments[0].is_inline is False
+
+    list_resp = client.get("/bulletin/")
+    assert "smeta.pdf" in list_resp.get_data(as_text=True)
+
+
+def test_gallery_attachment_can_be_removed_on_edit(db, client):
+    from io import BytesIO
+
+    make_user(db, "member1", "pass12345", role=RoleEnum.MEMBER)
+    db.commit()
+    login(client, "member1", "pass12345")
+    client.post("/bulletin/new", data={
+        "category": "sell", "title": "С файлом", "description": "x", "contact": "x", "price": "",
+        "attachments": (BytesIO(b"fake"), "file.txt"),
+    }, content_type="multipart/form-data")
+    post = db.query(BulletinPost).one()
+    att_id = post.attachments[0].id
+
+    resp = client.post(f"/bulletin/{post.id}/edit", data={
+        "category": "sell", "title": "С файлом", "description": "x", "contact": "x", "price": "",
+        "remove_attachment": str(att_id),
+    })
+    assert resp.status_code == 302
+    db.expire_all()
+    assert db.query(BulletinPost).one().attachments == []
+
+
+def test_upload_inline_attachment_requires_login(client, db):
+    resp = client.post("/bulletin/attachments/upload", data={})
+    assert resp.status_code == 302
+
+
+def test_upload_inline_attachment_creates_orphan_attachment(db, client):
+    from io import BytesIO
+    from app.models import BulletinAttachment
+
+    make_user(db, "member1", "pass12345", role=RoleEnum.MEMBER)
+    db.commit()
+    login(client, "member1", "pass12345")
+
+    resp = client.post("/bulletin/attachments/upload", data={
+        "image": (BytesIO(b"\x89PNG\r\n\x1a\n"), "pic.png"),
+    }, content_type="multipart/form-data")
+    assert resp.status_code == 200
+    att = db.query(BulletinAttachment).one()
+    assert att.post_id is None
+    assert att.is_inline is True
+    assert resp.get_json()["url"].startswith("/bulletin/attachments/")
+
+
+def test_inline_attachment_gets_attached_on_save_when_referenced(db, client):
+    from io import BytesIO
+    from app.models import BulletinAttachment
+
+    make_user(db, "member1", "pass12345", role=RoleEnum.MEMBER)
+    db.commit()
+    login(client, "member1", "pass12345")
+
+    upload_resp = client.post("/bulletin/attachments/upload", data={
+        "image": (BytesIO(b"\x89PNG\r\n\x1a\n"), "pic.png"),
+    }, content_type="multipart/form-data")
+    url = upload_resp.get_json()["url"]
+
+    client.post("/bulletin/new", data={
+        "category": "sell", "title": "С картинкой", "description": f"![]({url})", "contact": "x", "price": "",
+    })
+    db.expire_all()
+    att = db.query(BulletinAttachment).one()
+    assert att.post_id is not None
+
+
+# ---------------------------------------------------------------------------
+# Видимость вложений «только для членов»
+# ---------------------------------------------------------------------------
+
+def test_attachment_of_members_only_post_blocked_for_anonymous(db, client):
+    from io import BytesIO
+
+    make_user(db, "member1", "pass12345", role=RoleEnum.MEMBER)
+    db.commit()
+    login(client, "member1", "pass12345")
+    client.post("/bulletin/new", data={
+        "category": "sell", "title": "Секрет", "description": "x", "contact": "x", "price": "",
+        "is_members_only": "on",
+        "attachments": (BytesIO(b"fake"), "file.txt"),
+    }, content_type="multipart/form-data")
+    post = db.query(BulletinPost).one()
+    att_id = post.attachments[0].id
+    client.get("/auth/logout")
+
+    resp = client.get(f"/bulletin/attachments/{att_id}/file.txt")
+    assert resp.status_code == 403

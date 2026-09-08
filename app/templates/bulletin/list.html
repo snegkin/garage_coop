@@ -22,6 +22,9 @@
     <div class="d-flex justify-content-between align-items-start gap-2">
       <div>
         <span class="badge bg-secondary mb-1">{{ _(category_labels[post.category]) }}</span>
+        {% if post.is_members_only %}
+        <span class="badge bg-warning text-dark mb-1" title="{{ _('Видно только вошедшим пользователям') }}">{{ _("Только для членов") }}</span>
+        {% endif %}
         <h5 class="card-title mb-1">{{ post.title }}</h5>
       </div>
       {% if post.price is not none %}
@@ -29,8 +32,27 @@
       {% endif %}
     </div>
     <p class="card-subtitle text-muted small mb-2">{{ fmt_date(post.created_at.date()) }}</p>
-    <p class="card-text" style="white-space:pre-wrap">{{ post.description }}</p>
-    <p class="mb-0"><strong>{{ _("Контакт") }}:</strong> {{ post.contact }}</p>
+    <div class="card-text">{{ render_news_html(post.description) }}</div>
+
+    {% set gallery_attachments = post.attachments | rejectattr("is_inline") | list %}
+    {% set images = gallery_attachments | selectattr("is_image") | list %}
+    {% set files = gallery_attachments | rejectattr("is_image") | list %}
+    {% if images %}
+    <div class="d-flex flex-wrap gap-2 mt-2">
+      {% for att in images %}
+      <img class="js-lightbox" src="{{ url_for('bulletin.attachment', attachment_id=att.id, original_filename=att.original_filename) }}" alt="" style="max-height:160px;border-radius:.375rem">
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% if files %}
+    <div class="d-flex flex-wrap gap-2 mt-2">
+      {% for att in files %}
+      <a href="{{ url_for('bulletin.attachment', attachment_id=att.id, original_filename=att.original_filename) }}" class="btn btn-sm btn-outline-secondary">{{ att.original_filename }}</a>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    <p class="mb-0 mt-2"><strong>{{ _("Контакт") }}:</strong> {{ post.contact }}</p>
     {% if current_user and (is_board() or post.author_id == current_user.id) %}
     <div class="mt-2 d-flex gap-2">
       <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('bulletin.edit', post_id=post.id) }}">{{ _("Изменить") }}</a>

@@ -87,7 +87,7 @@
         </td>
     </tr>
     <tr>
-        <td colspan="2">{{ _("Назначение платежа") }}: <strong>{{ account.fee_type.name }}, {{ _("гараж") }} №{{ account.garage.number }}</strong></td>
+        <td colspan="2">{{ _("Назначение платежа") }}: <strong>{{ account.fee_type.name }}, {{ _("гараж") }} №{{ account.garage.number }}</strong>{% if kind == "electricity" and coop.bank_fee_percent %} <span style="font-size:9px;">({{ _("сумма увеличена на {percent}% — комиссия банка за зачисление платежа", percent=fmt2(coop.bank_fee_percent)) }})</span>{% endif %}</td>
         <td>{{ _("Сумма") }}: <strong>{{ fmt2(amount) }} {{ _("руб") }}.</strong></td>
     </tr>
 
@@ -123,7 +123,7 @@
         </td>
     </tr>
     <tr>
-        <td colspan="2">{{ _("Назначение платежа") }}: <strong>{{ account.fee_type.name }}, {{ _("гараж") }} №{{ account.garage.number }}</strong></td>
+        <td colspan="2">{{ _("Назначение платежа") }}: <strong>{{ account.fee_type.name }}, {{ _("гараж") }} №{{ account.garage.number }}</strong>{% if kind == "electricity" and coop.bank_fee_percent %} <span style="font-size:9px;">({{ _("сумма увеличена на {percent}% — комиссия банка за зачисление платежа", percent=fmt2(coop.bank_fee_percent)) }})</span>{% endif %}</td>
         <td>{{ _("Сумма") }}: <strong>{{ fmt2(amount) }} {{ _("руб") }}.</strong></td>
     </tr>
 </table>

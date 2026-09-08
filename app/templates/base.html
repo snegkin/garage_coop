@@ -882,6 +882,23 @@ tr.table-info-subtle { --bs-table-bg: var(--bs-info-bg-subtle); --bs-table-borde
 .wiki-code-block.is-collapsed pre { max-height: 14em; overflow: hidden; }
 .wiki-code-block.is-collapsed::before { content: ""; position: absolute; left: 1px; right: 1px; bottom: calc(.5rem + 3em); height: 3em; background: linear-gradient(transparent, var(--bs-tertiary-bg)); pointer-events: none; }
 .wiki-code-toggle { display: block; width: 100%; }
+/* Кнопка "Скопировать" — у ЛЮБОГО блока кода (см. news_format.py:
+   _wrap_long_code_block, .wiki-code-block оборачивает теперь все блоки,
+   не только длинные), в верхнем правом углу, появляется по наведению —
+   не занимает место постоянно, но и не спрятана за лишним кликом. На
+   touch-устройствах, где ":hover" не срабатывает без предварительного
+   тапа мимо, кнопка остаётся всегда видимой (media hover:none) — иначе
+   до неё было бы вообще не добраться. */
+.wiki-copy-btn {
+  position: absolute; top: .5rem; right: .5rem; z-index: 1;
+  font-size: .75rem; padding: .15rem .5rem; line-height: 1.4;
+  background-color: var(--bs-body-bg); border: 1px solid var(--bs-border-color); border-radius: .25rem;
+  color: var(--bs-secondary-color); opacity: 0; transition: opacity .15s;
+}
+.wiki-code-block:hover .wiki-copy-btn, .wiki-copy-btn:focus-visible, .wiki-copy-btn.is-copied { opacity: 1; }
+@media (hover: none) {
+  .wiki-copy-btn { opacity: 1; }
+}
 </style>
 <script>
 // Скрытый текст (.wiki-spoiler, см. <style> выше и news_format.py:
@@ -908,6 +925,28 @@ document.addEventListener("click", function (e) {
   if (!wrapper) return;
   var collapsed = wrapper.classList.toggle("is-collapsed");
   btn.textContent = collapsed ? btn.dataset.collapsedLabel : btn.dataset.expandedLabel;
+});
+// Кнопка "Скопировать" у блока кода (.wiki-copy-btn, см. <style> выше и
+// news_format.py: _wrap_long_code_block) — копирует именно ТЕКСТ из
+// <code> (не из кнопки/подсказки рядом), временно меняет подпись на
+// "Скопировано" тем же приёмом data-label, что и у .wiki-code-toggle.
+// navigator.clipboard требует secure context (https или localhost) —
+// если недоступен (напр. открыто по обычному http в локальной сети),
+// просто ничего не делает вместо падения с необработанным исключением.
+document.addEventListener("click", function (e) {
+  var btn = e.target.closest(".wiki-copy-btn");
+  if (!btn) return;
+  var wrapper = btn.closest(".wiki-code-block");
+  var code = wrapper && wrapper.querySelector("pre code");
+  if (!code || !navigator.clipboard) return;
+  navigator.clipboard.writeText(code.textContent).then(function () {
+    btn.textContent = btn.dataset.copiedLabel;
+    btn.classList.add("is-copied");
+    setTimeout(function () {
+      btn.textContent = btn.dataset.copyLabel;
+      btn.classList.remove("is-copied");
+    }, 1500);
+  }).catch(function () {});
 });
 </script>
 <script>

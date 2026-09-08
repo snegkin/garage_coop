@@ -722,9 +722,15 @@ function localizeDatetime(el) {
    (обычный тег), побеждает по порядку подключения (наш <style> идёт
    после bootstrap.min.css). Точечные .text-decoration-none на отдельных
    ссылках (стрелки "назад", бейджи) стали избыточны, но не мешают —
-   не трогаем их, чтобы не плодить лишний diff. */
+   не трогаем их, чтобы не плодить лишний diff.
+   :not(.btn) — множество кнопок в проекте свёрстаны тегом <a
+   class="btn ..."> (переход по ссылке, оформленный как кнопка), а не
+   <button>: без исключения на них при наведении появлялось подчёркивание
+   текста поверх кнопки, как у обычной ссылки — Bootstrap сам такого не
+   делает (.btn у него text-decoration:none и на hover тоже), это
+   исключительно наше собственное a:hover, которое иначе их перекрывало. */
 a { text-decoration: none; }
-a:hover { text-decoration: underline; }
+a:hover:not(.btn) { text-decoration: underline; }
 table.sortable thead th:not(.no-sort) { cursor: pointer; user-select: none; white-space: nowrap; }
 table.sortable thead th:not(.no-sort)::after { content: "⇅"; opacity: .35; margin-left: 6px; font-size: .8em; }
 table.sortable thead th.sort-asc::after { content: "↑"; opacity: 1; }

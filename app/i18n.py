@@ -57,7 +57,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
 
         # auth — подтверждение телефона СМС-кодом при самостоятельной регистрации
         "СМС-уведомления пока не настроены — обратитесь к председателю.": "SMS notifications aren't configured yet — please contact the chairman.",
-        "Код подтверждения: {code}": "Confirmation code: {code}",
+        "Код подтверждения": "Confirmation code",
         "Не удалось отправить СМС: {error}": "Failed to send SMS: {error}",
         "Некорректный номер телефона.": "Invalid phone number.",
         "Запросите код заново, указав телефон и пароль.": "Request a new code by entering your phone number and password again.",
@@ -79,7 +79,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Восстановление пароля": "Password recovery",
         "Код для восстановления пароля: {code}\n\nЕсли вы не запрашивали восстановление пароля, просто проигнорируйте это письмо.":
             "Password recovery code: {code}\n\nIf you didn't request a password reset, just ignore this email.",
-        "Код для восстановления пароля: {code}": "Password recovery code: {code}",
+        "Код для восстановления пароля": "Password recovery code",
         "Не удалось найти учётную запись — обратитесь к председателю.": "Couldn't find an account — please contact the chairman.",
         "Пароль изменён — теперь можно войти.": "Password changed — you can now sign in.",
         "Укажите email или номер телефона, привязанные к вашей учётной записи, — вышлем код для сброса пароля.":
@@ -124,6 +124,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Сначала укажите email и API-ключ SMS Aero.": "First enter the SMS Aero email and API key.",
         "Укажите корректный номер телефона для теста.": "Enter a valid phone number for the test.",
         "необязательно": "optional",
+        "Тестовое сообщение из системы учёта кооператива.": "Test message from the cooperative management system.",
+        "Тестовое сообщение из системы учёта кооператива ({site}).": "Test message from the cooperative management system ({site}).",
         "Журнал отправленных СМС": "SMS send log",
         "Каждая попытка отправки — регистрация по телефону, восстановление пароля, тестовое сообщение. Показаны последние 500 записей.":
             "Every send attempt — phone registration, password recovery, test message. The last 500 records are shown.",

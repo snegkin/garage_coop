@@ -10,11 +10,32 @@ get_sms_client() и не импортируют конкретные клиен�
 """
 from __future__ import annotations
 
+import re
+
 from .. import database
-from ..models import SmsSettings, SmsProvider, SmsLog, SmsLogStatus
+from ..models import SmsSettings, SmsProvider, SmsLog, SmsLogStatus, Cooperative
 from ..bank_api import crypto
 from .base import SmsClient, SmsError
 from .smsaero import SmsAeroClient
+
+_PROTOCOL_RE = re.compile(r"^https?://", re.IGNORECASE)
+
+
+def sms_site_identifier(coop: Cooperative | None) -> str:
+    """Название кооператива или адрес его сайта — для текста SMS с кодом
+    подтверждения. Требование SMS Aero (и операторов связи вообще) при
+    отправке от чужого/бесплатного имени отправителя ("SMS Aero" по
+    умолчанию, см. smsaero.py): сообщение с кодом должно содержать
+    название компании/системы или адрес сайта — просто "Код: 1234" без
+    этого операторы блокируют. Сайт — БЕЗ протокола (http(s)://): ссылка
+    с протоколом тоже под запретом — без него на смартфонах она всё
+    равно остаётся кликабельной, а с ним считается подозрительной.
+    Сайт предпочтительнее просто имени, если он указан в реквизитах."""
+    if coop and coop.website:
+        return _PROTOCOL_RE.sub("", coop.website).rstrip("/")
+    if coop and (coop.short_name or coop.full_name):
+        return coop.short_name or coop.full_name
+    return ""
 
 
 class _LoggingSmsClient(SmsClient):

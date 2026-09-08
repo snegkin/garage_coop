@@ -180,7 +180,7 @@
 </nav>
 {% endif %}
 
-<div class="container pb-5">
+<div class="container pb-5" id="mainContent">
   {% with messages = get_flashed_messages(with_categories=true) %}
     {% if messages %}
       {% for category, message in messages %}
@@ -976,8 +976,14 @@ document.addEventListener("click", function (e) {
 // sortStorageKey/saveSortState/loadSortState) и применяются заново при
 // следующем открытии той же таблицы — сервер об этом ничего не знает,
 // каждый посетитель видит свой собственный последний выбор.
-document.addEventListener("DOMContentLoaded", function () {
-  const tables = Array.from(document.querySelectorAll("table.sortable"));
+//
+// Вынесено в именованную функцию initSortableTables(root), а не разовое
+// замыкание на DOMContentLoaded — после AJAX-подмены #mainContent (см.
+// «Единый AJAX-обработчик модальных форм» ниже) новый кусок страницы нужно
+// «оживить» точно так же, как при обычной загрузке; root — document при
+// обычной загрузке или подменённый контейнер после AJAX-сохранения формы.
+function initSortableTables(root) {
+  const tables = Array.from(root.querySelectorAll("table.sortable"));
 
   function cellValue(row, colIndex) {
     const cell = row.children[colIndex];
@@ -1063,7 +1069,8 @@ document.addEventListener("DOMContentLoaded", function () {
       applySort(table, saved.col, saved.dir);
     }
   });
-});
+}
+document.addEventListener("DOMContentLoaded", function () { initSortableTables(document); });
 
 // Текстовый фильтр + клиентская пагинация для любой таблицы с атрибутом
 // data-page-size — разметочный приём, общий для нескольких таблиц на одной
@@ -1089,19 +1096,22 @@ document.addEventListener("DOMContentLoaded", function () {
 //   data-select-filter-attr — имя data-атрибута на <tr> для сравнения) —
 //   показывает только строки, где этот атрибут равен выбранному значению
 //   селекта (пустое значение селекта — показать все).
-document.addEventListener("DOMContentLoaded", function () {
+// Вынесено в initFilterableTables(root) по той же причине, что и
+// initSortableTables выше — нужно уметь заново подключить фильтр/пейджер
+// к таблице, пришедшей через AJAX-подмену #mainContent.
+function initFilterableTables(root) {
   var PAGE_RADIUS = 3;
 
-  document.querySelectorAll("table[data-page-size]").forEach(function (table) {
+  root.querySelectorAll("table[data-page-size]").forEach(function (table) {
     var id = table.id;
     if (!id) return;
     var pageSize = parseInt(table.getAttribute("data-page-size"), 10) || 20;
-    var input = document.querySelector('[data-table-filter-for="' + id + '"]');
-    var pager = document.querySelector('[data-pager-for="' + id + '"]');
+    var input = root.querySelector('[data-table-filter-for="' + id + '"]');
+    var pager = root.querySelector('[data-pager-for="' + id + '"]');
     var pagerLinks = pager ? pager.querySelector("ul") : null;
-    var noResults = document.querySelector('[data-no-results-for="' + id + '"]');
-    var activeOnlyCheckbox = document.querySelector('[data-active-only-for="' + id + '"]');
-    var selectFilter = document.querySelector('[data-select-filter-for="' + id + '"]');
+    var noResults = root.querySelector('[data-no-results-for="' + id + '"]');
+    var activeOnlyCheckbox = root.querySelector('[data-active-only-for="' + id + '"]');
+    var selectFilter = root.querySelector('[data-select-filter-for="' + id + '"]');
     var selectFilterAttr = selectFilter ? selectFilter.getAttribute("data-select-filter-attr") : null;
     if (!table.querySelector("tbody tr[data-filter-text]")) return;
     var currentPage = 1;
@@ -1192,7 +1202,8 @@ document.addEventListener("DOMContentLoaded", function () {
     table.addEventListener("table:sorted", function () { currentPage = 1; update(); });
     update();
   });
-});
+}
+document.addEventListener("DOMContentLoaded", function () { initFilterableTables(document); });
 
 // Чекбокс «Актуальные» у таблицы лицевых счетов (страницы гаража/человека,
 // см. data-active-accounts-toggle на самом чекбоксе — CSS-селектор его
@@ -1201,10 +1212,11 @@ document.addEventListener("DOMContentLoaded", function () {
 // — вид взноса пеня и текущий баланс ровно 0, см. account_summary_rows/
 // persons.detail): исторический шум, который не нужен для повседневной
 // работы, но должен быть доступен по снятой галочке. Общий разметочный
-// приём для нескольких шаблонов, а не копия скрипта в каждом.
-document.addEventListener("DOMContentLoaded", function () {
-  document.querySelectorAll("[data-active-accounts-toggle]").forEach(function (checkbox) {
-    var rows = document.querySelectorAll(checkbox.getAttribute("data-active-accounts-toggle"));
+// приём для нескольких шаблонов, а не копия скрипта в каждом. Вынесено в
+// initActiveAccountsToggle(root) по той же причине, что и функции выше.
+function initActiveAccountsToggle(root) {
+  root.querySelectorAll("[data-active-accounts-toggle]").forEach(function (checkbox) {
+    var rows = root.querySelectorAll(checkbox.getAttribute("data-active-accounts-toggle"));
     function apply() {
       rows.forEach(function (row) {
         var isNoise = row.getAttribute("data-archived") === "1" || row.getAttribute("data-zero-penalty") === "1";
@@ -1214,16 +1226,20 @@ document.addEventListener("DOMContentLoaded", function () {
     checkbox.addEventListener("change", apply);
     apply();
   });
-});
+}
+document.addEventListener("DOMContentLoaded", function () { initActiveAccountsToggle(document); });
 
 // CSRF: подставляем скрытое поле csrf_token в каждую POST-форму на странице.
 // Централизованно здесь, а не руками в 40+ шаблонах — новые формы получают
 // защиту автоматически, без риска забыть добавить поле в конкретном шаблоне.
-document.addEventListener("DOMContentLoaded", function () {
+// Вынесено в injectCsrfTokens(root) по той же причине, что и функции выше —
+// формы, пришедшие через AJAX-подмену #mainContent, тоже должны получить
+// скрытое поле, иначе следующий сабмит такой формы будет отклонён как CSRF.
+function injectCsrfTokens(root) {
   var token = document.querySelector('meta[name="csrf-token"]');
   if (!token) return;
   token = token.getAttribute("content");
-  document.querySelectorAll("form").forEach(function (form) {
+  root.querySelectorAll("form").forEach(function (form) {
     var method = (form.getAttribute("method") || "get").toLowerCase();
     if (method !== "post") return;
     if (form.querySelector('input[name="csrf_token"]')) return;
@@ -1233,7 +1249,8 @@ document.addEventListener("DOMContentLoaded", function () {
     input.value = token;
     form.appendChild(input);
   });
-});
+}
+document.addEventListener("DOMContentLoaded", function () { injectCsrfTokens(document); });
 
 // Быстрое начисление/платёж прямо из таблицы «Лицевые счета» на странице
 // гаража/человека (см. finance/_quick_transaction_modals.html) — заходить
@@ -1288,6 +1305,112 @@ document.addEventListener("submit", function (e) {
       if (button) button.disabled = false;
       errorBox.textContent = "{{ _("Не удалось выполнить запрос — проверьте соединение и попробуйте ещё раз.") }}";
       errorBox.classList.remove("d-none");
+    });
+});
+
+// При innerHTML-подмене браузер не исполняет новые <script>-теги —
+// runContentScripts(root) пересоздаёт каждый script-узел внутри root
+// (тот же приём, что в Turbo/htmx), чтобы собственный JS конкретных страниц
+// (напр. свой текстовый фильтр в counterparties/list.html) заработал и на
+// подменённом через AJAX куске, не только при обычной загрузке страницы.
+function runContentScripts(root) {
+  Array.from(root.querySelectorAll("script")).forEach(function (oldScript) {
+    var newScript = document.createElement("script");
+    Array.from(oldScript.attributes).forEach(function (attr) {
+      newScript.setAttribute(attr.name, attr.value);
+    });
+    newScript.textContent = oldScript.textContent;
+    oldScript.replaceWith(newScript);
+  });
+}
+
+// Единый AJAX-обработчик ЛЮБОЙ формы внутри модалки (<div class="modal">) —
+// по всему приложению, без правки конкретных роутов и шаблонов. Модалки
+// добавления/редактирования (собрания, контрагенты, расчётные счета,
+// составы правления, судебные участки, документы, регистраторы и т.п.)
+// сейчас делают обычный POST → redirect → полная перезагрузка страницы;
+// конечный HTML этого редиректа и так уже содержит актуальное состояние
+// страницы — просто перехватываем сабмит, забираем этот же HTML через
+// fetch() (он сам проходит по цепочке редиректов) и подменяем им только
+// #mainContent, не всю страницу. Ни один роут при этом не меняется: они
+// не проверяют X-Requested-With и продолжают работать как обычно, просто
+// их ответ теперь читает fetch(), а не полноценная навигация браузера.
+//
+// Пропускаем формы с классами .js-quick-charge-form/.js-quick-payment-form
+// (уже обработаны выше — у них свой JSON-контракт под конкретную задачу) и
+// формы с opt-out атрибутом data-no-ajax (задел на случай формы, которой
+// это не подходит — сейчас такой нет ни одной).
+document.addEventListener("submit", function (e) {
+  var form = e.target;
+  if (form.classList.contains("js-quick-charge-form") || form.classList.contains("js-quick-payment-form")) return;
+  if (form.hasAttribute("data-no-ajax")) return;
+  var modalEl = form.closest(".modal");
+  if (!modalEl) return;
+  e.preventDefault();
+
+  var submitButton = modalEl.querySelector('.modal-footer button:not([type="button"])');
+  if (submitButton) submitButton.disabled = true;
+
+  // Модалка и её побочные эффекты (задник, классы/стили body) снимаются
+  // сразу и без анимации — сам DOM-узел модалки всё равно будет заменён
+  // вместе с остальным #mainContent, ждать fade-переход смысла нет.
+  var bsModal = window.bootstrap ? window.bootstrap.Modal.getInstance(modalEl) : null;
+  if (bsModal) bsModal.dispose();
+  document.querySelectorAll(".modal-backdrop").forEach(function (el) { el.remove(); });
+  document.body.classList.remove("modal-open");
+  document.body.style.removeProperty("padding-right");
+  document.body.style.removeProperty("overflow");
+
+  // Значения полей фильтра/сортировки таблиц запоминаем по id — сегодняшняя
+  // полная перезагрузка их и так сбрасывает, но раз уж страница больше не
+  // перезагружается целиком, заодно и это чиним.
+  var mainContent = document.getElementById("mainContent");
+  var filterState = [];
+  if (mainContent) {
+    mainContent.querySelectorAll(
+      "[data-table-filter-for], [data-select-filter-for], [data-active-only-for]"
+    ).forEach(function (el) {
+      if (!el.id) return;
+      filterState.push({ id: el.id, type: el.type, value: el.value, checked: el.checked });
+    });
+  }
+
+  fetch(form.action, {
+    method: "POST",
+    body: new FormData(form),
+    headers: { "X-Requested-With": "XMLHttpRequest" },
+  })
+    .then(function (resp) { return resp.text(); })
+    .then(function (html) {
+      var newDoc = new DOMParser().parseFromString(html, "text/html");
+      var newMain = newDoc.getElementById("mainContent");
+      if (!mainContent || !newMain) {
+        window.location.reload();
+        return;
+      }
+      var scrollY = window.scrollY;
+      mainContent.innerHTML = newMain.innerHTML;
+
+      filterState.forEach(function (saved) {
+        var el = document.getElementById(saved.id);
+        if (!el) return;
+        if (saved.type === "checkbox") {
+          el.checked = saved.checked;
+        } else {
+          el.value = saved.value;
+        }
+        el.dispatchEvent(new Event(saved.type === "checkbox" ? "change" : "input"));
+      });
+
+      injectCsrfTokens(mainContent);
+      initSortableTables(mainContent);
+      initFilterableTables(mainContent);
+      initActiveAccountsToggle(mainContent);
+      runContentScripts(mainContent);
+      window.scrollTo(0, scrollY);
+    })
+    .catch(function () {
+      window.location.reload();
     });
 });
 </script>

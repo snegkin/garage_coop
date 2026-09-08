@@ -196,7 +196,13 @@
 </template>
 
 <script>
-document.addEventListener("DOMContentLoaded", function () {
+// Обычный IIFE, не document.addEventListener("DOMContentLoaded", ...) —
+// скрипт стоит в разметке сразу после нужных ему элементов, поэтому
+// исполняется и при обычной загрузке страницы, и при повторном запуске
+// через runContentScripts() после AJAX-сохранения формы регистратора (см.
+// base.html) — событие DOMContentLoaded к этому моменту уже не наступит
+// повторно, обычный вызов функции — наступит.
+(function () {
   const template = document.getElementById("cameraRowTemplate");
   if (!template) return;
 
@@ -227,7 +233,7 @@ document.addEventListener("DOMContentLoaded", function () {
     wireRemove(node.querySelector(".camera-row"));
     newContainer.appendChild(node);
   }
-});
+})();
 </script>
 {% endif %}
 
@@ -240,6 +246,15 @@ document.addEventListener("DOMContentLoaded", function () {
 // под 10-ю секунду каждой минуты ПО ЛОКАЛЬНОМУ ВРЕМЕНИ КОМПЬЮТЕРА
 // пользователя — с запасом после cron-момента, но не настолько поздно,
 // чтобы кадр казался устаревшим.
+// window.__dvrRefreshScheduled — защита от повторного запуска: этот скрипт
+// может быть повторно выполнен через runContentScripts() после AJAX-
+// сохранения формы регистратора (см. base.html), без этой пометки на
+// странице накапливались бы параллельные setTimeout-цепочки, дублирующие
+// один и тот же перезапрос кадров.
+if (!window.__dvrRefreshScheduled) {
+  window.__dvrRefreshScheduled = true;
+  scheduleNextDvrRefresh();
+}
 function scheduleNextDvrRefresh() {
   var now = new Date();
   var next = new Date(now);
@@ -254,6 +269,5 @@ function scheduleNextDvrRefresh() {
     scheduleNextDvrRefresh();
   }, next - now);
 }
-scheduleNextDvrRefresh();
 </script>
 {% endblock %}

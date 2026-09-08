@@ -103,43 +103,81 @@
 </div>
 {% endif %}
 
-{% if collection_timeline %}
+{% if collection_years %}
 <div class="card mb-4">
   <div class="card-body">
-    <h5 class="card-title">{{ _("Собираемость взносов по годам") }}</h5>
-    {% if coop and coop.dues_due_day and coop.dues_due_month %}
-    <p class="text-muted small">{{ _("Крайний срок оплаты взносов по уставу — {day}.{month} каждого года; столбец «к сроку» показывает, какая доля начислений за год была погашена платежами не позже этой даты.", day="%02d"|format(coop.dues_due_day), month="%02d"|format(coop.dues_due_month)) }}</p>
-    {% else %}
-    <p class="text-muted small">{{ _("Крайний срок оплаты взносов не задан в реквизитах кооператива — показана только итоговая собираемость на сегодня, без сравнения с оплатой в срок.") }}</p>
-    {% endif %}
-    <div style="position:relative; height:260px;">
-      <canvas id="collectionRateChart"></canvas>
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+      <h5 class="card-title mb-0">{{ _("Собираемость взносов в течение года") }}</h5>
+      <form method="get" class="d-flex align-items-center gap-2">
+        <label class="form-label mb-0 small text-muted">{{ _("Год") }}</label>
+        <select class="form-select form-select-sm" style="width:auto" name="collection_year" onchange="this.form.submit()">
+          {% for y in collection_years %}
+          <option value="{{ y }}" {{ "selected" if y == collection_year }}>{{ y }}</option>
+          {% endfor %}
+        </select>
+      </form>
     </div>
+    {% if collection_progress %}
+      {% if collection_progress.due_date %}
+      <p class="text-muted small mt-2 mb-0">{{ _("Пунктиром — крайний срок оплаты взносов по уставу в этом году: {date}.", date=collection_progress.due_date) }}</p>
+      {% else %}
+      <p class="text-muted small mt-2 mb-0">{{ _("Крайний срок оплаты взносов не задан в реквизитах кооператива.") }}</p>
+      {% endif %}
+      <div style="position:relative; height:260px;" class="mt-2">
+        <canvas id="collectionRateChart"></canvas>
+      </div>
+    {% else %}
+      <p class="text-muted small mt-2 mb-0">{{ _("За этот год не было начислений.") }}</p>
+    {% endif %}
   </div>
 </div>
+{% if collection_progress %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script>
 (function () {
   var canvas = document.getElementById("collectionRateChart");
   if (!canvas) return;
-  var timeline = {{ collection_timeline|tojson }};
+  var progress = {{ collection_progress|tojson }};
+  var monthLabels = [
+    {{ _("янв") | tojson }}, {{ _("фев") | tojson }}, {{ _("мар") | tojson }}, {{ _("апр") | tojson }},
+    {{ _("май") | tojson }}, {{ _("июн") | tojson }}, {{ _("июл") | tojson }}, {{ _("авг") | tojson }},
+    {{ _("сен") | tojson }}, {{ _("окт") | tojson }}, {{ _("ноя") | tojson }}, {{ _("дек") | tojson }},
+  ];
+
+  // Пунктирная вертикальная линия на месяце крайнего срока оплаты —
+  // Chart.js не умеет такое из коробки без отдельного плагина аннотаций
+  // (лишняя внешняя библиотека ради одной линии), рисуем сами через
+  // afterDraw на низком уровне canvas API.
+  var dueLinePlugin = {
+    id: "dueLine",
+    afterDraw: function (chart) {
+      if (!progress.due_month) return;
+      var xScale = chart.scales.x, yScale = chart.scales.y;
+      var x = xScale.getPixelForValue(progress.due_month - 1);
+      var ctx = chart.ctx;
+      ctx.save();
+      ctx.strokeStyle = "#dc3545";
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.moveTo(x, yScale.top);
+      ctx.lineTo(x, yScale.bottom);
+      ctx.stroke();
+      ctx.restore();
+    },
+  };
 
   new Chart(canvas.getContext("2d"), {
-    type: "bar",
+    type: "line",
     data: {
-      labels: timeline.map(function (r) { return r.year; }),
-      datasets: [
-        {
-          label: {{ _("Оплачено к сроку") | tojson }},
-          data: timeline.map(function (r) { return r.rate_by_due_date; }),
-          backgroundColor: "#198754",
-        },
-        {
-          label: {{ _("Оплачено на сегодня") | tojson }},
-          data: timeline.map(function (r) { return r.rate_total; }),
-          backgroundColor: "#0d6efd",
-        },
-      ],
+      labels: monthLabels,
+      datasets: [{
+        label: {{ _("Собрано нарастающим итогом") | tojson }},
+        data: progress.cumulative_rate,
+        borderColor: "#0d6efd",
+        backgroundColor: "#0d6efd",
+        tension: 0.15,
+        fill: false,
+      }],
     },
     options: {
       responsive: true,
@@ -147,21 +185,13 @@
       scales: {
         y: { beginAtZero: true, max: 100, title: { display: true, text: "%" } },
       },
-      plugins: {
-        tooltip: {
-          callbacks: {
-            afterLabel: function (ctx) {
-              var dueDate = timeline[ctx.dataIndex].due_date;
-              if (ctx.datasetIndex !== 0 || !dueDate) return "";
-              return {{ _("Срок") | tojson }} + ": " + dueDate;
-            },
-          },
-        },
-      },
+      plugins: { legend: { display: false } },
     },
+    plugins: [dueLinePlugin],
   });
 })();
 </script>
+{% endif %}
 {% endif %}
 
 <div class="modal fade" id="createMemberAccountModal" tabindex="-1" aria-hidden="true">

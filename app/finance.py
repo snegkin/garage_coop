@@ -107,28 +107,11 @@ def _account_stats(rows: list[tuple[MemberAccount, Decimal]]) -> dict:
     }
 
 
-def _collection_timeline(coop: Cooperative | None) -> list[dict]:
-    """
-    Собираемость взносов по ГОДАМ (по активным счетам членов, без пени) —
-    для наглядного графика на finance/member_accounts.html: сколько было
-    начислено за год, сколько уже оплачено (на сегодня, rate_total), и
-    сколько было оплачено К СРОКУ (rate_by_due_date) — единая по уставу
-    дата в году, Cooperative.dues_due_day/dues_due_month, см.
-    accounting.dues_due_date. Так видно не только итоговую собираемость
-    задним числом, но и какая доля членов платит вовремя.
-
-    «Оплачено к сроку» считается через ChargeAllocation (точное разнесение
-    FIFO платежей по начислениям — тот же принцип, что и в
-    main._collection_rate), отфильтрованное по ДАТЕ ПЛАТЕЖА (Payment.date),
-    а не по дате самого начисления: важно, когда человек реально заплатил,
-    а не за какой год начислен долг, который этот платёж в итоге закрыл.
-
-    Возвращает список за все годы, где было хоть одно начисление
-    (отсортировано по возрастанию) — значения rate_* уже float и due_date
-    уже отформатирован строкой (не Decimal/date), чтобы результат можно
-    было напрямую отдать в шаблон через |tojson.
-    """
-    years = [
+def _collection_years() -> list[int]:
+    """Годы, за которые есть хоть одно начисление по активным счетам
+    членов (без пени) — список для выбора года на графике собираемости,
+    по возрастанию."""
+    return [
         y for (y,) in database.db_session.query(Charge.year)
         .join(MemberAccount, Charge.account_id == MemberAccount.id)
         .join(FeeType, MemberAccount.fee_type_id == FeeType.id)
@@ -138,51 +121,75 @@ def _collection_timeline(coop: Cooperative | None) -> list[dict]:
         .all()
     ]
 
-    rows = []
-    for year in years:
-        total_charged = (
-            database.db_session.query(func.sum(Charge.amount))
-            .join(MemberAccount, Charge.account_id == MemberAccount.id)
-            .join(FeeType, MemberAccount.fee_type_id == FeeType.id)
-            .filter(MemberAccount.is_archived.is_(False), FeeType.is_penalty.is_(False), Charge.year == year)
-            .scalar()
-        ) or Decimal("0")
-        if total_charged == 0:
-            continue
 
-        total_paid = (
-            database.db_session.query(func.sum(ChargeAllocation.amount))
-            .join(Charge, ChargeAllocation.charge_id == Charge.id)
-            .join(MemberAccount, Charge.account_id == MemberAccount.id)
-            .join(FeeType, MemberAccount.fee_type_id == FeeType.id)
-            .filter(MemberAccount.is_archived.is_(False), FeeType.is_penalty.is_(False), Charge.year == year)
-            .scalar()
-        ) or Decimal("0")
+def _collection_progress(coop: Cooperative | None, year: int) -> dict | None:
+    """
+    Собираемость взносов ВНУТРИ одного выбранного года — по активным
+    счетам членов (без пени), нарастающим итогом по месяцам: какая доля
+    начисленного за год уже была оплачена к концу каждого месяца. Нужно
+    видеть саму динамику сбора платежей в течение года (на что похожа
+    кривая — ровная, скачком к сроку, растянутая до конца года), а не
+    только годовые итоги "к сроку"/"на сегодня" одним числом (см. историю
+    в context.md — так график выглядел раньше).
 
-        due_date = dues_due_date(coop, year) if coop else None
-        rate_by_due_date = None
-        if due_date is not None:
-            paid_by_due = (
-                database.db_session.query(func.sum(ChargeAllocation.amount))
-                .join(Charge, ChargeAllocation.charge_id == Charge.id)
-                .join(MemberAccount, Charge.account_id == MemberAccount.id)
-                .join(FeeType, MemberAccount.fee_type_id == FeeType.id)
-                .join(Payment, ChargeAllocation.payment_id == Payment.id)
-                .filter(
-                    MemberAccount.is_archived.is_(False), FeeType.is_penalty.is_(False),
-                    Charge.year == year, Payment.date <= due_date,
-                )
-                .scalar()
-            ) or Decimal("0")
-            rate_by_due_date = float((paid_by_due / total_charged * 100).quantize(Decimal("0.1")))
+    Месяц платежа берётся по ДАТЕ ПЛАТЕЖА (Payment.date), не по дате
+    начисления — важно, когда человек реально заплатил. Платежи за это же
+    начисление, сделанные уже в СЛЕДУЮЩЕМ году (просрочка через границу
+    года), в кривую этого года не попадают — они про динамику следующего
+    года, а не этого; итог на конец декабря поэтому может быть меньше
+    итоговой собираемости "на сегодня" из более ранних версий этого
+    графика, если часть долга гасится уже после Нового года — это
+    ожидаемо, а не баг.
 
-        rows.append({
-            "year": year,
-            "due_date": format_date(due_date) if due_date is not None else None,
-            "rate_total": float((total_paid / total_charged * 100).quantize(Decimal("0.1"))),
-            "rate_by_due_date": rate_by_due_date,
-        })
-    return rows
+    Разнесение — через ChargeAllocation (точное FIFO), группировка по
+    месяцу — в Python, не SQL (нет `func.strftime` — не используется больше
+    нигде в проекте, ORM-объекты собираются и группируются на стороне
+    приложения, как и everywhere else, напр. main._collection_rate).
+
+    None, если за этот год не было ни одного начисления — тогда графику
+    нечего показывать.
+    """
+    total_charged = (
+        database.db_session.query(func.sum(Charge.amount))
+        .join(MemberAccount, Charge.account_id == MemberAccount.id)
+        .join(FeeType, MemberAccount.fee_type_id == FeeType.id)
+        .filter(MemberAccount.is_archived.is_(False), FeeType.is_penalty.is_(False), Charge.year == year)
+        .scalar()
+    ) or Decimal("0")
+    if total_charged == 0:
+        return None
+
+    allocations = (
+        database.db_session.query(ChargeAllocation.amount, Payment.date)
+        .join(Charge, ChargeAllocation.charge_id == Charge.id)
+        .join(MemberAccount, Charge.account_id == MemberAccount.id)
+        .join(FeeType, MemberAccount.fee_type_id == FeeType.id)
+        .join(Payment, ChargeAllocation.payment_id == Payment.id)
+        .filter(
+            MemberAccount.is_archived.is_(False), FeeType.is_penalty.is_(False),
+            Charge.year == year, Payment.date >= dt.date(year, 1, 1), Payment.date <= dt.date(year, 12, 31),
+        )
+        .all()
+    )
+    paid_by_month = [Decimal("0")] * 12
+    for amount, payment_date in allocations:
+        paid_by_month[payment_date.month - 1] += amount
+
+    running = Decimal("0")
+    cumulative_rate = []
+    for amount in paid_by_month:
+        running += amount
+        cumulative_rate.append(float((running / total_charged * 100).quantize(Decimal("0.1"))))
+
+    due_date = dues_due_date(coop, year) if coop else None
+    return {
+        "year": year,
+        "months": list(range(1, 13)),
+        "cumulative_rate": cumulative_rate,
+        "due_month": due_date.month if due_date is not None else None,
+        "due_date": format_date(due_date) if due_date is not None else None,
+        "total_charged": float(total_charged),
+    }
 
 
 @bp.route("/member-accounts")
@@ -202,10 +209,21 @@ def member_accounts():
     all_garages = database.db_session.query(Garage).order_by(Garage.number).all()
     all_fee_types = database.db_session.query(FeeType).order_by(FeeType.name).all()
     coop = database.db_session.query(Cooperative).first()
+
+    # Год для графика собираемости — из query-параметра (переключатель на
+    # странице, обычный GET, без AJAX), иначе последний год с начислениями
+    # (обычно текущий) — самый вероятный интерес правления по умолчанию.
+    collection_years = _collection_years()
+    collection_year = request.args.get("collection_year", type=int)
+    if collection_year not in collection_years:
+        collection_year = collection_years[-1] if collection_years else dt.date.today().year
+
     return render_template(
         "finance/member_accounts.html", rows=rows, has_unpaid_penalty=has_unpaid_penalty,
         all_persons=all_persons, all_garages=all_garages, all_fee_types=all_fee_types,
-        account_stats=_account_stats(rows), coop=coop, collection_timeline=_collection_timeline(coop),
+        account_stats=_account_stats(rows), coop=coop,
+        collection_years=collection_years, collection_year=collection_year,
+        collection_progress=_collection_progress(coop, collection_year),
     )
 
 

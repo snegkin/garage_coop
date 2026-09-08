@@ -86,6 +86,25 @@ def test_handles_bare_domain_with_path_and_no_scheme():
     assert sms_site_identifier(coop) == "mycoop.ru"
 
 
+def test_handles_cyrillic_domain():
+    """Домен в зоне .рф часто вводят кириллицей как есть (не в punycode) —
+    urlparse не привязан к ASCII, netloc достаётся так же корректно."""
+    coop = Cooperative(full_name="X", website="https://мойгараж.рф")
+    assert sms_site_identifier(coop) == "мойгараж.рф"
+
+
+def test_handles_cyrillic_domain_without_scheme():
+    coop = Cooperative(full_name="X", website="мойгараж.рф")
+    assert sms_site_identifier(coop) == "мойгараж.рф"
+
+
+def test_handles_punycode_domain():
+    """Тот же кириллический домен, но в закодированном (punycode) виде —
+    как его отдают некоторые регистраторы/панели управления."""
+    coop = Cooperative(full_name="X", website="https://xn----dtbbg1boax0b.xn--p1ai")
+    assert sms_site_identifier(coop) == "xn----dtbbg1boax0b.xn--p1ai"
+
+
 def test_falls_back_to_short_name_when_no_website(db):
     coop = _make_coop(db, short_name="ГСК Ромашка")
     assert sms_site_identifier(coop) == "ГСК Ромашка"

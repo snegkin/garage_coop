@@ -219,7 +219,7 @@ def test_page_shows_chart_and_year_selector(db, client):
     assert resp.status_code == 200
     body = resp.get_data(as_text=True)
     assert "collectionRateChart" in body
-    assert 'name="collection_year"' in body
+    assert 'id="collectionYearSelect"' in body
     assert '<option value="2024"' in body
     # По умолчанию выбран последний год с начислениями
     assert '<option value="2025" selected' in body
@@ -227,3 +227,52 @@ def test_page_shows_chart_and_year_selector(db, client):
     resp2 = client.get("/finance/member-accounts?collection_year=2024")
     body2 = resp2.get_data(as_text=True)
     assert '<option value="2024" selected' in body2
+
+
+# ---------------------------------------------------------------------------
+# Переключение года без перезагрузки страницы — JSON-эндпоинт
+# ---------------------------------------------------------------------------
+
+def test_collection_progress_data_endpoint_returns_json(db, client):
+    _make_coop(db, dues_due_day=1, dues_due_month=6)
+    person = make_person(db, full_name="Аякс Годовой Аяксович")
+    garage = make_garage(db, number="98")
+    make_ownership(db, garage, person)
+    account = _make_account(db, person, garage, "col8")
+    db.add(Charge(account_id=account.id, year=2024, amount=Decimal("100.00")))
+    db.add(Charge(account_id=account.id, year=2025, amount=Decimal("200.00")))
+    db.add(Payment(account_id=account.id, date=dt.date(2024, 5, 1), amount=Decimal("100.00")))
+    db.flush()
+    reallocate_member_charges(account)
+    _board_login(db, client)
+
+    resp = client.get("/finance/member-accounts/collection-progress?year=2024")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["year"] == 2024
+    assert data["points"][-1]["rate"] == 100.0
+
+
+def test_collection_progress_data_endpoint_rejects_unknown_year(db, client):
+    _make_coop(db)
+    person = make_person(db, full_name="Год Без Начислений")
+    garage = make_garage(db, number="99")
+    make_ownership(db, garage, person)
+    account = _make_account(db, person, garage, "col9")
+    db.add(Charge(account_id=account.id, year=2024, amount=Decimal("100.00")))
+    db.flush()
+    reallocate_member_charges(account)
+    _board_login(db, client)
+
+    resp = client.get("/finance/member-accounts/collection-progress?year=1999")
+    assert resp.status_code == 404
+
+
+def test_collection_progress_data_endpoint_requires_board(db, client):
+    _make_coop(db)
+    make_user(db, "member1", "pass12345", role=RoleEnum.MEMBER)
+    db.commit()
+    login(client, "member1", "pass12345")
+
+    resp = client.get("/finance/member-accounts/collection-progress?year=2024")
+    assert resp.status_code == 302

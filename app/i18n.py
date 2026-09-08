@@ -1720,6 +1720,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Собираемость взносов в течение года": "Dues collection progress within the year",
         "Пунктиром — крайний срок оплаты взносов по уставу в этом году: {date}.":
             "Dashed line — the bylaws-mandated dues deadline for this year: {date}.",
+        "Пунктиром — крайний срок оплаты взносов по уставу в этом году":
+            "Dashed line — the bylaws-mandated dues deadline for this year",
         "Крайний срок оплаты взносов не задан в реквизитах кооператива.":
             "No dues deadline is set in the cooperative's details.",
         "За этот год не было начислений.": "There were no charges in this year.",

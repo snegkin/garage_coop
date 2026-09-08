@@ -1,7 +1,7 @@
 import datetime as dt
 from decimal import Decimal, InvalidOperation
 
-from flask import Blueprint, render_template, request, redirect, url_for, flash, g, abort
+from flask import Blueprint, render_template, request, redirect, url_for, flash, g, abort, jsonify
 from sqlalchemy import or_, func
 
 from . import database
@@ -243,6 +243,22 @@ def member_accounts():
         collection_years=collection_years, collection_year=collection_year,
         collection_progress=_collection_progress(coop, collection_year),
     )
+
+
+@bp.route("/member-accounts/collection-progress")
+@roles_required(RoleEnum.BOARD)
+def collection_progress_data():
+    """
+    JSON для переключателя года у графика собираемости
+    (finance/member_accounts.html) — переключение года не должно
+    перезагружать всю страницу (список счетов, статистику и т.п.) ради
+    одного графика, только сам график перерисовывается через fetch().
+    """
+    year = request.args.get("year", type=int)
+    if year is None or year not in _collection_years():
+        abort(404)
+    coop = database.db_session.query(Cooperative).first()
+    return jsonify(_collection_progress(coop, year))
 
 
 @bp.route("/member-accounts/<int:account_id>")

@@ -108,48 +108,58 @@
   <div class="card-body">
     <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
       <h5 class="card-title mb-0">{{ _("Собираемость взносов в течение года") }}</h5>
-      <form method="get" class="d-flex align-items-center gap-2">
-        <label class="form-label mb-0 small text-muted">{{ _("Год") }}</label>
-        <select class="form-select form-select-sm" style="width:auto" name="collection_year" onchange="this.form.submit()">
+      <div class="d-flex align-items-center gap-2">
+        <label class="form-label mb-0 small text-muted" for="collectionYearSelect">{{ _("Год") }}</label>
+        <select class="form-select form-select-sm" style="width:auto" id="collectionYearSelect">
           {% for y in collection_years %}
           <option value="{{ y }}" {{ "selected" if y == collection_year }}>{{ y }}</option>
           {% endfor %}
         </select>
-      </form>
-    </div>
-    {% if collection_progress %}
-      {% if collection_progress.due_date %}
-      <p class="text-muted small mt-2 mb-0">{{ _("Пунктиром — крайний срок оплаты взносов по уставу в этом году: {date}.", date=collection_progress.due_date) }}</p>
-      {% else %}
-      <p class="text-muted small mt-2 mb-0">{{ _("Крайний срок оплаты взносов не задан в реквизитах кооператива.") }}</p>
-      {% endif %}
-      <div style="position:relative; height:260px;" class="mt-2">
-        <canvas id="collectionRateChart"></canvas>
       </div>
-    {% else %}
-      <p class="text-muted small mt-2 mb-0">{{ _("За этот год не было начислений.") }}</p>
-    {% endif %}
+    </div>
+    <p class="text-muted small mt-2 mb-0" id="collectionDueNote">
+      {% if collection_progress and collection_progress.due_date %}
+        {{ _("Пунктиром — крайний срок оплаты взносов по уставу в этом году: {date}.", date=collection_progress.due_date) }}
+      {% elif collection_progress %}
+        {{ _("Крайний срок оплаты взносов не задан в реквизитах кооператива.") }}
+      {% else %}
+        {{ _("За этот год не было начислений.") }}
+      {% endif %}
+    </p>
+    <div style="position:relative; height:260px;" class="mt-2" id="collectionChartWrap"{{ " hidden" if not collection_progress }}>
+      <canvas id="collectionRateChart"></canvas>
+    </div>
   </div>
 </div>
-{% if collection_progress %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
 <script>
 (function () {
+  var yearSelect = document.getElementById("collectionYearSelect");
+  var noteEl = document.getElementById("collectionDueNote");
+  var wrap = document.getElementById("collectionChartWrap");
   var canvas = document.getElementById("collectionRateChart");
-  if (!canvas) return;
-  var progress = {{ collection_progress|tojson }};
+  if (!yearSelect || !canvas) return;
+
+  var dataUrl = {{ url_for("finance.collection_progress_data") | tojson }};
+  var duePrefix = {{ _("Пунктиром — крайний срок оплаты взносов по уставу в этом году") | tojson }};
+  var noDueText = {{ _("Крайний срок оплаты взносов не задан в реквизитах кооператива.") | tojson }};
+  var noChargesText = {{ _("За этот год не было начислений.") | tojson }};
+  var currentDueIso = null;
+  var chart = null;
 
   // Пунктирная вертикальная линия на дне крайнего срока оплаты —
   // Chart.js не умеет такое из коробки без отдельного плагина аннотаций
   // (лишняя внешняя библиотека ради одной линии), рисуем сами через
-  // afterDraw на низком уровне canvas API.
+  // afterDraw на низком уровне canvas API. currentDueIso читается в
+  // момент отрисовки — переключение года меняет её без пересоздания
+  // графика (см. renderProgress).
   var dueLinePlugin = {
     id: "dueLine",
     afterDraw: function (chart) {
-      if (!progress.due_date_iso) return;
+      if (!currentDueIso) return;
       var xScale = chart.scales.x, yScale = chart.scales.y;
-      var x = xScale.getPixelForValue(new Date(progress.due_date_iso).getTime());
+      var x = xScale.getPixelForValue(new Date(currentDueIso).getTime());
       var ctx = chart.ctx;
       ctx.save();
       ctx.strokeStyle = "#dc3545";
@@ -162,33 +172,60 @@
     },
   };
 
-  new Chart(canvas.getContext("2d"), {
-    type: "line",
-    data: {
-      datasets: [{
-        label: {{ _("Собрано нарастающим итогом") | tojson }},
-        data: progress.points.map(function (p) { return { x: p.date, y: p.rate }; }),
-        borderColor: "#0d6efd",
-        backgroundColor: "#0d6efd",
-        stepped: true,
-        pointRadius: 2,
-        fill: false,
-      }],
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      scales: {
-        x: { type: "time", time: { unit: "month", displayFormats: { month: "MMM" } } },
-        y: { beginAtZero: true, max: 100, title: { display: true, text: "%" } },
+  function renderProgress(progress) {
+    if (!progress) {
+      wrap.hidden = true;
+      noteEl.textContent = noChargesText;
+      return;
+    }
+    wrap.hidden = false;
+    currentDueIso = progress.due_date_iso;
+    noteEl.textContent = progress.due_date ? (duePrefix + ": " + progress.due_date + ".") : noDueText;
+
+    var points = progress.points.map(function (p) { return { x: p.date, y: p.rate }; });
+    if (chart) {
+      chart.data.datasets[0].data = points;
+      chart.update();
+      return;
+    }
+    chart = new Chart(canvas.getContext("2d"), {
+      type: "line",
+      data: {
+        datasets: [{
+          label: {{ _("Собрано нарастающим итогом") | tojson }},
+          data: points,
+          borderColor: "#0d6efd",
+          backgroundColor: "#0d6efd",
+          stepped: true,
+          pointRadius: 2,
+          fill: false,
+        }],
       },
-      plugins: { legend: { display: false } },
-    },
-    plugins: [dueLinePlugin],
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          x: { type: "time", time: { unit: "month", displayFormats: { month: "MMM" } } },
+          y: { beginAtZero: true, max: 100, title: { display: true, text: "%" } },
+        },
+        plugins: { legend: { display: false } },
+      },
+      plugins: [dueLinePlugin],
+    });
+  }
+
+  {% if collection_progress %}
+  renderProgress({{ collection_progress|tojson }});
+  {% endif %}
+
+  yearSelect.addEventListener("change", function () {
+    fetch(dataUrl + "?year=" + encodeURIComponent(yearSelect.value))
+      .then(function (r) { return r.json(); })
+      .then(renderProgress)
+      .catch(function () {});
   });
 })();
 </script>
-{% endif %}
 {% endif %}
 
 <div class="modal fade" id="createMemberAccountModal" tabindex="-1" aria-hidden="true">

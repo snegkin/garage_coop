@@ -1,15 +1,21 @@
 """
 Уведомления о событиях сайта по подписке пользователя (настройки — см.
-app/cabinet.py: profile, шаблон cabinet/profile.html). Один канал доставки
-на человека (User.notify_channel) и отдельные подписки на события
-(User.notify_charge/notify_payment/notify_news/notify_forum/notify_board_chat).
+app/cabinet.py: notification_settings, шаблон cabinet/profile.html). Один
+канал доставки на человека (User.notify_channel) и отдельные подписки на
+события (User.notify_charge/notify_payment/notify_news/notify_forum/notify_board_chat).
 
-Реально отправляется сейчас только EMAIL — через уже существующий ящик
-правления (MailboxSettings/app/mail_client.py, тот же, что и у /mailbox/).
-Telegram/VK/MAX можно выбрать в настройках (проверяется, что
-соответствующее поле контакта в профиле заполнено), но notify() для них
-ничего не отправляет — задел на будущее, отдельная бот/API-интеграция
-здесь не делается.
+Два реально работающих канала:
+  - EMAIL — через уже существующий ящик правления (MailboxSettings/
+    app/mail_client.py, тот же, что и у /mailbox/), готовность — заполненный
+    Person.email.
+  - TELEGRAM — через бота (TelegramSettings/app/telegram_bot.py),
+    готовность — Person.telegram_chat_id (привязка через /start, см.
+    telegram_bot.py, НЕ то же самое, что свободный текст Person.telegram).
+
+VK/MAX убраны из списка каналов (по решению пользователя) — Bot API VK
+не позволяет писать первым произвольным пользователям без их явного
+опт-ина через сообщество, а готового сообщества с такой настройкой нет;
+делать половинчатую интеграцию не стали.
 """
 import datetime as dt
 
@@ -18,16 +24,10 @@ from flask import current_app
 from . import database
 from .auth import ROLE_LEVEL
 from .mail_client import MailError, send_message
-from .models import BoardChatMessage, MailboxSettings, NotificationChannel, RoleEnum, User
+from .models import BoardChatMessage, MailboxSettings, NotificationChannel, RoleEnum, TelegramSettings, User
+from . import telegram_bot
 
 BOARD_CHAT_UNREAD_THRESHOLD = dt.timedelta(minutes=10)
-
-CHANNEL_CONTACT_FIELD = {
-    NotificationChannel.EMAIL: "email",
-    NotificationChannel.TELEGRAM: "telegram",
-    NotificationChannel.VK: "vk",
-    NotificationChannel.MAX: "max_messenger",
-}
 
 
 def user_for_person(person_id: int | None) -> User | None:
@@ -41,12 +41,16 @@ def user_for_person(person_id: int | None) -> User | None:
 
 
 def channel_is_ready(user: User, channel: NotificationChannel) -> bool:
-    """Заполнено ли у person поле контакта, соответствующее каналу.
-    Используется и при сохранении формы профиля (нельзя включить канал без
-    контакта), и здесь же, при отправке (контакт мог быть очищен позже)."""
+    """Готов ли канал к реальной отправке (используется и при сохранении
+    формы настроек — нельзя включить неподтверждённый канал, и здесь же,
+    при отправке — контакт/привязка могли быть сброшены позже)."""
     if user is None or user.person is None:
         return False
-    return bool(getattr(user.person, CHANNEL_CONTACT_FIELD[channel], None))
+    if channel == NotificationChannel.EMAIL:
+        return bool(user.person.email)
+    if channel == NotificationChannel.TELEGRAM:
+        return bool(user.person.telegram_chat_id)
+    return False
 
 
 def notify_subscribers(event: str, subject: str, body_text: str, exclude_user_id: int | None = None) -> None:
@@ -78,29 +82,38 @@ def notify_users(user_ids, event: str, subject: str, body_text: str, exclude_use
 def notify(user: User | None, event: str, subject: str, body_text: str) -> None:
     """event — один из "charge"/"payment"/"news"/"forum"/"board_chat",
     соответствует колонке notify_<event> на User. Ничего не делает, если
-    событие/канал не включены подпиской или контакт для канала не
-    заполнен — вызывающему коду не нужно проверять это самому. Ошибка
-    отправки (MailError) логируется и не пробрасывается — уведомление не
-    должно ронять транзакцию, породившую событие (начисление, платёж и
-    т.п. к этому моменту уже сохранены)."""
+    событие/канал не включены подпиской или канал не готов к отправке —
+    вызывающему коду не нужно проверять это самому. Ошибка отправки
+    логируется и не пробрасывается — уведомление не должно ронять
+    транзакцию, породившую событие (начисление, платёж и т.п. к этому
+    моменту уже сохранены)."""
     if user is None or user.notify_channel is None:
         return
     if not getattr(user, f"notify_{event}", False):
         return
     if not channel_is_ready(user, user.notify_channel):
         return
-    if user.notify_channel != NotificationChannel.EMAIL:
-        return  # telegram/vk/max — задел на будущее, отправка не реализована
 
-    settings = database.db_session.query(MailboxSettings).first()
-    if settings is None:
-        return
-    try:
-        send_message(settings, [user.person.email], subject, body_text)
-    except MailError:
-        current_app.logger.exception(
-            "Не удалось отправить уведомление user_id=%s событие=%s", user.id, event,
-        )
+    if user.notify_channel == NotificationChannel.EMAIL:
+        settings = database.db_session.query(MailboxSettings).first()
+        if settings is None:
+            return
+        try:
+            send_message(settings, [user.person.email], subject, body_text)
+        except MailError:
+            current_app.logger.exception(
+                "Не удалось отправить email-уведомление user_id=%s событие=%s", user.id, event,
+            )
+    elif user.notify_channel == NotificationChannel.TELEGRAM:
+        settings = database.db_session.query(TelegramSettings).first()
+        if settings is None or not telegram_bot.is_configured(settings):
+            return
+        try:
+            telegram_bot.send_message(settings, user.person.telegram_chat_id, f"{subject}\n\n{body_text}")
+        except telegram_bot.TelegramError:
+            current_app.logger.exception(
+                "Не удалось отправить telegram-уведомление user_id=%s событие=%s", user.id, event,
+            )
 
 
 def run_board_chat_digest() -> int:

@@ -67,22 +67,22 @@ def _setup_account(db, account_number="19001", email="member@example.com"):
 # Настройки в профиле
 # ---------------------------------------------------------------------------
 
-def test_cannot_enable_email_channel_without_email(app, db, client):
-    person = make_person(db, full_name="Без Почты Человек", email=None)
-    make_user(db, "noemail", "pass1234", role=RoleEnum.MEMBER, person=person)
+def test_cannot_switch_to_telegram_without_linked_account(app, db, client):
+    """По умолчанию канал — email (см. миграцию e379b7dc72bb), но
+    переключиться на Telegram без привязанного telegram_chat_id нельзя —
+    форма отклоняется, канал остаётся прежним (email)."""
+    person = make_person(db, full_name="Без Telegram Человек")
+    make_user(db, "notg", "pass1234", role=RoleEnum.MEMBER, person=person)
     db.commit()
-    login(client, "noemail", "pass1234")
+    login(client, "notg", "pass1234")
 
-    resp = client.post("/cabinet/profile", data={
-        "notify_channel": "email", "notify_charge": "1",
-        "phones": "", "registration_address": "", "residence_address": "",
-        "passport_series": "", "passport_number": "", "passport_issue_date": "",
+    resp = client.post("/cabinet/profile/notifications", data={
+        "notify_channel": "telegram", "notify_charge": "1",
     })
     assert resp.status_code == 302
     db.expire_all()
-    user = db.query(User).filter_by(username="noemail").first()
-    assert user.notify_channel is None
-    assert user.notify_charge is False
+    user = db.query(User).filter_by(username="notg").first()
+    assert user.notify_channel.value == "email"
 
 
 def test_can_enable_email_channel_with_email_set(app, db, client):
@@ -91,11 +91,8 @@ def test_can_enable_email_channel_with_email_set(app, db, client):
     db.commit()
     login(client, "withemail", "pass1234")
 
-    resp = client.post("/cabinet/profile", data={
+    resp = client.post("/cabinet/profile/notifications", data={
         "notify_channel": "email", "notify_charge": "1", "notify_payment": "1",
-        "email": "me@example.com",
-        "phones": "", "registration_address": "", "residence_address": "",
-        "passport_series": "", "passport_number": "", "passport_issue_date": "",
     })
     assert resp.status_code == 302
     db.expire_all()
@@ -111,10 +108,8 @@ def test_board_chat_checkbox_ignored_for_non_board(app, db, client):
     db.commit()
     login(client, "rankmember", "pass1234")
 
-    client.post("/cabinet/profile", data={
-        "notify_channel": "email", "notify_board_chat": "1", "email": "rank@example.com",
-        "phones": "", "registration_address": "", "residence_address": "",
-        "passport_series": "", "passport_number": "", "passport_issue_date": "",
+    client.post("/cabinet/profile/notifications", data={
+        "notify_channel": "email", "notify_board_chat": "1",
     })
     db.expire_all()
     user = db.query(User).filter_by(username="rankmember").first()
@@ -149,7 +144,7 @@ def test_charge_notification_not_sent_when_not_subscribed(app, db, client, monke
     fake_smtp = _mock_smtp(monkeypatch)
     _make_mailbox_settings(db)
     account, person, user = _setup_account(db)
-    # notify_channel/notify_charge остаются выключены по умолчанию
+    user.notify_charge = False  # явный отказ от подписки (по умолчанию включена)
     make_user(db, "board_actor2", "pass1234", role=RoleEnum.BOARD)
     db.commit()
     login(client, "board_actor2", "pass1234")

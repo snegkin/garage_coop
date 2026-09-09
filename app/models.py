@@ -11,7 +11,7 @@ import json
 from decimal import Decimal
 
 from sqlalchemy import (
-    String, Integer, Numeric, Date, DateTime, Boolean, Text,
+    String, Integer, BigInteger, Numeric, Date, DateTime, Boolean, Text,
     ForeignKey, Enum, UniqueConstraint, CheckConstraint, Index, MetaData, text, event
 )
 from sqlalchemy.orm import (
@@ -993,6 +993,20 @@ class Person(Base):
     vk: Mapped[str | None] = mapped_column(String(120))
     max_messenger: Mapped[str | None] = mapped_column(String(120))  # мессенджер "MAX" (VK) — имя атрибута не "max", чтобы не затенять builtin
 
+    # Привязка Telegram-аккаунта для уведомлений (см. app/telegram_bot.py) —
+    # ОТДЕЛЬНО от свободного текстового поля telegram выше (тот — просто
+    # контакт "вот мой телеграм", показывается на карточке; этот —
+    # numeric chat_id, полученный от Telegram после того, как человек сам
+    # открыл диалог с ботом и отправил /start с одноразовым токеном, см.
+    # telegram_link_token). Реальная отправка боту нужен именно chat_id —
+    # написать по одному @username Bot API не даёт.
+    telegram_chat_id: Mapped[int | None] = mapped_column(BigInteger, index=True)
+    # Одноразовый токен для привязки (см. cabinet.telegram_link_start) —
+    # зашивается в диплинк https://t.me/<bot>?start=<token>; scripts/poll_telegram.py
+    # находит по нему человека, когда бот получает /start с этим токеном,
+    # заполняет telegram_chat_id и сбрасывает токен в NULL (одноразовый).
+    telegram_link_token: Mapped[str | None] = mapped_column(String(64), unique=True, index=True)
+
     @property
     def short_name(self) -> str:
         """Фамилия и инициалы: «Иванов И.И.» — для официальных документов
@@ -1078,8 +1092,6 @@ class Phone(Base):
 class NotificationChannel(str, enum.Enum):
     EMAIL = "email"
     TELEGRAM = "telegram"
-    VK = "vk"
-    MAX = "max"
 
 
 class RoleEnum(str, enum.Enum):
@@ -1129,18 +1141,21 @@ class User(Base):
     board_chat_open: Mapped[bool] = mapped_column(Boolean, default=False)
 
     # Подписка на уведомления о событиях сайта (см. app/notifications.py) —
-    # один канал доставки на человека (см. NotificationChannel), проверяется
-    # против соответствующего контактного поля Person при сохранении в
-    # настройках профиля (app/cabinet.py: profile). Сейчас реально
-    # отправляется только EMAIL — telegram/vk/max выбрать можно, но
-    # notifications.notify() для них ничего не шлёт (задел на будущее).
-    notify_channel: Mapped[NotificationChannel | None] = mapped_column(Enum(NotificationChannel))
-    notify_charge: Mapped[bool] = mapped_column(Boolean, default=False)
-    notify_payment: Mapped[bool] = mapped_column(Boolean, default=False)
-    notify_news: Mapped[bool] = mapped_column(Boolean, default=False)
-    notify_forum: Mapped[bool] = mapped_column(Boolean, default=False)
+    # один канал доставки на человека (см. NotificationChannel: email или
+    # telegram). Email проверяется против Person.email, telegram — против
+    # Person.telegram_chat_id (привязка через бота, см. app/telegram_bot.py),
+    # при сохранении в настройках профиля (app/cabinet.py: notification_settings).
+    # По умолчанию email и все события включены — реальная отправка всё
+    # равно не пройдёт, пока у person не заполнено поле email (см.
+    # notifications.channel_is_ready), так что дефолт безопасен даже для
+    # ещё не привязанных к человеку учётных записей.
+    notify_channel: Mapped[NotificationChannel | None] = mapped_column(Enum(NotificationChannel), default=NotificationChannel.EMAIL)
+    notify_charge: Mapped[bool] = mapped_column(Boolean, default=True)
+    notify_payment: Mapped[bool] = mapped_column(Boolean, default=True)
+    notify_news: Mapped[bool] = mapped_column(Boolean, default=True)
+    notify_forum: Mapped[bool] = mapped_column(Boolean, default=True)
     # Только для is_board() — см. scripts/board_chat_digest.py.
-    notify_board_chat: Mapped[bool] = mapped_column(Boolean, default=False)
+    notify_board_chat: Mapped[bool] = mapped_column(Boolean, default=True)
     # id последнего сообщения чата правления, о непрочтении которого уже
     # отправлено уведомление — без этой отметки board_chat_digest.py слал
     # бы повторное письмо на каждый свой запуск, пока сообщение остаётся
@@ -2394,6 +2409,26 @@ class MailboxSettings(Base):
 
     last_error: Mapped[str | None] = mapped_column(Text)
     last_checked_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
+
+
+class TelegramSettings(Base):
+    """Единственная запись — параметры бота Telegram для уведомлений
+    (см. app/telegram_bot.py, app/notifications.py). Токен создаётся у
+    @BotFather, шифруется тем же Fernet, что и остальные секреты API
+    (app/bank_api/crypto.py). last_update_id — курсор long polling
+    (scripts/poll_telegram.py: getUpdates(offset=last_update_id+1)), чтобы
+    повторный запуск не обрабатывал уже виденные апдейты дважды."""
+    __tablename__ = "telegram_settings"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    bot_token_encrypted: Mapped[str | None] = mapped_column(Text)
+    # Имя бота без "@" — нужно для диплинка привязки https://t.me/<bot>?start=...
+    # (см. cabinet.telegram_link_start); Bot API его не отдаёт без
+    # отдельного вызова getMe, проще один раз внести руками в настройках.
+    bot_username: Mapped[str | None] = mapped_column(String(64))
+    last_update_id: Mapped[int | None] = mapped_column(BigInteger)
+    last_error: Mapped[str | None] = mapped_column(Text)
+    last_polled_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
 
 
 # ---------------------------------------------------------------------------

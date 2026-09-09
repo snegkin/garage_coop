@@ -1729,6 +1729,34 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Чтобы получать уведомления этим способом, сначала укажите и сохраните соответствующий контакт в профиле.":
             "To receive notifications this way, first fill in and save the matching contact field in your profile.",
         "Настройки уведомлений сохранены.": "Notification settings saved.",
+        "Сохранить настройки уведомлений": "Save notification settings",
+        "Член кооператива с": "Cooperative member since",
+        "Email должен быть заполнен в контактных данных выше. Telegram нужно привязать отдельно — см. ниже.":
+            "Email must be filled in the contact details above. Telegram needs to be linked separately — see below.",
+        "Telegram отвязан.": "Telegram unlinked.",
+        "Telegram привязан": "Telegram linked",
+        "Открыть в Telegram и привязать": "Open in Telegram and link",
+        "Привязать Telegram": "Link Telegram",
+        "Ссылка одноразовая — откройте её в Telegram и нажмите Start.": "The link is one-time — open it in Telegram and press Start.",
+        "Отвязать Telegram?": "Unlink Telegram?",
+
+        # telegram_settings/page.html
+        "Настройки Telegram": "Telegram settings",
+        "Бот для уведомлений о событиях сайта (см. настройки уведомлений в профиле каждого пользователя). Создаётся у @BotFather в Telegram.":
+            "Bot for site event notifications (see notification settings in each user's profile). Created via @BotFather in Telegram.",
+        "Бот ещё не настроен — уведомления через Telegram работать не будут, пока не заполните токен и имя бота.":
+            "The bot isn't configured yet — Telegram notifications won't work until you fill in the token and bot username.",
+        "Имя бота (без @)": "Bot username (without @)",
+        "Нужно для ссылки привязки, которую видит пользователь в своём профиле.":
+            "Needed for the linking link shown to the user in their profile.",
+        "Токен бота": "Bot token",
+        "Выдаётся @BotFather при создании бота командой /newbot.": "Issued by @BotFather when creating the bot with /newbot.",
+        "Настройки Telegram сохранены.": "Telegram settings saved.",
+        "Сначала укажите токен и имя бота.": "First fill in the token and bot username.",
+        "Подключение работает: бот @{username}.": "Connection works: bot @{username}.",
+        "Не удалось подключиться: {error}": "Could not connect: {error}",
+        "Отдельно нужен cron-скрипт scripts/poll_telegram.sh (см. README, раздел «Автоматизация») — он получает от Telegram сообщения /start для привязки аккаунтов и без него привязка не заработает, даже если бот настроен здесь.":
+            "You also need the cron script scripts/poll_telegram.sh (see README, «Automation» section) — it receives /start messages from Telegram for account linking, without it linking won't work even if the bot is configured here.",
 
         # cooperative/view.html
         "площадь кооператива - площадь приватизированных участков": "cooperative area minus privatized plots",

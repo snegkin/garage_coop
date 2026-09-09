@@ -1325,16 +1325,27 @@ function runContentScripts(root) {
 }
 
 // Единый AJAX-обработчик ЛЮБОЙ формы внутри модалки (<div class="modal">) —
-// по всему приложению, без правки конкретных роутов и шаблонов. Модалки
-// добавления/редактирования (собрания, контрагенты, расчётные счета,
-// составы правления, судебные участки, документы, регистраторы и т.п.)
-// сейчас делают обычный POST → redirect → полная перезагрузка страницы;
-// конечный HTML этого редиректа и так уже содержит актуальное состояние
-// страницы — просто перехватываем сабмит, забираем этот же HTML через
-// fetch() (он сам проходит по цепочке редиректов) и подменяем им только
-// #mainContent, не всю страницу. Ни один роут при этом не меняется: они
-// не проверяют X-Requested-With и продолжают работать как обычно, просто
-// их ответ теперь читает fetch(), а не полноценная навигация браузера.
+// по всему приложению, без правки конкретных роутов и шаблонов. Два вида
+// форм подпадают под неё — оба уже узнаваемы по разметке, которая и так
+// везде проставлена, без каких-либо новых классов/атрибутов:
+//   1) любая форма внутри <div class="modal"> — модалки добавления/
+//      редактирования (собрания, контрагенты, расчётные счета, составы
+//      правления, судебные участки, документы, регистраторы и т.п.);
+//   2) любая форма с атрибутом onsubmit="return confirm(...)" — во всём
+//      проекте он используется ТОЛЬКО для confirm() (проверено), это
+//      подтверждаемые одиночные действия вне модалок: «Удалить» в
+//      таблицах/карточках/списках, «Закрыть созыв», «Отвязать учётку» и т.п.
+// Оба случая сейчас делают обычный POST → redirect → полная перезагрузка
+// страницы; конечный HTML этого редиректа и так уже содержит актуальное
+// состояние страницы — просто перехватываем сабмит, забираем этот же HTML
+// через fetch() (он сам проходит по цепочке редиректов) и подменяем им
+// только #mainContent, не всю страницу. Ни один роут при этом не меняется:
+// они не проверяют X-Requested-With и продолжают работать как обычно,
+// просто их ответ теперь читает fetch(), а не полноценная навигация
+// браузера. Если конечный адрес после редиректа отличается от текущего
+// (например, действие ведёт на другую страницу, не туда, откуда его
+// вызвали) — вместо подмены делаем обычный переход, чтобы адресная строка
+// не разошлась с показанным содержимым.
 //
 // Пропускаем формы с классами .js-quick-charge-form/.js-quick-payment-form
 // (уже обработаны выше — у них свой JSON-контракт под конкретную задачу) и
@@ -1344,22 +1355,29 @@ document.addEventListener("submit", function (e) {
   var form = e.target;
   if (form.classList.contains("js-quick-charge-form") || form.classList.contains("js-quick-payment-form")) return;
   if (form.hasAttribute("data-no-ajax")) return;
+  if (e.defaultPrevented) return; // confirm() внутри onsubmit уже вернул false — пользователь отменил действие
+
   var modalEl = form.closest(".modal");
-  if (!modalEl) return;
+  var isConfirmedAction = form.hasAttribute("onsubmit");
+  if (!modalEl && !isConfirmedAction) return;
   e.preventDefault();
 
-  var submitButton = modalEl.querySelector('.modal-footer button:not([type="button"])');
+  var submitButton = modalEl
+    ? modalEl.querySelector('.modal-footer button:not([type="button"])')
+    : form.querySelector('button:not([type="button"]), input[type="submit"]');
   if (submitButton) submitButton.disabled = true;
 
-  // Модалка и её побочные эффекты (задник, классы/стили body) снимаются
-  // сразу и без анимации — сам DOM-узел модалки всё равно будет заменён
-  // вместе с остальным #mainContent, ждать fade-переход смысла нет.
-  var bsModal = window.bootstrap ? window.bootstrap.Modal.getInstance(modalEl) : null;
-  if (bsModal) bsModal.dispose();
-  document.querySelectorAll(".modal-backdrop").forEach(function (el) { el.remove(); });
-  document.body.classList.remove("modal-open");
-  document.body.style.removeProperty("padding-right");
-  document.body.style.removeProperty("overflow");
+  if (modalEl) {
+    // Модалка и её побочные эффекты (задник, классы/стили body) снимаются
+    // сразу и без анимации — сам DOM-узел модалки всё равно будет заменён
+    // вместе с остальным #mainContent, ждать fade-переход смысла нет.
+    var bsModal = window.bootstrap ? window.bootstrap.Modal.getInstance(modalEl) : null;
+    if (bsModal) bsModal.dispose();
+    document.querySelectorAll(".modal-backdrop").forEach(function (el) { el.remove(); });
+    document.body.classList.remove("modal-open");
+    document.body.style.removeProperty("padding-right");
+    document.body.style.removeProperty("overflow");
+  }
 
   // Значения полей фильтра/сортировки таблиц запоминаем по id — сегодняшняя
   // полная перезагрузка их и так сбрасывает, но раз уж страница больше не
@@ -1380,8 +1398,17 @@ document.addEventListener("submit", function (e) {
     body: new FormData(form),
     headers: { "X-Requested-With": "XMLHttpRequest" },
   })
-    .then(function (resp) { return resp.text(); })
+    .then(function (resp) {
+      var landedUrl = new URL(resp.url, window.location.href);
+      var currentUrl = new URL(window.location.href);
+      if (landedUrl.pathname + landedUrl.search !== currentUrl.pathname + currentUrl.search) {
+        window.location.href = resp.url;
+        return null;
+      }
+      return resp.text();
+    })
     .then(function (html) {
+      if (html === null) return; // ушли на другую страницу — обычной навигацией, выше
       var newDoc = new DOMParser().parseFromString(html, "text/html");
       var newMain = newDoc.getElementById("mainContent");
       if (!mainContent || !newMain) {

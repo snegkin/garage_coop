@@ -117,8 +117,9 @@
             <option value="">{{ _("Не получать уведомления") }}</option>
             <option value="email" {{ 'selected' if g.user.notify_channel and g.user.notify_channel.value == 'email' }}>{{ _("Email") }}</option>
             <option value="telegram" {{ 'selected' if g.user.notify_channel and g.user.notify_channel.value == 'telegram' }}>Telegram</option>
+            <option value="webpush" {{ 'selected' if g.user.notify_channel and g.user.notify_channel.value == 'webpush' }}>{{ _("Push-уведомления в браузере") }}</option>
           </select>
-          <div class="form-text">{{ _("Email должен быть заполнен в контактных данных выше. Telegram нужно привязать отдельно — см. ниже.") }}</div>
+          <div class="form-text">{{ _("Email должен быть заполнен в контактных данных выше. Telegram и push-уведомления нужно привязать отдельно — см. ниже.") }}</div>
 
           <div class="mt-3">
             {% if person.telegram_chat_id %}
@@ -134,6 +135,14 @@
                 <button class="btn btn-sm btn-outline-primary">{{ _("Привязать Telegram") }}</button>
               </form>
             {% endif %}
+          </div>
+
+          <div class="mt-3" id="webpushBlock" data-vapid-key="{{ webpush_public_key }}"
+               data-subscribe-url="{{ url_for('cabinet.webpush_subscribe') }}"
+               data-unsubscribe-url="{{ url_for('cabinet.webpush_unsubscribe') }}">
+            <button type="button" class="btn btn-sm btn-outline-primary" id="webpushSubscribeBtn" hidden>{{ _("Разрешить push-уведомления в этом браузере") }}</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="webpushUnsubscribeBtn" hidden>{{ _("Отключить push в этом браузере") }}</button>
+            <span class="text-muted small" id="webpushUnsupported" hidden>{{ _("Этот браузер не поддерживает push-уведомления.") }}</span>
           </div>
         </div>
         <div class="col-md-6">
@@ -225,6 +234,72 @@
     if (checkbox.checked) residenceInput.value = registrationInput.value;
   });
   sync();
+})();
+</script>
+
+<script>
+(function () {
+  var block = document.getElementById("webpushBlock");
+  if (!block) return;
+  var subscribeBtn = document.getElementById("webpushSubscribeBtn");
+  var unsubscribeBtn = document.getElementById("webpushUnsubscribeBtn");
+  var unsupported = document.getElementById("webpushUnsupported");
+  var vapidKey = block.getAttribute("data-vapid-key");
+  var subscribeUrl = block.getAttribute("data-subscribe-url");
+  var unsubscribeUrl = block.getAttribute("data-unsubscribe-url");
+
+  if (!("serviceWorker" in navigator) || !("PushManager" in window) || !vapidKey) {
+    unsupported.hidden = false;
+    return;
+  }
+
+  function urlBase64ToUint8Array(base64String) {
+    var padding = "=".repeat((4 - base64String.length % 4) % 4);
+    var base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+    var rawData = atob(base64);
+    var outputArray = new Uint8Array(rawData.length);
+    for (var i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
+    return outputArray;
+  }
+
+  function postJson(url, body) {
+    var csrfMeta = document.querySelector('meta[name="csrf-token"]');
+    var headers = { "Content-Type": "application/json" };
+    if (csrfMeta) headers["X-CSRFToken"] = csrfMeta.getAttribute("content");
+    return fetch(url, { method: "POST", headers: headers, body: JSON.stringify(body || {}) });
+  }
+
+  navigator.serviceWorker.register("/service-worker.js").then(function (registration) {
+    return registration.pushManager.getSubscription().then(function (subscription) {
+      if (subscription) {
+        unsubscribeBtn.hidden = false;
+        unsubscribeBtn.onclick = function () {
+          var endpoint = subscription.endpoint;
+          subscription.unsubscribe().then(function () {
+            return postJson(unsubscribeUrl, { endpoint: endpoint });
+          }).then(function () {
+            unsubscribeBtn.hidden = true;
+            subscribeBtn.hidden = false;
+          });
+        };
+      } else {
+        subscribeBtn.hidden = false;
+        subscribeBtn.onclick = function () {
+          registration.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: urlBase64ToUint8Array(vapidKey),
+          }).then(function (sub) {
+            return postJson(subscribeUrl, sub.toJSON());
+          }).then(function () {
+            subscribeBtn.hidden = true;
+            unsubscribeBtn.hidden = false;
+          });
+        };
+      }
+    });
+  }).catch(function () {
+    unsupported.hidden = false;
+  });
 })();
 </script>
 {% endif %}

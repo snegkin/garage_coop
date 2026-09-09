@@ -740,9 +740,21 @@ function enhanceSearchableSelect(select) {
   setInputFromSelect();
 }
 
+// Вынесено в именованные функции (initSearchableSelects/initUtcDatetimes),
+// а не разовое замыкание на DOMContentLoaded — по той же причине, что и
+// initSortableTables и другие такие функции выше: после AJAX-подмены
+// #mainContent (см. «Единый AJAX-обработчик...» ниже) новые
+// select[data-searchable]/[data-utc-datetime] в подменённом куске тоже
+// нужно "оживить", иначе останутся обычным select/сырым UTC-текстом.
+function initSearchableSelects(root) {
+  root.querySelectorAll("select[data-searchable]").forEach(enhanceSearchableSelect);
+}
+function initUtcDatetimes(root) {
+  root.querySelectorAll("[data-utc-datetime]").forEach(localizeDatetime);
+}
 document.addEventListener("DOMContentLoaded", function () {
-  document.querySelectorAll("select[data-searchable]").forEach(enhanceSearchableSelect);
-  document.querySelectorAll("[data-utc-datetime]").forEach(localizeDatetime);
+  initSearchableSelects(document);
+  initUtcDatetimes(document);
 });
 
 // В БД время хранится в UTC (dt.datetime.utcnow() везде в бэкенде) — сервер
@@ -1375,9 +1387,8 @@ function runContentScripts(root) {
 }
 
 // Единый AJAX-обработчик ЛЮБОЙ формы внутри модалки (<div class="modal">) —
-// по всему приложению, без правки конкретных роутов и шаблонов. Два вида
-// форм подпадают под неё — оба уже узнаваемы по разметке, которая и так
-// везде проставлена, без каких-либо новых классов/атрибутов:
+// по всему приложению, без правки конкретных роутов и шаблонов. Три вида
+// форм подпадают под неё:
 //   1) любая форма внутри <div class="modal"> — модалки добавления/
 //      редактирования (собрания, контрагенты, расчётные счета, составы
 //      правления, судебные участки, документы, регистраторы и т.п.);
@@ -1385,17 +1396,24 @@ function runContentScripts(root) {
 //      проекте он используется ТОЛЬКО для confirm() (проверено), это
 //      подтверждаемые одиночные действия вне модалок: «Удалить» в
 //      таблицах/карточках/списках, «Закрыть созыв», «Отвязать учётку» и т.п.
-// Оба случая сейчас делают обычный POST → redirect → полная перезагрузка
-// страницы; конечный HTML этого редиректа и так уже содержит актуальное
-// состояние страницы — просто перехватываем сабмит, забираем этот же HTML
-// через fetch() (он сам проходит по цепочке редиректов) и подменяем им
-// только #mainContent, не всю страницу. Ни один роут при этом не меняется:
-// они не проверяют X-Requested-With и продолжают работать как обычно,
-// просто их ответ теперь читает fetch(), а не полноценная навигация
-// браузера. Если конечный адрес после редиректа отличается от текущего
-// (например, действие ведёт на другую страницу, не туда, откуда его
-// вызвали) — вместо подмены делаем обычный переход, чтобы адресная строка
-// не разошлась с показанным содержимым.
+//      Оба узнаются по разметке, которая и так везде проставлена, без
+//      каких-либо новых классов/атрибутов.
+//   3) форма с явным opt-in атрибутом data-ajax — для действий вне модалки
+//      и без confirm() (например, отдельная кнопка-переключатель без
+//      подтверждения) — там нет естественного признака в разметке, поэтому
+//      единственный способ включить AJAX — явно проставить атрибут в
+//      конкретном шаблоне (см. persons/accounts.html).
+// Все три случая сейчас делают обычный POST → redirect → полная
+// перезагрузка страницы; конечный HTML этого редиректа и так уже содержит
+// актуальное состояние страницы — просто перехватываем сабмит, забираем
+// этот же HTML через fetch() (он сам проходит по цепочке редиректов) и
+// подменяем им только #mainContent, не всю страницу. Ни один роут при этом
+// не меняется: они не проверяют X-Requested-With и продолжают работать как
+// обычно, просто их ответ теперь читает fetch(), а не полноценная
+// навигация браузера. Если конечный адрес после редиректа отличается от
+// текущего (например, действие ведёт на другую страницу, не туда, откуда
+// его вызвали) — вместо подмены делаем обычный переход, чтобы адресная
+// строка не разошлась с показанным содержимым.
 //
 // Пропускаем формы с классами .js-quick-charge-form/.js-quick-payment-form
 // (уже обработаны выше — у них свой JSON-контракт под конкретную задачу) и
@@ -1409,7 +1427,8 @@ document.addEventListener("submit", function (e) {
 
   var modalEl = form.closest(".modal");
   var isConfirmedAction = form.hasAttribute("onsubmit");
-  if (!modalEl && !isConfirmedAction) return;
+  var isOptIn = form.hasAttribute("data-ajax");
+  if (!modalEl && !isConfirmedAction && !isOptIn) return;
   e.preventDefault();
 
   var submitButton = modalEl
@@ -1483,6 +1502,8 @@ document.addEventListener("submit", function (e) {
       initSortableTables(mainContent);
       initFilterableTables(mainContent);
       initActiveAccountsToggle(mainContent);
+      initSearchableSelects(mainContent);
+      initUtcDatetimes(mainContent);
       runContentScripts(mainContent);
       window.scrollTo(0, scrollY);
     })

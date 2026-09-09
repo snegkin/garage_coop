@@ -58,3 +58,27 @@ def test_accounts_page_shows_toggle_button_for_unlinked_account(app, db, client)
     resp = client.get("/persons/accounts")
     html = resp.get_data(as_text=True)
     assert f'/persons/accounts/{unlinked.id}/toggle-active' in html
+
+
+def test_accounts_page_toggle_and_link_forms_opted_into_ajax(app, db, client):
+    """Кнопки на /persons/accounts — без модалки и без onsubmit=confirm(),
+    поэтому единый AJAX-обработчик (см. base.html) их не подхватил бы сам
+    по себе — нужен явный opt-in data-ajax на каждой такой форме."""
+    make_user(db, "chairman_actor3", "pass1234", role=RoleEnum.CHAIRMAN)
+    unlinked = User(username="chairman", password_hash="x", role=RoleEnum.CHAIRMAN, is_active=True, person_id=None)
+    db.add(unlinked)
+    db.commit()
+
+    login(client, "chairman_actor3", "pass1234")
+    html = client.get("/persons/accounts").get_data(as_text=True)
+
+    import re
+    toggle_form = re.search(
+        rf'<form[^>]*action="/persons/accounts/{unlinked.id}/toggle-active"[^>]*>', html
+    )
+    assert toggle_form and "data-ajax" in toggle_form.group(0)
+
+    link_form = re.search(
+        rf'<form[^>]*action="/persons/accounts/{unlinked.id}/link"[^>]*>', html
+    )
+    assert link_form and "data-ajax" in link_form.group(0)

@@ -69,6 +69,76 @@ def test_home_short_news_has_no_collapse_toggle(db, client):
     assert 'data-expand-label="' not in body
 
 
+# ---------------------------------------------------------------------------
+# Управление новостями прямо в ленте — отдельной страницы со списком нет
+# (см. app/news.py: у latest_news()/view() докстрингов, list_news() удалён)
+# ---------------------------------------------------------------------------
+
+def test_board_sees_add_and_manage_news_buttons_in_feed(db, client):
+    db.add(News(title="Новость для правки", body="Текст"))
+    db.commit()
+    item = db.query(News).one()
+
+    make_user(db, "board1", "pass12345", role=RoleEnum.BOARD)
+    db.commit()
+    login(client, "board1", "pass12345")
+
+    body = client.get("/").get_data(as_text=True)
+    assert 'href="/news/new"' in body
+    assert f'/news/{item.id}/edit' in body
+    assert f'/news/{item.id}/delete' in body
+
+
+def test_member_does_not_see_manage_news_buttons_in_feed(db, client):
+    db.add(News(title="Новость", body="Текст"))
+    db.commit()
+    item = db.query(News).one()
+
+    make_user(db, "member1", "pass12345", role=RoleEnum.MEMBER)
+    db.commit()
+    login(client, "member1", "pass12345")
+
+    body = client.get("/").get_data(as_text=True)
+    assert "/news/new" not in body
+    assert f'/news/{item.id}/edit' not in body
+    assert f'/news/{item.id}/delete' not in body
+
+
+def test_anonymous_does_not_see_manage_news_buttons_in_feed(db, client):
+    db.add(News(title="Новость", body="Текст"))
+    db.commit()
+    item = db.query(News).one()
+
+    body = client.get("/").get_data(as_text=True)
+    assert "/news/new" not in body
+    assert f'/news/{item.id}/edit' not in body
+
+
+def test_news_list_page_no_longer_exists(client):
+    resp = client.get("/news/")
+    assert resp.status_code == 404
+
+
+def test_board_can_add_edit_delete_news_and_lands_back_on_home(db, client):
+    make_user(db, "board1", "pass12345", role=RoleEnum.BOARD)
+    db.commit()
+    login(client, "board1", "pass12345")
+
+    resp = client.post("/news/new", data={"title": "Заголовок", "body": "Текст новости"})
+    assert resp.status_code == 302
+    assert resp.headers["Location"] == "/"
+    item = db.query(News).filter_by(title="Заголовок").one()
+
+    resp = client.post(f"/news/{item.id}/edit", data={"title": "Заголовок", "body": "Новый текст"})
+    assert resp.status_code == 302
+    assert resp.headers["Location"] == "/"
+
+    resp = client.post(f"/news/{item.id}/delete")
+    assert resp.status_code == 302
+    assert resp.headers["Location"] == "/"
+    assert db.query(News).filter_by(id=item.id).first() is None
+
+
 def test_home_shows_surveillance_section_without_recorders(client):
     body = client.get("/").get_data(as_text=True)
     assert "Видеонаблюдение" in body

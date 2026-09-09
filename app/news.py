@@ -30,9 +30,10 @@ INLINE_ATTACHMENT_RE = re.compile(r"/news/attachments/(\d+)/")
 
 
 def latest_news(limit: int = FRONT_PAGE_LIMIT):
-    """Последние новости для отображения на главной. Отдельная функция,
-    т.к. вызывается и из news.py (админка), и из auth.py (страница входа,
-    доступна анонимным посетителям — там нет своего блюпринта для этого)."""
+    """Последние новости для отображения на главной (см. app/main.py:
+    index()) — сама лента и есть управление новостями: отдельной страницы
+    со списком нет, добавление/правка/удаление — кнопками прямо в ленте
+    (см. home.html), видны только правлению (is_board())."""
     return database.db_session.query(News).order_by(News.created_at.desc()).limit(limit).all()
 
 
@@ -122,13 +123,6 @@ def upload_inline_attachment():
     return jsonify(url=url_for("news.attachment", attachment_id=att.id, original_filename=att.original_filename))
 
 
-@bp.route("/")
-@roles_required(RoleEnum.BOARD)
-def list_news():
-    items = database.db_session.query(News).order_by(News.created_at.desc()).all()
-    return render_template("news/list.html", items=items)
-
-
 @bp.route("/new", methods=["GET", "POST"])
 @roles_required(RoleEnum.BOARD)
 def create():
@@ -144,7 +138,7 @@ def create():
         _save_attachments(item)
         database.db_session.commit()
         flash(_("Новость добавлена."), "success")
-        return redirect(url_for("news.list_news"))
+        return redirect(url_for("main.index"))
 
     return render_template("news/form.html", item=None)
 
@@ -172,7 +166,7 @@ def edit(news_id):
         _save_attachments(item)
         database.db_session.commit()
         flash(_("Новость обновлена."), "success")
-        return redirect(url_for("news.list_news"))
+        return redirect(url_for("main.index"))
 
     return render_template("news/form.html", item=item)
 
@@ -186,13 +180,15 @@ def delete(news_id):
     database.db_session.delete(item)
     database.db_session.commit()
     flash(_("Новость удалена."), "success")
-    return redirect(url_for("news.list_news"))
+    return redirect(url_for("main.index"))
 
 
 @bp.route("/<int:news_id>")
 def view(news_id):
-    """Полная новость. Публичная страница (как и /auth/login, куда ведёт
-    ссылка "Читать дальше") — доступна и анонимным посетителям."""
+    """Полная новость отдельной страницей — публичная (доступна и
+    анонимным посетителям), но никуда не заведена ссылкой (см. главную,
+    app/main.py: index() — там теперь всегда полный текст статьи прямо в
+    ленте, разворачивается на месте); прямой URL по-прежнему работает."""
     item = database.db_session.get(News, news_id)
     if item is None:
         abort(404)

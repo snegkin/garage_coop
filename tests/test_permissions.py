@@ -34,7 +34,7 @@ def test_anonymous_cannot_reach_dashboard(client):
 
 
 def test_anonymous_cannot_reach_board_only_routes(client):
-    for url in ("/garages/", "/persons/", "/finance/member-accounts", "/news/"):
+    for url in ("/garages/", "/persons/", "/finance/member-accounts", "/news/new"):
         resp = client.get(url)
         assert resp.status_code == 302
         assert "/auth/login" in resp.headers["Location"]

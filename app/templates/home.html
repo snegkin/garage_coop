@@ -3,7 +3,12 @@
 {% block content %}
 <div class="row">
   <div class="col-lg-8 order-2 order-lg-1 mt-4 mt-lg-0">
-    <h3 class="mb-3">{{ _("Новости кооператива") }}</h3>
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <h3 class="mb-0">{{ _("Новости кооператива") }}</h3>
+      {% if current_user and is_board() %}
+      <a class="btn btn-primary btn-sm" href="{{ url_for('news.create') }}">+ {{ _("Добавить новость") }}</a>
+      {% endif %}
+    </div>
     {% if news_items %}
     {% for item in news_items %}
     {# Полный render_news_html() всегда — не обрезанный до простого текста
@@ -15,7 +20,17 @@
     {% set unused_preview, is_long = news_excerpt(item.body) %}
     <div class="card bg-body mb-3">
       <div class="card-body">
-        <h5 class="card-title mb-1">{{ item.title }}</h5>
+        <div class="d-flex justify-content-between align-items-start gap-2">
+          <h5 class="card-title mb-1">{{ item.title }}</h5>
+          {% if current_user and is_board() %}
+          <div class="d-flex gap-2 text-nowrap">
+            <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('news.edit', news_id=item.id) }}">{{ _("Изменить") }}</a>
+            <form method="post" action="{{ url_for('news.delete', news_id=item.id) }}" onsubmit="return confirm('{{ _('Удалить новость?') }}')">
+              <button class="btn btn-sm btn-outline-danger">{{ _("Удалить") }}</button>
+            </form>
+          </div>
+          {% endif %}
+        </div>
         <p class="card-subtitle text-muted small mb-2">
           {{ fmt_date(item.created_at.date()) }}
           {% if item.updated_at %}&middot; {{ _("обновлено") }} {{ fmt_date(item.updated_at.date()) }}{% endif %}

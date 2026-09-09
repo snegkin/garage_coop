@@ -11,9 +11,14 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from . import database
 from . import audit
+from . import notifications
 from .auth import login_required
+from .permissions import is_board
 from .i18n import translate as _
-from .models import Person, Phone, GarageOwnership, GarageContact, MemberAccount, PersonDataRevision, PersonDataRevisionStatus, User
+from .models import (
+    Person, Phone, GarageOwnership, GarageContact, MemberAccount, PersonDataRevision, PersonDataRevisionStatus,
+    User, NotificationChannel,
+)
 from .accounting import balance as account_balance
 from sqlalchemy.orm import joinedload
 
@@ -42,6 +47,35 @@ def profile():
 
     if request.method == "POST":
         f = request.form
+
+        # Уведомления сохраняются сразу, отдельно от контактных/паспортных
+        # данных ниже — это личная настройка, не "официальные данные",
+        # для которых нужно одобрение председателя (см. PersonDataRevision).
+        # Валидация — против ТЕКУЩИХ (уже одобренных) полей person, не
+        # против только что введённых в этой же форме: контакт, вписанный
+        # прямо сейчас, ещё не применён (уйдёт на рассмотрение) и подтвердить
+        # выбранный канал пока не может.
+        notify_channel_raw = f.get("notify_channel") or None
+        try:
+            notify_channel = NotificationChannel(notify_channel_raw) if notify_channel_raw else None
+        except ValueError:
+            notify_channel = None
+        notify_events = {
+            "notify_charge": bool(f.get("notify_charge")),
+            "notify_payment": bool(f.get("notify_payment")),
+            "notify_news": bool(f.get("notify_news")),
+            "notify_forum": bool(f.get("notify_forum")),
+            "notify_board_chat": bool(f.get("notify_board_chat")) and is_board(),
+        }
+        if notify_channel is not None and any(notify_events.values()) and not notifications.channel_is_ready(g.user, notify_channel):
+            flash(_("Чтобы получать уведомления этим способом, сначала укажите и сохраните соответствующий контакт в профиле."), "danger")
+        else:
+            g.user.notify_channel = notify_channel
+            for field, value in notify_events.items():
+                setattr(g.user, field, value)
+            database.db_session.commit()
+            flash(_("Настройки уведомлений сохранены."), "success")
+
         # Сохраняем текущие (одобренные) данные для сравнения
         current = {
             "email": person.email,

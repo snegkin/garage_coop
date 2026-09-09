@@ -1075,6 +1075,13 @@ class Phone(Base):
 # Пользователи и роли (доступ к сайту)
 # ---------------------------------------------------------------------------
 
+class NotificationChannel(str, enum.Enum):
+    EMAIL = "email"
+    TELEGRAM = "telegram"
+    VK = "vk"
+    MAX = "max"
+
+
 class RoleEnum(str, enum.Enum):
     CHAIRMAN = "chairman"     # председатель — полный доступ
     BOARD = "board"           # член правления — расширенный доступ
@@ -1120,6 +1127,25 @@ class User(Base):
     # при этом не сбрасывается, но не показывается как актуальный статус.
     board_chat_last_seen_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
     board_chat_open: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    # Подписка на уведомления о событиях сайта (см. app/notifications.py) —
+    # один канал доставки на человека (см. NotificationChannel), проверяется
+    # против соответствующего контактного поля Person при сохранении в
+    # настройках профиля (app/cabinet.py: profile). Сейчас реально
+    # отправляется только EMAIL — telegram/vk/max выбрать можно, но
+    # notifications.notify() для них ничего не шлёт (задел на будущее).
+    notify_channel: Mapped[NotificationChannel | None] = mapped_column(Enum(NotificationChannel))
+    notify_charge: Mapped[bool] = mapped_column(Boolean, default=False)
+    notify_payment: Mapped[bool] = mapped_column(Boolean, default=False)
+    notify_news: Mapped[bool] = mapped_column(Boolean, default=False)
+    notify_forum: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Только для is_board() — см. scripts/board_chat_digest.py.
+    notify_board_chat: Mapped[bool] = mapped_column(Boolean, default=False)
+    # id последнего сообщения чата правления, о непрочтении которого уже
+    # отправлено уведомление — без этой отметки board_chat_digest.py слал
+    # бы повторное письмо на каждый свой запуск, пока сообщение остаётся
+    # непрочитанным.
+    board_chat_notified_message_id: Mapped[int | None] = mapped_column(Integer)
 
     person: Mapped["Person | None"] = relationship(foreign_keys=[person_id])
 

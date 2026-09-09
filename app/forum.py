@@ -28,6 +28,7 @@ from flask import (
 
 from . import database
 from . import audit
+from . import notifications
 from .i18n import translate as _
 from .auth import login_required, roles_required
 from .permissions import is_board
@@ -160,6 +161,9 @@ def create():
         summary=f"Создана тема форума «{title}»",
     )
     database.db_session.commit()
+    notifications.notify_subscribers(
+        "forum", "Новая тема на форуме", title, exclude_user_id=g.user.id,
+    )
     flash(_("Тема создана."), "success")
     return redirect(url_for("forum.view", topic_id=topic.id))
 
@@ -188,6 +192,8 @@ def reply(topic_id):
         flash(_("Введите текст сообщения."), "danger")
         return redirect(url_for("forum.view", topic_id=topic.id))
 
+    participant_ids = {p.author_id for p in topic.posts}
+
     post = ForumPost(topic_id=topic.id, body=body, author_id=g.user.id)
     database.db_session.add(post)
     database.db_session.flush()
@@ -199,6 +205,9 @@ def reply(topic_id):
         summary=f"Ответ в теме форума «{topic.title}»",
     )
     database.db_session.commit()
+    notifications.notify_users(
+        participant_ids, "forum", "Новый ответ в теме форума", topic.title, exclude_user_id=g.user.id,
+    )
     return redirect(url_for("forum.view", topic_id=topic.id))
 
 

@@ -1715,8 +1715,6 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         # cabinet/profile.html
         "Контактные данные": "Contact details",
         "Паспортные данные": "Passport details",
-        "Если ваши паспортные данные изменились (смена паспорта, регистрация/прописка) — обновите информацию ниже. Изменения применяются только после одобрения председателя.":
-            "If your passport details have changed (new passport, registration/residence permit) — update the information below. Changes apply only after the chairman approves them.",
 
         # cooperative/view.html
         "площадь кооператива - площадь приватизированных участков": "cooperative area minus privatized plots",

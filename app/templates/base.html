@@ -32,16 +32,26 @@
            без @login_required) — топ-уровнем виден только анонимному:
            у него в шапке и так почти пусто, а вошедшему тот же раздел
            доступен из дропдауна «Кооператив» (см. ниже), чтобы не плодить
-           пункты верхнего уровня. Доска объявлений — тоже общедоступна,
-           но остаётся топ-уровнем для всех (двух пунктов анонимному не
-           жалко, а для вошедших это не выбивается по частоте обращения). #}
+           пункты верхнего уровня. Доска объявлений — тоже общедоступна;
+           анонимному, у которого и так почти пустая шапка, оставлена
+           отдельным пунктом — объединять её в дропдаун с форумом (форум
+           анонимному не виден вовсе) означало бы дропдаун из одного
+           пункта. Вошедшему доска объявлений и форум объединены в один
+           дропдаун «Сервисы» — то же самое место в шапке, но одним
+           пунктом верхнего уровня вместо двух. #}
         {% if not current_user %}
         <li class="nav-item"><a class="nav-link" href="{{ url_for('surveillance.view') }}">{{ _("Видеонаблюдение") }}</a></li>
-        {% endif %}
         <li class="nav-item"><a class="nav-link" href="{{ url_for('bulletin.list_posts') }}">{{ _("Доска объявлений") }}</a></li>
+        {% endif %}
         {% if current_user %}
         <li class="nav-item"><a class="nav-link" href="{{ url_for('wiki.list_pages') }}">{{ _("Вики") }}</a></li>
-        <li class="nav-item"><a class="nav-link" href="{{ url_for('forum.list_topics') }}">{{ _("Форум") }}</a></li>
+        <li class="nav-item dropdown">
+          <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">{{ _("Сервисы") }}</a>
+          <ul class="dropdown-menu">
+            <li><a class="dropdown-item" href="{{ url_for('bulletin.list_posts') }}">{{ _("Доска объявлений") }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('forum.list_topics') }}">{{ _("Форум") }}</a></li>
+          </ul>
+        </li>
         <li class="nav-item dropdown">
           <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">{{ _("Голосования") }}</a>
           <ul class="dropdown-menu">

@@ -164,6 +164,7 @@ _REVISION_FIELDS = [
     ("passport_series", "Серия паспорта"),
     ("passport_number", "Номер паспорта"),
     ("passport_issue_date", "Дата выдачи"),
+    ("membership_start_date", "Член кооператива с"),
 ]
 
 
@@ -198,12 +199,13 @@ def _revision_diff_rows(revision, person):
             "passport_series": person.passport_series,
             "passport_number": person.passport_number,
             "passport_issue_date": person.passport_issue_date.isoformat() if person.passport_issue_date else None,
+            "membership_start_date": person.membership_start_date.isoformat() if person.membership_start_date else None,
         }
 
     def fmt(key, value):
         if key == "phones":
             return ", ".join(value) if value else "—"
-        if key == "passport_issue_date" and value:
+        if key in ("passport_issue_date", "membership_start_date") and value:
             return dt.date.fromisoformat(value).strftime("%d.%m.%Y")
         return value or "—"
 
@@ -767,6 +769,15 @@ def _apply_revision(revision):
             pass
     else:
         person.passport_issue_date = None
+    # членство
+    membership_start_str = snap.get("membership_start_date")
+    if membership_start_str:
+        try:
+            person.membership_start_date = dt.date.fromisoformat(membership_start_str)
+        except (ValueError, TypeError):
+            pass
+    else:
+        person.membership_start_date = None
 
 
 @bp.route("/persons/<int:person_id>/revisions/approve/<int:revision_id>", methods=["POST"])

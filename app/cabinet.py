@@ -5,6 +5,7 @@
 """
 from flask import Blueprint, render_template, request, redirect, url_for, flash, g
 import json
+import secrets
 import datetime as dt
 
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -12,6 +13,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from . import database
 from . import audit
 from . import notifications
+from . import telegram_bot
 from .auth import login_required
 from .permissions import is_board
 from .i18n import translate as _
@@ -48,34 +50,6 @@ def profile():
     if request.method == "POST":
         f = request.form
 
-        # Уведомления сохраняются сразу, отдельно от контактных/паспортных
-        # данных ниже — это личная настройка, не "официальные данные",
-        # для которых нужно одобрение председателя (см. PersonDataRevision).
-        # Валидация — против ТЕКУЩИХ (уже одобренных) полей person, не
-        # против только что введённых в этой же форме: контакт, вписанный
-        # прямо сейчас, ещё не применён (уйдёт на рассмотрение) и подтвердить
-        # выбранный канал пока не может.
-        notify_channel_raw = f.get("notify_channel") or None
-        try:
-            notify_channel = NotificationChannel(notify_channel_raw) if notify_channel_raw else None
-        except ValueError:
-            notify_channel = None
-        notify_events = {
-            "notify_charge": bool(f.get("notify_charge")),
-            "notify_payment": bool(f.get("notify_payment")),
-            "notify_news": bool(f.get("notify_news")),
-            "notify_forum": bool(f.get("notify_forum")),
-            "notify_board_chat": bool(f.get("notify_board_chat")) and is_board(),
-        }
-        if notify_channel is not None and any(notify_events.values()) and not notifications.channel_is_ready(g.user, notify_channel):
-            flash(_("Чтобы получать уведомления этим способом, сначала укажите и сохраните соответствующий контакт в профиле."), "danger")
-        else:
-            g.user.notify_channel = notify_channel
-            for field, value in notify_events.items():
-                setattr(g.user, field, value)
-            database.db_session.commit()
-            flash(_("Настройки уведомлений сохранены."), "success")
-
         # Сохраняем текущие (одобренные) данные для сравнения
         current = {
             "email": person.email,
@@ -88,6 +62,7 @@ def profile():
             "passport_series": person.passport_series,
             "passport_number": person.passport_number,
             "passport_issue_date": person.passport_issue_date.isoformat() if person.passport_issue_date else None,
+            "membership_start_date": person.membership_start_date.isoformat() if person.membership_start_date else None,
         }
         new_data = {
             "email": f.get("email") or None,
@@ -100,6 +75,7 @@ def profile():
             "passport_series": f.get("passport_series") or None,
             "passport_number": f.get("passport_number") or None,
             "passport_issue_date": f.get("passport_issue_date") or None,
+            "membership_start_date": f.get("membership_start_date") or None,
         }
         # Если ничего не изменилось — предупреждаем
         if current == new_data:
@@ -142,6 +118,13 @@ def profile():
                 issue_date = dt.date.fromisoformat(issue_date_str)
             except (ValueError, TypeError):
                 pass
+        membership_start_str = snap.get("membership_start_date")
+        membership_start = None
+        if membership_start_str:
+            try:
+                membership_start = dt.date.fromisoformat(membership_start_str)
+            except (ValueError, TypeError):
+                pass
         display_person = type('Person', (), {
             'id': person.id,
             'full_name': person.full_name,
@@ -155,12 +138,83 @@ def profile():
             'passport_series': snap.get('passport_series'),
             'passport_number': snap.get('passport_number'),
             'passport_issue_date': issue_date,
-            'membership_start_date': person.membership_start_date,
+            'membership_start_date': membership_start,
             'membership_end_date': person.membership_end_date,
             'comment': person.comment,
+            'telegram_chat_id': person.telegram_chat_id,
         })()
 
-    return render_template("cabinet/profile.html", person=display_person, pending_revision=pending_revision, pending_data=snap)
+    telegram_link_url = None
+    if person.telegram_link_token:
+        settings = telegram_bot.get_settings()
+        if settings and settings.bot_username:
+            telegram_link_url = f"https://t.me/{settings.bot_username}?start={person.telegram_link_token}"
+
+    return render_template(
+        "cabinet/profile.html", person=display_person, pending_revision=pending_revision, pending_data=snap,
+        telegram_link_url=telegram_link_url,
+    )
+
+
+@bp.route("/profile/notifications", methods=["POST"])
+@login_required
+def notification_settings():
+    """Подписка на уведомления о событиях сайта (app/notifications.py) —
+    отдельная форма и отдельный роут от profile(): это личная настройка,
+    сохраняется сразу, а не через PersonDataRevision, куда уходят
+    контактные/паспортные данные и ждут одобрения председателя. Если
+    держать это той же формой/кнопкой, что и «Отправить на рассмотрение»,
+    выглядело бы так, будто и подписка на уведомления тоже ждёт одобрения
+    — это не так."""
+    f = request.form
+    notify_channel_raw = f.get("notify_channel") or None
+    try:
+        notify_channel = NotificationChannel(notify_channel_raw) if notify_channel_raw else None
+    except ValueError:
+        notify_channel = None
+    notify_events = {
+        "notify_charge": bool(f.get("notify_charge")),
+        "notify_payment": bool(f.get("notify_payment")),
+        "notify_news": bool(f.get("notify_news")),
+        "notify_forum": bool(f.get("notify_forum")),
+        "notify_board_chat": bool(f.get("notify_board_chat")) and is_board(),
+    }
+    if notify_channel is not None and any(notify_events.values()) and not notifications.channel_is_ready(g.user, notify_channel):
+        flash(_("Чтобы получать уведомления этим способом, сначала укажите и сохраните соответствующий контакт в профиле."), "danger")
+    else:
+        g.user.notify_channel = notify_channel
+        for field, value in notify_events.items():
+            setattr(g.user, field, value)
+        database.db_session.commit()
+        flash(_("Настройки уведомлений сохранены."), "success")
+    return redirect(url_for("cabinet.profile"))
+
+
+@bp.route("/profile/telegram/link", methods=["POST"])
+@login_required
+def telegram_link_start():
+    """Генерирует одноразовый токен привязки Telegram (см. app/telegram_bot.py
+    докстринг — сама привязка завершается scripts/poll_telegram.py, когда
+    бот получит /start с этим токеном)."""
+    person = _current_person()
+    if person is None:
+        return redirect(url_for("cabinet.profile"))
+    person.telegram_link_token = secrets.token_urlsafe(24)
+    database.db_session.commit()
+    return redirect(url_for("cabinet.profile"))
+
+
+@bp.route("/profile/telegram/unlink", methods=["POST"])
+@login_required
+def telegram_unlink():
+    person = _current_person()
+    if person is None:
+        return redirect(url_for("cabinet.profile"))
+    person.telegram_chat_id = None
+    person.telegram_link_token = None
+    database.db_session.commit()
+    flash(_("Telegram отвязан."), "success")
+    return redirect(url_for("cabinet.profile"))
 
 
 @bp.route("/change-password", methods=["POST"])

@@ -78,43 +78,11 @@
         </div>
 
         <div class="col-12 mt-4">
-          <h6 class="border-bottom pb-2">{{ _("Уведомления") }}</h6>
+          <h6 class="border-bottom pb-2">{{ _("Членство") }}</h6>
           <div class="row g-3">
-            <div class="col-md-6">
-              <label class="form-label">{{ _("Способ доставки") }}</label>
-              <select class="form-select" name="notify_channel">
-                <option value="">{{ _("Не получать уведомления") }}</option>
-                <option value="email" {{ 'selected' if g.user.notify_channel and g.user.notify_channel.value == 'email' }}>{{ _("Email") }}</option>
-                <option value="telegram" {{ 'selected' if g.user.notify_channel and g.user.notify_channel.value == 'telegram' }}>Telegram</option>
-                <option value="vk" {{ 'selected' if g.user.notify_channel and g.user.notify_channel.value == 'vk' }}>VK</option>
-                <option value="max" {{ 'selected' if g.user.notify_channel and g.user.notify_channel.value == 'max' }}>MAX</option>
-              </select>
-              <div class="form-text">{{ _("Реально отправляются пока только письма на email — Telegram/VK/MAX можно выбрать заранее, доставка появится позже. Выбранный способ должен быть заполнен в контактных данных выше.") }}</div>
-            </div>
-            <div class="col-md-6">
-              <label class="form-label d-block">{{ _("О каких событиях уведомлять") }}</label>
-              <div class="form-check">
-                <input class="form-check-input" type="checkbox" name="notify_charge" id="notify_charge" {{ 'checked' if g.user.notify_charge }}>
-                <label class="form-check-label" for="notify_charge">{{ _("Начисление на мой счёт") }}</label>
-              </div>
-              <div class="form-check">
-                <input class="form-check-input" type="checkbox" name="notify_payment" id="notify_payment" {{ 'checked' if g.user.notify_payment }}>
-                <label class="form-check-label" for="notify_payment">{{ _("Платёж зачтён на мой счёт") }}</label>
-              </div>
-              <div class="form-check">
-                <input class="form-check-input" type="checkbox" name="notify_news" id="notify_news" {{ 'checked' if g.user.notify_news }}>
-                <label class="form-check-label" for="notify_news">{{ _("Новость или объявление на доске") }}</label>
-              </div>
-              <div class="form-check">
-                <input class="form-check-input" type="checkbox" name="notify_forum" id="notify_forum" {{ 'checked' if g.user.notify_forum }}>
-                <label class="form-check-label" for="notify_forum">{{ _("Новая тема или ответ на форуме") }}</label>
-              </div>
-              {% if is_board() %}
-              <div class="form-check">
-                <input class="form-check-input" type="checkbox" name="notify_board_chat" id="notify_board_chat" {{ 'checked' if g.user.notify_board_chat }}>
-                <label class="form-check-label" for="notify_board_chat">{{ _("Сообщения в чате правления, если не прочитаны 10 минут") }}</label>
-              </div>
-              {% endif %}
+            <div class="col-md-4">
+              <label class="form-label">{{ _("Член кооператива с") }}</label>
+              <input type="date" class="form-control" name="membership_start_date" value="{{ person.membership_start_date.strftime('%Y-%m-%d') if person.membership_start_date else '' }}">
             </div>
           </div>
         </div>
@@ -138,6 +106,63 @@
         </div>
       </div>
       <button class="btn btn-primary mt-3">{{ _("Отправить на рассмотрение") }}</button>
+    </form>
+
+    <h6 class="text-muted mt-4">{{ _("Уведомления") }}</h6>
+    <form method="post" action="{{ url_for('cabinet.notification_settings') }}" class="bg-body p-4 rounded border">
+      <div class="row g-3">
+        <div class="col-md-6">
+          <label class="form-label">{{ _("Способ доставки") }}</label>
+          <select class="form-select" name="notify_channel">
+            <option value="">{{ _("Не получать уведомления") }}</option>
+            <option value="email" {{ 'selected' if g.user.notify_channel and g.user.notify_channel.value == 'email' }}>{{ _("Email") }}</option>
+            <option value="telegram" {{ 'selected' if g.user.notify_channel and g.user.notify_channel.value == 'telegram' }}>Telegram</option>
+          </select>
+          <div class="form-text">{{ _("Email должен быть заполнен в контактных данных выше. Telegram нужно привязать отдельно — см. ниже.") }}</div>
+
+          <div class="mt-3">
+            {% if person.telegram_chat_id %}
+              <span class="badge bg-success">{{ _("Telegram привязан") }}</span>
+              <form method="post" action="{{ url_for('cabinet.telegram_unlink') }}" class="d-inline" onsubmit="return confirm('{{ _('Отвязать Telegram?') }}')">
+                <button class="btn btn-sm btn-outline-secondary ms-2">{{ _("Отвязать") }}</button>
+              </form>
+            {% elif telegram_link_url %}
+              <a href="{{ telegram_link_url }}" target="_blank" rel="noopener" class="btn btn-sm btn-primary">{{ _("Открыть в Telegram и привязать") }}</a>
+              <div class="form-text">{{ _("Ссылка одноразовая — откройте её в Telegram и нажмите Start.") }}</div>
+            {% else %}
+              <form method="post" action="{{ url_for('cabinet.telegram_link_start') }}">
+                <button class="btn btn-sm btn-outline-primary">{{ _("Привязать Telegram") }}</button>
+              </form>
+            {% endif %}
+          </div>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label d-block">{{ _("О каких событиях уведомлять") }}</label>
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="notify_charge" id="notify_charge" {{ 'checked' if g.user.notify_charge }}>
+            <label class="form-check-label" for="notify_charge">{{ _("Начисление на мой счёт") }}</label>
+          </div>
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="notify_payment" id="notify_payment" {{ 'checked' if g.user.notify_payment }}>
+            <label class="form-check-label" for="notify_payment">{{ _("Платёж зачтён на мой счёт") }}</label>
+          </div>
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="notify_news" id="notify_news" {{ 'checked' if g.user.notify_news }}>
+            <label class="form-check-label" for="notify_news">{{ _("Новость или объявление на доске") }}</label>
+          </div>
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="notify_forum" id="notify_forum" {{ 'checked' if g.user.notify_forum }}>
+            <label class="form-check-label" for="notify_forum">{{ _("Новая тема или ответ на форуме") }}</label>
+          </div>
+          {% if is_board() %}
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="notify_board_chat" id="notify_board_chat" {{ 'checked' if g.user.notify_board_chat }}>
+            <label class="form-check-label" for="notify_board_chat">{{ _("Сообщения в чате правления, если не прочитаны 10 минут") }}</label>
+          </div>
+          {% endif %}
+        </div>
+      </div>
+      <button class="btn btn-primary mt-3">{{ _("Сохранить настройки уведомлений") }}</button>
     </form>
   </div>
 

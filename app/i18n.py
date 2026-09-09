@@ -1715,6 +1715,20 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         # cabinet/profile.html
         "Контактные данные": "Contact details",
         "Паспортные данные": "Passport details",
+        "Уведомления": "Notifications",
+        "Способ доставки": "Delivery method",
+        "Не получать уведомления": "Don't receive notifications",
+        "Реально отправляются пока только письма на email — Telegram/VK/MAX можно выбрать заранее, доставка появится позже. Выбранный способ должен быть заполнен в контактных данных выше.":
+            "Only email is actually delivered for now — Telegram/VK/MAX can be selected in advance, delivery will follow later. The selected method must be filled in the contact details above.",
+        "О каких событиях уведомлять": "Which events to notify about",
+        "Начисление на мой счёт": "A charge is added to my account",
+        "Платёж зачтён на мой счёт": "A payment is credited to my account",
+        "Новость или объявление на доске": "A news item or a bulletin board post",
+        "Новая тема или ответ на форуме": "A new forum topic or reply",
+        "Сообщения в чате правления, если не прочитаны 10 минут": "Board chat messages unread for 10 minutes",
+        "Чтобы получать уведомления этим способом, сначала укажите и сохраните соответствующий контакт в профиле.":
+            "To receive notifications this way, first fill in and save the matching contact field in your profile.",
+        "Настройки уведомлений сохранены.": "Notification settings saved.",
 
         # cooperative/view.html
         "площадь кооператива - площадь приватизированных участков": "cooperative area minus privatized plots",

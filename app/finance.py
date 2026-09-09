@@ -6,6 +6,7 @@ from sqlalchemy import or_, func
 
 from . import database
 from . import audit
+from . import notifications
 from .i18n import translate as _, fmt2, parse_decimal, format_date
 from .auth import login_required, roles_required
 from .permissions import can_view_member_account, is_board, is_privileged
@@ -399,6 +400,11 @@ def add_member_charge(account_id):
                 f"({account.person.short_name}), {year} год",
     )
     database.db_session.commit()
+    notifications.notify(
+        notifications.user_for_person(account.person_id), "charge",
+        "Начисление на ваш счёт",
+        f"На счёт {account.account_number} начислено {fmt2(amount)} ₽ ({year} год).",
+    )
     new_balance = _balance(account)
     return respond(
         True, _("Начисление добавлено."),
@@ -554,6 +560,11 @@ def add_member_payment(account_id):
                 f"({account.person.short_name}) от {audit.format_date(date)}",
     )
     database.db_session.commit()
+    notifications.notify(
+        notifications.user_for_person(account.person_id), "payment",
+        "Платёж зачтён на ваш счёт",
+        f"На счёт {account.account_number} зачтён платёж {fmt2(amount)} ₽ от {format_date(date)}.",
+    )
     new_balance = _balance(account)
     return respond(
         True, _("Платёж зарегистрирован."),
@@ -721,6 +732,11 @@ def transfer_member_account_funds(account_id):
         ) + (f": {reason}" if reason else ""),
     )
     database.db_session.commit()
+    notifications.notify(
+        notifications.user_for_person(target.person_id), "payment",
+        "Платёж зачтён на ваш счёт",
+        f"На счёт {target.account_number} зачтено {fmt2(amount)} ₽ (зачёт со счёта {source.account_number}).",
+    )
     flash(_("Зачёт выполнен."), "success")
     return redirect(url_for("finance.member_account_detail", account_id=source.id))
 
@@ -1171,6 +1187,7 @@ def mass_charge():
         total_area = sum((garage.area_sqm for garage in garages), Decimal("0"))
 
         charged_rows = []   # (person_name, garage_number, amount)
+        charged_accounts = []  # (account, amount) — для уведомлений после commit (нужен account.person)
         skipped_rows = []   # (person_name, garage_number) — нет лицевого счёта на этот вид взноса
 
         round_up_raw = f.get("round_up", "0")
@@ -1243,6 +1260,7 @@ def mass_charge():
                     comment=f"Массовое начисление за {year} год",
                 ))
                 charged_rows.append((ownership.person.full_name, garage.number, owner_amount))
+                charged_accounts.append((account, owner_amount))
 
         database.db_session.flush()
         touched_accounts = {
@@ -1265,6 +1283,18 @@ def mass_charge():
                         f"на сумму {audit.format_amount(sum((a for _n, _g, a in charged_rows), Decimal('0')))}",
             )
         database.db_session.commit()
+        by_person: dict[int, list[tuple[str, Decimal]]] = {}
+        for acc, acc_amount in charged_accounts:
+            by_person.setdefault(acc.person_id, []).append((acc.account_number, acc_amount))
+        for person_id, lines in by_person.items():
+            total_amount = sum((a for _n, a in lines), Decimal("0"))
+            details = ", ".join(f"{number} — {fmt2(a)} ₽" for number, a in lines)
+            notifications.notify(
+                notifications.user_for_person(person_id), "charge",
+                "Начисление на ваш счёт",
+                f"По итогам массового начисления «{fee_type.name}» за {year} год на ваши счета "
+                f"начислено {fmt2(total_amount)} ₽: {details}.",
+            )
         results = {
             "fee_type_name": fee_type.name,
             "year": year,

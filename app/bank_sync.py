@@ -19,6 +19,7 @@ from cryptography.hazmat.primitives.serialization import pkcs12, Encoding, Priva
 from flask import Blueprint, render_template, request, redirect, url_for, flash, abort, current_app, Response
 
 from . import database, audit
+from . import notifications
 from .i18n import translate as _
 from .auth import roles_required
 from .models import (
@@ -1205,6 +1206,12 @@ def _allocate_payment_to_account(
     database.db_session.flush()
     if kind == "member":
         reallocate_member_charges(target)
+        notifications.notify(
+            notifications.user_for_person(target.person_id), "payment",
+            "Платёж зачтён на ваш счёт",
+            f"На счёт {target.account_number} зачтён платёж {audit.format_amount(amount)} ₽ "
+            f"от {audit.format_date(date)} (банковская выписка).",
+        )
     else:
         reallocate_garage_charges(target)
     return payment, resolved_account_number

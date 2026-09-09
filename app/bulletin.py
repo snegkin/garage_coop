@@ -24,6 +24,7 @@ from flask import (
 
 from . import database
 from . import audit
+from . import notifications
 from .i18n import translate as _, parse_optional_decimal
 from .auth import login_required
 from .permissions import is_board
@@ -186,6 +187,9 @@ def create():
         summary=f"Добавлено объявление «{title}» ({CATEGORY_LABELS[post.category]})",
     )
     database.db_session.commit()
+    notifications.notify_subscribers(
+        "news", "Новое объявление на доске", title, exclude_user_id=g.user.id,
+    )
     flash(_("Объявление опубликовано."), "success")
     return redirect(url_for("bulletin.list_posts"))
 

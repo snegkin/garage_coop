@@ -8,6 +8,7 @@ from flask import (
 )
 
 from . import database
+from . import notifications
 from .i18n import translate as _
 from .auth import roles_required
 from .models import News, NewsAttachment, RoleEnum
@@ -137,6 +138,9 @@ def create():
         _sync_inline_attachments(item, f["body"])
         _save_attachments(item)
         database.db_session.commit()
+        notifications.notify_subscribers(
+            "news", "Новая новость", item.title, exclude_user_id=g.user.id,
+        )
         flash(_("Новость добавлена."), "success")
         return redirect(url_for("main.index"))
 

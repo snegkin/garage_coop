@@ -88,6 +88,16 @@ def _sync_inline_attachments(post: BulletinPost, description_text: str):
             database.db_session.delete(att)
 
 
+def latest_posts(limit: int = 5):
+    """Последние объявления для виджета на главной (см. app/main.py:
+    index()) — те же правила видимости, что и в list_posts(): «только для
+    членов» скрыты от анонимных посетителей."""
+    query = database.db_session.query(BulletinPost).order_by(BulletinPost.created_at.desc())
+    if g.user is None:
+        query = query.filter(BulletinPost.is_members_only.is_(False))
+    return query.limit(limit).all()
+
+
 @bp.route("/")
 def list_posts():
     category_raw = request.args.get("category")

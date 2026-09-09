@@ -749,6 +749,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Годовые отчёты": "Annual reports",
         "Главная": "Home",
         "Все камеры": "All cameras",
+        "Последние объявления": "Latest bulletin posts",
+        "Все объявления": "All bulletin posts",
         "Собрание": "Meeting",
         "Смета": "Budget",
         "утверждена": "approved",

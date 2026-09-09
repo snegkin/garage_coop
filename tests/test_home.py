@@ -1,10 +1,10 @@
 """
 Главная страница сайта (`/`, app/main.py: index()) — общедоступна и сама
 по себе (по прямому переходу) отдаёт 200 для ЛЮБОЙ роли без редиректов.
-Показывает новости (news.latest_news()) и компактное превью
-видеонаблюдения (surveillance.recorders_with_combined_snapshots())
-одинаково для всех. Форма входа — не здесь, а всегда доступным дропдауном
-«Войти» в шапке (см. base.html, auth/_login_form.html).
+Показывает новости (news.latest_news()), компактное превью
+видеонаблюдения (surveillance.recorders_with_combined_snapshots()) и
+последние объявления с доски (bulletin.latest_posts() — те же правила
+видимости «только для членов», что и в /bulletin/).
 
 Но это НЕ единственная "главная": для правления/председателя рабочей
 главной остаётся дашборд (по прямой просьбе) — лого в шапке и вход по
@@ -12,7 +12,7 @@
 для рядовых членов и анонимных — на / (см. auth._complete_login,
 tests ниже).
 """
-from app.models import RoleEnum, News
+from app.models import RoleEnum, News, BulletinPost, BulletinCategory
 
 from tests.conftest import make_user, login
 
@@ -43,6 +43,34 @@ def test_home_shows_surveillance_section_without_recorders(client):
     body = client.get("/").get_data(as_text=True)
     assert "Видеонаблюдение" in body
     assert "Регистраторы видеонаблюдения ещё не добавлены." in body
+
+
+def test_home_shows_public_bulletin_post_to_anonymous(db, client):
+    db.add(BulletinPost(
+        category=BulletinCategory.SELL, title="Продам гараж", description="x",
+        contact="+7 900 000-00-00", is_members_only=False,
+    ))
+    db.commit()
+
+    body = client.get("/").get_data(as_text=True)
+    assert "Продам гараж" in body
+
+
+def test_home_hides_members_only_bulletin_post_from_anonymous(db, client):
+    db.add(BulletinPost(
+        category=BulletinCategory.SELL, title="Только для своих", description="x",
+        contact="+7 900 000-00-00", is_members_only=True,
+    ))
+    db.commit()
+
+    anon_body = client.get("/").get_data(as_text=True)
+    assert "Только для своих" not in anon_body
+
+    make_user(db, "member1", "pass12345", role=RoleEnum.MEMBER)
+    db.commit()
+    login(client, "member1", "pass12345")
+    member_body = client.get("/").get_data(as_text=True)
+    assert "Только для своих" in member_body
 
 
 def test_home_still_reachable_directly_for_board(db, client):

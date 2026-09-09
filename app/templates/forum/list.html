@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Форум") }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h3 class="mb-0">{{ _("Форум") }}</h3>
+  <a class="btn btn-primary" href="{{ url_for('forum.create') }}">+ {{ _("Новая тема") }}</a>
+</div>
+<div class="mb-3">
+  <input class="form-control" data-table-filter-for="forumTopicsTable" placeholder="{{ _('Поиск по заголовку или автору...') }}">
+</div>
+<table class="table bg-body sortable" id="forumTopicsTable" data-page-size="20">
+  <thead>
+    <tr>
+      <th>{{ _("Тема") }}</th>
+      <th>{{ _("Автор") }}</th>
+      <th>{{ _("Сообщений") }}</th>
+      <th>{{ _("Последняя активность") }}</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for topic in topics %}
+    <tr data-filter-text="{{ (topic.title ~ ' ' ~ (topic.author.username if topic.author else ''))|lower }}">
+      <td>
+        <a href="{{ url_for('forum.view', topic_id=topic.id) }}">{{ topic.title }}</a>
+        {% if topic.is_closed %}<span class="badge bg-secondary">{{ _("закрыта") }}</span>{% endif %}
+      </td>
+      <td>{{ topic.author.username if topic.author else "—" }}</td>
+      <td data-sort-value="{{ topic.posts|length }}">{{ topic.posts|length }}</td>
+      <td data-sort-value="{{ topic.last_activity_at }}">{{ fmt_date(topic.last_activity_at.date()) }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="4" class="text-muted">{{ _("Тем пока нет.") }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+<nav class="d-none mb-3" data-pager-for="forumTopicsTable">
+  <ul class="pagination pagination-sm mb-0"></ul>
+</nav>
+{% endblock %}

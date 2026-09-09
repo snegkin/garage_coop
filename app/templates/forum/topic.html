@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}{{ topic.title }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-start gap-2 mb-3">
+  <h3 class="mb-0">
+    {{ topic.title }}
+    {% if topic.is_closed %}<span class="badge bg-secondary">{{ _("закрыта") }}</span>{% endif %}
+  </h3>
+  <div class="d-flex gap-2 text-nowrap">
+    {% if is_board() %}
+    <form method="post" action="{{ url_for('forum.reopen_topic' if topic.is_closed else 'forum.close_topic', topic_id=topic.id) }}">
+      <button class="btn btn-sm btn-outline-secondary">{{ _("Открыть тему") if topic.is_closed else _("Закрыть тему") }}</button>
+    </form>
+    {% endif %}
+    {% if current_user and (is_board() or topic.author_id == current_user.id) %}
+    <form method="post" action="{{ url_for('forum.delete_topic', topic_id=topic.id) }}" onsubmit="return confirm('{{ _('Удалить тему вместе со всеми сообщениями?') }}')">
+      <button class="btn btn-sm btn-outline-danger">{{ _("Удалить тему") }}</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+
+{% for post in topic.posts %}
+<div class="card bg-body mb-3">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
+      <div>
+        <strong>{{ post.author.username if post.author else _("удалённый пользователь") }}</strong>
+        <span class="text-muted small">
+          {{ fmt_date(post.created_at.date()) }}
+          {% if post.updated_at %}&middot; {{ _("изменено") }} {{ fmt_date(post.updated_at.date()) }}{% endif %}
+        </span>
+      </div>
+      {% if current_user %}
+      <div class="d-flex gap-2 text-nowrap">
+        {% if post.author_id == current_user.id %}
+        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('forum.edit_post', post_id=post.id) }}">{{ _("Изменить") }}</a>
+        {% endif %}
+        {% if (is_board() or post.author_id == current_user.id) and post.id != topic.posts[0].id %}
+        <form method="post" action="{{ url_for('forum.delete_post', post_id=post.id) }}" onsubmit="return confirm('{{ _('Удалить сообщение?') }}')">
+          <button class="btn btn-sm btn-outline-danger">{{ _("Удалить") }}</button>
+        </form>
+        {% endif %}
+      </div>
+      {% endif %}
+    </div>
+    <div class="card-text">{{ render_news_html(post.body) }}</div>
+  </div>
+</div>
+{% endfor %}
+
+{% if topic.is_closed %}
+<p class="text-muted">{{ _("Тема закрыта для новых ответов.") }}</p>
+{% else %}
+<div class="bg-body p-4 rounded border">
+  <h5 class="mb-3">{{ _("Ответить") }}</h5>
+  <form method="post" action="{{ url_for('forum.reply', topic_id=topic.id) }}">
+    {% include "forum/_editor.html" %}
+    <div class="d-flex justify-content-end mt-3">
+      <button class="btn btn-primary">{{ _("Отправить") }}</button>
+    </div>
+  </form>
+</div>
+{% endif %}
+{% endblock %}

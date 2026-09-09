@@ -1262,6 +1262,95 @@ class BulletinAttachment(Base):
     author: Mapped["User | None"] = relationship()
 
 
+class ForumTopic(Base):
+    """Тема форума (`/forum/`) — свободное обсуждение любых вопросов
+    членами кооператива, не привязанное к конкретному гаражу/собранию/
+    другой сущности (по прямой просьбе). В отличие от доски объявлений
+    (BulletinPost) форум НЕ общедоступен — виден только вошедшим (см.
+    app/forum.py, все роуты под @login_required). Завести тему может
+    любой вошедший; удалить свою тему может автор, любую — правление
+    (модерация постфактум, без предварительного одобрения — тот же
+    принцип, что и у доски объявлений).
+
+    last_activity_at — время последнего сообщения в теме (обновляется при
+    каждом ответе, см. forum.py: reply()) — список тем сортируется по
+    нему, а не по created_at, чтобы недавно ожившие темы всплывали
+    наверх, как в большинстве форумов.
+
+    is_closed — правление закрыло тему для новых ответов (не удаляя её)."""
+    __tablename__ = "forum_topic"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    title: Mapped[str] = mapped_column(String(255))
+    author_id: Mapped[int | None] = mapped_column(ForeignKey("user.id", ondelete="SET NULL"), index=True)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.utcnow, index=True)
+    last_activity_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.utcnow, index=True)
+    is_closed: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    author: Mapped["User | None"] = relationship()
+    posts: Mapped[list["ForumPost"]] = relationship(
+        back_populates="topic", cascade="all, delete-orphan", order_by="ForumPost.created_at"
+    )
+
+
+class ForumPost(Base):
+    """Сообщение внутри темы форума — и открывающее (создаётся вместе с
+    темой, см. forum.py: create()), и последующие ответы: одна и та же
+    модель на оба случая, чтобы не дублировать рендер markdown/вложений
+    для «тела темы» отдельно от «ответов». Первое сообщение темы (по
+    created_at) удаляется только вместе с темой целиком (см. forum.py:
+    delete_topic) — иначе тема осталась бы без открывающего текста;
+    остальные — по отдельности (см. delete_post).
+
+    Правка текста — только своего сообщения (см. forum.py: edit_post) —
+    в отличие от доски объявлений, здесь правление НЕ может редактировать
+    чужой текст, только удалить (по прямой просьбе)."""
+    __tablename__ = "forum_post"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    topic_id: Mapped[int] = mapped_column(ForeignKey("forum_topic.id", ondelete="CASCADE"), index=True)
+    body: Mapped[str] = mapped_column(Text)
+    author_id: Mapped[int | None] = mapped_column(ForeignKey("user.id", ondelete="SET NULL"), index=True)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.utcnow, index=True)
+    updated_at: Mapped[dt.datetime | None] = mapped_column(DateTime, onupdate=dt.datetime.utcnow)
+
+    topic: Mapped["ForumTopic"] = relationship(back_populates="posts")
+    author: Mapped["User | None"] = relationship()
+    attachments: Mapped[list["ForumAttachment"]] = relationship(
+        back_populates="post", cascade="all, delete-orphan", order_by="ForumAttachment.id"
+    )
+
+
+class ForumAttachment(Base):
+    """Картинка, вставленная в текст сообщения форума (![](url) в markdown
+    ForumPost.body) — 1-в-1 BulletinAttachment: is_inline всегда True, для
+    форума тоже нет отдельного блока «прикреплённые файлы» — фото в
+    тексте сообщения достаточно.
+
+    post_id nullable — картинка загружается по AJAX (см. forum.py:
+    upload_inline_attachment) ДО сохранения самого сообщения;
+    _sync_inline_attachments в app/forum.py «забирает» осиротевшую свою
+    же картинку при сохранении, cleanup_orphan_attachments.py по cron
+    подчищает так и не сохранённые.
+
+    Видимость при отдаче (см. forum.py: attachment()) — форум целиком
+    только для вошедших, отдельной проверки видимости конкретного
+    сообщения не нужно (в отличие от BulletinAttachment.is_members_only)."""
+    __tablename__ = "forum_attachment"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    post_id: Mapped[int | None] = mapped_column(ForeignKey("forum_post.id", ondelete="CASCADE"), index=True)
+    original_filename: Mapped[str] = mapped_column(String(255))
+    stored_filename: Mapped[str] = mapped_column(String(255))
+    content_type: Mapped[str | None] = mapped_column(String(100))
+    is_inline: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    author_id: Mapped[int | None] = mapped_column(ForeignKey("user.id", ondelete="SET NULL"), index=True)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.utcnow, index=True)
+
+    post: Mapped["ForumPost | None"] = relationship(back_populates="attachments")
+    author: Mapped["User | None"] = relationship()
+
+
 class WikiPage(Base):
     """Вики кооператива: справочные заметки для правления и/или всех членов
     (параметры видеонаблюдения, структура сети, телефоны контрагентов и
@@ -1394,6 +1483,7 @@ def _delete_attachment_file(mapper, connection, target):
 event.listen(NewsAttachment, "after_delete", _delete_attachment_file)
 event.listen(WikiAttachment, "after_delete", _delete_attachment_file)
 event.listen(BulletinAttachment, "after_delete", _delete_attachment_file)
+event.listen(ForumAttachment, "after_delete", _delete_attachment_file)
 
 
 # ---------------------------------------------------------------------------

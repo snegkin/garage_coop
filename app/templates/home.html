@@ -38,6 +38,21 @@
   </div>
 
   <div class="col-lg-4 order-1 order-lg-2">
+    {% if not current_user %}
+    {# Постоянно видимая (не в дропдауне) форма входа — только если хватает
+       ширины экрана (d-none d-lg-block, тот же брейкпоинт, на котором эта
+       колонка вообще становится отдельной боковой панелью, а не растягивается
+       на всю ширину). На более узких экранах у анонимного всё равно остаётся
+       дропдаун «Войти» в шапке (base.html) — тут дублировать незачем, места
+       под постоянно открытую форму на телефоне/планшете нет. #}
+    <div class="card bg-body ms-lg-auto mb-3 d-none d-lg-block">
+      <div class="card-body">
+        <h5 class="card-title mb-3">{{ _("Вход в систему") }}</h5>
+        {% set form_id = "home" %}
+        {% include "auth/_login_form.html" with context %}
+      </div>
+    </div>
+    {% endif %}
     <div class="card bg-body ms-lg-auto mb-3">
       <div class="card-body">
         <div class="d-flex justify-content-between align-items-center mb-2">

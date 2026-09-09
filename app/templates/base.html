@@ -28,17 +28,32 @@
     </button>
     <div class="collapse navbar-collapse" id="nav">
       <ul class="navbar-nav me-auto">
-        {# Видеонаблюдение и доска объявлений — общедоступные разделы
-           (surveillance.view вовсе без @login_required, bulletin —
-           общедоступен по устройству самого раздела), поэтому эти два
-           пункта видны и анонимному посетителю — вся остальная шапка
-           (ниже, под {% if current_user %}) доступна только вошедшим. #}
+        {# Видеонаблюдение — общедоступный роут (surveillance.view вовсе
+           без @login_required) — топ-уровнем виден только анонимному:
+           у него в шапке и так почти пусто, а вошедшему тот же раздел
+           доступен из дропдауна «Кооператив» (см. ниже), чтобы не плодить
+           пункты верхнего уровня. Доска объявлений — тоже общедоступна,
+           но остаётся топ-уровнем для всех (двух пунктов анонимному не
+           жалко, а для вошедших это не выбивается по частоте обращения). #}
+        {% if not current_user %}
         <li class="nav-item"><a class="nav-link" href="{{ url_for('surveillance.view') }}">{{ _("Видеонаблюдение") }}</a></li>
+        {% endif %}
         <li class="nav-item"><a class="nav-link" href="{{ url_for('bulletin.list_posts') }}">{{ _("Доска объявлений") }}</a></li>
         {% if current_user %}
-        <li class="nav-item"><a class="nav-link" href="{{ url_for('wiki.list_pages') }}">{{ _("Вики") }}</a></li>
-        <li class="nav-item"><a class="nav-link" href="{{ url_for('meetings.list_meetings') }}">{{ _("Собрания") }}</a></li>
-        <li class="nav-item"><a class="nav-link" href="{{ url_for('annual_reports.list_reports') }}">{{ _("Годовые отчёты") }}</a></li>
+        {# Вики/Собрания/Годовые отчёты — раньше были отдельными пунктами
+           верхнего уровня, из-за чего вместе с топ-уровневым
+           «Видеонаблюдение» и «Доской объявлений» меню переставало
+           помещаться в одну строку у правления. Объединены в один
+           дропдаун — доступность та же (2 клика), пунктов верхнего
+           уровня меньше. #}
+        <li class="nav-item dropdown">
+          <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">{{ _("Документы") }}</a>
+          <ul class="dropdown-menu">
+            <li><a class="dropdown-item" href="{{ url_for('wiki.list_pages') }}">{{ _("Вики") }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('meetings.list_meetings') }}">{{ _("Собрания") }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('annual_reports.list_reports') }}">{{ _("Годовые отчёты") }}</a></li>
+          </ul>
+        </li>
         <li class="nav-item dropdown">
           <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">{{ _("Голосования") }}</a>
           <ul class="dropdown-menu">
@@ -60,15 +75,18 @@
         <li class="nav-item dropdown">
           <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">{{ _("Кооператив") }}</a>
           <ul class="dropdown-menu">
-            {# Информация — общедоступный роут (cooperative.view:
-               @login_required), поэтому без проверки роли; мониторинг
+            {# Информация/Видеонаблюдение — общедоступные роуты
+               (cooperative.view: @login_required, surveillance.view вовсе
+               без декоратора), поэтому без проверки роли; мониторинг
                электропитания открыт любому вошедшему
                (electricity_monitor.view: @login_required) — дальше по
                пунктам права проверяются по факту декоратора на самом
-               роуте, а не по видимости всего меню. Видеонаблюдение — тем
-               же общедоступным роутом — теперь отдельным пунктом слева
-               (виден и анонимным, см. выше), здесь не дублируется. #}
+               роуте, а не по видимости всего меню. Видеонаблюдение здесь,
+               а не отдельным пунктом верхнего уровня (как для анонимных,
+               см. выше) — чтобы не плодить пункты верхнего уровня у
+               вошедших, там и так не пусто. #}
             <li><a class="dropdown-item" href="{{ url_for('cooperative.view') }}">{{ _("Информация") }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('surveillance.view') }}">{{ _("Видеонаблюдение") }}</a></li>
             <li><hr class="dropdown-divider"></li>
             <li><h6 class="dropdown-header">{{ _("Электроэнергия") }}</h6></li>
             <li><a class="dropdown-item" href="{{ url_for('electricity_monitor.view') }}">{{ _("Мониторинг электропитания") }}</a></li>

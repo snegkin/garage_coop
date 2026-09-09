@@ -26,7 +26,7 @@
         <div class="d-flex align-items-center gap-2">
           {% if user.is_active %}<span class="badge bg-success">{{ _("доступ активен") }}</span>
           {% else %}<span class="badge bg-secondary">{{ _("доступ отключён") }}</span>{% endif %}
-          <form method="post" action="{{ url_for('persons.toggle_account_active', user_id=user.id) }}">
+          <form method="post" action="{{ url_for('persons.toggle_account_active', user_id=user.id) }}" data-ajax>
             <button class="btn btn-sm btn-outline-{{ 'danger' if user.is_active else 'success' }} btn-icon-square"
                     title="{{ _('Отключить доступ') if user.is_active else _('Включить доступ') }}">⏻</button>
           </form>
@@ -38,7 +38,7 @@
           <button class="btn btn-sm btn-primary">{{ _("Отвязать") }}</button>
         </form>
         {% else %}
-        <form method="post" action="{{ url_for('persons.link_account', user_id=user.id) }}" class="d-flex gap-2 justify-content-end">
+        <form method="post" action="{{ url_for('persons.link_account', user_id=user.id) }}" class="d-flex gap-2 justify-content-end" data-ajax>
           <select name="person_id" class="form-select form-select-sm" data-searchable required style="max-width:260px">
             <option value="">— {{ _("выберите человека") }} —</option>
             {% for p in unlinked_persons %}<option value="{{ p.id }}">{{ p.full_name }}</option>{% endfor %}

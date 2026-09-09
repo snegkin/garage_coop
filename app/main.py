@@ -26,20 +26,24 @@ MAIL_PREVIEW_LIMIT = 5  # последних писем во входящих д
 @bp.route("/")
 def index():
     """Главная страница сайта — общедоступна (анонимный посетитель видит
-    ровно то же самое, что и вошедший): новости кооператива и превью
-    видеонаблюдения (оба и так общедоступные разделы, см. их докстринги).
-    Раньше на этом месте был голый редирект — анонимного на auth.login,
-    вошедшего на dashboard(); теперь и то, и другое просто пункты меню
-    (шапка видна всегда, см. base.html), а не обязательные точки входа —
-    по прямой просьбе не уводить человека принудительно на дашборд/«мои
-    гаражи» сразу после входа (см. auth._complete_login)."""
+    ровно то же самое, что и вошедший, кроме объявлений «только для
+    членов» — см. bulletin.latest_posts): новости кооператива, превью
+    видеонаблюдения и последние объявления с доски (все три и так
+    общедоступные разделы, см. их докстринги). Раньше на этом месте был
+    голый редирект — анонимного на auth.login, вошедшего на dashboard();
+    теперь и то, и другое просто пункты меню (шапка видна всегда, см.
+    base.html), а не обязательные точки входа — по прямой просьбе не
+    уводить человека принудительно на дашборд/«мои гаражи» сразу после
+    входа (см. auth._complete_login)."""
     from .news import latest_news
     from .surveillance import recorders_with_combined_snapshots
+    from .bulletin import latest_posts, CATEGORY_LABELS
 
     recorders, combined_updated_at = recorders_with_combined_snapshots()
     return render_template(
         "home.html", news_items=latest_news(),
         recorders=recorders, combined_updated_at=combined_updated_at,
+        bulletin_posts=latest_posts(), bulletin_category_labels=CATEGORY_LABELS,
     )
 
 

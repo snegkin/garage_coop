@@ -23,6 +23,26 @@ RECENT_ACTIVITY_LIMIT = 8  # последних записей журнала а
 MAIL_PREVIEW_LIMIT = 5  # последних писем во входящих для виджета на панели — сама панель, не замена /mailbox/
 
 
+@bp.route("/")
+def index():
+    """Главная страница сайта — общедоступна (анонимный посетитель видит
+    ровно то же самое, что и вошедший): новости кооператива и превью
+    видеонаблюдения (оба и так общедоступные разделы, см. их докстринги).
+    Раньше на этом месте был голый редирект — анонимного на auth.login,
+    вошедшего на dashboard(); теперь и то, и другое просто пункты меню
+    (шапка видна всегда, см. base.html), а не обязательные точки входа —
+    по прямой просьбе не уводить человека принудительно на дашборд/«мои
+    гаражи» сразу после входа (см. auth._complete_login)."""
+    from .news import latest_news
+    from .surveillance import recorders_with_combined_snapshots
+
+    recorders, combined_updated_at = recorders_with_combined_snapshots()
+    return render_template(
+        "home.html", news_items=latest_news(),
+        recorders=recorders, combined_updated_at=combined_updated_at,
+    )
+
+
 def _mail_preview() -> dict:
     """Последние письма входящих для виджета на панели — живое IMAP/POP3-
     подключение, как и у самой /mailbox/ (см. mailbox.py), без кэширования

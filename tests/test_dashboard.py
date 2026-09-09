@@ -30,31 +30,31 @@ def _make_account(db, person, garage, code, is_archived=False):
 
 
 # ---------------------------------------------------------------------------
-# Корень сайта (/) — редирект в зависимости от того, вошёл ли пользователь
+# Корень сайта (/) — теперь настоящая главная страница, без редиректов по
+# роли (см. app/main.py: index() и tests/test_home.py — подробные тесты
+# самой главной там; здесь только то, что раньше было редиректом).
 # ---------------------------------------------------------------------------
 
-def test_index_redirects_anonymous_straight_to_login_without_flash(client):
-    """Анонимный посетитель мог просто открыть сайт почитать новости —
-    редирект сразу на страницу входа, БЕЗ похода через /dashboard
-    (@login_required), который добавил бы неуместный флэш "Пожалуйста,
-    войдите в систему", как будто он пытался куда-то попасть."""
+def test_index_no_longer_redirects_anonymous(client):
+    """Анонимный посетитель просто открывает сайт почитать новости — без
+    редиректа на страницу входа и без флэша "Пожалуйста, войдите в
+    систему" (тот уместен только когда login_required реально кого-то
+    куда-то не пустил)."""
     resp = client.get("/")
-    assert resp.status_code == 302
-    assert resp.headers["Location"] == "/auth/login"
-
-    follow = client.get("/", follow_redirects=True)
-    body = follow.get_data(as_text=True)
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
     assert "Пожалуйста, войдите в систему" not in body
 
 
-def test_index_redirects_logged_in_user_to_dashboard(db, client):
+def test_index_no_longer_redirects_logged_in_user(db, client):
+    """Вошедший тоже видит главную напрямую, не дашборд — на дашборд
+    теперь отдельный пункт меню для правления (см. base.html)."""
     make_user(db, "member1", "pass12345", role=RoleEnum.MEMBER)
     db.commit()
     login(client, "member1", "pass12345")
 
     resp = client.get("/")
-    assert resp.status_code == 302
-    assert resp.headers["Location"] == "/dashboard"
+    assert resp.status_code == 200
 
 
 def test_dashboard_shows_total_debt_and_account_count(app, db, client):

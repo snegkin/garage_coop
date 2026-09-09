@@ -93,21 +93,29 @@ def combined_history_dir(recorder_id: int) -> str:
     return os.path.join(combined_dir(recorder_id), "history")
 
 
-@bp.route("/")
-def view():
+def recorders_with_combined_snapshots():
+    """Регистраторы + время обновления их смонтированного кадра — общие
+    данные для полной страницы (view() ниже) и для компактного превью на
+    главной (см. app/main.py: index()). Отдельного поля "когда обновился
+    общий кадр" в БД нет — берём mtime самого файла (та же логика, что
+    camera.last_snapshot_at, только без колонки — общий кадр не привязан
+    ни к одной модели)."""
     recorders = (
         database.db_session.query(DvrRecorder)
         .order_by(DvrRecorder.sort_order, DvrRecorder.id)
         .all()
     )
-    # Отдельного поля "когда обновился общий кадр" в БД нет — берём mtime
-    # самого файла (та же логика, что camera.last_snapshot_at, только без
-    # колонки — общий кадр не привязан ни к одной модели).
     combined_updated_at = {}
     for recorder in recorders:
         path = combined_snapshot_path(recorder.id)
         if os.path.exists(path):
             combined_updated_at[recorder.id] = dt.datetime.utcfromtimestamp(os.path.getmtime(path))
+    return recorders, combined_updated_at
+
+
+@bp.route("/")
+def view():
+    recorders, combined_updated_at = recorders_with_combined_snapshots()
     return render_template("surveillance/view.html", recorders=recorders, combined_updated_at=combined_updated_at)
 
 

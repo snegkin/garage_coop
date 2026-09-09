@@ -1,0 +1,58 @@
+{#
+  Форма входа — переиспользуется и в дропдауне «Войти» в шапке
+  (base.html, виден на любой странице для анонимного посетителя), и на
+  самой странице /auth/login (реальная цель редиректа login_required,
+  см. auth.py, и место приземления по прямым ссылкам вроде «Забыли
+  пароль?»). Обе формы явно постят на auth.login/auth.login_by_phone с
+  login_next_url (см. app/__init__.py: _inject_user) вместо неявного
+  сабмита на текущий URL — раньше это работало только потому, что форма
+  жила исключительно на /auth/login, теперь она может оказаться на любой
+  странице.
+
+  form_id — обязательный параметр: уникальный суффикс для id вкладок
+  Bootstrap (data-bs-target ищет по id) — без него при одновременном
+  показе (шапка + страница входа на одной странице) id задвоились бы.
+#}
+<ul class="nav nav-tabs mb-3" role="tablist">
+  <li class="nav-item" role="presentation">
+    <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#loginByUsername-{{ form_id }}" type="button" role="tab">{{ _("По логину") }}</button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" data-bs-toggle="tab" data-bs-target="#loginByPhone-{{ form_id }}" type="button" role="tab">{{ _("По телефону") }}</button>
+  </li>
+</ul>
+<div class="tab-content">
+  <div class="tab-pane fade show active" id="loginByUsername-{{ form_id }}" role="tabpanel">
+    <form method="post" action="{{ url_for('auth.login', next=login_next_url) if login_next_url else url_for('auth.login') }}">
+      <div class="mb-3">
+        <label class="form-label">{{ _("Логин") }}</label>
+        <input class="form-control" name="username" required {{ 'autofocus' if autofocus }}>
+      </div>
+      <div class="mb-3">
+        <label class="form-label">{{ _("Пароль") }}</label>
+        <input class="form-control" type="password" name="password" required>
+      </div>
+      <button class="btn btn-primary w-100">{{ _("Войти") }}</button>
+    </form>
+    <div class="text-center mt-3">
+      <a href="{{ url_for('auth.forgot_password') }}" class="small">{{ _("Забыли пароль?") }}</a>
+    </div>
+  </div>
+  <div class="tab-pane fade" id="loginByPhone-{{ form_id }}" role="tabpanel">
+    <form method="post" action="{{ url_for('auth.login_by_phone', next=login_next_url) if login_next_url else url_for('auth.login_by_phone') }}">
+      <div class="mb-3">
+        <label class="form-label">{{ _("Номер телефона") }}</label>
+        <input class="form-control" type="tel" name="phone" required placeholder="+7 900 123-45-67">
+      </div>
+      <div class="mb-3">
+        <label class="form-label">{{ _("Пароль") }}</label>
+        <input class="form-control" type="password" name="password" required>
+      </div>
+      <div class="form-text mb-3">{{ _("Если у вас ещё нет учётной записи, но этот номер телефона есть в базе кооператива — на него придёт СМС с кодом подтверждения, а введённый здесь пароль станет вашим паролем для входа.") }}</div>
+      <button class="btn btn-primary w-100">{{ _("Войти") }}</button>
+    </form>
+    <div class="text-center mt-3">
+      <a href="{{ url_for('auth.forgot_password') }}" class="small">{{ _("Забыли пароль?") }}</a>
+    </div>
+  </div>
+</div>

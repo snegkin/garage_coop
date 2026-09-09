@@ -1,107 +1,14 @@
 {% extends "base.html" %}
 {% block title %}{{ _("Вход в систему") }}{% endblock %}
 {% block content %}
-<div class="d-flex justify-content-end align-items-start gap-2 mb-2">
-  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('surveillance.view') }}">{{ _("Видеонаблюдение") }}</a>
-  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('bulletin.list_posts') }}">{{ _("Доска объявлений") }}</a>
-  <div class="dropdown">
-    <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">
-      {{ LANGUAGE_FLAGS[current_locale] }}
-    </button>
-    <ul class="dropdown-menu dropdown-menu-end">
-      {% for code, label in SUPPORTED_LANGUAGES.items() %}
-      <li><a class="dropdown-item {{ 'active' if code == current_locale }}" href="{{ url_for('set_language', lang=code) }}">{{ LANGUAGE_FLAGS[code] }} {{ label }}</a></li>
-      {% endfor %}
-    </ul>
-  </div>
-  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('set_theme', theme=next_theme(current_theme)) }}" title="{{ _('Переключить тему') }}" aria-label="{{ _('Переключить тему') }}">
-    {{ THEME_TOGGLE_ICONS[current_theme] }}
-  </a>
-</div>
-
-<div class="row">
-  <div class="col-lg-8 order-2 order-lg-1 mt-4 mt-lg-0">
-    <h3 class="mb-3">{{ _("Новости кооператива") }}</h3>
-    {% if news_items %}
-    {% for item in news_items %}
-    {% set preview, truncated = news_excerpt(item.body) %}
-    <div class="card bg-body mb-3">
-      <div class="card-body">
-        <h5 class="card-title mb-1">{{ item.title }}</h5>
-        <p class="card-subtitle text-muted small mb-2">
-          {{ fmt_date(item.created_at.date()) }}
-          {% if item.updated_at %}&middot; {{ _("обновлено") }} {{ fmt_date(item.updated_at.date()) }}{% endif %}
-        </p>
-        {% if truncated %}
-        <p class="card-text">{{ preview }}</p>
-        <a href="{{ url_for('news.view', news_id=item.id) }}">{{ _("Читать дальше") }} &rarr;</a>
-        {% else %}
-        <div class="card-text">{{ render_news_html(item.body) }}</div>
-        {% endif %}
-        {% if item.attachments %}
-        <div class="d-flex flex-wrap gap-2 mt-3">
-          {% for att in item.attachments %}
-            {% if att.is_image %}
-            <a href="{{ url_for('news.view', news_id=item.id) }}"><img src="{{ url_for('news.attachment', attachment_id=att.id, original_filename=att.original_filename) }}" alt="" style="height:80px;object-fit:cover;border-radius:.375rem"></a>
-            {% endif %}
-          {% endfor %}
-        </div>
-        {% endif %}
-      </div>
-    </div>
-    {% endfor %}
-    {% else %}
-    <p class="text-muted">{{ _("Новостей пока нет.") }}</p>
-    {% endif %}
-  </div>
-
-  <div class="col-lg-4 order-1 order-lg-2">
-    <div class="card bg-body ms-lg-auto" style="max-width:340px">
+<div class="row justify-content-center">
+  <div class="col-md-6 col-lg-4">
+    <div class="card bg-body">
       <div class="card-body">
         <h5 class="card-title mb-3">{{ _("Вход в систему") }}</h5>
-        <ul class="nav nav-tabs mb-3" role="tablist">
-          <li class="nav-item" role="presentation">
-            <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#loginByUsername" type="button" role="tab">{{ _("По логину") }}</button>
-          </li>
-          <li class="nav-item" role="presentation">
-            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#loginByPhone" type="button" role="tab">{{ _("По телефону") }}</button>
-          </li>
-        </ul>
-        <div class="tab-content">
-          <div class="tab-pane fade show active" id="loginByUsername" role="tabpanel">
-            <form method="post">
-              <div class="mb-3">
-                <label class="form-label">{{ _("Логин") }}</label>
-                <input class="form-control" name="username" required autofocus>
-              </div>
-              <div class="mb-3">
-                <label class="form-label">{{ _("Пароль") }}</label>
-                <input class="form-control" type="password" name="password" required>
-              </div>
-              <button class="btn btn-primary w-100">{{ _("Войти") }}</button>
-            </form>
-            <div class="text-center mt-3">
-              <a href="{{ url_for('auth.forgot_password') }}" class="small">{{ _("Забыли пароль?") }}</a>
-            </div>
-          </div>
-          <div class="tab-pane fade" id="loginByPhone" role="tabpanel">
-            <form method="post" action="{{ url_for('auth.login_by_phone', next=request.args.get('next')) }}">
-              <div class="mb-3">
-                <label class="form-label">{{ _("Номер телефона") }}</label>
-                <input class="form-control" type="tel" name="phone" required placeholder="+7 900 123-45-67">
-              </div>
-              <div class="mb-3">
-                <label class="form-label">{{ _("Пароль") }}</label>
-                <input class="form-control" type="password" name="password" required>
-              </div>
-              <div class="form-text mb-3">{{ _("Если у вас ещё нет учётной записи, но этот номер телефона есть в базе кооператива — на него придёт СМС с кодом подтверждения, а введённый здесь пароль станет вашим паролем для входа.") }}</div>
-              <button class="btn btn-primary w-100">{{ _("Войти") }}</button>
-            </form>
-            <div class="text-center mt-3">
-              <a href="{{ url_for('auth.forgot_password') }}" class="small">{{ _("Забыли пароль?") }}</a>
-            </div>
-          </div>
-        </div>
+        {% set form_id = "page" %}
+        {% set autofocus = true %}
+        {% include "auth/_login_form.html" with context %}
       </div>
     </div>
   </div>

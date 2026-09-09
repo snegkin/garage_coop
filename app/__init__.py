@@ -168,6 +168,23 @@ def create_app(config_class=Config):
                     RevisionChatMessage.author_id != user.id,
                 ).count()
 
+        # Куда возвращать пользователя после входа, если он воспользуется
+        # формой входа (дропдаун «Войти» в шапке, доступен на любой
+        # странице — см. base.html, auth/_login_form.html), а не пришёл по
+        # редиректу login_required с уже готовым ?next=: по умолчанию —
+        # обратно на ТУ ЖЕ страницу, где стоял дропдаун, а не на дашборд.
+        # На страницах самого auth (login/forgot-password/...) свой путь
+        # для этого не годится — там либо уже есть явный next в query
+        # (тогда он и используется), либо после входа нужно уйти на
+        # главную (см. auth._complete_login: next_url пуст → main.index).
+        explicit_next = request.args.get("next")
+        if explicit_next:
+            login_next_url = explicit_next
+        elif request.blueprint == "auth":
+            login_next_url = None
+        else:
+            login_next_url = request.path
+
         return {
             "current_user": user, "coop_name": coop_name, "balance": _balance,
             "is_board": is_board, "is_chairman": is_chairman, "is_privileged": is_privileged,
@@ -177,6 +194,7 @@ def create_app(config_class=Config):
             "is_revision_commission_member": is_revision_member,
             "revision_chat_unread_count": revision_chat_unread,
             "pending_proposals_count": pending_proposals,
+            "login_next_url": login_next_url,
         }
 
     from .main import bp as main_bp
@@ -238,18 +256,5 @@ def create_app(config_class=Config):
     app.register_blueprint(revision_chat_bp)
     app.register_blueprint(legal_docs_bp)
     app.register_blueprint(annual_reports_bp)
-
-    @app.route("/")
-    def index():
-        # Анонимного посетителя — сразу на страницу входа, БЕЗ похода
-        # через main.dashboard (@login_required): тот при отсутствии
-        # g.user сам увёл бы туда же, но ещё и с флэшем "Пожалуйста,
-        # войдите в систему" — уместным, когда человек целенаправленно
-        # пытался открыть что-то, требующее входа, но не тогда, когда он
-        # просто открыл корень сайта почитать новости (auth.login и есть
-        # де-факто главная страница для не вошедших, см. её докстринг).
-        if g.user is None:
-            return redirect(url_for("auth.login"))
-        return redirect(url_for("main.dashboard"))
 
     return app

@@ -1,0 +1,198 @@
+{#
+  Общий редактор с тулбаром форматирования, AJAX-вставкой картинок в
+  текст и предпросмотром — переиспользуется в forum/form.html (новая
+  тема), forum/topic.html (ответ) и forum/edit_post.html (правка
+  сообщения), 1-в-1 приём bulletin/form.html, только вынесенный в общий
+  инклюд — здесь редактор нужен в трёх разных местах, а не в одном.
+  Ожидает необязательную переменную textarea_value (текущий текст, для
+  формы правки) — поле всегда называется "body". Один редактор на
+  страницу (fixed id, без параметризации) — как и у bulletin/news/wiki,
+  двух сразу нигде не бывает.
+#}
+<div class="btn-toolbar mb-2 gap-1" role="toolbar" aria-label="{{ _('Форматирование') }}">
+  <div class="btn-group btn-group-sm">
+    <button type="button" class="btn btn-outline-secondary fw-bold" data-md-wrap="**" title="{{ _('Жирный') }}">B</button>
+    <button type="button" class="btn btn-outline-secondary fst-italic" data-md-wrap="*" title="{{ _('Курсив') }}">I</button>
+    <button type="button" class="btn btn-outline-secondary text-decoration-underline" data-md-wrap="&lt;u&gt;" data-md-wrap-close="&lt;/u&gt;" title="{{ _('Подчёркнутый') }}">U</button>
+    <button type="button" class="btn btn-outline-secondary" data-md-wrap="`" title="{{ _('Код (в строке)') }}">&lt;/&gt;</button>
+  </div>
+  <div class="btn-group btn-group-sm">
+    <button type="button" class="btn btn-outline-secondary" data-md-prefix="### " title="{{ _('Подзаголовок') }}">H3</button>
+    <button type="button" class="btn btn-outline-secondary" data-md-prefix="- " title="{{ _('Маркированный список') }}">&bull;</button>
+    <button type="button" class="btn btn-outline-secondary" data-md-prefix="1. " title="{{ _('Нумерованный список') }}">1.</button>
+  </div>
+  <div class="btn-group btn-group-sm">
+    <button type="button" class="btn btn-outline-secondary" data-md-link title="{{ _('Ссылка') }}">&#128279;</button>
+    <button type="button" class="btn btn-outline-secondary" id="forum-insert-image-btn" title="{{ _('Вставить картинку') }}">&#128247;</button>
+    <input type="file" id="forum-image-input" accept="image/jpeg,image/png,image/webp,image/gif" class="d-none">
+    <button type="button" class="btn btn-outline-secondary" id="forum-preview-btn" title="{{ _('Предпросмотр') }}">&#128065; {{ _("Предпросмотр") }}</button>
+  </div>
+</div>
+<textarea id="forum-body" class="form-control" name="body" rows="8" required>{{ textarea_value or '' }}</textarea>
+<div class="form-text">{{ _("Поддерживается упрощённая разметка: **жирный**, *курсив*, <u>подчёркнутый</u>, `код`, [текст](ссылка), списки («- » или «1. »), заголовок (### ). Между абзацами оставляйте пустую строку.") }} {{ _("Кнопка с камерой загружает картинку и сразу вставляет её в текст в месте курсора.") }}</div>
+<div id="forum-image-status" class="form-text text-danger"></div>
+
+<div class="modal fade" id="forumPreviewModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">{{ _("Предпросмотр") }}</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="card-text" id="forumPreviewBody"></div>
+        <div class="text-danger small d-none" id="forumPreviewError"></div>
+      </div>
+      <div class="modal-footer d-flex justify-content-end">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _("Закрыть") }}</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var textarea = document.getElementById("forum-body");
+
+  // Порядок ниже — сначала selectionStart/End, ПОТОМ focus() (см. тот же
+  // приём и подробный разбор в news/wiki/bulletin form.html): .value
+  // сбрасывает выделение в конец текста, и focus() до исправления позиции
+  // курсора прокручивает textarea не туда.
+
+  function wrapSelection(openMarker, closeMarker) {
+    var start = textarea.selectionStart, end = textarea.selectionEnd;
+    var value = textarea.value;
+    var selected = value.slice(start, end);
+    textarea.value = value.slice(0, start) + openMarker + selected + closeMarker + value.slice(end);
+    textarea.selectionStart = start + openMarker.length;
+    textarea.selectionEnd = start + openMarker.length + selected.length;
+    textarea.focus();
+  }
+
+  function prefixLines(prefix) {
+    var start = textarea.selectionStart, end = textarea.selectionEnd;
+    var value = textarea.value;
+    var lineStart = value.lastIndexOf("\n", start - 1) + 1;
+    var lineEnd = value.indexOf("\n", end);
+    if (lineEnd === -1) lineEnd = value.length;
+    var block = value.slice(lineStart, lineEnd);
+    var withPrefix = block.length ? block.split("\n").map(function (l) { return prefix + l; }).join("\n") : prefix;
+    textarea.value = value.slice(0, lineStart) + withPrefix + value.slice(lineEnd);
+    textarea.selectionStart = lineStart;
+    textarea.selectionEnd = lineStart + withPrefix.length;
+    textarea.focus();
+  }
+
+  document.querySelectorAll("[data-md-wrap]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      wrapSelection(btn.dataset.mdWrap, btn.dataset.mdWrapClose || btn.dataset.mdWrap);
+    });
+  });
+  document.querySelectorAll("[data-md-prefix]").forEach(function (btn) {
+    btn.addEventListener("click", function () { prefixLines(btn.dataset.mdPrefix); });
+  });
+  var linkBtn = document.querySelector("[data-md-link]");
+  if (linkBtn) {
+    linkBtn.addEventListener("click", function () {
+      var start = textarea.selectionStart, end = textarea.selectionEnd;
+      var value = textarea.value;
+      var selected = value.slice(start, end) || "{{ _('текст ссылки') }}";
+      var url = window.prompt("{{ _('Адрес ссылки:') }}", "https://");
+      if (!url) return;
+      var replacement = "[" + selected + "](" + url + ")";
+      textarea.value = value.slice(0, start) + replacement + value.slice(end);
+      textarea.selectionStart = textarea.selectionEnd = start + replacement.length;
+      textarea.focus();
+    });
+  }
+
+  // Вставка картинки: загружается сразу по выбору файла (AJAX, до
+  // сохранения самого сообщения — см. forum.py: upload_inline_attachment),
+  // markdown-ссылка вставляется в текст в позицию курсора по готовности.
+  var insertImageBtn = document.getElementById("forum-insert-image-btn");
+  var imageInput = document.getElementById("forum-image-input");
+  var imageStatus = document.getElementById("forum-image-status");
+  if (insertImageBtn && imageInput) {
+    insertImageBtn.addEventListener("click", function () { imageInput.click(); });
+    imageInput.addEventListener("change", function () {
+      var file = imageInput.files[0];
+      if (!file) return;
+      imageStatus.textContent = "";
+      insertImageBtn.disabled = true;
+      var cursorPos = textarea.selectionStart;
+
+      var formData = new FormData();
+      formData.append("image", file);
+      var csrfMeta = document.querySelector('meta[name="csrf-token"]');
+
+      fetch("{{ url_for('forum.upload_inline_attachment') }}", {
+        method: "POST",
+        headers: csrfMeta ? { "X-CSRFToken": csrfMeta.getAttribute("content") } : {},
+        body: formData,
+      })
+        .then(function (r) { return r.json().then(function (data) { return { ok: r.ok, data: data }; }); })
+        .then(function (result) {
+          if (!result.ok) {
+            imageStatus.textContent = result.data.error || "{{ _('Не удалось загрузить файл.') }}";
+            return;
+          }
+          var markdown = "![](" + result.data.url + ")";
+          var value = textarea.value;
+          var before = value.slice(0, cursorPos);
+          var after = value.slice(cursorPos);
+          var prefix = (before.length === 0 || /\n\n$/.test(before)) ? "" : (/\n$/.test(before) ? "\n" : "\n\n");
+          var suffix = (after.length === 0 || /^\n\n/.test(after)) ? "" : (/^\n/.test(after) ? "\n" : "\n\n");
+          textarea.value = before + prefix + markdown + suffix + after;
+          textarea.selectionStart = textarea.selectionEnd = cursorPos + prefix.length + markdown.length;
+          textarea.focus();
+        })
+        .catch(function () {
+          imageStatus.textContent = "{{ _('Не удалось загрузить файл.') }}";
+        })
+        .finally(function () {
+          insertImageBtn.disabled = false;
+          imageInput.value = "";
+        });
+    });
+  }
+
+  // Предпросмотр — рендерит ТЕКУЩИЙ текст textarea (не сохранённую версию)
+  // тем же render_html(), что и опубликованное сообщение (см. forum.py:
+  // preview) — не отдельный JS-рендерер markdown.
+  var previewBtn = document.getElementById("forum-preview-btn");
+  var previewModalEl = document.getElementById("forumPreviewModal");
+  var previewBody = document.getElementById("forumPreviewBody");
+  var previewError = document.getElementById("forumPreviewError");
+  if (previewBtn && previewModalEl) {
+    previewBtn.addEventListener("click", function () {
+      previewError.classList.add("d-none");
+      previewBody.innerHTML = "";
+      var csrfMeta = document.querySelector('meta[name="csrf-token"]');
+      var formData = new FormData();
+      formData.append("body", textarea.value);
+
+      fetch("{{ url_for('forum.preview') }}", {
+        method: "POST",
+        headers: csrfMeta ? { "X-CSRFToken": csrfMeta.getAttribute("content") } : {},
+        body: formData,
+      })
+        .then(function (r) { return r.json().then(function (data) { return { ok: r.ok, data: data }; }); })
+        .then(function (result) {
+          if (!result.ok) {
+            previewError.textContent = result.data.error || "{{ _('Не удалось построить предпросмотр.') }}";
+            previewError.classList.remove("d-none");
+            return;
+          }
+          previewBody.innerHTML = result.data.html || "<p class=\"text-muted\">{{ _('Текст пока пуст.') }}</p>";
+        })
+        .catch(function () {
+          previewError.textContent = "{{ _('Не удалось построить предпросмотр.') }}";
+          previewError.classList.remove("d-none");
+        })
+        .finally(function () {
+          if (window.bootstrap) bootstrap.Modal.getOrCreateInstance(previewModalEl).show();
+        });
+    });
+  }
+})();
+</script>

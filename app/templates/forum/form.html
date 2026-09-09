@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Новая тема") }}{% endblock %}
+{% block content %}
+<h3 class="mb-3">{{ _("Новая тема") }}</h3>
+<form method="post" class="bg-body p-4 rounded border">
+  <div class="mb-3">
+    <label class="form-label">{{ _("Заголовок темы") }}</label>
+    <input class="form-control" name="title" required maxlength="255" autofocus>
+  </div>
+
+  <div class="mb-3">
+    <label class="form-label">{{ _("Текст сообщения") }}</label>
+    {% include "forum/_editor.html" %}
+  </div>
+
+  <div class="d-flex justify-content-end gap-2">
+    <button class="btn btn-primary">{{ _("Создать тему") }}</button>
+    <a class="btn btn-outline-secondary" href="{{ url_for('forum.list_topics') }}">{{ _("Отмена") }}</a>
+  </div>
+</form>
+{% endblock %}

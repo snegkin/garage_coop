@@ -40,20 +40,8 @@
         {% endif %}
         <li class="nav-item"><a class="nav-link" href="{{ url_for('bulletin.list_posts') }}">{{ _("Доска объявлений") }}</a></li>
         {% if current_user %}
-        {# Вики/Собрания/Годовые отчёты — раньше были отдельными пунктами
-           верхнего уровня, из-за чего вместе с топ-уровневым
-           «Видеонаблюдение» и «Доской объявлений» меню переставало
-           помещаться в одну строку у правления. Объединены в один
-           дропдаун — доступность та же (2 клика), пунктов верхнего
-           уровня меньше. #}
-        <li class="nav-item dropdown">
-          <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">{{ _("Документы") }}</a>
-          <ul class="dropdown-menu">
-            <li><a class="dropdown-item" href="{{ url_for('wiki.list_pages') }}">{{ _("Вики") }}</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('meetings.list_meetings') }}">{{ _("Собрания") }}</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('annual_reports.list_reports') }}">{{ _("Годовые отчёты") }}</a></li>
-          </ul>
-        </li>
+        <li class="nav-item"><a class="nav-link" href="{{ url_for('wiki.list_pages') }}">{{ _("Вики") }}</a></li>
+        <li class="nav-item"><a class="nav-link" href="{{ url_for('forum.list_topics') }}">{{ _("Форум") }}</a></li>
         <li class="nav-item dropdown">
           <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">{{ _("Голосования") }}</a>
           <ul class="dropdown-menu">
@@ -66,6 +54,8 @@
           <ul class="dropdown-menu">
             <li><a class="dropdown-item" href="{{ url_for('governance.contacts') }}">{{ _("Контакты") }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('governance.view') }}">{{ _("Созывы") }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('meetings.list_meetings') }}">{{ _("Собрания") }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('annual_reports.list_reports') }}">{{ _("Отчёты") }}</a></li>
           </ul>
         </li>
         {% endif %}

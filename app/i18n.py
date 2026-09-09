@@ -189,6 +189,42 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Только для членов кооператива (видна только авторизованным пользователям)":
             "Members of the cooperative only (visible only to signed-in users)",
 
+        # forum — свободное обсуждение вошедшими членами кооператива, не
+        # общедоступно (в отличие от bulletin), без разделов/категорий
+        "Форум": "Forum",
+        "Новая тема": "New topic",
+        "Поиск по заголовку или автору...": "Search by title or author...",
+        "Тема": "Topic",
+        "Автор": "Author",
+        "Сообщений": "Posts",
+        "Последняя активность": "Last activity",
+        "закрыта": "closed",
+        "Тем пока нет.": "No topics yet.",
+        "Заголовок темы": "Topic title",
+        "Текст сообщения": "Message text",
+        "Создать тему": "Create topic",
+        "Заполните заголовок темы и текст сообщения.": "Fill in the topic title and message text.",
+        "Тема создана.": "Topic created.",
+        "Тема закрыта для новых ответов.": "This topic is closed to new replies.",
+        "Введите текст сообщения.": "Enter the message text.",
+        "Заполните заголовок темы.": "Fill in the topic title.",
+        "Сообщение сохранено.": "Message saved.",
+        "Первое сообщение темы можно удалить только вместе со всей темой.":
+            "The topic's first message can only be deleted together with the whole topic.",
+        "Сообщение удалено.": "Message deleted.",
+        "Тема удалена.": "Topic deleted.",
+        "Тема снова открыта для ответов.": "The topic is open to replies again.",
+        "Открыть тему": "Reopen topic",
+        "Закрыть тему": "Close topic",
+        "Удалить тему вместе со всеми сообщениями?": "Delete this topic together with all its messages?",
+        "Удалить тему": "Delete topic",
+        "удалённый пользователь": "deleted user",
+        "изменено": "edited",
+        "Удалить сообщение?": "Delete this message?",
+        "Ответить": "Reply",
+        "Отправить": "Send",
+        "Изменить сообщение": "Edit message",
+
         # wiki
         "Вики": "Wiki",
         "Добавить страницу": "Add page",
@@ -241,8 +277,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Ссылка": "Link",
         "текст ссылки": "link text",
         "Адрес ссылки:": "Link URL:",
-        "Поддерживается упрощённая разметка: **жирный**, *курсив*, [текст](ссылка), списки (пустая строка, затем строки с «- »), заголовок (### ). Между абзацами оставляйте пустую строку.":
-            "Simplified formatting is supported: **bold**, *italic*, [text](link), lists (blank line, then lines starting with \"- \"), heading (### ). Leave a blank line between paragraphs.",
+        "Поддерживается упрощённая разметка: **жирный**, *курсив*, <u>подчёркнутый</u>, `код`, [текст](ссылка), списки («- » или «1. »), заголовок (### ). Между абзацами оставляйте пустую строку.":
+            "Simplified formatting is supported: **bold**, *italic*, <u>underline</u>, `code`, [text](link), lists (\"- \" or \"1. \"), heading (### ). Leave a blank line between paragraphs.",
         "Прикреплённые файлы": "Attached files",
         "Отметьте, чтобы удалить при сохранении.": "Check to remove on save.",
         "Добавить фото или файлы": "Add photos or files",
@@ -746,6 +782,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Протокол собрания от {date}": "Meeting protocol from {date}",
 
         # annual reports
+        "Отчёты": "Reports",
         "Годовые отчёты": "Annual reports",
         "Главная": "Home",
         "Все камеры": "All cameras",

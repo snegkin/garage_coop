@@ -195,7 +195,7 @@
             <li><a class="dropdown-item" href="{{ url_for('proposals.list_proposals') }}"><span class="dropdown-icon">⚠</span>{{ _("Предложения ждут решения") }} {{ pending_proposals_count }}</a></li>
             {% endif %}
             <li><a class="dropdown-item" href="{{ url_for('cabinet.garages') }}"><span class="dropdown-icon"></span>{{ _("Мой гараж") }}</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('pd4.select') }}"><span class="dropdown-icon"></span>{{ _("Печать ПД-4") }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('pd4.select') }}"><span class="dropdown-icon"></span>{{ _("Квитанции (по форме ПД-4)") }}</a></li>
             <li><hr class="dropdown-divider"></li>
             <li><a class="dropdown-item" href="{{ url_for('auth.logout') }}"><span class="dropdown-icon"></span>{{ _("Выйти") }}</a></li>
           </ul>

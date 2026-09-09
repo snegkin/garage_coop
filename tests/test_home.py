@@ -39,6 +39,36 @@ def test_home_shows_news(db, client):
     assert "Собрание перенесено" in body
 
 
+def test_home_renders_full_formatting_not_flattened_excerpt(db, client):
+    """Раньше длинная новость на главной показывалась текстовым превью
+    без разметки (news_format.excerpt — сплошная строка, переносы абзацев
+    схлопнуты в пробелы) — «сбитое форматирование» до перехода на полную
+    страницу. Теперь на главной всегда полный render_news_html(), как и на
+    самой странице новости — просто визуально свёрнутый по высоте (CSS
+    .is-collapsible), без обрезки текста и без перехода на другую страницу."""
+    long_body = "**Жирный текст.** " + ("Много слов подряд. " * 40)
+    db.add(News(title="Длинная новость", body=long_body))
+    db.commit()
+
+    body = client.get("/").get_data(as_text=True)
+    assert "<strong>Жирный текст.</strong>" in body
+    # data-expand-label — атрибут самой кнопки, а не текст комментария в
+    # общем CSS (в отличие от голых классов is-collapsible/
+    # js-collapsible-toggle, которые упоминаются в комментарии в base.html
+    # на КАЖДОЙ странице и потому не годятся как точный маркер).
+    assert 'data-expand-label="Читать дальше ↓"' in body
+    assert '/news/' not in body  # никакой ссылки на отдельную страницу
+
+
+def test_home_short_news_has_no_collapse_toggle(db, client):
+    db.add(News(title="Короткая новость", body="Всего пара слов."))
+    db.commit()
+
+    body = client.get("/").get_data(as_text=True)
+    assert "Короткая новость" in body
+    assert 'data-expand-label="' not in body
+
+
 def test_home_shows_surveillance_section_without_recorders(client):
     body = client.get("/").get_data(as_text=True)
     assert "Видеонаблюдение" in body

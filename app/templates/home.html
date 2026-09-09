@@ -6,7 +6,13 @@
     <h3 class="mb-3">{{ _("Новости кооператива") }}</h3>
     {% if news_items %}
     {% for item in news_items %}
-    {% set preview, truncated = news_excerpt(item.body) %}
+    {# Полный render_news_html() всегда — не обрезанный до простого текста
+       превью: то же форматирование (абзацы, списки, картинки), что и на
+       полной странице новости, а не «сбитое» без разметки. Раскрытие
+       длинной новости — прямо на месте по клику (.is-collapsible/
+       .js-collapsible-toggle, см. base.html), без перехода на отдельную
+       страницу (по прямой просьбе). #}
+    {% set unused_preview, is_long = news_excerpt(item.body) %}
     <div class="card bg-body mb-3">
       <div class="card-body">
         <h5 class="card-title mb-1">{{ item.title }}</h5>
@@ -14,17 +20,18 @@
           {{ fmt_date(item.created_at.date()) }}
           {% if item.updated_at %}&middot; {{ _("обновлено") }} {{ fmt_date(item.updated_at.date()) }}{% endif %}
         </p>
-        {% if truncated %}
-        <p class="card-text">{{ preview }}</p>
-        <a href="{{ url_for('news.view', news_id=item.id) }}">{{ _("Читать дальше") }} &rarr;</a>
-        {% else %}
-        <div class="card-text">{{ render_news_html(item.body) }}</div>
+        <div class="card-text {{ 'is-collapsible is-collapsed' if is_long }}">{{ render_news_html(item.body) }}</div>
+        {% if is_long %}
+        {% set expand_label = _("Читать дальше") ~ " ↓" %}
+        {% set collapse_label = _("Свернуть") ~ " ↑" %}
+        <button type="button" class="btn btn-link btn-sm ps-0 js-collapsible-toggle"
+                data-expand-label="{{ expand_label }}" data-collapse-label="{{ collapse_label }}">{{ expand_label }}</button>
         {% endif %}
         {% if item.attachments %}
         <div class="d-flex flex-wrap gap-2 mt-3">
           {% for att in item.attachments %}
             {% if att.is_image %}
-            <a href="{{ url_for('news.view', news_id=item.id) }}"><img src="{{ url_for('news.attachment', attachment_id=att.id, original_filename=att.original_filename) }}" alt="" style="height:80px;object-fit:cover;border-radius:.375rem"></a>
+            <img class="js-lightbox" src="{{ url_for('news.attachment', attachment_id=att.id, original_filename=att.original_filename) }}" alt="" style="height:80px;object-fit:cover;border-radius:.375rem">
             {% endif %}
           {% endfor %}
         </div>

@@ -405,7 +405,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Человек не найден.": "Person not found.",
         "Доступ в систему": "System access",
         "Учётные записи": "Accounts",
-        "Печать ПД-4": "Print PD-4",
+        "Квитанции (по форме ПД-4)": "Receipts (PD-4 form)",
         "Печать платёжек ПД-4": "Print PD-4 slips",
         "Платёжки ПД-4": "PD-4 slips",
         "Все члены кооператива": "All cooperative members",

@@ -137,8 +137,14 @@ def roles_required(*roles: RoleEnum):
 
 def _complete_login(user: User, summary: str):
     """Общий хвост успешного входа — заводит сессию, пишет аудит,
-    редиректит на next (если безопасный) или на дашборд. Используется и
-    обычным входом по логину, и входом по телефону."""
+    редиректит на next (если безопасный), иначе — на главную (по прямой
+    просьбе не уводить рядового члена на дашборд/«мои гаражи»
+    принудительно, см. main.index), а для правления/председателя — по
+    прежнему на дашборд (это их рабочая главная, см. main.dashboard).
+    g.user на этот момент ещё не обновлён (before_request отработал ДО
+    входа в этот же запрос) — роль берём из уже известного user, не через
+    permissions.is_board()/g.user. Используется и обычным входом по
+    логину, и входом по телефону."""
     session.clear()
     session["user_id"] = user.id
     audit.record("auth.login", entity_type="user", entity_id=user.id, summary=summary, actor=user)
@@ -146,7 +152,9 @@ def _complete_login(user: User, summary: str):
     next_url = request.args.get("next")
     if is_safe_next_url(next_url):
         return redirect(next_url)
-    return redirect(url_for("main.dashboard"))
+    if ROLE_LEVEL[user.role] >= ROLE_LEVEL[RoleEnum.BOARD]:
+        return redirect(url_for("main.dashboard"))
+    return redirect(url_for("main.index"))
 
 
 @bp.route("/login", methods=["GET", "POST"])
@@ -188,11 +196,12 @@ def login():
         else:
             return _complete_login(user, f"Успешный вход: «{username}»")
 
-    # Страница входа — де-факто главная страница сайта (анонимный посетитель
-    # всегда попадает сюда, см. index()/dashboard() в main.py), поэтому
-    # новостная лента правления показывается прямо здесь.
-    from .news import latest_news
-    return render_template("auth/login.html", news_items=latest_news())
+    # Сама форма входа теперь ещё и всегда доступна дропдауном в шапке
+    # (см. base.html, auth/_login_form.html) — эта страница нужна как
+    # реальная цель редиректа login_required (next=...) и для прямых
+    # переходов (например, «Забыли пароль?»). Новости и видеонаблюдение
+    # переехали на главную (main.index), здесь их больше нет.
+    return render_template("auth/login.html")
 
 
 @bp.route("/login-phone", methods=["POST"])

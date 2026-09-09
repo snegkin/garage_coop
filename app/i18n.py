@@ -1731,10 +1731,14 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Настройки уведомлений сохранены.": "Notification settings saved.",
         "Сохранить настройки уведомлений": "Save notification settings",
         "Член кооператива с": "Cooperative member since",
-        "Email должен быть заполнен в контактных данных выше. Telegram нужно привязать отдельно — см. ниже.":
-            "Email must be filled in the contact details above. Telegram needs to be linked separately — see below.",
+        "Email должен быть заполнен в контактных данных выше. Telegram и push-уведомления нужно привязать отдельно — см. ниже.":
+            "Email must be filled in the contact details above. Telegram and push notifications need to be enabled separately — see below.",
         "Telegram отвязан.": "Telegram unlinked.",
         "Telegram привязан": "Telegram linked",
+        "Push-уведомления в браузере": "Browser push notifications",
+        "Разрешить push-уведомления в этом браузере": "Enable push notifications in this browser",
+        "Отключить push в этом браузере": "Disable push in this browser",
+        "Этот браузер не поддерживает push-уведомления.": "This browser doesn't support push notifications.",
         "Открыть в Telegram и привязать": "Open in Telegram and link",
         "Привязать Telegram": "Link Telegram",
         "Ссылка одноразовая — откройте её в Telegram и нажмите Start.": "The link is one-time — open it in Telegram and press Start.",

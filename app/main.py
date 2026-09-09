@@ -1,7 +1,7 @@
 import datetime as dt
 from decimal import Decimal
 
-from flask import Blueprint, render_template, redirect, url_for
+from flask import Blueprint, render_template, redirect, url_for, Response
 from sqlalchemy import func
 
 from . import database
@@ -21,6 +21,30 @@ bp = Blueprint("main", __name__)
 
 RECENT_ACTIVITY_LIMIT = 8  # последних записей журнала аудита на панели — сама панель, не замена /governance/audit-log
 MAIL_PREVIEW_LIMIT = 5  # последних писем во входящих для виджета на панели — сама панель, не замена /mailbox/
+
+# Service worker для push-уведомлений браузера (app/webpush.py) — отдаётся
+# с корня сайта (не из /static/), чтобы область действия по умолчанию
+# была "/", а не "/static/" (scope службы-worker'а — путь, из которого он
+# отдан, если не указано иначе). Сам он ничего не показывает, кроме
+# push-события — вся логика (что показывать) приходит в теле пуша,
+# см. webpush.send: data={"title":..., "body":...}.
+_SERVICE_WORKER_JS = """
+self.addEventListener('push', function (event) {
+  var data = {};
+  try { data = event.data.json(); } catch (e) {}
+  var title = data.title || 'Уведомление';
+  event.waitUntil(self.registration.showNotification(title, { body: data.body || '' }));
+});
+self.addEventListener('notificationclick', function (event) {
+  event.notification.close();
+  event.waitUntil(clients.openWindow('/'));
+});
+"""
+
+
+@bp.route("/service-worker.js")
+def service_worker():
+    return Response(_SERVICE_WORKER_JS, mimetype="application/javascript")
 
 
 @bp.route("/")

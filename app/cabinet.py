@@ -3,7 +3,7 @@
 свои данные и предложить изменения контактной информации. Изменения
 применяются только после одобрения председателем — см. PersonDataRevision.
 """
-from flask import Blueprint, render_template, request, redirect, url_for, flash, g
+from flask import Blueprint, render_template, request, redirect, url_for, flash, g, jsonify
 import json
 import secrets
 import datetime as dt
@@ -14,6 +14,7 @@ from . import database
 from . import audit
 from . import notifications
 from . import telegram_bot
+from . import webpush
 from .auth import login_required
 from .permissions import is_board
 from .i18n import translate as _
@@ -153,6 +154,7 @@ def profile():
     return render_template(
         "cabinet/profile.html", person=display_person, pending_revision=pending_revision, pending_data=snap,
         telegram_link_url=telegram_link_url,
+        webpush_public_key=webpush.get_or_create_settings().public_key,
     )
 
 
@@ -215,6 +217,31 @@ def telegram_unlink():
     database.db_session.commit()
     flash(_("Telegram отвязан."), "success")
     return redirect(url_for("cabinet.profile"))
+
+
+@bp.route("/profile/webpush/subscribe", methods=["POST"])
+@login_required
+def webpush_subscribe():
+    """Принимает PushSubscription из браузера (см. JS в cabinet/profile.html)
+    — JSON, а не обычная форма, отправляется через fetch() сразу после
+    успешной pushManager.subscribe(), без перезагрузки страницы."""
+    data = request.get_json(silent=True) or {}
+    endpoint = data.get("endpoint")
+    keys = data.get("keys") or {}
+    if not endpoint or not keys.get("p256dh") or not keys.get("auth"):
+        return jsonify(ok=False, error="bad_subscription"), 400
+    webpush.subscribe(g.user.id, endpoint, keys["p256dh"], keys["auth"])
+    return jsonify(ok=True)
+
+
+@bp.route("/profile/webpush/unsubscribe", methods=["POST"])
+@login_required
+def webpush_unsubscribe():
+    data = request.get_json(silent=True) or {}
+    endpoint = data.get("endpoint")
+    if endpoint:
+        webpush.unsubscribe(g.user.id, endpoint)
+    return jsonify(ok=True)
 
 
 @bp.route("/change-password", methods=["POST"])

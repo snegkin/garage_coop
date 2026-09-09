@@ -4,13 +4,17 @@ app/cabinet.py: notification_settings, шаблон cabinet/profile.html). Од�
 канал доставки на человека (User.notify_channel) и отдельные подписки на
 события (User.notify_charge/notify_payment/notify_news/notify_forum/notify_board_chat).
 
-Два реально работающих канала:
+Три реально работающих канала:
   - EMAIL — через уже существующий ящик правления (MailboxSettings/
     app/mail_client.py, тот же, что и у /mailbox/), готовность — заполненный
     Person.email.
   - TELEGRAM — через бота (TelegramSettings/app/telegram_bot.py),
     готовность — Person.telegram_chat_id (привязка через /start, см.
     telegram_bot.py, НЕ то же самое, что свободный текст Person.telegram).
+  - WEBPUSH — push-уведомления браузера (WebPushSettings/app/webpush.py),
+    готовность — хотя бы одна WebPushSubscription (в отличие от email/
+    telegram, подписок может быть несколько — разные браузеры/устройства,
+    рассылается во все разом, а не в одну).
 
 VK/MAX убраны из списка каналов (по решению пользователя) — Bot API VK
 не позволяет писать первым произвольным пользователям без их явного
@@ -24,8 +28,12 @@ from flask import current_app
 from . import database
 from .auth import ROLE_LEVEL
 from .mail_client import MailError, send_message
-from .models import BoardChatMessage, MailboxSettings, NotificationChannel, RoleEnum, TelegramSettings, User
+from .models import (
+    BoardChatMessage, MailboxSettings, NotificationChannel, RoleEnum, TelegramSettings, WebPushSettings,
+    WebPushSubscription, User,
+)
 from . import telegram_bot
+from . import webpush
 
 BOARD_CHAT_UNREAD_THRESHOLD = dt.timedelta(minutes=10)
 
@@ -50,6 +58,8 @@ def channel_is_ready(user: User, channel: NotificationChannel) -> bool:
         return bool(user.person.email)
     if channel == NotificationChannel.TELEGRAM:
         return bool(user.person.telegram_chat_id)
+    if channel == NotificationChannel.WEBPUSH:
+        return database.db_session.query(WebPushSubscription).filter_by(user_id=user.id).first() is not None
     return False
 
 
@@ -114,6 +124,22 @@ def notify(user: User | None, event: str, subject: str, body_text: str) -> None:
             current_app.logger.exception(
                 "Не удалось отправить telegram-уведомление user_id=%s событие=%s", user.id, event,
             )
+    elif user.notify_channel == NotificationChannel.WEBPUSH:
+        settings = database.db_session.query(WebPushSettings).first()
+        if settings is None or not settings.public_key:
+            return
+        subscriptions = database.db_session.query(WebPushSubscription).filter_by(user_id=user.id).all()
+        for subscription in subscriptions:
+            try:
+                webpush.send(settings, subscription, subject, body_text)
+            except webpush.WebPushError as exc:
+                if webpush.is_expired(exc):
+                    database.db_session.delete(subscription)
+                    database.db_session.commit()
+                else:
+                    current_app.logger.exception(
+                        "Не удалось отправить webpush-уведомление user_id=%s событие=%s", user.id, event,
+                    )
 
 
 def run_board_chat_digest() -> int:

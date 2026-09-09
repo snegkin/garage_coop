@@ -1092,6 +1092,7 @@ class Phone(Base):
 class NotificationChannel(str, enum.Enum):
     EMAIL = "email"
     TELEGRAM = "telegram"
+    WEBPUSH = "webpush"
 
 
 class RoleEnum(str, enum.Enum):
@@ -1141,10 +1142,14 @@ class User(Base):
     board_chat_open: Mapped[bool] = mapped_column(Boolean, default=False)
 
     # Подписка на уведомления о событиях сайта (см. app/notifications.py) —
-    # один канал доставки на человека (см. NotificationChannel: email или
-    # telegram). Email проверяется против Person.email, telegram — против
-    # Person.telegram_chat_id (привязка через бота, см. app/telegram_bot.py),
-    # при сохранении в настройках профиля (app/cabinet.py: notification_settings).
+    # один канал доставки на человека (см. NotificationChannel: email,
+    # telegram или webpush). Email проверяется против Person.email,
+    # telegram — против Person.telegram_chat_id (привязка через бота, см.
+    # app/telegram_bot.py), webpush — против наличия хотя бы одной
+    # WebPushSubscription (см. app/webpush.py) — единственный канал без
+    # привязки к конкретному контактному полю Person, т.к. подписок может
+    # быть несколько (разные браузеры/устройства). Проверяется при
+    # сохранении в настройках профиля (app/cabinet.py: notification_settings).
     # По умолчанию email и все события включены — реальная отправка всё
     # равно не пройдёт, пока у person не заполнено поле email (см.
     # notifications.channel_is_ready), так что дефолт безопасен даже для
@@ -2429,6 +2434,44 @@ class TelegramSettings(Base):
     last_update_id: Mapped[int | None] = mapped_column(BigInteger)
     last_error: Mapped[str | None] = mapped_column(Text)
     last_polled_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
+
+
+class WebPushSettings(Base):
+    """Единственная запись — ключи VAPID (см. RFC 8292) для push-уведомлений
+    браузера (app/webpush.py, app/notifications.py). В отличие от
+    TelegramSettings/MailboxSettings, эти ключи не заводятся у внешнего
+    провайдера — генерируются самим приложением при первом обращении
+    (см. webpush.get_or_create_settings), никакой ручной настройки не
+    требуется. public_key отдаётся клиентскому JS как есть (не секрет,
+    часть протокола — им браузер проверяет, что подписка создана именно
+    для этого сервера); private_key_encrypted шифруется тем же Fernet,
+    что и остальные секреты API."""
+    __tablename__ = "webpush_settings"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    public_key: Mapped[str | None] = mapped_column(Text)
+    private_key_encrypted: Mapped[str | None] = mapped_column(Text)
+    # "mailto:..." — требование VAPID (RFC 8292), контакт для push-сервисов
+    # (Google/Mozilla и т.п.), если те захотят связаться по поводу
+    # злоупотребления отправкой. Реквизиты кооператива подходят как есть.
+    subject: Mapped[str | None] = mapped_column(String(255))
+
+
+class WebPushSubscription(Base):
+    """Одна подписка браузера на push — у одного User может быть несколько
+    (разные устройства/браузеры), в отличие от email/Telegram, где канал
+    один на человека. endpoint уникален — это и есть адрес конкретной
+    подписки у push-сервиса браузера (FCM/Mozilla push и т.п.)."""
+    __tablename__ = "webpush_subscription"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("user.id", ondelete="CASCADE"), index=True)
+    endpoint: Mapped[str] = mapped_column(Text, unique=True)
+    p256dh: Mapped[str] = mapped_column(String(255))
+    auth: Mapped[str] = mapped_column(String(255))
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.utcnow)
+
+    user: Mapped["User"] = relationship()
 
 
 # ---------------------------------------------------------------------------

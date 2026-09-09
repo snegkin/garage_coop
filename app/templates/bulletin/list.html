@@ -23,7 +23,7 @@
       <div>
         <span class="badge bg-secondary mb-1">{{ _(category_labels[post.category]) }}</span>
         {% if post.is_members_only %}
-        <span class="badge bg-warning text-dark mb-1" title="{{ _('Видно только вошедшим пользователям') }}">{{ _("Только для членов") }}</span>
+        <span class="badge bg-warning text-dark mb-1" title="{{ _('Видно только вошедшим пользователям') }}">{{ _("Только своим") }}</span>
         {% endif %}
         <h5 class="card-title mb-1">{{ post.title }}</h5>
       </div>

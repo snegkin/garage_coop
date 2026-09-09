@@ -184,7 +184,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Объявление опубликовано.": "Ad published.",
         "Объявление сохранено.": "Ad saved.",
         "Объявление удалено.": "Ad deleted.",
-        "Только для членов": "Members only",
+        "Только своим": "Members only",
         "Видно только вошедшим пользователям": "Visible only to signed-in users",
         "Только для членов кооператива (видна только авторизованным пользователям)":
             "Members of the cooperative only (visible only to signed-in users)",

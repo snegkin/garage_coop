@@ -34,19 +34,27 @@
 </div>
 {% endif %}
 
-{% if is_configured and sent_folder_available %}
+{% if is_configured and (sent_folder_available or trash_folder_available) %}
 <ul class="nav nav-tabs mb-3">
   <li class="nav-item">
     <a class="nav-link {{ 'active' if folder == 'INBOX' }}" href="{{ url_for('mailbox.inbox', page_size=page_size) }}">{{ _("Входящие") }}</a>
   </li>
+  {% if sent_folder_available %}
   <li class="nav-item">
     <a class="nav-link {{ 'active' if folder == settings.sent_folder }}" href="{{ url_for('mailbox.inbox', folder=settings.sent_folder, page_size=page_size) }}">{{ _("Отправленные") }}</a>
   </li>
+  {% endif %}
+  {% if trash_folder_available %}
+  <li class="nav-item">
+    <a class="nav-link {{ 'active' if folder == settings.trash_folder }}" href="{{ url_for('mailbox.inbox', folder=settings.trash_folder, page_size=page_size) }}">{{ _("Корзина") }}</a>
+  </li>
+  {% endif %}
 </ul>
 {% endif %}
 
 {% if page is not none %}
-{% set is_sent = folder == settings.sent_folder %}
+{% set is_sent = folder == settings.sent_folder and sent_folder_available %}
+{% set is_trash = folder == settings.trash_folder and trash_folder_available %}
 <div class="d-flex justify-content-between align-items-center mb-2">
   <div class="text-muted small">{{ _("Всего писем:") }} {{ page.total }}</div>
   <form method="get" class="d-flex align-items-center gap-2">
@@ -61,12 +69,19 @@
 </div>
 
 <table class="table table-hover bg-body">
-  <thead><tr><th>{{ _("Кому") if is_sent else _("От кого") }}</th><th>{{ _("Тема") }}</th><th>{{ _("Дата") }}</th><th class="no-sort"></th></tr></thead>
+  <thead><tr>{% if supports_flags %}<th class="no-sort" style="width:1.5rem"></th>{% endif %}<th>{{ _("Кому") if is_sent else _("От кого") }}</th><th>{{ _("Тема") }}</th><th>{{ _("Дата") }}</th><th class="no-sort"></th></tr></thead>
   <tbody>
     {% for m in page.messages %}
+    {% set dot_state = "important" if m.flagged else ("unread" if m.seen is false else "read") %}
     <tr class="{{ 'fw-semibold' if supports_flags and m.seen is false }}">
+      {% if supports_flags %}
+      <td class="no-sort" onclick="event.stopPropagation()">
+        <span class="mail-dot is-{{ dot_state }}" role="button" tabindex="0"
+              data-url="{{ url_for('mailbox.set_message_state', uid=m.uid) }}" data-folder="{{ folder }}" data-state="{{ dot_state }}"
+              title="{{ _('Важное') if dot_state == 'important' else (_('Непрочитано') if dot_state == 'unread' else _('Прочитано')) }} — {{ _('нажмите, чтобы изменить') }}"></span>
+      </td>
+      {% endif %}
       <td onclick="window.location='{{ url_for('mailbox.view_message', uid=m.uid, folder=folder) }}'" style="cursor:pointer">
-        {% if supports_flags and m.seen is false %}<span class="badge bg-primary badge-sm">{{ _("новое") }}</span>{% endif %}
         {% if is_sent %}{{ m.to_addr|decode_idn_address if m.to_addr else "—" }}{% else %}{{ m.from_name or (m.from_addr|decode_idn_address if m.from_addr else "—") }}{% endif %}
       </td>
       <td onclick="window.location='{{ url_for('mailbox.view_message', uid=m.uid, folder=folder) }}'" style="cursor:pointer">{{ m.subject }}</td>
@@ -74,13 +89,19 @@
       <td class="no-sort text-end">
         <a class="btn btn-sm btn-outline-primary btn-icon-square" href="{{ url_for('mailbox.compose', reply_to=m.uid, folder=folder) }}" title="{{ _('Ответить') }}">&#8617;</a>
         <a class="btn btn-sm btn-outline-primary btn-icon-square" href="{{ url_for('mailbox.compose', forward=m.uid, folder=folder) }}" title="{{ _('Переслать') }}">&#8618;</a>
-        <form method="post" action="{{ url_for('mailbox.delete_message', uid=m.uid, folder=folder) }}" onsubmit="return confirm('{{ _('Удалить письмо?') }}')" class="d-inline">
+        {% if trash_folder_available and not is_trash %}
+        <form method="post" action="{{ url_for('mailbox.delete_message', uid=m.uid, folder=folder) }}" onsubmit="return confirm('{{ _('Переместить письмо в корзину?') }}')" class="d-inline">
+          <button class="btn btn-sm btn-outline-danger btn-icon-square" title="{{ _('В корзину') }}">✕</button>
+        </form>
+        {% else %}
+        <form method="post" action="{{ url_for('mailbox.delete_message', uid=m.uid, folder=folder) }}" onsubmit="return confirm('{{ _('Удалить письмо безвозвратно?') }}')" class="d-inline">
           <button class="btn btn-sm btn-outline-danger btn-icon-square" title="{{ _('Удалить') }}">✕</button>
         </form>
+        {% endif %}
       </td>
     </tr>
     {% else %}
-    <tr><td colspan="4" class="text-muted">{{ _("Отправленных писем нет.") if is_sent else _("Входящих писем нет.") }}</td></tr>
+    <tr><td colspan="{{ 5 if supports_flags else 4 }}" class="text-muted">{{ _("Корзина пуста.") if is_trash else (_("Отправленных писем нет.") if is_sent else _("Входящих писем нет.")) }}</td></tr>
     {% endfor %}
   </tbody>
 </table>
@@ -137,6 +158,11 @@
               <input class="form-control" name="sent_folder" value="{{ settings.sent_folder or '' }}" placeholder="Sent">
               <div class="form-text">{{ _("Имя папки у провайдера — например Sent, Отправленные, [Gmail]/Sent Mail. Пусто — копии отправленных писем не сохраняются.") }}</div>
             </div>
+            <div class="col-md-6">
+              <label class="form-label">{{ _("Папка «Корзина» (только IMAP)") }}</label>
+              <input class="form-control" name="trash_folder" value="{{ settings.trash_folder or '' }}" placeholder="Trash">
+              <div class="form-text">{{ _("Имя папки у провайдера — например Trash, Корзина, [Gmail]/Trash. Пусто — удаление писем безвозвратное.") }}</div>
+            </div>
           </div>
 
           <h6>{{ _("Исходящие (SMTP)") }}</h6>
@@ -189,4 +215,63 @@
   </div>
 </div>
 {% endif %}
+
+<style>
+/* Точка-индикатор статуса письма (см. mailbox.set_message_state) — тот же
+   приём, что и .chat-widget-dot в base.html (кружок + модификатор класса
+   для цвета), но со своими цветами: непрочитано/прочитано/важное вместо
+   онлайн/офлайн. */
+.mail-dot {
+  display: inline-block; width: .55rem; height: .55rem; border-radius: 50%;
+  cursor: pointer; background: var(--bs-secondary);
+}
+.mail-dot.is-unread { background: var(--bs-primary); }
+.mail-dot.is-read { background: var(--bs-secondary); }
+.mail-dot.is-important { background: var(--bs-danger); }
+</style>
+<script>
+// Клик по точке циклически меняет статус письма непрочитано -> прочитано ->
+// важное -> непрочитано (см. mail_client.MESSAGE_STATES) без перезагрузки
+// страницы — тот же приём AJAX+CSRF-заголовок из meta, что и в news/form.html
+// (upload_inline_attachment): скрытое поле csrf_token тут негде взять, это
+// не <form>, а одиночный <span>.
+(function () {
+  var NEXT_STATE = { unread: "read", read: "important", important: "unread" };
+  var LABELS = {
+    unread: "{{ _('Непрочитано') }}", read: "{{ _('Прочитано') }}", important: "{{ _('Важное') }}",
+  };
+  var csrfMeta = document.querySelector('meta[name="csrf-token"]');
+
+  function applyState(dot, state) {
+    dot.classList.remove("is-unread", "is-read", "is-important");
+    dot.classList.add("is-" + state);
+    dot.dataset.state = state;
+    dot.title = LABELS[state] + " — {{ _('нажмите, чтобы изменить') }}";
+  }
+
+  document.querySelectorAll(".mail-dot").forEach(function (dot) {
+    function toggle() {
+      if (dot.dataset.busy) return;
+      dot.dataset.busy = "1";
+      var next = NEXT_STATE[dot.dataset.state];
+      var formData = new FormData();
+      formData.append("state", next);
+      formData.append("folder", dot.dataset.folder);
+      fetch(dot.dataset.url, {
+        method: "POST",
+        headers: csrfMeta ? { "X-CSRFToken": csrfMeta.getAttribute("content") } : {},
+        body: formData,
+      })
+        .then(function (r) { return r.json(); })
+        .then(function (data) { if (data.ok) applyState(dot, data.state); })
+        .catch(function () {})
+        .finally(function () { delete dot.dataset.busy; });
+    }
+    dot.addEventListener("click", function (e) { e.stopPropagation(); toggle(); });
+    dot.addEventListener("keydown", function (e) {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); toggle(); }
+    });
+  });
+})();
+</script>
 {% endblock %}

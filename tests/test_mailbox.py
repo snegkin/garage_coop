@@ -8,6 +8,7 @@ message_sent пишутся, неудачные попытки и test-connectio
 что почта правления не создаёт побочных денежных сущностей.
 """
 import io
+import re
 from email.message import EmailMessage
 import email.policy
 
@@ -73,6 +74,7 @@ class FakeImapConn:
         self.selected = None
         self.expunged = False
         self.appended = []  # [(folder, raw_bytes)]
+        self.flags: dict[int, set[str]] = {}  # uid -> \Seen/\Flagged/... (не разделено по папкам — тестам достаточно)
 
     def login(self, user, password):
         return ("OK", [b""])
@@ -94,12 +96,30 @@ class FakeImapConn:
                 return ("NO", [None])
             if "RFC822" in spec:
                 return ("OK", [(f"{uid} (UID {uid} RFC822 {{{len(raw)}}}".encode(), raw)])
-            meta = f"{uid} (UID {uid} FLAGS (\\Seen) BODY[HEADER.FIELDS (SUBJECT FROM TO DATE)] {{999}}".encode()
+            flags_str = " ".join(sorted(self.flags.get(uid, set())))
+            meta = f"{uid} (UID {uid} FLAGS ({flags_str}) BODY[HEADER.FIELDS (SUBJECT FROM TO DATE)] {{999}}".encode()
             return ("OK", [(meta, raw)])
         if command == "store":
             uid = int(args[0].decode() if isinstance(args[0], bytes) else args[0])
-            if len(args) > 2 and "\\Deleted" in args[2]:
+            mode = args[1] if len(args) > 1 else "+FLAGS"
+            flag_names = re.findall(r"\\\w+", args[2]) if len(args) > 2 else []
+            bucket = self.flags.setdefault(uid, set())
+            if mode == "+FLAGS":
+                bucket.update(flag_names)
+            elif mode == "-FLAGS":
+                bucket.difference_update(flag_names)
+            if "\\Deleted" in bucket:
                 current.pop(uid, None)
+            return ("OK", [b""])
+        if command == "copy":
+            uid = int(args[0].decode() if isinstance(args[0], bytes) else args[0])
+            name = args[1].strip('"')
+            raw = current.get(uid)
+            if raw is None:
+                return ("NO", [None])
+            target = self.mailboxes.setdefault(name, {})
+            next_uid = (max(target) + 1) if target else 1
+            target[next_uid] = raw
             return ("OK", [b""])
         return ("NO", [None])
 
@@ -737,6 +757,148 @@ def test_compose_reply_connection_error_shows_flash_not_500(db, client, monkeypa
     resp = client.get("/mailbox/compose?reply_to=1", follow_redirects=True)
     assert resp.status_code == 200
     assert "Не удалось открыть письмо" in resp.get_data(as_text=True)
+
+
+# ---------------------------------------------------------------------------
+# Папка «Корзина» — удаление перемещает письмо, а не удаляет безвозвратно
+# ---------------------------------------------------------------------------
+
+def test_delete_message_moves_to_trash_folder_when_configured(db, client, monkeypatch):
+    _make_board(db)
+    _make_settings(db, trash_folder="Trash")
+    fake = _mock_imap(monkeypatch, {1: _test_email().as_bytes()})
+    login(client, "board1", "pass1234")
+
+    resp = client.post("/mailbox/messages/1/delete", follow_redirects=True)
+    assert resp.status_code == 200
+    assert "перемещено в корзину" in resp.get_data(as_text=True)
+    assert 1 not in fake.mailboxes["INBOX"]
+    assert 1 in fake.mailboxes["Trash"]
+    actions = [a.action for a in db.query(AuditLog).all()]
+    assert "mailbox.message_trash" in actions
+    assert "mailbox.message_delete" not in actions
+
+
+def test_delete_message_from_trash_is_permanent(db, client, monkeypatch):
+    _make_board(db)
+    _make_settings(db, trash_folder="Trash")
+    fake = _mock_imap(monkeypatch, {}, folders={"Trash": {1: _test_email().as_bytes()}})
+    login(client, "board1", "pass1234")
+
+    resp = client.post("/mailbox/messages/1/delete?folder=Trash", follow_redirects=True)
+    assert resp.status_code == 200
+    assert "Письмо удалено" in resp.get_data(as_text=True)
+    assert 1 not in fake.mailboxes["Trash"]
+    actions = [a.action for a in db.query(AuditLog).all()]
+    assert "mailbox.message_delete" in actions
+
+
+def test_delete_message_without_trash_configured_is_permanent(db, client, monkeypatch):
+    """Поведение по умолчанию (trash_folder не заполнен) не меняется —
+    регресс для уже настроенных ящиков."""
+    _make_board(db)
+    _make_settings(db, trash_folder=None)
+    fake = _mock_imap(monkeypatch, {1: _test_email().as_bytes()})
+    login(client, "board1", "pass1234")
+
+    resp = client.post("/mailbox/messages/1/delete", follow_redirects=True)
+    assert "Письмо удалено" in resp.get_data(as_text=True)
+    assert 1 not in fake.mailboxes["INBOX"]
+    assert "Trash" not in fake.mailboxes
+
+
+def test_trash_tab_shown_only_when_configured(db, client, monkeypatch):
+    _make_board(db)
+    _make_settings(db, trash_folder="Trash")
+    _mock_imap(monkeypatch, {1: _test_email().as_bytes()})
+    login(client, "board1", "pass1234")
+
+    resp = client.get("/mailbox/")
+    assert "Корзина" in resp.get_data(as_text=True)
+
+
+def test_trash_tab_hidden_without_trash_folder_configured(db, client, monkeypatch):
+    _make_board(db)
+    _make_settings(db, trash_folder=None)
+    _mock_imap(monkeypatch, {1: _test_email().as_bytes()})
+    login(client, "board1", "pass1234")
+
+    resp = client.get("/mailbox/")
+    assert "Корзина" not in resp.get_data(as_text=True)
+
+
+def test_chairman_can_set_trash_folder(db, client):
+    _make_chairman(db)
+    _make_settings(db)
+    login(client, "chair1", "pass1234")
+
+    client.post("/mailbox/settings", data={
+        "incoming_protocol": "imap", "incoming_host": "imap.example.com", "incoming_port": "993",
+        "incoming_encryption": "ssl", "smtp_host": "smtp.example.com", "smtp_port": "587",
+        "smtp_encryption": "starttls", "username": "pravlenie@example.com", "password": "",
+        "trash_folder": "Trash",
+    }, follow_redirects=True)
+
+    db.expire_all()
+    settings = db.query(MailboxSettings).first()
+    assert settings.trash_folder == "Trash"
+
+
+# ---------------------------------------------------------------------------
+# Точка-индикатор статуса письма (прочитано/непрочитано/важное)
+# ---------------------------------------------------------------------------
+
+def test_set_message_state_cycles_flags(db, client, monkeypatch):
+    _make_board(db)
+    _make_settings(db)
+    fake = _mock_imap(monkeypatch, {1: _test_email().as_bytes()})
+    login(client, "board1", "pass1234")
+
+    resp = client.post("/mailbox/messages/1/state", data={"state": "read"})
+    assert resp.get_json() == {"ok": True, "state": "read"}
+    assert fake.flags[1] == {"\\Seen"}
+
+    resp = client.post("/mailbox/messages/1/state", data={"state": "important"})
+    assert resp.get_json()["ok"] is True
+    assert fake.flags[1] == {"\\Seen", "\\Flagged"}
+
+    resp = client.post("/mailbox/messages/1/state", data={"state": "unread"})
+    assert resp.get_json()["ok"] is True
+    assert fake.flags[1] == set()
+
+
+def test_set_message_state_rejects_unknown_state(db, client, monkeypatch):
+    _make_board(db)
+    _make_settings(db)
+    _mock_imap(monkeypatch, {1: _test_email().as_bytes()})
+    login(client, "board1", "pass1234")
+
+    resp = client.post("/mailbox/messages/1/state", data={"state": "bogus"})
+    assert resp.status_code == 400
+    assert resp.get_json()["ok"] is False
+
+
+def test_member_cannot_set_message_state(db, client):
+    _make_member(db)
+    _make_settings(db)
+    login(client, "member1", "pass1234")
+
+    resp = client.post("/mailbox/messages/1/state", data={"state": "read"}, follow_redirects=True)
+    assert "Недостаточно прав" in resp.get_data(as_text=True)
+
+
+def test_set_message_state_connection_error_returns_json_error(db, client, monkeypatch):
+    _make_board(db)
+    _make_settings(db)
+
+    def boom(settings):
+        raise mail_client.MailError("IMAP: boom")
+    monkeypatch.setattr(mail_client, "_connect_imap", boom)
+    login(client, "board1", "pass1234")
+
+    resp = client.post("/mailbox/messages/1/state", data={"state": "read"})
+    assert resp.status_code == 400
+    assert resp.get_json()["ok"] is False
 
 
 def test_compose_send_renders_markdown_as_html_alternative(db, client, monkeypatch):

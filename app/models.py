@@ -2412,6 +2412,14 @@ class MailboxSettings(Base):
     # папок вовсе — поле игнорируется для этого протокола.
     sent_folder: Mapped[str | None] = mapped_column(String(255), default="Sent")
 
+    # Папка "Корзина" (IMAP) — если указана, удаление письма из любой другой
+    # папки перемещает его сюда (COPY+expunge, см. mail_client.ImapMailClient.
+    # move_message), а не удаляет безвозвратно; удаление письма УЖЕ из
+    # Корзины — как и раньше, безвозвратное. NULL/пусто (умолчание, в
+    # отличие от sent_folder) — старое поведение без опции восстановления,
+    # чтобы не менять его молча для уже настроенных ящиков.
+    trash_folder: Mapped[str | None] = mapped_column(String(255), default=None)
+
     last_error: Mapped[str | None] = mapped_column(Text)
     last_checked_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
 

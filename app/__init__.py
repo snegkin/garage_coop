@@ -98,7 +98,7 @@ def create_app(config_class=Config):
         from .models import (
             Cooperative, PersonDataRevision, PersonDataRevisionStatus, Vote, VoteQuestion, VoteBallot, VoteStatus,
             RoleEnum, Person, VoteProposal, VoteProposalBoardBallot, ProposalStatus, BoardChatMessage,
-            RevisionChatMessage, MailboxSettings,
+            RevisionChatMessage, MailboxSettings, MailProtocol,
         )
         from .accounting import balance as _balance
         from .permissions import is_board, is_chairman, is_privileged
@@ -169,14 +169,20 @@ def create_app(config_class=Config):
                 ).count()
 
         # Непрочитанные во "Входящих" почты правления — сам счёт НЕ идёт по
-        # IMAP на каждый запрос (см. MailboxSettings.unread_count, докстринг
-        # там же), а один дешёвый SELECT синглтона настроек, кэш которого
-        # обновляют scripts/poll_mailbox.py и mailbox.inbox() (опортунистически).
+        # IMAP/POP3 на каждый запрос (см. MailboxSettings.unread_count,
+        # докстринг там же), а один дешёвый SELECT, кэш которого обновляют
+        # scripts/poll_mailbox.py и mailbox.inbox() (опортунистически). IMAP
+        # — общий счётчик (настоящие серверные флаги, одни на всех); POP3 —
+        # свой у каждого пользователя (см. User.pop3_mailbox_unread_count,
+        # MailboxPop3MessageState) — сам протокол флагов не хранит вовсе.
         mailbox_unread = 0
         if user and is_board():
             mailbox_settings = database.db_session.query(MailboxSettings).first()
             if mailbox_settings:
-                mailbox_unread = mailbox_settings.unread_count
+                if mailbox_settings.incoming_protocol == MailProtocol.POP3:
+                    mailbox_unread = user.pop3_mailbox_unread_count
+                else:
+                    mailbox_unread = mailbox_settings.unread_count
 
         # Куда возвращать пользователя после входа, если он воспользуется
         # формой входа (дропдаун «Войти» в шапке, доступен на любой

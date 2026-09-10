@@ -567,9 +567,11 @@ def test_send_message_sent_folder_failure_does_not_fail_send(monkeypatch):
 # ---------------------------------------------------------------------------
 
 class FakePop3Conn:
-    def __init__(self, messages: list[bytes], supports_top: bool = True):
+    def __init__(self, messages: list[bytes], supports_top: bool = True, supports_uidl: bool = True, uidls: list[str] | None = None):
         self._messages = messages  # индекс 0 -> номер 1
         self._supports_top = supports_top
+        self._supports_uidl = supports_uidl
+        self._uidls = uidls  # индекс 0 -> uidl номера 1, по умолчанию "uidl-<num>"
         self.deleted = []
 
     def user(self, name):
@@ -591,6 +593,17 @@ class FakePop3Conn:
     def retr(self, num):
         raw = self._messages[num - 1]
         return (b"+OK", raw.split(b"\r\n"), len(raw))
+
+    def uidl(self):
+        if not self._supports_uidl:
+            import poplib
+            raise poplib.error_proto("ERR unsupported")
+        lines = []
+        for i in range(len(self._messages)):
+            num = i + 1
+            uidl = self._uidls[i] if self._uidls else f"uidl-{num}"
+            lines.append(f"{num} {uidl}".encode())
+        return (b"+OK", lines, 0)
 
     def dele(self, num):
         self.deleted.append(num)
@@ -619,6 +632,43 @@ def test_pop3_list_messages_with_top(monkeypatch):
         assert [m.uid for m in page.messages] == ["3", "2", "1"]
         assert all(m.seen is None for m in page.messages)
         assert all(m.has_attachments is None for m in page.messages)
+        assert [m.uidl for m in page.messages] == ["uidl-3", "uidl-2", "uidl-1"]
+        assert client.supports_message_state is True
+
+
+def test_pop3_get_uidl_map(monkeypatch):
+    raws = [_make_test_email(with_inline_image=False, with_attachment=False).as_bytes() for _ in range(2)]
+    monkeypatch.setattr(mail_client, "_connect_pop3", lambda settings: FakePop3Conn(raws, uidls=["abc", "def"]))
+
+    with mail_client.get_incoming_client(_pop3_settings()) as client:
+        assert client.get_uidl_map() == {1: "abc", 2: "def"}
+
+
+def test_pop3_list_current_uidls(monkeypatch):
+    raws = [_make_test_email(with_inline_image=False, with_attachment=False).as_bytes() for _ in range(2)]
+    monkeypatch.setattr(mail_client, "_connect_pop3", lambda settings: FakePop3Conn(raws, uidls=["abc", "def"]))
+
+    with mail_client.get_incoming_client(_pop3_settings()) as client:
+        assert client.list_current_uidls() == {"abc", "def"}
+
+
+def test_pop3_get_uidl_map_none_when_unsupported(monkeypatch):
+    raws = [_make_test_email(with_inline_image=False, with_attachment=False).as_bytes()]
+    monkeypatch.setattr(mail_client, "_connect_pop3", lambda settings: FakePop3Conn(raws, supports_uidl=False))
+
+    with mail_client.get_incoming_client(_pop3_settings()) as client:
+        assert client.get_uidl_map() is None
+        assert client.list_current_uidls() is None
+
+
+def test_pop3_list_messages_uidl_none_when_unsupported(monkeypatch):
+    raws = [_make_test_email(with_inline_image=False, with_attachment=False).as_bytes()]
+    monkeypatch.setattr(mail_client, "_connect_pop3", lambda settings: FakePop3Conn(raws, supports_uidl=False))
+
+    with mail_client.get_incoming_client(_pop3_settings()) as client:
+        page = client.list_messages(page=1)
+        assert page.messages[0].uidl is None
+        assert client.supports_message_state is False
 
 
 def test_pop3_list_messages_search_and_sort(monkeypatch):

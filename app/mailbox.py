@@ -19,14 +19,15 @@ import io
 import re
 
 import bleach
+from sqlalchemy.exc import IntegrityError
 
-from flask import Blueprint, render_template, request, redirect, url_for, flash, abort, send_file, jsonify
+from flask import Blueprint, render_template, request, redirect, url_for, flash, abort, send_file, jsonify, g
 
 from . import database
 from . import audit
 from .i18n import translate as _
-from .auth import roles_required
-from .models import RoleEnum, MailboxSettings, MailProtocol, MailEncryption
+from .auth import roles_required, ROLE_LEVEL
+from .models import RoleEnum, MailboxSettings, MailProtocol, MailEncryption, MailboxPop3MessageState, User
 from . import mail_client
 from .mail_client import MailError, DEFAULT_FOLDER, MessageDetail
 from .mail_html import render_email_body
@@ -180,6 +181,171 @@ def _folder_availability(settings: MailboxSettings) -> dict:
     return {f"{field_name}_available": available(settings) for field_name, available in EXTRA_FOLDERS}
 
 
+# ---------------------------------------------------------------------------
+# Эмуляция «прочитано»/«важное» для POP3 — сам протокол не хранит эти флаги
+# на сервере (в отличие от IMAP), поэтому статус персональный для каждого
+# члена правления и живёт в своей таблице MailboxPop3MessageState (см.
+# app/models.py), ключ — POP3 UIDL (mail_client.Pop3MailClient.get_uidl_map),
+# не MessageSummary.uid (тот — номер письма в текущей сессии, нестабилен).
+# ---------------------------------------------------------------------------
+
+def _overlay_pop3_states(user_id: int, messages: list) -> None:
+    """Мутирует seen/flagged каждого MessageSummary по персональным
+    пометкам ТЕКУЩЕГО пользователя — без строки в БД считается непрочитано,
+    неважное (см. докстринг MailboxPop3MessageState). Письма без uidl
+    (сервер не поддерживает UIDL) не трогаются — supports_message_state в
+    этом случае и так False, дальше по коду точка для них не рисуется."""
+    uidls = [m.uidl for m in messages if m.uidl]
+    if not uidls:
+        return
+    rows = database.db_session.query(MailboxPop3MessageState).filter(
+        MailboxPop3MessageState.user_id == user_id,
+        MailboxPop3MessageState.message_uidl.in_(uidls),
+    ).all()
+    states_by_uidl = {row.message_uidl: row for row in rows}
+    for m in messages:
+        if not m.uidl:
+            continue
+        state = states_by_uidl.get(m.uidl)
+        m.seen = bool(state.seen) if state else False
+        m.flagged = bool(state.flagged) if state else False
+
+
+def _pop3_state_row(user_id: int, uidl: str) -> MailboxPop3MessageState:
+    row = database.db_session.query(MailboxPop3MessageState).filter_by(user_id=user_id, message_uidl=uidl).first()
+    if row is None:
+        row = MailboxPop3MessageState(user_id=user_id, message_uidl=uidl)
+        database.db_session.add(row)
+    return row
+
+
+def _set_pop3_message_state(user_id: int, uidl: str, state: str) -> None:
+    """Целевое состояние — та же семантика трёх состояний, что и у
+    ImapMailClient.set_state (см. mail_client.MESSAGE_STATES), только
+    флаги пишутся не в IMAP-команду, а строкой в свою таблицу."""
+    row = _pop3_state_row(user_id, uidl)
+    if state == mail_client.STATE_UNREAD:
+        row.seen, row.flagged = False, False
+    elif state == mail_client.STATE_READ:
+        row.seen, row.flagged = True, False
+    else:  # STATE_IMPORTANT — seen не трогаем, как и у IMAP-варианта
+        row.flagged = True
+
+
+def _mark_pop3_message_seen(user_id: int, uidl: str) -> None:
+    """При открытии письма (view_message) — аналог неявной простановки
+    \\Seen у IMAP при обычном (не PEEK) FETCH: только seen, flagged не
+    трогаем (важное письмо не перестаёт быть важным от того, что его
+    прочитали)."""
+    row = _pop3_state_row(user_id, uidl)
+    row.seen = True
+
+
+# ---------------------------------------------------------------------------
+# Бейдж «непрочитано» в шапке сайта (app/__init__.py: _inject_user) — сама
+# логика подсчёта здесь, а не в scripts/poll_mailbox.py (та же схема, что у
+# app/notifications.py:run_board_chat_digest / scripts/board_chat_digest.py):
+# скрипт — тонкая cron-обёртка, вызывающая эту функцию раз в 5 минут; те же
+# роуты выше вызывают её опортунистически при заходе в почту.
+# ---------------------------------------------------------------------------
+
+def _board_plus_users() -> list[User]:
+    """Тот же минимальный уровень доступа, что и у /mailbox/ (см.
+    auth.roles_required(RoleEnum.BOARD)) — не только точное совпадение роли."""
+    qualifying_roles = [role for role, level in ROLE_LEVEL.items() if level >= ROLE_LEVEL[RoleEnum.BOARD]]
+    return database.db_session.query(User).filter(User.role.in_(qualifying_roles)).all()
+
+
+def _refresh_imap_unread_count(settings: MailboxSettings) -> str:
+    try:
+        with mail_client.get_incoming_client(settings) as client:
+            unread = client.count_unread(DEFAULT_FOLDER)
+    except MailError as exc:
+        _record_connection_error(settings, exc)
+        settings.last_checked_at = dt.datetime.utcnow()
+        database.db_session.commit()
+        return f"Ошибка подключения к почте: {exc}"
+
+    settings.unread_count = unread
+    settings.last_error = None
+    settings.last_checked_at = dt.datetime.utcnow()
+    database.db_session.commit()
+    return f"Непрочитанных писем: {unread}."
+
+
+def _refresh_pop3_unread_counts(settings: MailboxSettings) -> str:
+    try:
+        with mail_client.get_incoming_client(settings) as client:
+            current_uidls = client.list_current_uidls(DEFAULT_FOLDER)
+    except MailError as exc:
+        _record_connection_error(settings, exc)
+        settings.last_checked_at = dt.datetime.utcnow()
+        database.db_session.commit()
+        return f"Ошибка подключения к почте: {exc}"
+
+    users = _board_plus_users()
+    if current_uidls is None:
+        for user in users:
+            user.pop3_mailbox_unread_count = 0
+        settings.last_error = None
+        settings.last_checked_at = dt.datetime.utcnow()
+        database.db_session.commit()
+        return "Сервер не поддерживает UIDL — эмуляция статуса писем недоступна."
+
+    for user in users:
+        has_any_state = database.db_session.query(MailboxPop3MessageState.id).filter_by(user_id=user.id).first() is not None
+        if not has_any_state:
+            # Бутстрап — первый прогон для этого пользователя: вся история
+            # на этот момент считается уже прочитанной, иначе при
+            # подключении POP3-почты со старой историей все увидели бы
+            # внезапный шквал "непрочитанных" за годы, которых никто не
+            # пропускал. Непрочитанными для бейджа считаются только письма,
+            # появившиеся ПОСЛЕ этого момента.
+            #
+            # Коммит сразу и per-пользователь (не одним общим коммитом в
+            # конце) — если два прогона (параллельный cron + опортунистическое
+            # обновление) одновременно бутстрапят ОДНОГО И ТОГО ЖЕ пользователя,
+            # второй наткнётся на UniqueConstraint(user_id, message_uidl) уже
+            # здесь, а не свалит коммит остальных пользователей в этом же
+            # прогоне — откатываем только эту вставку и считаем по тому,
+            # что реально есть в БД (см. ниже).
+            try:
+                database.db_session.bulk_save_objects([
+                    MailboxPop3MessageState(user_id=user.id, message_uidl=uidl, seen=True) for uidl in current_uidls
+                ])
+                database.db_session.commit()
+            except IntegrityError:
+                database.db_session.rollback()
+
+        seen_uidls = {
+            row.message_uidl for row in database.db_session.query(MailboxPop3MessageState.message_uidl)
+            .filter(MailboxPop3MessageState.user_id == user.id, MailboxPop3MessageState.seen.is_(True))
+            .all()
+        }
+        user.pop3_mailbox_unread_count = len(current_uidls - seen_uidls)
+
+    settings.last_error = None
+    settings.last_checked_at = dt.datetime.utcnow()
+    database.db_session.commit()
+    return f"Писем в ящике: {len(current_uidls)}, пользователей обновлено: {len(users)}."
+
+
+def refresh_unread_counts() -> str:
+    """Пересчитывает бейдж «непрочитано» — см. scripts/poll_mailbox.py
+    (cron, раз в 5 минут) и mailbox.inbox()/view_message()/set_message_state()
+    (опортунистически). IMAP — общий MailboxSettings.unread_count; POP3 —
+    персональный User.pop3_mailbox_unread_count (сам протокол флагов не
+    хранит, см. MailboxPop3MessageState). Возвращает строку для лога
+    вызывающего кода — не поднимает исключений (ошибка подключения тоже
+    успешно обработанный, просто неудачный, результат)."""
+    settings = _get_or_create_settings()
+    if not _is_configured(settings):
+        return "Почта правления ещё не настроена — опрос пропущен."
+    if settings.incoming_protocol == MailProtocol.IMAP:
+        return _refresh_imap_unread_count(settings)
+    return _refresh_pop3_unread_counts(settings)
+
+
 @bp.route("/")
 @roles_required(RoleEnum.BOARD)
 def inbox():
@@ -203,17 +369,39 @@ def inbox():
                 search=search or None, sort=sort, sort_dir=sort_dir,
             )
             supports_flags = client.supports_flags
+            # POP3-эмуляция статуса (см. _overlay_pop3_states выше) — только
+            # если сервер реально поддерживает UIDL (client.supports_message_state,
+            # выставляется list_messages() по факту), иначе для POP3 точка в
+            # списке не рисуется вовсе (supports_flags остаётся False).
+            pop3_tracked = settings.incoming_protocol == MailProtocol.POP3 and client.supports_message_state
+            if pop3_tracked:
+                _overlay_pop3_states(g.user.id, page.messages)
+
             # Бейдж "непрочитано" в шапке сайта (см. app/__init__.py:
             # _inject_user) в норме обновляется cron-скриптом
-            # scripts/poll_mailbox.py — здесь просто освежаем его же кэш
-            # заодно, раз соединение с INBOX и так уже открыто (без
-            # дополнительного захода на сервер). Ошибка — не повод ломать
-            # обычный просмотр списка, бейдж просто останется чуть устаревшим
-            # до следующего прогона cron.
+            # scripts/poll_mailbox.py (mailbox.refresh_unread_counts) — здесь
+            # просто освежаем его же кэш заодно, раз соединение с INBOX и
+            # так уже открыто; НЕ вызываем refresh_unread_counts() напрямую
+            # — та открывает СВОЁ соединение, что здесь удвоило бы поход на
+            # сервер вместо переиспользования уже открытого. Ошибка — не
+            # повод ломать обычный просмотр списка, бейдж просто останется
+            # чуть устаревшим до следующего прогона cron.
             if folder == DEFAULT_FOLDER and supports_flags:
                 try:
                     settings.unread_count = client.count_unread(folder)
                     settings.last_checked_at = dt.datetime.utcnow()
+                    database.db_session.commit()
+                except MailError:
+                    database.db_session.rollback()
+            elif folder == DEFAULT_FOLDER and pop3_tracked:
+                try:
+                    current_uidls = client.list_current_uidls(folder)
+                    seen_uidls = {
+                        row.message_uidl for row in database.db_session.query(MailboxPop3MessageState.message_uidl)
+                        .filter(MailboxPop3MessageState.user_id == g.user.id, MailboxPop3MessageState.seen.is_(True))
+                        .all()
+                    }
+                    g.user.pop3_mailbox_unread_count = len(current_uidls - seen_uidls) if current_uidls is not None else 0
                     database.db_session.commit()
                 except MailError:
                     database.db_session.rollback()
@@ -228,7 +416,7 @@ def inbox():
 
     return render_template(
         "mailbox/inbox.html", settings=settings, is_configured=True, page=page, folder=folder,
-        page_size=page_size, page_size_choices=PAGE_SIZE_CHOICES, supports_flags=supports_flags,
+        page_size=page_size, page_size_choices=PAGE_SIZE_CHOICES, supports_flags=(supports_flags or pop3_tracked),
         search=search, sort=sort, sort_dir=sort_dir,
         **_folder_availability(settings),
     )
@@ -252,6 +440,15 @@ def view_message(uid):
     try:
         with mail_client.get_incoming_client(settings) as client:
             detail = client.get_message(uid, folder=folder)
+            # Аналог неявной простановки \Seen у IMAP при обычном (не PEEK)
+            # FETCH — см. _mark_pop3_message_seen. Персонально для текущего
+            # пользователя, только если сервер поддерживает UIDL.
+            if settings.incoming_protocol == MailProtocol.POP3:
+                uidl_map = client.get_uidl_map()
+                message_uidl = uidl_map.get(int(uid)) if uidl_map else None
+                if message_uidl:
+                    _mark_pop3_message_seen(g.user.id, message_uidl)
+                    database.db_session.commit()
     except MailError as exc:
         _record_connection_error(settings, exc)
         flash(_("Не удалось открыть письмо: {error}", error=str(exc)), "danger")
@@ -330,8 +527,9 @@ def delete_message(uid):
 def set_message_state(uid):
     """Точка-индикатор в списке писем (см. mailbox/inbox.html) — цикл
     непрочитано -> прочитано -> важное -> непрочитано, см.
-    mail_client.MESSAGE_STATES. Только IMAP (client.supports_flags), но UI
-    сам не показывает точку для POP3 — на всякий случай проверяем и здесь."""
+    mail_client.MESSAGE_STATES. IMAP — настоящие серверные флаги; POP3 —
+    эмуляция в своей таблице по UIDL (см. _set_pop3_message_state), только
+    если сервер поддерживает это расширение."""
     settings = _get_or_create_settings()
     if not _is_configured(settings):
         return jsonify(ok=False, error=_("Почта ещё не настроена.")), 400
@@ -343,9 +541,17 @@ def set_message_state(uid):
     folder = _folder_from_request(settings)
     try:
         with mail_client.get_incoming_client(settings) as client:
-            if not client.supports_flags:
+            if client.supports_flags:
+                client.set_state(uid, state, folder=folder)
+            elif settings.incoming_protocol == MailProtocol.POP3:
+                uidl_map = client.get_uidl_map()
+                message_uidl = uidl_map.get(int(uid)) if uidl_map else None
+                if message_uidl is None:
+                    return jsonify(ok=False, error=_("Эта почта не поддерживает статусы писем.")), 400
+                _set_pop3_message_state(g.user.id, message_uidl, state)
+                database.db_session.commit()
+            else:
                 return jsonify(ok=False, error=_("Этот протокол не поддерживает статусы писем.")), 400
-            client.set_state(uid, state, folder=folder)
     except MailError as exc:
         _record_connection_error(settings, exc)
         return jsonify(ok=False, error=str(exc)), 400

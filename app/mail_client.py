@@ -68,6 +68,7 @@ class MessageSummary:
     seen: bool | None           # None у POP3 — там нет флагов вовсе
     flagged: bool | None        # "важное" (IMAP \Flagged) — None у POP3, там же, где и seen
     has_attachments: bool | None  # эвристика по BODYSTRUCTURE (см. _ATTACHMENT_DISPOSITION_RE) — None у POP3
+    uidl: str | None = None       # POP3 UIDL (RFC 1939) — устойчивый номер письма, в отличие от uid (см. Pop3MailClient); не используется для IMAP
 
 
 @dataclasses.dataclass
@@ -403,6 +404,17 @@ MESSAGE_STATES = (STATE_UNREAD, STATE_READ, STATE_IMPORTANT)
 class IncomingMailClient(abc.ABC):
     supports_folders: bool = False
     supports_flags: bool = False
+    # Можно ли переключать статус письма (точка в списке, см.
+    # mailbox/inbox.html) — для IMAP всегда True (совпадает с supports_flags,
+    # свои настоящие флаги на сервере). Для POP3 — отдельно от supports_flags
+    # (тот остаётся False, протокольно флагов нет вовсе): True, только если
+    # СЕРВЕР поддерживает необязательное расширение UIDL (см.
+    # Pop3MailClient.get_uidl_map) — тогда статус эмулируется в своей
+    # таблице MailboxPop3MessageState, персонально для каждого пользователя
+    # (в отличие от общих для всех IMAP-флагов). Известно только после
+    # попытки реального запроса — по умолчанию False, list_messages()
+    # POP3-реализации выставляет True при успехе.
+    supports_message_state: bool = False
 
     def __enter__(self) -> "IncomingMailClient":
         return self
@@ -465,6 +477,7 @@ _ATTACHMENT_DISPOSITION_RE = re.compile(rb'"attachment"', re.IGNORECASE)
 class ImapMailClient(IncomingMailClient):
     supports_folders = True
     supports_flags = True
+    supports_message_state = True
 
     def __init__(self, settings: MailboxSettings):
         self.settings = settings
@@ -637,6 +650,7 @@ class Pop3MailClient(IncomingMailClient):
         self.settings = settings
         self.conn = _connect_pop3(settings)
         self._supports_top = True
+        self._supports_uidl = True  # см. get_uidl_map — необязательное расширение (RFC 1939)
 
     def close(self) -> None:
         # DELE (см. delete_message) помечает письмо к удалению, но реально
@@ -658,6 +672,37 @@ class Pop3MailClient(IncomingMailClient):
             raise MailError(f"POP3 RETR: {exc}") from exc
         return b"\r\n".join(lines)
 
+    def get_uidl_map(self) -> dict[int, str] | None:
+        """{номер письма в ТЕКУЩЕЙ сессии -> UIDL} — один запрос на весь
+        ящик (в отличие от TOP/RETR ниже, по одному на письмо). UIDL
+        (RFC 1939) — устойчивый идентификатор письма, не меняется, пока
+        письмо не удалено с сервера, в отличие от номера (сдвигается при
+        удалении других писем) — на нём строится эмуляция "прочитано"/
+        "важное" для POP3 (см. app/mailbox.py, app/models.py:
+        MailboxPop3MessageState). None — сервер не поддерживает UIDL
+        (необязательное расширение), эмуляция для этого соединения
+        недоступна."""
+        if not self._supports_uidl:
+            return None
+        try:
+            _resp, lines, _octets = self.conn.uidl()
+        except poplib.error_proto:
+            self._supports_uidl = False
+            return None
+        result: dict[int, str] = {}
+        for line in lines:
+            num_str, _sep, uidl = line.decode().partition(" ")
+            result[int(num_str)] = uidl
+        return result
+
+    def list_current_uidls(self, folder: str = DEFAULT_FOLDER) -> set[str] | None:
+        """Только текущий набор UIDL — без заголовков писем, для дешёвого
+        подсчёта непрочитанных (см. app/mailbox.py: inbox(),
+        scripts/poll_mailbox.py) без похода TOP/RETR по каждому письму."""
+        self._check_folder(folder)
+        uidl_map = self.get_uidl_map()
+        return set(uidl_map.values()) if uidl_map is not None else None
+
     def list_messages(
         self, page: int, page_size: int = 25, folder: str = DEFAULT_FOLDER,
         search: str | None = None, sort: str = "date", sort_dir: str = "desc",
@@ -672,6 +717,9 @@ class Pop3MailClient(IncomingMailClient):
             raise MailError(f"POP3 STAT: {exc}") from exc
 
         numbers = list(range(count, 0, -1))  # новые первыми (обычно совпадает с порядком поступления) — базовый порядок и тай-брейк при сортировке
+
+        uidl_map = self.get_uidl_map()
+        self.supports_message_state = uidl_map is not None
 
         messages: list[MessageSummary] = []
         for num in numbers:
@@ -691,6 +739,7 @@ class Pop3MailClient(IncomingMailClient):
                 uid=str(num), subject=str(msg.get("subject", "")).strip() or "(без темы)",
                 from_name=from_name, from_addr=from_addr, to_addr=(to_addrs[0] if to_addrs else None),
                 date=_parse_date(msg), seen=None, flagged=None, has_attachments=None,
+                uidl=(uidl_map.get(num) if uidl_map else None),
             ))
         return _filter_sort_paginate(messages, page, page_size, search, sort, sort_dir)
 

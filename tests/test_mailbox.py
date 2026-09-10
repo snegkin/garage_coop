@@ -13,7 +13,8 @@ from email.message import EmailMessage
 import email.policy
 
 from app import database, mail_client
-from app.models import RoleEnum, MailboxSettings, MailProtocol, MailEncryption, AuditLog, Charge, Expense
+from app.mailbox import refresh_unread_counts
+from app.models import RoleEnum, MailboxSettings, MailProtocol, MailEncryption, AuditLog, Charge, Expense, MailboxPop3MessageState, User
 from app.bank_api import crypto
 
 from tests.conftest import make_person, make_user, login
@@ -21,8 +22,9 @@ from tests.conftest import make_person, make_user, login
 
 def _make_board(db, username="board1"):
     person = make_person(db, full_name="Board One")
-    make_user(db, username, "pass1234", role=RoleEnum.BOARD, person=person)
+    user = make_user(db, username, "pass1234", role=RoleEnum.BOARD, person=person)
     db.commit()
+    return user
 
 
 def _make_chairman(db, username="chair1"):
@@ -33,8 +35,9 @@ def _make_chairman(db, username="chair1"):
 
 def _make_member(db, username="member1"):
     person = make_person(db, full_name="Member One")
-    make_user(db, username, "pass1234", role=RoleEnum.MEMBER, person=person)
+    user = make_user(db, username, "pass1234", role=RoleEnum.MEMBER, person=person)
     db.commit()
+    return user
 
 
 def _make_settings(db, **overrides):
@@ -171,6 +174,58 @@ def _mock_imap(monkeypatch, messages, folders=None):
 def _mock_smtp(monkeypatch):
     fake = FakeSmtpConn()
     monkeypatch.setattr(mail_client, "_connect_smtp", lambda settings: fake)
+    return fake
+
+
+class FakePop3Conn:
+    """messages — список сырых писем (индекс 0 -> номер 1), uidls — их
+    UIDL в том же порядке (по умолчанию "uidl-<num>") — см.
+    tests/test_mail_client.py:FakePop3Conn, тот же двойник, но здесь ещё
+    нужен для сквозных тестов эмуляции статуса (app/mailbox.py)."""
+
+    def __init__(self, messages, uidls=None, supports_uidl=True):
+        self.messages = messages
+        self._uidls = uidls
+        self._supports_uidl = supports_uidl
+
+    def user(self, name):
+        pass
+
+    def pass_(self, password):
+        pass
+
+    def stat(self):
+        return (len(self.messages), 0)
+
+    def top(self, num, lines):
+        raw = self.messages[num - 1]
+        return (b"+OK", raw.split(b"\r\n"), len(raw))
+
+    def retr(self, num):
+        raw = self.messages[num - 1]
+        return (b"+OK", raw.split(b"\r\n"), len(raw))
+
+    def uidl(self):
+        if not self._supports_uidl:
+            import poplib
+            raise poplib.error_proto("ERR unsupported")
+        lines = []
+        for i in range(len(self.messages)):
+            num = i + 1
+            uidl = self._uidls[i] if self._uidls else f"uidl-{num}"
+            lines.append(f"{num} {uidl}".encode())
+        return (b"+OK", lines, 0)
+
+    def dele(self, num):
+        pass
+
+    def quit(self):
+        pass
+
+
+def _mock_pop3(monkeypatch, messages, uidls=None, supports_uidl=True):
+    fake = FakePop3Conn(messages, uidls=uidls, supports_uidl=supports_uidl)
+    monkeypatch.setattr(mail_client, "_connect_pop3", lambda settings: fake)
     return fake
 
 
@@ -694,7 +749,7 @@ def test_sent_tab_hidden_for_pop3(db, client, monkeypatch):
     _make_board(db)
     _make_settings(db, incoming_protocol=MailProtocol.POP3, incoming_port=995, sent_folder="Sent")
     monkeypatch.setattr(mail_client, "_connect_pop3", lambda settings: type(
-        "FakePop3", (), {"stat": lambda self: (0, 0), "quit": lambda self: None},
+        "FakePop3", (), {"stat": lambda self: (0, 0), "quit": lambda self: None, "uidl": lambda self: (b"+OK", [], 0)},
     )())
     login(client, "board1", "pass1234")
 
@@ -1113,6 +1168,212 @@ def test_set_message_state_connection_error_returns_json_error(db, client, monke
     resp = client.post("/mailbox/messages/1/state", data={"state": "read"})
     assert resp.status_code == 400
     assert resp.get_json()["ok"] is False
+
+
+# ---------------------------------------------------------------------------
+# Эмуляция статуса писем для POP3 (см. app/models.py: MailboxPop3MessageState)
+# ---------------------------------------------------------------------------
+
+def _make_pop3_settings(db, **overrides):
+    overrides.setdefault("incoming_protocol", MailProtocol.POP3)
+    overrides.setdefault("incoming_port", 995)
+    return _make_settings(db, **overrides)
+
+
+def test_pop3_dot_shown_unread_by_default(db, client, monkeypatch):
+    _make_board(db)
+    _make_pop3_settings(db)
+    _mock_pop3(monkeypatch, [_test_email().as_bytes()])
+    login(client, "board1", "pass1234")
+
+    resp = client.get("/mailbox/")
+    body = resp.get_data(as_text=True)
+    assert "mail-dot is-unread" in body
+
+
+def test_pop3_view_message_marks_seen_for_that_user_only(db, client, monkeypatch):
+    board1 = _make_board(db, username="board1")
+    _make_board(db, username="board2")
+    _make_pop3_settings(db)
+    _mock_pop3(monkeypatch, [_test_email().as_bytes()])
+    login(client, "board1", "pass1234")
+
+    client.get("/mailbox/messages/1")
+
+    row = database.db_session.query(MailboxPop3MessageState).filter_by(user_id=board1.id, message_uidl="uidl-1").first()
+    assert row is not None
+    assert row.seen is True
+    assert row.flagged is False
+    # другой член правления письмо не открывал — для него оно всё ещё непрочитано
+    assert database.db_session.query(MailboxPop3MessageState).filter_by(message_uidl="uidl-1").count() == 1
+
+
+def test_pop3_dot_reflects_read_status_after_viewing(db, client, monkeypatch):
+    _make_board(db)
+    _make_pop3_settings(db)
+    _mock_pop3(monkeypatch, [_test_email().as_bytes()])
+    login(client, "board1", "pass1234")
+
+    client.get("/mailbox/messages/1")
+    body = client.get("/mailbox/").get_data(as_text=True)
+    assert "mail-dot is-read" in body
+    assert "mail-dot is-unread" not in body
+
+
+def test_pop3_set_message_state_cycles_via_db(db, client, monkeypatch):
+    board1 = _make_board(db)
+    _make_pop3_settings(db)
+    _mock_pop3(monkeypatch, [_test_email().as_bytes()])
+    login(client, "board1", "pass1234")
+
+    resp = client.post("/mailbox/messages/1/state", data={"state": "important"})
+    assert resp.get_json() == {"ok": True, "state": "important"}
+    row = database.db_session.query(MailboxPop3MessageState).filter_by(user_id=board1.id, message_uidl="uidl-1").first()
+    assert row.flagged is True
+
+    resp = client.post("/mailbox/messages/1/state", data={"state": "unread"})
+    assert resp.get_json()["ok"] is True
+    database.db_session.expire_all()
+    row = database.db_session.query(MailboxPop3MessageState).filter_by(user_id=board1.id, message_uidl="uidl-1").first()
+    assert row.seen is False
+    assert row.flagged is False
+
+
+def test_pop3_dot_and_state_hidden_when_uidl_unsupported(db, client, monkeypatch):
+    _make_board(db)
+    _make_pop3_settings(db)
+    _mock_pop3(monkeypatch, [_test_email().as_bytes()], supports_uidl=False)
+    login(client, "board1", "pass1234")
+
+    body = client.get("/mailbox/").get_data(as_text=True)
+    assert 'class="mail-dot' not in body  # CSS-правило .mail-dot в <style> всегда в разметке — проверяем именно отсутствие самого элемента
+
+    resp = client.post("/mailbox/messages/1/state", data={"state": "read"})
+    assert resp.status_code == 400
+    assert resp.get_json()["ok"] is False
+
+
+def test_pop3_badge_reads_per_user_cached_count(db, client):
+    """Контекст-процессор (app/__init__.py) для POP3 берёт персональный
+    счётчик пользователя, не общий MailboxSettings.unread_count."""
+    board1 = _make_board(db)
+    _make_pop3_settings(db)
+    board1.pop3_mailbox_unread_count = 4
+    db.commit()
+    login(client, "board1", "pass1234")
+
+    resp = client.get("/")
+    body = resp.get_data(as_text=True)
+    assert "Непрочитанные письма" in body
+    assert "4" in body
+
+
+# ---------------------------------------------------------------------------
+# app/mailbox.py:refresh_unread_counts — логика cron-скрипта
+# scripts/poll_mailbox.py (сам скрипт — тонкая обёртка, не тестируется
+# отдельно, см. его докстринг)
+# ---------------------------------------------------------------------------
+
+def test_refresh_unread_counts_not_configured(db):
+    assert refresh_unread_counts() == "Почта правления ещё не настроена — опрос пропущен."
+
+
+def test_refresh_unread_counts_imap_updates_settings(db, monkeypatch):
+    _make_settings(db)
+    _mock_imap(monkeypatch, {1: _test_email().as_bytes(), 2: _test_email().as_bytes()})
+
+    message = refresh_unread_counts()
+
+    db.expire_all()
+    settings = db.query(MailboxSettings).first()
+    assert "Непрочитанных писем: 2" in message
+    assert settings.unread_count == 2
+    assert settings.last_error is None
+    assert settings.last_checked_at is not None
+
+
+def test_refresh_unread_counts_imap_connection_error(db, monkeypatch):
+    _make_settings(db)
+
+    def boom(settings):
+        raise mail_client.MailError("IMAP: boom")
+    monkeypatch.setattr(mail_client, "_connect_imap", boom)
+
+    message = refresh_unread_counts()
+
+    db.expire_all()
+    settings = db.query(MailboxSettings).first()
+    assert "Ошибка подключения" in message
+    assert "boom" in settings.last_error
+
+
+def test_refresh_unread_counts_pop3_bootstraps_existing_mail_as_read(db, monkeypatch):
+    """Первый прогон для ещё не встречавшегося пользователя — вся история
+    считается прочитанной задним числом (см. докстринг refresh_unread_counts)."""
+    board1 = _make_board(db)
+    _make_pop3_settings(db)
+    _mock_pop3(monkeypatch, [_test_email().as_bytes(), _test_email().as_bytes()])
+
+    refresh_unread_counts()
+
+    db.expire_all()
+    board1 = db.get(User, board1.id)
+    assert board1.pop3_mailbox_unread_count == 0
+    assert db.query(MailboxPop3MessageState).filter_by(user_id=board1.id).count() == 2
+
+
+def test_refresh_unread_counts_pop3_bootstrap_race_does_not_crash(db, monkeypatch):
+    """Гонка бутстрапа — параллельный прогон (второй cron, опортунистическое
+    обновление) успел вставить те же строки первым: UniqueConstraint(user_id,
+    message_uidl) не должен ронять весь пересчёт (см. _refresh_pop3_unread_counts)."""
+    from sqlalchemy.exc import IntegrityError
+
+    board1 = _make_board(db)
+    _make_pop3_settings(db)
+    _mock_pop3(monkeypatch, [_test_email().as_bytes()])
+
+    def boom(*args, **kwargs):
+        raise IntegrityError("INSERT", {}, Exception("UNIQUE constraint failed"))
+    monkeypatch.setattr(database.db_session, "bulk_save_objects", boom)
+
+    message = refresh_unread_counts()
+    assert "Писем в ящике" in message  # не свалилось необработанным исключением
+
+
+def test_refresh_unread_counts_pop3_counts_new_mail_after_bootstrap(db, monkeypatch):
+    board1 = _make_board(db)
+    _make_pop3_settings(db)
+    _mock_pop3(monkeypatch, [_test_email().as_bytes()])
+    refresh_unread_counts()  # бутстрап на одном письме
+
+    _mock_pop3(monkeypatch, [_test_email().as_bytes(), _test_email().as_bytes()], uidls=["uidl-1", "uidl-2"])
+    refresh_unread_counts()  # второе письмо появилось уже после бутстрапа
+
+    db.expire_all()
+    board1 = db.get(User, board1.id)
+    assert board1.pop3_mailbox_unread_count == 1
+
+
+def test_refresh_unread_counts_pop3_only_counts_board_plus_users(db, monkeypatch):
+    board1 = _make_board(db)
+    member1 = _make_member(db)
+    _make_pop3_settings(db)
+    _mock_pop3(monkeypatch, [_test_email().as_bytes()])
+
+    refresh_unread_counts()
+
+    db.expire_all()
+    assert db.query(MailboxPop3MessageState).filter_by(user_id=board1.id).count() == 1
+    assert db.query(MailboxPop3MessageState).filter_by(user_id=member1.id).count() == 0
+
+
+def test_refresh_unread_counts_pop3_uidl_unsupported(db, monkeypatch):
+    _make_board(db)
+    _make_pop3_settings(db)
+    _mock_pop3(monkeypatch, [_test_email().as_bytes()], supports_uidl=False)
+
+    message = refresh_unread_counts()
+    assert "не поддерживает UIDL" in message
 
 
 def test_compose_send_renders_markdown_as_html_alternative(db, client, monkeypatch):

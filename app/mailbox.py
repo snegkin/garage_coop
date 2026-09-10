@@ -56,6 +56,16 @@ def _page_size_from_request() -> int:
     return raw if raw in PAGE_SIZE_CHOICES else DEFAULT_PAGE_SIZE
 
 
+def _sort_from_request() -> tuple[str, str]:
+    sort = request.args.get("sort", "date")
+    sort_dir = request.args.get("dir", "desc")
+    if sort not in mail_client.SORT_FIELDS:
+        sort = "date"
+    if sort_dir not in mail_client.SORT_DIRS:
+        sort_dir = "desc"
+    return sort, sort_dir
+
+
 def _record_connection_error(settings: MailboxSettings, exc: MailError) -> None:
     settings.last_error = str(exc)
     database.db_session.commit()
@@ -67,6 +77,28 @@ def _sent_folder_available(settings: MailboxSettings) -> bool:
 
 def _trash_folder_available(settings: MailboxSettings) -> bool:
     return settings.incoming_protocol == MailProtocol.IMAP and bool(settings.trash_folder)
+
+
+def _drafts_folder_available(settings: MailboxSettings) -> bool:
+    return settings.incoming_protocol == MailProtocol.IMAP and bool(settings.drafts_folder)
+
+
+def _spam_folder_available(settings: MailboxSettings) -> bool:
+    return settings.incoming_protocol == MailProtocol.IMAP and bool(settings.spam_folder)
+
+
+# Папки, которые можно открыть через query-параметр ?folder=, кроме INBOX —
+# (имя атрибута MailboxSettings, функция-проверка доступности) в порядке
+# показа вкладок (см. mailbox/inbox.html). Отправленные/Черновики — с точки
+# зрения _folder_from_request и вкладок ничем не отличаются от Спама/Корзины
+# (просмотр); особая логика Отправленных/Корзины (APPEND после отправки,
+# перемещение при удалении) живёт в других местах и на этот список не влияет.
+EXTRA_FOLDERS = (
+    ("sent_folder", _sent_folder_available),
+    ("drafts_folder", _drafts_folder_available),
+    ("spam_folder", _spam_folder_available),
+    ("trash_folder", _trash_folder_available),
+)
 
 
 def _html_to_text(html: str) -> str:
@@ -137,11 +169,14 @@ def _folder_from_request(settings: MailboxSettings) -> str:
     папку, которую сам же не показывает и для которой не строит ссылки (в
     частности для POP3, где папок нет вовсе)."""
     requested = request.values.get("folder", DEFAULT_FOLDER)
-    if requested == settings.sent_folder and _sent_folder_available(settings):
-        return requested
-    if requested == settings.trash_folder and _trash_folder_available(settings):
-        return requested
+    for field_name, available in EXTRA_FOLDERS:
+        if requested == getattr(settings, field_name) and available(settings):
+            return requested
     return DEFAULT_FOLDER
+
+
+def _folder_availability(settings: MailboxSettings) -> dict:
+    return {f"{field_name}_available": available(settings) for field_name, available in EXTRA_FOLDERS}
 
 
 @bp.route("/")
@@ -151,29 +186,36 @@ def inbox():
     if not _is_configured(settings):
         return render_template(
             "mailbox/inbox.html", settings=settings, is_configured=False, page=None,
-            folder=DEFAULT_FOLDER, sent_folder_available=False, trash_folder_available=False,
+            folder=DEFAULT_FOLDER, **{f"{field_name}_available": False for field_name, _avail in EXTRA_FOLDERS},
         )
 
     folder = _folder_from_request(settings)
     page_num = request.args.get("page", 1, type=int)
     page_size = _page_size_from_request()
+    search = request.args.get("q", "").strip()
+    sort, sort_dir = _sort_from_request()
 
     try:
         with mail_client.get_incoming_client(settings) as client:
-            page = client.list_messages(page=page_num, page_size=page_size, folder=folder)
+            page = client.list_messages(
+                page=page_num, page_size=page_size, folder=folder,
+                search=search or None, sort=sort, sort_dir=sort_dir,
+            )
             supports_flags = client.supports_flags
     except MailError as exc:
         _record_connection_error(settings, exc)
         flash(_("Не удалось подключиться к почте: {error}", error=str(exc)), "danger")
         return render_template(
             "mailbox/inbox.html", settings=settings, is_configured=True, page=None, folder=folder,
-            sent_folder_available=_sent_folder_available(settings), trash_folder_available=_trash_folder_available(settings),
+            search=search, sort=sort, sort_dir=sort_dir, page_size=page_size,
+            **_folder_availability(settings),
         )
 
     return render_template(
         "mailbox/inbox.html", settings=settings, is_configured=True, page=page, folder=folder,
-        sent_folder_available=_sent_folder_available(settings), trash_folder_available=_trash_folder_available(settings),
         page_size=page_size, page_size_choices=PAGE_SIZE_CHOICES, supports_flags=supports_flags,
+        search=search, sort=sort, sort_dir=sort_dir,
+        **_folder_availability(settings),
     )
 
 
@@ -394,6 +436,8 @@ def save_settings():
     settings.from_name = f.get("from_name", "").strip() or None
     settings.sent_folder = f.get("sent_folder", "").strip() or None
     settings.trash_folder = f.get("trash_folder", "").strip() or None
+    settings.drafts_folder = f.get("drafts_folder", "").strip() or None
+    settings.spam_folder = f.get("spam_folder", "").strip() or None
 
     password = f.get("password", "")
     if password:

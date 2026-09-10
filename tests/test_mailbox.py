@@ -75,6 +75,7 @@ class FakeImapConn:
         self.expunged = False
         self.appended = []  # [(folder, raw_bytes)]
         self.flags: dict[int, set[str]] = {}  # uid -> \Seen/\Flagged/... (не разделено по папкам — тестам достаточно)
+        self.has_attachment: dict[int, bool] = {}  # uid -> есть ли "attachment" в BODYSTRUCTURE
 
     def login(self, user, password):
         return ("OK", [b""])
@@ -97,7 +98,8 @@ class FakeImapConn:
             if "RFC822" in spec:
                 return ("OK", [(f"{uid} (UID {uid} RFC822 {{{len(raw)}}}".encode(), raw)])
             flags_str = " ".join(sorted(self.flags.get(uid, set())))
-            meta = f"{uid} (UID {uid} FLAGS ({flags_str}) BODY[HEADER.FIELDS (SUBJECT FROM TO DATE)] {{999}}".encode()
+            bodystructure = '("attachment")' if self.has_attachment.get(uid) else "()"
+            meta = f"{uid} (UID {uid} FLAGS ({flags_str}) BODYSTRUCTURE {bodystructure} BODY[HEADER.FIELDS (SUBJECT FROM TO DATE)] {{999}}".encode()
             return ("OK", [(meta, raw)])
         if command == "store":
             uid = int(args[0].decode() if isinstance(args[0], bytes) else args[0])
@@ -842,6 +844,131 @@ def test_chairman_can_set_trash_folder(db, client):
     db.expire_all()
     settings = db.query(MailboxSettings).first()
     assert settings.trash_folder == "Trash"
+
+
+# ---------------------------------------------------------------------------
+# Папки «Черновики»/«Спам» — только просмотр
+# ---------------------------------------------------------------------------
+
+def test_drafts_and_spam_tabs_shown_when_configured(db, client, monkeypatch):
+    _make_board(db)
+    _make_settings(db, drafts_folder="Drafts", spam_folder="Spam")
+    _mock_imap(monkeypatch, {1: _test_email().as_bytes()})
+    login(client, "board1", "pass1234")
+
+    body = client.get("/mailbox/").get_data(as_text=True)
+    assert "Черновики" in body
+    assert "Спам" in body
+
+
+def test_drafts_and_spam_tabs_hidden_by_default(db, client, monkeypatch):
+    _make_board(db)
+    _make_settings(db)
+    _mock_imap(monkeypatch, {1: _test_email().as_bytes()})
+    login(client, "board1", "pass1234")
+
+    body = client.get("/mailbox/").get_data(as_text=True)
+    assert "Черновики" not in body
+    assert "Спам" not in body
+
+
+def test_spam_folder_lists_messages(db, client, monkeypatch):
+    spam_msg = _test_email(subject="Не спамьте", with_attachment=False)
+    _make_board(db)
+    _make_settings(db, spam_folder="Spam")
+    _mock_imap(monkeypatch, {}, folders={"Spam": {1: spam_msg.as_bytes()}})
+    login(client, "board1", "pass1234")
+
+    resp = client.get("/mailbox/?folder=Spam")
+    body = resp.get_data(as_text=True)
+    assert resp.status_code == 200
+    assert "Не спамьте" in body
+
+
+def test_chairman_can_set_drafts_and_spam_folders(db, client):
+    _make_chairman(db)
+    _make_settings(db)
+    login(client, "chair1", "pass1234")
+
+    client.post("/mailbox/settings", data={
+        "incoming_protocol": "imap", "incoming_host": "imap.example.com", "incoming_port": "993",
+        "incoming_encryption": "ssl", "smtp_host": "smtp.example.com", "smtp_port": "587",
+        "smtp_encryption": "starttls", "username": "pravlenie@example.com", "password": "",
+        "drafts_folder": "Drafts", "spam_folder": "Spam",
+    }, follow_redirects=True)
+
+    db.expire_all()
+    settings = db.query(MailboxSettings).first()
+    assert settings.drafts_folder == "Drafts"
+    assert settings.spam_folder == "Spam"
+
+
+# ---------------------------------------------------------------------------
+# Поиск и сортировка списка писем
+# ---------------------------------------------------------------------------
+
+def _msg(subject, from_addr="sender@example.com", date_str="Fri, 04 Sep 2026 12:00:00 +0300"):
+    msg = EmailMessage(policy=email.policy.default)
+    msg["Subject"] = subject
+    msg["From"] = from_addr
+    msg["To"] = "pravlenie@example.com"
+    msg["Date"] = date_str
+    msg.set_content("Текст")
+    return msg
+
+
+def test_search_filters_messages_by_subject(db, client, monkeypatch):
+    _make_board(db)
+    _make_settings(db)
+    _mock_imap(monkeypatch, {1: _msg("Собрание правления").as_bytes(), 2: _msg("Счёт на оплату").as_bytes()})
+    login(client, "board1", "pass1234")
+
+    resp = client.get("/mailbox/?q=оплату")
+    body = resp.get_data(as_text=True)
+    assert "Счёт на оплату" in body
+    assert "Собрание правления" not in body
+
+
+def test_search_with_no_matches_shows_empty_message(db, client, monkeypatch):
+    _make_board(db)
+    _make_settings(db)
+    _mock_imap(monkeypatch, {1: _msg("Собрание правления").as_bytes()})
+    login(client, "board1", "pass1234")
+
+    resp = client.get("/mailbox/?q=несуществующий-термин")
+    assert "Ничего не найдено" in resp.get_data(as_text=True)
+
+
+def test_sort_by_subject_ascending_changes_order(db, client, monkeypatch):
+    _make_board(db)
+    _make_settings(db)
+    _mock_imap(monkeypatch, {1: _msg("Яблоко").as_bytes(), 2: _msg("Апельсин").as_bytes()})
+    login(client, "board1", "pass1234")
+
+    body = client.get("/mailbox/?sort=subject&dir=asc").get_data(as_text=True)
+    assert body.index("Апельсин") < body.index("Яблоко")
+
+
+def test_attachment_marker_shown_for_message_with_attachment(db, client, monkeypatch):
+    _make_board(db)
+    _make_settings(db)
+    fake = _mock_imap(monkeypatch, {1: _test_email(with_attachment=True).as_bytes(), 2: _test_email(with_attachment=False, subject="Без вложения").as_bytes()})
+    fake.has_attachment[1] = True
+    login(client, "board1", "pass1234")
+
+    resp = client.get("/mailbox/")
+    body = resp.get_data(as_text=True)
+    assert "📎" in body
+
+
+def test_no_attachment_marker_when_no_attachments(db, client, monkeypatch):
+    _make_board(db)
+    _make_settings(db)
+    _mock_imap(monkeypatch, {1: _test_email(with_attachment=False).as_bytes()})
+    login(client, "board1", "pass1234")
+
+    resp = client.get("/mailbox/")
+    assert "📎" not in resp.get_data(as_text=True)
 
 
 # ---------------------------------------------------------------------------

@@ -120,6 +120,7 @@ class FakeImapConn:
     def __init__(self, messages: dict[int, bytes], folders: dict[str, dict] | None = None):
         self._messages = messages  # uid -> raw bytes (текущая выбранная папка)
         self._flags: dict[int, set[str]] = {}  # uid -> набор IMAP-флагов (\Seen, \Flagged, ...)
+        self._has_attachment: dict[int, bool] = {}  # uid -> есть ли disposition "attachment" в BODYSTRUCTURE
         self.selected_folder = None
         self.expunged = False
         # Для теста сохранения в "Отправленные"/перемещения в "Корзину":
@@ -186,7 +187,8 @@ class FakeImapConn:
             if "RFC822" in spec:
                 return ("OK", [(f"{uid} (UID {uid} RFC822 {{{len(raw)}}}".encode(), raw)])
             flags_str = " ".join(sorted(self._flags.get(uid, set())))
-            meta = f"{uid} (UID {uid} FLAGS ({flags_str}) BODY[HEADER.FIELDS (SUBJECT FROM DATE)] {{999}}".encode()
+            bodystructure = '("attachment")' if self._has_attachment.get(uid) else "()"
+            meta = f"{uid} (UID {uid} FLAGS ({flags_str}) BODYSTRUCTURE {bodystructure} BODY[HEADER.FIELDS (SUBJECT FROM DATE)] {{999}}".encode()
             return ("OK", [(meta, raw[:300])])
         return ("NO", [None])
 
@@ -271,6 +273,127 @@ def test_imap_list_messages_reports_flagged(monkeypatch):
         page = client.list_messages(page=1)
     assert page.messages[0].seen is True
     assert page.messages[0].flagged is True
+
+
+def test_imap_list_messages_reports_has_attachments(monkeypatch):
+    fake = FakeImapConn({
+        1: _make_test_email(with_inline_image=False, with_attachment=True).as_bytes(),
+        2: _make_test_email(with_inline_image=False, with_attachment=False).as_bytes(),
+    })
+    fake._has_attachment[1] = True
+    monkeypatch.setattr(mail_client, "_connect_imap", lambda settings: fake)
+
+    with mail_client.get_incoming_client(_imap_settings()) as client:
+        page = client.list_messages(page=1, sort="date", sort_dir="asc")
+    by_uid = {m.uid: m.has_attachments for m in page.messages}
+    assert by_uid == {"1": True, "2": False}
+
+
+def _email(subject, from_addr, to_addr="member@example.com", date_str="Fri, 04 Sep 2026 12:00:00 +0300"):
+    msg = EmailMessage(policy=email.policy.default)
+    msg["Subject"] = subject
+    msg["From"] = from_addr
+    msg["To"] = to_addr
+    msg["Date"] = date_str
+    msg.set_content("Текст")
+    return msg
+
+
+def test_imap_list_messages_search_matches_subject(monkeypatch):
+    fake = FakeImapConn({
+        1: _email("Собрание правления", "a@example.com").as_bytes(),
+        2: _email("Счёт на оплату", "b@example.com").as_bytes(),
+    })
+    monkeypatch.setattr(mail_client, "_connect_imap", lambda settings: fake)
+
+    with mail_client.get_incoming_client(_imap_settings()) as client:
+        page = client.list_messages(page=1, search="оплату")
+    assert [m.subject for m in page.messages] == ["Счёт на оплату"]
+    assert page.total == 1
+
+
+def test_imap_list_messages_search_matches_from_case_insensitively(monkeypatch):
+    fake = FakeImapConn({
+        1: _email("Тема 1", "Иванов И.И. <ivanov@example.com>").as_bytes(),
+        2: _email("Тема 2", "Петров П.П. <petrov@example.com>").as_bytes(),
+    })
+    monkeypatch.setattr(mail_client, "_connect_imap", lambda settings: fake)
+
+    with mail_client.get_incoming_client(_imap_settings()) as client:
+        page = client.list_messages(page=1, search="ИВАНОВ")
+    assert [m.subject for m in page.messages] == ["Тема 1"]
+
+
+def test_imap_list_messages_search_matches_to_address(monkeypatch):
+    fake = FakeImapConn({
+        1: _email("Тема 1", "a@example.com", to_addr="board@example.com").as_bytes(),
+        2: _email("Тема 2", "b@example.com", to_addr="other@example.com").as_bytes(),
+    })
+    monkeypatch.setattr(mail_client, "_connect_imap", lambda settings: fake)
+
+    with mail_client.get_incoming_client(_imap_settings()) as client:
+        page = client.list_messages(page=1, search="board@")
+    assert [m.subject for m in page.messages] == ["Тема 1"]
+
+
+def test_imap_list_messages_search_no_match_returns_empty(monkeypatch):
+    fake = FakeImapConn({1: _email("Тема", "a@example.com").as_bytes()})
+    monkeypatch.setattr(mail_client, "_connect_imap", lambda settings: fake)
+
+    with mail_client.get_incoming_client(_imap_settings()) as client:
+        page = client.list_messages(page=1, search="нет такого")
+    assert page.messages == []
+    assert page.total == 0
+
+
+def test_imap_list_messages_sort_by_subject_ascending(monkeypatch):
+    fake = FakeImapConn({
+        1: _email("Яблоко", "a@example.com").as_bytes(),
+        2: _email("Апельсин", "b@example.com").as_bytes(),
+        3: _email("Банан", "c@example.com").as_bytes(),
+    })
+    monkeypatch.setattr(mail_client, "_connect_imap", lambda settings: fake)
+
+    with mail_client.get_incoming_client(_imap_settings()) as client:
+        page = client.list_messages(page=1, sort="subject", sort_dir="asc")
+    assert [m.subject for m in page.messages] == ["Апельсин", "Банан", "Яблоко"]
+
+
+def test_imap_list_messages_sort_by_from_descending(monkeypatch):
+    fake = FakeImapConn({
+        1: _email("Тема 1", "Аня <anya@example.com>").as_bytes(),
+        2: _email("Тема 2", "Борис <boris@example.com>").as_bytes(),
+    })
+    monkeypatch.setattr(mail_client, "_connect_imap", lambda settings: fake)
+
+    with mail_client.get_incoming_client(_imap_settings()) as client:
+        page = client.list_messages(page=1, sort="from", sort_dir="desc")
+    assert [m.from_name for m in page.messages] == ["Борис", "Аня"]
+
+
+def test_imap_list_messages_sort_by_date_ascending(monkeypatch):
+    fake = FakeImapConn({
+        1: _email("Новое", "a@example.com", date_str="Sun, 06 Sep 2026 12:00:00 +0300").as_bytes(),
+        2: _email("Старое", "b@example.com", date_str="Mon, 01 Sep 2026 12:00:00 +0300").as_bytes(),
+    })
+    monkeypatch.setattr(mail_client, "_connect_imap", lambda settings: fake)
+
+    with mail_client.get_incoming_client(_imap_settings()) as client:
+        page = client.list_messages(page=1, sort="date", sort_dir="asc")
+    assert [m.subject for m in page.messages] == ["Старое", "Новое"]
+
+
+def test_imap_list_messages_default_sort_is_date_descending(monkeypatch):
+    """Без явной сортировки поведение как раньше — новые письма первыми."""
+    fake = FakeImapConn({
+        1: _email("Старое", "a@example.com", date_str="Mon, 01 Sep 2026 12:00:00 +0300").as_bytes(),
+        2: _email("Новое", "b@example.com", date_str="Sun, 06 Sep 2026 12:00:00 +0300").as_bytes(),
+    })
+    monkeypatch.setattr(mail_client, "_connect_imap", lambda settings: fake)
+
+    with mail_client.get_incoming_client(_imap_settings()) as client:
+        page = client.list_messages(page=1)
+    assert [m.subject for m in page.messages] == ["Новое", "Старое"]
 
 
 def test_imap_set_state_unread_clears_seen_and_flagged(monkeypatch):
@@ -459,6 +582,20 @@ def test_pop3_list_messages_with_top(monkeypatch):
         assert page.total == 3
         assert [m.uid for m in page.messages] == ["3", "2", "1"]
         assert all(m.seen is None for m in page.messages)
+        assert all(m.has_attachments is None for m in page.messages)
+
+
+def test_pop3_list_messages_search_and_sort(monkeypatch):
+    raws = [_email("Яблоко", "a@example.com").as_bytes(), _email("Апельсин", "b@example.com").as_bytes()]
+    monkeypatch.setattr(mail_client, "_connect_pop3", lambda settings: FakePop3Conn(raws))
+
+    with mail_client.get_incoming_client(_pop3_settings()) as client:
+        page = client.list_messages(page=1, sort="subject", sort_dir="asc")
+    assert [m.subject for m in page.messages] == ["Апельсин", "Яблоко"]
+
+    with mail_client.get_incoming_client(_pop3_settings()) as client:
+        page = client.list_messages(page=1, search="яблоко")
+    assert [m.subject for m in page.messages] == ["Яблоко"]
 
 
 def test_pop3_list_messages_falls_back_without_top(monkeypatch):

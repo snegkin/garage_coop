@@ -55,6 +55,7 @@ class MessageSummary:
     to_addr: str | None         # первый адресат (для отображения в папке "Отправленные" — там свой from почти всегда одинаков и малополезен в списке)
     date: dt.datetime | None
     seen: bool | None           # None у POP3 — там нет флагов вовсе
+    flagged: bool | None        # "важное" (IMAP \Flagged) — None у POP3, там же, где и seen
 
 
 @dataclasses.dataclass
@@ -333,6 +334,18 @@ def _connect_smtp(settings: MailboxSettings) -> smtplib.SMTP:
 # Единый интерфейс чтения
 # ---------------------------------------------------------------------------
 
+# Три состояния письма, которые различает точка-индикатор в списке (см.
+# mailbox/inbox.html) — упрощение относительно реальных независимых IMAP-
+# флагов \Seen/\Flagged: "важное" в этом UI главенствует над прочитанностью
+# (письмо, помеченное важным, показывается красным независимо от \Seen), а
+# клик по точке всегда циклически переводит в СЛЕДУЮЩЕЕ из этих трёх
+# состояний, не пытаясь угадать все 4 комбинации флагов.
+STATE_UNREAD = "unread"
+STATE_READ = "read"
+STATE_IMPORTANT = "important"
+MESSAGE_STATES = (STATE_UNREAD, STATE_READ, STATE_IMPORTANT)
+
+
 class IncomingMailClient(abc.ABC):
     supports_folders: bool = False
     supports_flags: bool = False
@@ -357,6 +370,17 @@ class IncomingMailClient(abc.ABC):
 
     @abc.abstractmethod
     def delete_message(self, uid: str, folder: str = DEFAULT_FOLDER) -> None: ...
+
+    def set_state(self, uid: str, state: str, folder: str = DEFAULT_FOLDER) -> None:
+        """Прочитано/непрочитано/важное — по умолчанию не поддерживается
+        (POP3: нет флагов вовсе, см. supports_flags), переопределено в
+        ImapMailClient."""
+        raise MailError("Изменение статуса письма не поддерживается этим протоколом")
+
+    def move_message(self, uid: str, folder: str, target_folder: str) -> None:
+        """Перемещение в другую папку (для «Корзины») — по умолчанию не
+        поддерживается (POP3: папок нет вовсе), переопределено в ImapMailClient."""
+        raise MailError("Перемещение писем между папками не поддерживается этим протоколом")
 
 
 _FLAGS_RE = re.compile(rb"FLAGS \(([^)]*)\)")
@@ -422,14 +446,16 @@ class ImapMailClient(IncomingMailClient):
                 continue
             meta_line, header_bytes = fdata[0]
             flags_match = _FLAGS_RE.search(meta_line)
-            seen = bool(flags_match) and b"\\Seen" in flags_match.group(1).split()
+            flags = flags_match.group(1).split() if flags_match else []
+            seen = b"\\Seen" in flags
+            flagged = b"\\Flagged" in flags
             msg = email.message_from_bytes(header_bytes, policy=email.policy.default)
             from_name, from_addr = _address_from_header(msg, "from")
             to_addrs = _addr_list_from_header(msg, "to")
             messages.append(MessageSummary(
                 uid=uid.decode(), subject=str(msg.get("subject", "")).strip() or "(без темы)",
                 from_name=from_name, from_addr=from_addr, to_addr=(to_addrs[0] if to_addrs else None),
-                date=_parse_date(msg), seen=seen,
+                date=_parse_date(msg), seen=seen, flagged=flagged,
             ))
         return MessagePage(messages=messages, total=total, page=page, page_size=page_size)
 
@@ -455,6 +481,53 @@ class ImapMailClient(IncomingMailClient):
     def delete_message(self, uid: str, folder: str = DEFAULT_FOLDER) -> None:
         self._ensure_selected(folder)
         try:
+            typ, _data = self.conn.uid("store", uid.encode(), "+FLAGS", "(\\Deleted)")
+            if typ != "OK":
+                raise MailError("IMAP: не удалось пометить письмо к удалению")
+            self.conn.expunge()
+        except imaplib.IMAP4.error as exc:
+            raise MailError(f"IMAP: {exc}") from exc
+
+    def set_state(self, uid: str, state: str, folder: str = DEFAULT_FOLDER) -> None:
+        """Устанавливает ТОЧНОЕ целевое состояние (не переключает
+        относительно текущего) — см. MESSAGE_STATES: "unread" снимает оба
+        флага, "read" снимает \\Flagged и ставит \\Seen, "important" только
+        добавляет \\Flagged, не трогая \\Seen (чтобы прочитанное важное
+        письмо, отмеченное важным без предварительного прочтения через этот
+        же UI, не считалось прочитанным без явного действия правления)."""
+        self._ensure_selected(folder)
+        if state not in MESSAGE_STATES:
+            raise MailError(f"IMAP: неизвестное состояние письма «{state}»")
+
+        def store(store_cmd: str, flags: str) -> None:
+            typ, _data = self.conn.uid("store", uid.encode(), store_cmd, flags)
+            if typ != "OK":
+                raise MailError("IMAP: не удалось изменить статус письма")
+
+        try:
+            if state == STATE_UNREAD:
+                store("-FLAGS", "(\\Seen \\Flagged)")
+            elif state == STATE_READ:
+                store("-FLAGS", "(\\Flagged)")
+                store("+FLAGS", "(\\Seen)")
+            else:
+                store("+FLAGS", "(\\Flagged)")
+        except imaplib.IMAP4.error as exc:
+            raise MailError(f"IMAP: {exc}") from exc
+
+    def move_message(self, uid: str, folder: str, target_folder: str) -> None:
+        """COPY в целевую папку (создавая её при отсутствии — как в
+        _save_to_sent_folder) + пометка оригинала к удалению — обычной IMAP
+        MOVE не пользуемся, чтобы не зависеть от необязательного расширения
+        протокола (RFC 6851), COPY+STORE+EXPUNGE поддерживает любой сервер."""
+        self._ensure_selected(folder)
+        try:
+            typ, _data = self.conn.uid("copy", uid.encode(), f'"{target_folder}"')
+            if typ != "OK":
+                self.conn.create(f'"{target_folder}"')
+                typ, _data = self.conn.uid("copy", uid.encode(), f'"{target_folder}"')
+                if typ != "OK":
+                    raise MailError(f"IMAP: не удалось скопировать письмо в «{target_folder}»")
             typ, _data = self.conn.uid("store", uid.encode(), "+FLAGS", "(\\Deleted)")
             if typ != "OK":
                 raise MailError("IMAP: не удалось пометить письмо к удалению")
@@ -521,7 +594,7 @@ class Pop3MailClient(IncomingMailClient):
             messages.append(MessageSummary(
                 uid=str(num), subject=str(msg.get("subject", "")).strip() or "(без темы)",
                 from_name=from_name, from_addr=from_addr, to_addr=(to_addrs[0] if to_addrs else None),
-                date=_parse_date(msg), seen=None,
+                date=_parse_date(msg), seen=None, flagged=None,
             ))
         return MessagePage(messages=messages, total=total, page=page, page_size=page_size)
 

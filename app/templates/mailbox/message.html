@@ -6,8 +6,9 @@
   <div class="d-flex gap-2">
     <a class="btn btn-sm btn-outline-primary" href="{{ url_for('mailbox.compose', reply_to=detail.uid, folder=folder) }}">{{ _("Ответить") }}</a>
     <a class="btn btn-sm btn-outline-primary" href="{{ url_for('mailbox.compose', forward=detail.uid, folder=folder) }}">{{ _("Переслать") }}</a>
-    <form method="post" action="{{ url_for('mailbox.delete_message', uid=detail.uid, folder=folder) }}" onsubmit="return confirm('{{ _('Удалить письмо?') }}')">
-      <button class="btn btn-sm btn-outline-danger">{{ _("Удалить") }}</button>
+    <form method="post" action="{{ url_for('mailbox.delete_message', uid=detail.uid, folder=folder) }}"
+          onsubmit="return confirm('{{ _('Удалить письмо безвозвратно?') if will_permanently_delete else _('Переместить письмо в корзину?') }}')">
+      <button class="btn btn-sm btn-outline-danger">{{ _("Удалить") if will_permanently_delete else _("В корзину") }}</button>
     </form>
   </div>
 </div>

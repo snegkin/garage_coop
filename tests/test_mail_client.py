@@ -13,6 +13,7 @@ msg.walk() — тест test_parse_message_finds_inline_image_in_nested_related
 это фиксирует как регресс.
 """
 import datetime as dt
+import re
 from decimal import Decimal
 from email.message import EmailMessage
 import email.policy
@@ -118,10 +119,11 @@ class FakeImapConn:
 
     def __init__(self, messages: dict[int, bytes], folders: dict[str, dict] | None = None):
         self._messages = messages  # uid -> raw bytes (текущая выбранная папка)
+        self._flags: dict[int, set[str]] = {}  # uid -> набор IMAP-флагов (\Seen, \Flagged, ...)
         self.selected_folder = None
         self.expunged = False
-        # Для теста сохранения в "Отправленные": folders — доп. папки вида
-        # {"Sent": {"exists": True/False, "appended": [...]}}
+        # Для теста сохранения в "Отправленные"/перемещения в "Корзину":
+        # folders — доп. папки вида {"Sent": {"exists": True/False, "appended": [...]}}
         self.folders = folders if folders is not None else {}
 
     def login(self, user, password):
@@ -154,9 +156,27 @@ class FakeImapConn:
             return ("OK", [uids])
         if command == "store":
             uid = int(args[0].decode() if isinstance(args[0], bytes) else args[0])
-            if "\\Deleted" in args[2]:
+            mode = args[1]
+            flag_names = re.findall(r"\\\w+", args[2])
+            current = self._flags.setdefault(uid, set())
+            if mode == "+FLAGS":
+                current.update(flag_names)
+            elif mode == "-FLAGS":
+                current.difference_update(flag_names)
+            if "\\Deleted" in current:
                 self._messages.pop(uid, None)
-            return ("OK", [b"FLAGS (\\Deleted)"])
+            return ("OK", [("FLAGS (" + " ".join(sorted(current)) + ")").encode()])
+        if command == "copy":
+            uid = int(args[0].decode() if isinstance(args[0], bytes) else args[0])
+            name = args[1].strip('"')
+            raw = self._messages.get(uid)
+            if raw is None:
+                return ("NO", [None])
+            info = self.folders.setdefault(name, {"exists": True, "appended": []})
+            if not info.get("exists", True):
+                return ("NO", [b"[TRYCREATE] No such mailbox"])
+            info["appended"].append(raw)
+            return ("OK", [b"COPY completed"])
         if command == "fetch":
             uid = int(args[0].decode() if isinstance(args[0], bytes) else args[0])
             spec = args[1] if len(args) > 1 else ""
@@ -165,7 +185,8 @@ class FakeImapConn:
                 return ("NO", [None])
             if "RFC822" in spec:
                 return ("OK", [(f"{uid} (UID {uid} RFC822 {{{len(raw)}}}".encode(), raw)])
-            meta = f"{uid} (UID {uid} FLAGS (\\Seen) BODY[HEADER.FIELDS (SUBJECT FROM DATE)] {{999}}".encode()
+            flags_str = " ".join(sorted(self._flags.get(uid, set())))
+            meta = f"{uid} (UID {uid} FLAGS ({flags_str}) BODY[HEADER.FIELDS (SUBJECT FROM DATE)] {{999}}".encode()
             return ("OK", [(meta, raw[:300])])
         return ("NO", [None])
 
@@ -239,6 +260,90 @@ def test_imap_list_messages_selects_requested_folder(monkeypatch):
         client.list_messages(page=1, folder="Sent")
 
     assert fake.selected_folder == "Sent"
+
+
+def test_imap_list_messages_reports_flagged(monkeypatch):
+    fake = FakeImapConn({1: _make_test_email(with_inline_image=False, with_attachment=False).as_bytes()})
+    fake._flags[1] = {"\\Seen", "\\Flagged"}
+    monkeypatch.setattr(mail_client, "_connect_imap", lambda settings: fake)
+
+    with mail_client.get_incoming_client(_imap_settings()) as client:
+        page = client.list_messages(page=1)
+    assert page.messages[0].seen is True
+    assert page.messages[0].flagged is True
+
+
+def test_imap_set_state_unread_clears_seen_and_flagged(monkeypatch):
+    fake = FakeImapConn({1: _make_test_email(with_inline_image=False, with_attachment=False).as_bytes()})
+    fake._flags[1] = {"\\Seen", "\\Flagged"}
+    monkeypatch.setattr(mail_client, "_connect_imap", lambda settings: fake)
+
+    with mail_client.get_incoming_client(_imap_settings()) as client:
+        client.set_state("1", mail_client.STATE_UNREAD)
+    assert fake._flags[1] == set()
+
+
+def test_imap_set_state_read_sets_seen_and_clears_flagged(monkeypatch):
+    fake = FakeImapConn({1: _make_test_email(with_inline_image=False, with_attachment=False).as_bytes()})
+    fake._flags[1] = {"\\Flagged"}
+    monkeypatch.setattr(mail_client, "_connect_imap", lambda settings: fake)
+
+    with mail_client.get_incoming_client(_imap_settings()) as client:
+        client.set_state("1", mail_client.STATE_READ)
+    assert fake._flags[1] == {"\\Seen"}
+
+
+def test_imap_set_state_important_adds_flagged_without_touching_seen(monkeypatch):
+    fake = FakeImapConn({1: _make_test_email(with_inline_image=False, with_attachment=False).as_bytes()})
+    monkeypatch.setattr(mail_client, "_connect_imap", lambda settings: fake)
+
+    with mail_client.get_incoming_client(_imap_settings()) as client:
+        client.set_state("1", mail_client.STATE_IMPORTANT)
+    assert fake._flags[1] == {"\\Flagged"}
+
+
+def test_imap_set_state_unknown_raises(monkeypatch):
+    fake = FakeImapConn({1: _make_test_email(with_inline_image=False, with_attachment=False).as_bytes()})
+    monkeypatch.setattr(mail_client, "_connect_imap", lambda settings: fake)
+
+    with mail_client.get_incoming_client(_imap_settings()) as client:
+        with pytest.raises(MailError):
+            client.set_state("1", "bogus")
+
+
+def test_imap_move_message_copies_to_target_and_removes_from_source(monkeypatch):
+    fake = FakeImapConn({1: _make_test_email(with_inline_image=False, with_attachment=False).as_bytes()})
+    monkeypatch.setattr(mail_client, "_connect_imap", lambda settings: fake)
+
+    with mail_client.get_incoming_client(_imap_settings()) as client:
+        client.move_message("1", "INBOX", "Trash")
+
+    assert len(fake.folders["Trash"]["appended"]) == 1
+    assert 1 not in fake._messages
+    assert fake.expunged is True
+
+
+def test_imap_move_message_creates_target_folder_if_missing(monkeypatch):
+    fake = FakeImapConn(
+        {1: _make_test_email(with_inline_image=False, with_attachment=False).as_bytes()},
+        folders={"Trash": {"exists": False, "appended": []}},
+    )
+    monkeypatch.setattr(mail_client, "_connect_imap", lambda settings: fake)
+
+    with mail_client.get_incoming_client(_imap_settings()) as client:
+        client.move_message("1", "INBOX", "Trash")
+
+    assert fake.folders["Trash"]["exists"] is True
+    assert len(fake.folders["Trash"]["appended"]) == 1
+
+
+def test_pop3_set_state_and_move_message_raise_not_supported(monkeypatch):
+    monkeypatch.setattr(mail_client, "_connect_pop3", lambda settings: FakePop3Conn([]))
+    with mail_client.get_incoming_client(_pop3_settings()) as client:
+        with pytest.raises(MailError):
+            client.set_state("1", mail_client.STATE_READ)
+        with pytest.raises(MailError):
+            client.move_message("1", "INBOX", "Trash")
 
 
 def test_send_message_saves_copy_to_sent_folder(monkeypatch):

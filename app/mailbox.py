@@ -65,6 +65,10 @@ def _sent_folder_available(settings: MailboxSettings) -> bool:
     return settings.incoming_protocol == MailProtocol.IMAP and bool(settings.sent_folder)
 
 
+def _trash_folder_available(settings: MailboxSettings) -> bool:
+    return settings.incoming_protocol == MailProtocol.IMAP and bool(settings.trash_folder)
+
+
 def _html_to_text(html: str) -> str:
     """Грубая конвертация HTML в текст для цитирования оригинала письма,
     у которого нет text/plain-альтернативы (см. compose(): reply_to/forward).
@@ -128,12 +132,14 @@ def _forward_prefill(detail: MessageDetail) -> tuple[str, str, str]:
 
 
 def _folder_from_request(settings: MailboxSettings) -> str:
-    """Папка — только «Входящие» или (для IMAP, если настроена)
-    «Отправленные», никогда произвольная строка из query — так UI не даёт
-    зайти в папку, которую сам же не показывает и для которой не строит
-    ссылки (в частности для POP3, где папок нет вовсе)."""
+    """Папка — только «Входящие» или (для IMAP, если настроены) «Отправленные»/
+    «Корзина», никогда произвольная строка из query — так UI не даёт зайти в
+    папку, которую сам же не показывает и для которой не строит ссылки (в
+    частности для POP3, где папок нет вовсе)."""
     requested = request.values.get("folder", DEFAULT_FOLDER)
     if requested == settings.sent_folder and _sent_folder_available(settings):
+        return requested
+    if requested == settings.trash_folder and _trash_folder_available(settings):
         return requested
     return DEFAULT_FOLDER
 
@@ -145,7 +151,7 @@ def inbox():
     if not _is_configured(settings):
         return render_template(
             "mailbox/inbox.html", settings=settings, is_configured=False, page=None,
-            folder=DEFAULT_FOLDER, sent_folder_available=False,
+            folder=DEFAULT_FOLDER, sent_folder_available=False, trash_folder_available=False,
         )
 
     folder = _folder_from_request(settings)
@@ -161,12 +167,12 @@ def inbox():
         flash(_("Не удалось подключиться к почте: {error}", error=str(exc)), "danger")
         return render_template(
             "mailbox/inbox.html", settings=settings, is_configured=True, page=None, folder=folder,
-            sent_folder_available=_sent_folder_available(settings),
+            sent_folder_available=_sent_folder_available(settings), trash_folder_available=_trash_folder_available(settings),
         )
 
     return render_template(
         "mailbox/inbox.html", settings=settings, is_configured=True, page=page, folder=folder,
-        sent_folder_available=_sent_folder_available(settings),
+        sent_folder_available=_sent_folder_available(settings), trash_folder_available=_trash_folder_available(settings),
         page_size=page_size, page_size_choices=PAGE_SIZE_CHOICES, supports_flags=supports_flags,
     )
 
@@ -195,9 +201,11 @@ def view_message(uid):
         return redirect(url_for("mailbox.inbox", folder=folder))
 
     body_srcdoc, had_blocked_images = render_email_body(detail, allow_remote_images=allow_images)
+    is_trash = folder == settings.trash_folder and _trash_folder_available(settings)
     return render_template(
         "mailbox/message.html", detail=detail, body_srcdoc=body_srcdoc, folder=folder,
         had_blocked_images=had_blocked_images, allow_images=allow_images,
+        will_permanently_delete=is_trash or not _trash_folder_available(settings),
     )
 
 
@@ -226,24 +234,66 @@ def download_attachment(uid, index):
 @bp.route("/messages/<uid>/delete", methods=["POST"])
 @roles_required(RoleEnum.BOARD)
 def delete_message(uid):
+    """Если настроена «Корзина» и письмо не в ней самой — перемещаем туда
+    (можно достать обратно вручную через почтовый клиент/веб-интерфейс
+    провайдера), иначе (нет «Корзины», POP3, или письмо уже в «Корзине») —
+    как раньше, безвозвратное удаление."""
     settings = _get_or_create_settings()
     if not _is_configured(settings):
         flash(_("Почта ещё не настроена."), "warning")
         return redirect(url_for("mailbox.inbox"))
 
     folder = _folder_from_request(settings)
+    trash_available = _trash_folder_available(settings)
+    move_to_trash = trash_available and folder != settings.trash_folder
+
     try:
         with mail_client.get_incoming_client(settings) as client:
-            client.delete_message(uid, folder=folder)
+            if move_to_trash:
+                client.move_message(uid, folder, settings.trash_folder)
+            else:
+                client.delete_message(uid, folder=folder)
     except MailError as exc:
         _record_connection_error(settings, exc)
         flash(_("Не удалось удалить письмо: {error}", error=str(exc)), "danger")
         return redirect(url_for("mailbox.view_message", uid=uid, folder=folder))
 
-    audit.record("mailbox.message_delete", f"Удалено письмо из папки «{folder}»")
+    if move_to_trash:
+        audit.record("mailbox.message_trash", f"Письмо из папки «{folder}» перемещено в «{settings.trash_folder}»")
+        flash(_("Письмо перемещено в корзину."), "success")
+    else:
+        audit.record("mailbox.message_delete", f"Удалено письмо из папки «{folder}»")
+        flash(_("Письмо удалено."), "success")
     database.db_session.commit()
-    flash(_("Письмо удалено."), "success")
     return redirect(url_for("mailbox.inbox", folder=folder))
+
+
+@bp.route("/messages/<uid>/state", methods=["POST"])
+@roles_required(RoleEnum.BOARD)
+def set_message_state(uid):
+    """Точка-индикатор в списке писем (см. mailbox/inbox.html) — цикл
+    непрочитано -> прочитано -> важное -> непрочитано, см.
+    mail_client.MESSAGE_STATES. Только IMAP (client.supports_flags), но UI
+    сам не показывает точку для POP3 — на всякий случай проверяем и здесь."""
+    settings = _get_or_create_settings()
+    if not _is_configured(settings):
+        return jsonify(ok=False, error=_("Почта ещё не настроена.")), 400
+
+    state = request.form.get("state", "")
+    if state not in mail_client.MESSAGE_STATES:
+        return jsonify(ok=False, error=_("Неизвестное состояние письма.")), 400
+
+    folder = _folder_from_request(settings)
+    try:
+        with mail_client.get_incoming_client(settings) as client:
+            if not client.supports_flags:
+                return jsonify(ok=False, error=_("Этот протокол не поддерживает статусы писем.")), 400
+            client.set_state(uid, state, folder=folder)
+    except MailError as exc:
+        _record_connection_error(settings, exc)
+        return jsonify(ok=False, error=str(exc)), 400
+
+    return jsonify(ok=True, state=state)
 
 
 @bp.route("/compose", methods=["GET", "POST"])
@@ -343,6 +393,7 @@ def save_settings():
     settings.username = f.get("username", "").strip() or None
     settings.from_name = f.get("from_name", "").strip() or None
     settings.sent_folder = f.get("sent_folder", "").strip() or None
+    settings.trash_folder = f.get("trash_folder", "").strip() or None
 
     password = f.get("password", "")
     if password:

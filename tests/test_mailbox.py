@@ -87,7 +87,12 @@ class FakeImapConn:
     def uid(self, command, *args):
         current = self.mailboxes.get(self.selected, {})
         if command == "search":
-            uids = " ".join(str(u) for u in sorted(current)).encode()
+            criteria = args[-1] if args else "ALL"
+            if criteria == "UNSEEN":
+                matching = [u for u in current if "\\Seen" not in self.flags.get(u, set())]
+            else:
+                matching = list(current)
+            uids = " ".join(str(u) for u in sorted(matching)).encode()
             return ("OK", [uids])
         if command == "fetch":
             uid = int(args[0].decode() if isinstance(args[0], bytes) else args[0])
@@ -295,6 +300,88 @@ def test_inbox_lists_messages(db, client, monkeypatch):
     resp = client.get("/mailbox/")
     assert resp.status_code == 200
     assert "Уникальная тема 42" in resp.get_data(as_text=True)
+
+
+# ---------------------------------------------------------------------------
+# Кэш «непрочитано» для бейджа в шапке (app/__init__.py: mailbox_unread_count)
+# ---------------------------------------------------------------------------
+
+def test_visiting_inbox_refreshes_unread_count_cache(db, client, monkeypatch):
+    """Открытие "Входящих" (IMAP) опортунистически освежает
+    MailboxSettings.unread_count — тот же кэш, что обновляет
+    scripts/poll_mailbox.py, см. mailbox.inbox()."""
+    _make_board(db)
+    settings = _make_settings(db, unread_count=0)
+    fake = _mock_imap(monkeypatch, {1: _test_email().as_bytes(), 2: _test_email().as_bytes()})
+    fake.flags[1] = {"\\Seen"}  # письмо 2 остаётся непрочитанным
+    login(client, "board1", "pass1234")
+
+    client.get("/mailbox/")
+
+    db.expire_all()
+    settings = db.query(MailboxSettings).first()
+    assert settings.unread_count == 1
+
+
+def test_visiting_sent_folder_does_not_touch_unread_count(db, client, monkeypatch):
+    """Счётчик — про "Входящие", заход в другую папку его не трогает."""
+    _make_board(db)
+    _make_settings(db, sent_folder="Sent", unread_count=7)
+    _mock_imap(monkeypatch, {}, folders={"Sent": {1: _test_email().as_bytes()}})
+    login(client, "board1", "pass1234")
+
+    client.get("/mailbox/?folder=Sent")
+
+    db.expire_all()
+    settings = db.query(MailboxSettings).first()
+    assert settings.unread_count == 7
+
+
+def test_visiting_inbox_connection_error_does_not_break_page(db, client, monkeypatch):
+    """Если подсчёт непрочитанных не удался — страница всё равно
+    открывается (сам список писем в этом тесте получен успешно)."""
+    _make_board(db)
+    _make_settings(db, unread_count=3)
+    fake = _mock_imap(monkeypatch, {1: _test_email().as_bytes()})
+
+    def boom_search(command, *args):
+        if command == "search" and args and args[-1] == "UNSEEN":
+            return ("NO", [None])
+        return FakeImapConn.uid(fake, command, *args)
+    fake.uid = boom_search
+    login(client, "board1", "pass1234")
+
+    resp = client.get("/mailbox/")
+    assert resp.status_code == 200
+
+
+def test_nav_badge_shows_unread_count_for_board(db, client):
+    _make_board(db)
+    _make_settings(db, unread_count=5)
+    login(client, "board1", "pass1234")
+
+    resp = client.get("/")
+    body = resp.get_data(as_text=True)
+    assert "Непрочитанные письма" in body
+    assert "5" in body
+
+
+def test_nav_badge_hidden_when_no_unread(db, client):
+    _make_board(db)
+    _make_settings(db, unread_count=0)
+    login(client, "board1", "pass1234")
+
+    resp = client.get("/")
+    assert "Непрочитанные письма" not in resp.get_data(as_text=True)
+
+
+def test_nav_badge_hidden_for_non_board_member(db, client):
+    _make_member(db)
+    _make_settings(db, unread_count=5)
+    login(client, "member1", "pass1234")
+
+    resp = client.get("/")
+    assert "Непрочитанные письма" not in resp.get_data(as_text=True)
 
 
 def test_inbox_without_settings_shows_not_configured(db, client):

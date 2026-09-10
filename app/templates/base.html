@@ -106,7 +106,7 @@
             <li><a class="dropdown-item" href="{{ url_for('legal_docs.court_sections_list') }}">{{ _("Судебные участки") }}</a></li>
             <li><hr class="dropdown-divider"></li>
             <li><h6 class="dropdown-header">{{ _("Коммуникации") }}</h6></li>
-            <li><a class="dropdown-item" href="{{ url_for('mailbox.inbox') }}">{{ _("Почта") }}</a></li>
+            <li><a class="dropdown-item d-flex justify-content-between align-items-center" href="{{ url_for('mailbox.inbox') }}">{{ _("Почта") }}{% if mailbox_unread_count > 0 %}<span class="badge bg-primary rounded-pill">{{ mailbox_unread_count }}</span>{% endif %}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('sms_settings.view') }}">{{ _("СМС") }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('telegram_settings.view') }}">{{ _("Telegram") }}</a></li>
             {% endif %}
@@ -153,6 +153,9 @@
               {% if pending_proposals_count > 0 %}
               <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-warning text-dark" style="font-size:0.55em; margin-left: 1.2em;">{{ pending_proposals_count }}</span>
               {% endif %}
+              {% if mailbox_unread_count > 0 %}
+              <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-primary" style="font-size:0.55em; margin-left: 1.2em;">{{ mailbox_unread_count }}</span>
+              {% endif %}
             </span>
           </a>
           <ul class="dropdown-menu dropdown-menu-end">
@@ -165,6 +168,9 @@
             {% endif %}
             {% if pending_proposals_count > 0 %}
             <li><a class="dropdown-item" href="{{ url_for('proposals.list_proposals') }}"><span class="dropdown-icon">⚠</span>{{ _("Предложения ждут решения") }} {{ pending_proposals_count }}</a></li>
+            {% endif %}
+            {% if mailbox_unread_count > 0 %}
+            <li><a class="dropdown-item" href="{{ url_for('mailbox.inbox') }}"><span class="dropdown-icon">✉</span>{{ _("Непрочитанные письма") }} {{ mailbox_unread_count }}</a></li>
             {% endif %}
             <li><a class="dropdown-item" href="{{ url_for('cabinet.garages') }}"><span class="dropdown-icon"></span>{{ _("Мой гараж") }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('pd4.select') }}"><span class="dropdown-icon"></span>{{ _("Квитанции (по форме ПД-4)") }}</a></li>

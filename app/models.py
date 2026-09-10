@@ -2428,6 +2428,17 @@ class MailboxSettings(Base):
     drafts_folder: Mapped[str | None] = mapped_column(String(255), default=None)
     spam_folder: Mapped[str | None] = mapped_column(String(255), default=None)
 
+    # Кэш числа непрочитанных во "Входящих" — для бейджа в шапке сайта
+    # (см. app/__init__.py: _inject_user, base.html). НЕ считается на
+    # каждый заход на сайт — IMAP-соединение может занять до
+    # mail_client.CONNECT_TIMEOUT секунд или зависнуть при недоступном
+    # сервере, а бейдж рендерится на КАЖДОЙ странице для каждого члена
+    # правления. Обновляется cron-скриптом scripts/poll_mailbox.py и
+    # опортунистически при заходе в /mailbox/ (см. mailbox.inbox()) — то же
+    # соединение там и так уже открыто. Только IMAP (см. supports_flags) —
+    # у POP3 нет флага "прочитано" протокольно, там всегда 0.
+    unread_count: Mapped[int] = mapped_column(Integer, default=0)
+
     last_error: Mapped[str | None] = mapped_column(Text)
     last_checked_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
 

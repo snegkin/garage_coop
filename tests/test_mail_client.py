@@ -153,7 +153,12 @@ class FakeImapConn:
 
     def uid(self, command, *args):
         if command == "search":
-            uids = " ".join(str(u) for u in sorted(self._messages)).encode()
+            criteria = args[-1] if args else "ALL"
+            if criteria == "UNSEEN":
+                matching = [u for u in self._messages if "\\Seen" not in self._flags.get(u, set())]
+            else:
+                matching = list(self._messages)
+            uids = " ".join(str(u) for u in sorted(matching)).encode()
             return ("OK", [uids])
         if command == "store":
             uid = int(args[0].decode() if isinstance(args[0], bytes) else args[0])
@@ -262,6 +267,37 @@ def test_imap_list_messages_selects_requested_folder(monkeypatch):
         client.list_messages(page=1, folder="Sent")
 
     assert fake.selected_folder == "Sent"
+
+
+def test_imap_count_unread_counts_only_unseen(monkeypatch):
+    fake = FakeImapConn({
+        1: _make_test_email(with_inline_image=False, with_attachment=False).as_bytes(),
+        2: _make_test_email(with_inline_image=False, with_attachment=False).as_bytes(),
+        3: _make_test_email(with_inline_image=False, with_attachment=False).as_bytes(),
+    })
+    fake._flags[1] = {"\\Seen"}
+    fake._flags[2] = {"\\Seen"}
+    # 3 остаётся непрочитанным
+    monkeypatch.setattr(mail_client, "_connect_imap", lambda settings: fake)
+
+    with mail_client.get_incoming_client(_imap_settings()) as client:
+        assert client.count_unread() == 1
+
+
+def test_imap_count_unread_zero_when_all_read(monkeypatch):
+    fake = FakeImapConn({1: _make_test_email(with_inline_image=False, with_attachment=False).as_bytes()})
+    fake._flags[1] = {"\\Seen"}
+    monkeypatch.setattr(mail_client, "_connect_imap", lambda settings: fake)
+
+    with mail_client.get_incoming_client(_imap_settings()) as client:
+        assert client.count_unread() == 0
+
+
+def test_pop3_count_unread_raises(monkeypatch):
+    monkeypatch.setattr(mail_client, "_connect_pop3", lambda settings: FakePop3Conn([]))
+    with mail_client.get_incoming_client(_pop3_settings()) as client:
+        with pytest.raises(MailError):
+            client.count_unread()
 
 
 def test_imap_list_messages_reports_flagged(monkeypatch):

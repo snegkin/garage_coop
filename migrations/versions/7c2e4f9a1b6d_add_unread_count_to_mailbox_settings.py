@@ -23,9 +23,20 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    """Upgrade schema."""
+    """Upgrade schema.
+
+    server_default='0' нужен только на время добавления колонки — иначе
+    batch-пересборка таблицы (SQLite: копирование в новую, см.
+    batch_alter_table) не может скопировать существующую строку настроек
+    без значения в NOT NULL колонке. Дальше server_default убирается
+    ОТДЕЛЬНЫМ batch-блоком (тот же приём, что и в
+    602455be5ca3_add_notification_preferences) — если сделать это в ОДНОМ
+    блоке с add_column, alembic соберёт схему новой таблицы уже без
+    default ДО копирования данных, и копирование упадёт с той же ошибкой.
+    """
     with op.batch_alter_table('mailbox_settings', schema=None) as batch_op:
         batch_op.add_column(sa.Column('unread_count', sa.Integer(), nullable=False, server_default='0'))
+    with op.batch_alter_table('mailbox_settings', schema=None) as batch_op:
         batch_op.alter_column('unread_count', server_default=None)
 
 

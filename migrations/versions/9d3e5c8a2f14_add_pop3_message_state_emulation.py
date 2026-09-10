@@ -40,8 +40,13 @@ def upgrade() -> None:
     with op.batch_alter_table('mailbox_pop3_message_state', schema=None) as batch_op:
         batch_op.create_index(batch_op.f('ix_mailbox_pop3_message_state_user_id'), ['user_id'], unique=False)
 
+    # server_default='0' временно, до конца этой функции — см. подробное
+    # объяснение в 7c2e4f9a1b6d_add_unread_count_to_mailbox_settings (та
+    # же ошибка на непустой таблице user, если убрать default в ОДНОМ
+    # batch-блоке с add_column).
     with op.batch_alter_table('user', schema=None) as batch_op:
         batch_op.add_column(sa.Column('pop3_mailbox_unread_count', sa.Integer(), nullable=False, server_default='0'))
+    with op.batch_alter_table('user', schema=None) as batch_op:
         batch_op.alter_column('pop3_mailbox_unread_count', server_default=None)
 
 

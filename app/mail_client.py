@@ -439,6 +439,15 @@ class IncomingMailClient(abc.ABC):
         поддерживается (POP3: папок нет вовсе), переопределено в ImapMailClient."""
         raise MailError("Перемещение писем между папками не поддерживается этим протоколом")
 
+    def count_unread(self, folder: str = DEFAULT_FOLDER) -> int:
+        """Число непрочитанных — дёшево (один SEARCH, без FETCH заголовков),
+        см. scripts/poll_mailbox.py и mailbox.inbox(): используется и в
+        cron-опросе, и опортунистически при заходе в веб-интерфейс (там
+        соединение и так уже открыто). По умолчанию не поддерживается
+        (POP3: нет флага "прочитано" вовсе, см. supports_flags),
+        переопределено в ImapMailClient."""
+        raise MailError("Подсчёт непрочитанных не поддерживается этим протоколом")
+
 
 _FLAGS_RE = re.compile(rb"FLAGS \(([^)]*)\)")
 # Эвристика "есть вложение" по BODYSTRUCTURE (см. list_messages ниже) — ищем
@@ -608,6 +617,16 @@ class ImapMailClient(IncomingMailClient):
             self.conn.expunge()
         except imaplib.IMAP4.error as exc:
             raise MailError(f"IMAP: {exc}") from exc
+
+    def count_unread(self, folder: str = DEFAULT_FOLDER) -> int:
+        self._ensure_selected(folder)
+        try:
+            typ, data = self.conn.uid("search", None, "UNSEEN")
+        except imaplib.IMAP4.error as exc:
+            raise MailError(f"IMAP SEARCH: {exc}") from exc
+        if typ != "OK":
+            raise MailError("IMAP: не удалось получить число непрочитанных писем")
+        return len(data[0].split()) if data and data[0] else 0
 
 
 class Pop3MailClient(IncomingMailClient):

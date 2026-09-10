@@ -14,6 +14,7 @@ HTML-тело письма рендерится в песочнице (iframe sa
 санитайзинга — см. app/mail_html.py, там же подробно про блокировку
 внешних картинок (защита от трекинг-пикселей).
 """
+import datetime as dt
 import io
 import re
 
@@ -202,6 +203,20 @@ def inbox():
                 search=search or None, sort=sort, sort_dir=sort_dir,
             )
             supports_flags = client.supports_flags
+            # Бейдж "непрочитано" в шапке сайта (см. app/__init__.py:
+            # _inject_user) в норме обновляется cron-скриптом
+            # scripts/poll_mailbox.py — здесь просто освежаем его же кэш
+            # заодно, раз соединение с INBOX и так уже открыто (без
+            # дополнительного захода на сервер). Ошибка — не повод ломать
+            # обычный просмотр списка, бейдж просто останется чуть устаревшим
+            # до следующего прогона cron.
+            if folder == DEFAULT_FOLDER and supports_flags:
+                try:
+                    settings.unread_count = client.count_unread(folder)
+                    settings.last_checked_at = dt.datetime.utcnow()
+                    database.db_session.commit()
+                except MailError:
+                    database.db_session.rollback()
     except MailError as exc:
         _record_connection_error(settings, exc)
         flash(_("Не удалось подключиться к почте: {error}", error=str(exc)), "danger")

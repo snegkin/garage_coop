@@ -98,7 +98,7 @@ def create_app(config_class=Config):
         from .models import (
             Cooperative, PersonDataRevision, PersonDataRevisionStatus, Vote, VoteQuestion, VoteBallot, VoteStatus,
             RoleEnum, Person, VoteProposal, VoteProposalBoardBallot, ProposalStatus, BoardChatMessage,
-            RevisionChatMessage,
+            RevisionChatMessage, MailboxSettings,
         )
         from .accounting import balance as _balance
         from .permissions import is_board, is_chairman, is_privileged
@@ -168,6 +168,16 @@ def create_app(config_class=Config):
                     RevisionChatMessage.author_id != user.id,
                 ).count()
 
+        # Непрочитанные во "Входящих" почты правления — сам счёт НЕ идёт по
+        # IMAP на каждый запрос (см. MailboxSettings.unread_count, докстринг
+        # там же), а один дешёвый SELECT синглтона настроек, кэш которого
+        # обновляют scripts/poll_mailbox.py и mailbox.inbox() (опортунистически).
+        mailbox_unread = 0
+        if user and is_board():
+            mailbox_settings = database.db_session.query(MailboxSettings).first()
+            if mailbox_settings:
+                mailbox_unread = mailbox_settings.unread_count
+
         # Куда возвращать пользователя после входа, если он воспользуется
         # формой входа (дропдаун «Войти» в шапке, доступен на любой
         # странице — см. base.html, auth/_login_form.html), а не пришёл по
@@ -194,6 +204,7 @@ def create_app(config_class=Config):
             "is_revision_commission_member": is_revision_member,
             "revision_chat_unread_count": revision_chat_unread,
             "pending_proposals_count": pending_proposals,
+            "mailbox_unread_count": mailbox_unread,
             "login_next_url": login_next_url,
         }
 

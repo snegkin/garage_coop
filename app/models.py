@@ -1126,6 +1126,15 @@ class User(Base):
     # То же самое, но для чата ревизионной комиссии (app/revision_chat.py).
     revision_chat_read_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
 
+    # Кэш "непрочитано" в почте правления — ТОЛЬКО для POP3 (см.
+    # MailboxPop3MessageState ниже и app/mailbox.py). У IMAP свои настоящие
+    # флаги на сервере, общие на всех — там используется общий
+    # MailboxSettings.unread_count, не это поле. POP3 таких флагов не
+    # хранит вовсе, поэтому "прочитано" эмулируется персонально для
+    # каждого члена правления, и счётчик тоже персональный. Обновляется
+    # scripts/poll_mailbox.py и опортунистически в mailbox.inbox().
+    pop3_mailbox_unread_count: Mapped[int] = mapped_column(Integer, default=0)
+
     # Присутствие в чате правления — для списка участников с онлайн/офлайн
     # статусом (app/board_chat.py: participants). last_seen_at обновляется
     # heartbeat'ом виджета (см. base.html: initChatWidget) пока у человека
@@ -2441,6 +2450,39 @@ class MailboxSettings(Base):
 
     last_error: Mapped[str | None] = mapped_column(Text)
     last_checked_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
+
+
+class MailboxPop3MessageState(Base):
+    """Эмуляция «прочитано»/«важное» для POP3 — сам протокол не хранит
+    флаги на сервере вовсе (в отличие от IMAP \\Seen/\\Flagged, см.
+    mail_client.IncomingMailClient.supports_flags), поэтому статус письма
+    здесь ПЕРСОНАЛЬНЫЙ для каждого члена правления, а не общий, как у
+    IMAP — один и тот же член правления открыл письмо, у другого оно всё
+    ещё непрочитано.
+
+    message_uidl — устойчивый идентификатор письма (POP3 UIDL, RFC 1939,
+    не меняется, пока письмо не удалено с сервера) — НЕ совпадает с
+    MessageSummary.uid для POP3, тот лишь номер письма в ТЕКУЩЕЙ сессии и
+    может измениться, если другое письмо удалили (см.
+    mail_client.Pop3MailClient.get_uidl_map). Сервер может не
+    поддерживать UIDL вовсе (необязательное расширение) — тогда эмуляция
+    недоступна, см. Pop3MailClient.supports_message_state.
+
+    Отсутствие строки для (user_id, message_uidl) = непрочитано, неважное
+    — то же значение по умолчанию, что и у настоящих IMAP-флагов на новом
+    письме, поэтому строку не нужно создавать заранее для каждого письма."""
+    __tablename__ = "mailbox_pop3_message_state"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("user.id", ondelete="CASCADE"), index=True)
+    message_uidl: Mapped[str] = mapped_column(String(255))
+    seen: Mapped[bool] = mapped_column(Boolean, default=False)
+    flagged: Mapped[bool] = mapped_column(Boolean, default=False)
+    updated_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.utcnow, onupdate=dt.datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "message_uidl", name="uq_mailbox_pop3_state_user_message"),
+    )
 
 
 class TelegramSettings(Base):

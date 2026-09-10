@@ -2420,6 +2420,14 @@ class MailboxSettings(Base):
     # чтобы не менять его молча для уже настроенных ящиков.
     trash_folder: Mapped[str | None] = mapped_column(String(255), default=None)
 
+    # "Черновики"/"Спам" (IMAP) — только просмотр, приложение само в них
+    # ничего не пишет и не перемещает (в отличие от sent_folder/trash_folder
+    # выше) — письма туда попадают либо от другого почтового клиента,
+    # которым тоже пользуется правление, либо от сервера (спам-фильтр).
+    # NULL/пусто — вкладка в списке писем не показывается, как и у trash_folder.
+    drafts_folder: Mapped[str | None] = mapped_column(String(255), default=None)
+    spam_folder: Mapped[str | None] = mapped_column(String(255), default=None)
+
     last_error: Mapped[str | None] = mapped_column(Text)
     last_checked_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
 

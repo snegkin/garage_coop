@@ -40,6 +40,17 @@ from .models import MailboxSettings, MailEncryption, MailProtocol
 CONNECT_TIMEOUT = 15  # секунд — иначе зависший сервер повесит HTTP-воркер на неопределённое время
 DEFAULT_FOLDER = "INBOX"
 
+# Поиск/сортировка списка писем (см. _filter_sort_paginate) — умышленно
+# считаются на стороне приложения по ужё полученным заголовкам ВСЕХ писем
+# папки, а не через серверный IMAP SEARCH/SORT: во-первых, это одинаково
+# работает для IMAP и POP3 (у POP3 нет ни того, ни другого расширения);
+# во-вторых, не нужно экранировать пользовательский текст поиска в сырую
+# команду протокола (риск инъекции в IMAP-команду). Для маленького ящика
+# правления (см. докстринг модуля) fetch заголовков всех писем на каждой
+# странице — приемлемая цена простоты, как и общий принцип "не кэшируем".
+SORT_FIELDS = ("date", "from", "to", "subject")
+SORT_DIRS = ("asc", "desc")
+
 
 class MailError(Exception):
     """Любая ошибка связи с почтовым сервером (соединение/логин/протокол).
@@ -56,6 +67,7 @@ class MessageSummary:
     date: dt.datetime | None
     seen: bool | None           # None у POP3 — там нет флагов вовсе
     flagged: bool | None        # "важное" (IMAP \Flagged) — None у POP3, там же, где и seen
+    has_attachments: bool | None  # эвристика по BODYSTRUCTURE (см. _ATTACHMENT_DISPOSITION_RE) — None у POP3
 
 
 @dataclasses.dataclass
@@ -72,6 +84,48 @@ class MessagePage:
     @property
     def has_next(self) -> bool:
         return self.page * self.page_size < self.total
+
+
+def _matches_search(m: MessageSummary, term: str) -> bool:
+    term = term.casefold()
+    haystacks = (m.subject, m.from_name, m.from_addr, m.to_addr)
+    return any(term in (h or "").casefold() for h in haystacks)
+
+
+def _sort_key(m: MessageSummary, sort: str):
+    if sort == "subject":
+        return m.subject.casefold()
+    if sort == "from":
+        return (m.from_name or m.from_addr or "").casefold()
+    if sort == "to":
+        return (m.to_addr or "").casefold()
+    # "date" (и любое неизвестное значение — подстраховка тем же, что и по
+    # умолчанию). None (письмо без заголовка Date) считается самым старым.
+    # Наивные datetime (редкость — письмо без указания часового пояса)
+    # приводятся к UTC, иначе sorted() падает при сравнении с aware-датами.
+    d = m.date
+    if d is None:
+        return dt.datetime.min.replace(tzinfo=dt.timezone.utc)
+    return d if d.tzinfo else d.replace(tzinfo=dt.timezone.utc)
+
+
+def _filter_sort_paginate(
+    messages: list[MessageSummary], page: int, page_size: int,
+    search: str | None, sort: str, sort_dir: str,
+) -> MessagePage:
+    """Общая для IMAP и POP3 часть list_messages — сама пагинация и (новые)
+    поиск/сортировка происходят здесь, уже после того как конкретная
+    реализация получила заголовки ВСЕХ писем папки (см. комментарий у
+    SORT_FIELDS выше про то, почему не через серверный SEARCH/SORT).
+    sorted() устойчив (stable) — порядок пришедшего списка (по умолчанию
+    "новые письма первыми", см. list_messages обеих реализаций) сохраняется
+    для писем с одинаковым ключом сортировки (напр. одинаковая дата)."""
+    if search:
+        messages = [m for m in messages if _matches_search(m, search)]
+    messages = sorted(messages, key=lambda m: _sort_key(m, sort), reverse=(sort_dir == "desc"))
+    total = len(messages)
+    start = (page - 1) * page_size
+    return MessagePage(messages=messages[start:start + page_size], total=total, page=page, page_size=page_size)
 
 
 @dataclasses.dataclass
@@ -360,7 +414,10 @@ class IncomingMailClient(abc.ABC):
     def close(self) -> None: ...
 
     @abc.abstractmethod
-    def list_messages(self, page: int, page_size: int = 25, folder: str = DEFAULT_FOLDER) -> MessagePage: ...
+    def list_messages(
+        self, page: int, page_size: int = 25, folder: str = DEFAULT_FOLDER,
+        search: str | None = None, sort: str = "date", sort_dir: str = "desc",
+    ) -> MessagePage: ...
 
     @abc.abstractmethod
     def get_message(self, uid: str, folder: str = DEFAULT_FOLDER) -> MessageDetail: ...
@@ -384,6 +441,16 @@ class IncomingMailClient(abc.ABC):
 
 
 _FLAGS_RE = re.compile(rb"FLAGS \(([^)]*)\)")
+# Эвристика "есть вложение" по BODYSTRUCTURE (см. list_messages ниже) — ищем
+# буквально disposition-токен "attachment" в ответе FETCH, не разбирая
+# структуру полностью (полноценный парсер вложенных списков BODYSTRUCTURE —
+# заметно больше кода ради списка писем, где точность не критична, в
+# отличие от _parse_message для открытого письма, который видит письмо
+# целиком). Известное ограничение: письмо с вложением БЕЗ явного
+# Content-Disposition: attachment (редко, но бывает у старых/автоматических
+# отправителей) скрепку не покажет — как и _html_to_text, не претендует на
+# 100% точность, только на пользу в типичном случае.
+_ATTACHMENT_DISPOSITION_RE = re.compile(rb'"attachment"', re.IGNORECASE)
 
 
 class ImapMailClient(IncomingMailClient):
@@ -421,7 +488,16 @@ class ImapMailClient(IncomingMailClient):
             raise MailError(f"IMAP: не удалось открыть папку «{folder}» — возможно, она не существует")
         self._selected_folder = folder
 
-    def list_messages(self, page: int, page_size: int = 25, folder: str = DEFAULT_FOLDER) -> MessagePage:
+    def list_messages(
+        self, page: int, page_size: int = 25, folder: str = DEFAULT_FOLDER,
+        search: str | None = None, sort: str = "date", sort_dir: str = "desc",
+    ) -> MessagePage:
+        """Заголовки получаем для ВСЕХ писем папки, не только текущей
+        страницы — поиск/сортировка (см. _filter_sort_paginate) применяются
+        по всему набору уже на стороне приложения, значит и общее число
+        "прошедших фильтр" писем для пагинации не узнать раньше, чем
+        получены заголовки всех. Для маленького ящика правления это
+        приемлемо (см. комментарий у SORT_FIELDS)."""
         self._ensure_selected(folder)
         try:
             typ, data = self.conn.uid("search", None, "ALL")
@@ -431,15 +507,12 @@ class ImapMailClient(IncomingMailClient):
             raise MailError("IMAP: не удалось получить список писем")
 
         uid_bytes = data[0].split() if data and data[0] else []
-        uid_bytes = list(reversed(uid_bytes))  # новые первыми (UID растут по мере поступления)
-        total = len(uid_bytes)
-        start = (page - 1) * page_size
-        page_uids = uid_bytes[start:start + page_size]
+        uid_bytes = list(reversed(uid_bytes))  # новые первыми (UID растут по мере поступления) — базовый порядок и тай-брейк при сортировке
 
         messages: list[MessageSummary] = []
-        for uid in page_uids:
+        for uid in uid_bytes:
             try:
-                typ, fdata = self.conn.uid("fetch", uid, "(FLAGS BODY.PEEK[HEADER.FIELDS (SUBJECT FROM TO DATE)])")
+                typ, fdata = self.conn.uid("fetch", uid, "(FLAGS BODYSTRUCTURE BODY.PEEK[HEADER.FIELDS (SUBJECT FROM TO DATE)])")
             except imaplib.IMAP4.error as exc:
                 raise MailError(f"IMAP FETCH: {exc}") from exc
             if typ != "OK" or not fdata or not isinstance(fdata[0], tuple):
@@ -449,15 +522,16 @@ class ImapMailClient(IncomingMailClient):
             flags = flags_match.group(1).split() if flags_match else []
             seen = b"\\Seen" in flags
             flagged = b"\\Flagged" in flags
+            has_attachments = bool(_ATTACHMENT_DISPOSITION_RE.search(meta_line))
             msg = email.message_from_bytes(header_bytes, policy=email.policy.default)
             from_name, from_addr = _address_from_header(msg, "from")
             to_addrs = _addr_list_from_header(msg, "to")
             messages.append(MessageSummary(
                 uid=uid.decode(), subject=str(msg.get("subject", "")).strip() or "(без темы)",
                 from_name=from_name, from_addr=from_addr, to_addr=(to_addrs[0] if to_addrs else None),
-                date=_parse_date(msg), seen=seen, flagged=flagged,
+                date=_parse_date(msg), seen=seen, flagged=flagged, has_attachments=has_attachments,
             ))
-        return MessagePage(messages=messages, total=total, page=page, page_size=page_size)
+        return _filter_sort_paginate(messages, page, page_size, search, sort, sort_dir)
 
     def _fetch_raw(self, uid: str, folder: str) -> bytes:
         self._ensure_selected(folder)
@@ -565,20 +639,23 @@ class Pop3MailClient(IncomingMailClient):
             raise MailError(f"POP3 RETR: {exc}") from exc
         return b"\r\n".join(lines)
 
-    def list_messages(self, page: int, page_size: int = 25, folder: str = DEFAULT_FOLDER) -> MessagePage:
+    def list_messages(
+        self, page: int, page_size: int = 25, folder: str = DEFAULT_FOLDER,
+        search: str | None = None, sort: str = "date", sort_dir: str = "desc",
+    ) -> MessagePage:
+        """Заголовки — для ВСЕХ писем ящика, не только страницы, по той же
+        причине, что и в ImapMailClient.list_messages (см. там и комментарий
+        у SORT_FIELDS): поиск/сортировка иначе не построить."""
         self._check_folder(folder)
         try:
             count, _size = self.conn.stat()
         except poplib.error_proto as exc:
             raise MailError(f"POP3 STAT: {exc}") from exc
 
-        total = count
-        numbers = list(range(count, 0, -1))  # новые первыми (обычно совпадает с порядком поступления)
-        start = (page - 1) * page_size
-        page_numbers = numbers[start:start + page_size]
+        numbers = list(range(count, 0, -1))  # новые первыми (обычно совпадает с порядком поступления) — базовый порядок и тай-брейк при сортировке
 
         messages: list[MessageSummary] = []
-        for num in page_numbers:
+        for num in numbers:
             header_bytes = None
             if self._supports_top:
                 try:
@@ -594,9 +671,9 @@ class Pop3MailClient(IncomingMailClient):
             messages.append(MessageSummary(
                 uid=str(num), subject=str(msg.get("subject", "")).strip() or "(без темы)",
                 from_name=from_name, from_addr=from_addr, to_addr=(to_addrs[0] if to_addrs else None),
-                date=_parse_date(msg), seen=None, flagged=None,
+                date=_parse_date(msg), seen=None, flagged=None, has_attachments=None,
             ))
-        return MessagePage(messages=messages, total=total, page=page, page_size=page_size)
+        return _filter_sort_paginate(messages, page, page_size, search, sort, sort_dir)
 
     def get_message(self, uid: str, folder: str = DEFAULT_FOLDER) -> MessageDetail:
         self._check_folder(folder)

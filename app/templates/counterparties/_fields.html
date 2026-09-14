@@ -43,6 +43,16 @@
   </div>
 </div>
 <div class="mb-3">
+  <label class="form-label">{{ _("API для баланса личного кабинета") }}</label>
+  <select class="form-select" name="api_provider">
+    <option value="none" {{ "selected" if not c or c.api_provider.value == "none" }}>{{ _("Не используется") }}</option>
+    <option value="smsaero" {{ "selected" if c and c.api_provider.value == "smsaero" }}>SMS Aero</option>
+    <option value="beget" {{ "selected" if c and c.api_provider.value == "beget" }}>Beget.com</option>
+    <option value="tns_energo_business" {{ "selected" if c and c.api_provider.value == "tns_energo_business" }}>ТНС-Энерго Бизнес</option>
+  </select>
+  <div class="form-text">{{ _("Логин/пароль или API-ключ вводятся отдельно, кнопкой «Настроить API» на карточке контрагента после сохранения.") }}</div>
+</div>
+<div class="mb-3">
   <label class="form-label">{{ _("Комментарий") }}</label>
   <textarea class="form-control" name="comment">{{ (c.comment or '') if c else '' }}</textarea>
 </div>

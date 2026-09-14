@@ -1,10 +1,12 @@
-"""Настройки СМС-провайдера (/sms/) — только председатель, API-ключ хранится
-зашифрованным (тот же приём, что App Secret eWeLink/client_secret банка)."""
+"""Настройки СМС (/sms/) — только председатель. Сама страница хранит не
+email/API-ключ (те — на карточке контрагента, CounterpartyApiCredential,
+см. app/counterparties.py), а только выбор контрагента, обслуживающего
+отправку (SmsSettings.counterparty_id, см. app/sms/__init__.py)."""
 from unittest.mock import patch
 
 import datetime as dt
 
-from app.models import RoleEnum, SmsSettings, SmsLog, SmsLogStatus
+from app.models import RoleEnum, SmsSettings, SmsLog, SmsLogStatus, Counterparty, CounterpartyApiProvider, CounterpartyApiCredential
 from app.bank_api import crypto
 
 from tests.conftest import make_person, make_user, login
@@ -14,6 +16,15 @@ def _chairman(db, username="chair1"):
     person = make_person(db, full_name="Председателев Пред Предович")
     make_user(db, username, "pass12345", role=RoleEnum.CHAIRMAN, person=person)
     db.commit()
+
+
+def _make_smsaero_counterparty(db, name="SMS Aero", email="me@example.com", api_key="secretkey123"):
+    counterparty = Counterparty(name=name, api_provider=CounterpartyApiProvider.SMSAERO)
+    db.add(counterparty)
+    db.flush()
+    db.add(CounterpartyApiCredential(counterparty_id=counterparty.id, login=email, secret_encrypted=crypto.encrypt(api_key)))
+    db.flush()
+    return counterparty
 
 
 def test_anonymous_cannot_access(client, db):
@@ -39,32 +50,46 @@ def test_chairman_can_view_settings_page(db, client):
     assert resp.status_code == 200
 
 
-def test_save_settings_encrypts_api_key(db, client):
+def test_save_settings_selects_counterparty(db, client):
     _chairman(db)
+    counterparty = _make_smsaero_counterparty(db)
+    db.commit()
     login(client, "chair1", "pass12345")
 
-    resp = client.post("/sms/settings", data={
-        "smsaero_email": "me@example.com", "smsaero_api_key": "secretkey123", "sender_sign": "COOP",
-    })
+    resp = client.post("/sms/settings", data={"counterparty_id": str(counterparty.id)})
     assert resp.status_code == 302
 
     settings = db.query(SmsSettings).one()
-    assert settings.smsaero_email == "me@example.com"
-    assert settings.sender_sign == "COOP"
-    assert settings.smsaero_api_key_encrypted != "secretkey123"
-    assert crypto.decrypt(settings.smsaero_api_key_encrypted) == "secretkey123"
+    assert settings.counterparty_id == counterparty.id
 
 
-def test_save_settings_blank_api_key_keeps_existing(db, client):
+def test_save_settings_can_clear_selection(db, client):
     _chairman(db)
+    counterparty = _make_smsaero_counterparty(db)
+    db.commit()
     login(client, "chair1", "pass12345")
 
-    client.post("/sms/settings", data={"smsaero_email": "me@example.com", "smsaero_api_key": "secretkey123"})
-    client.post("/sms/settings", data={"smsaero_email": "new@example.com", "smsaero_api_key": ""})
+    client.post("/sms/settings", data={"counterparty_id": str(counterparty.id)})
+    client.post("/sms/settings", data={"counterparty_id": ""})
 
     settings = db.query(SmsSettings).one()
-    assert settings.smsaero_email == "new@example.com"
-    assert crypto.decrypt(settings.smsaero_api_key_encrypted) == "secretkey123"
+    assert settings.counterparty_id is None
+
+
+def test_only_sms_capable_counterparties_are_offered(db, client):
+    """Контрагент с другим провайдером (например, Beget) не должен
+    предлагаться для выбора на /sms/ — он не умеет отправлять SMS."""
+    _chairman(db)
+    _make_smsaero_counterparty(db, name="SMS Aero аккаунт")
+    beget = Counterparty(name="Хостинг Beget", api_provider=CounterpartyApiProvider.BEGET)
+    db.add(beget)
+    db.commit()
+    login(client, "chair1", "pass12345")
+
+    resp = client.get("/sms/")
+    body = resp.get_data(as_text=True)
+    assert "SMS Aero аккаунт" in body
+    assert "Хостинг Beget" not in body
 
 
 def test_send_test_requires_configured_provider(db, client):
@@ -79,7 +104,6 @@ def test_send_test_requires_configured_provider(db, client):
 def test_send_test_success_records_result(db, client):
     _chairman(db)
     login(client, "chair1", "pass12345")
-    client.post("/sms/settings", data={"smsaero_email": "me@example.com", "smsaero_api_key": "secretkey123"})
 
     with patch("app.sms_settings.get_sms_client") as mock_factory:
         mock_client = mock_factory.return_value
@@ -95,7 +119,6 @@ def test_send_test_failure_records_error(db, client):
     from app.sms import SmsError
     _chairman(db)
     login(client, "chair1", "pass12345")
-    client.post("/sms/settings", data={"smsaero_email": "me@example.com", "smsaero_api_key": "secretkey123"})
 
     with patch("app.sms_settings.get_sms_client") as mock_factory:
         mock_factory.return_value.send.side_effect = SmsError("insufficient funds")
@@ -141,7 +164,7 @@ def test_settings_modal_present_on_settings_page(db, client):
     body = resp.get_data(as_text=True)
     assert 'id="smsSettingsModal"' in body
     assert 'data-bs-target="#smsSettingsModal"' in body
-    assert 'name="smsaero_email"' in body
+    assert 'name="counterparty_id"' in body
 
 
 def test_send_test_is_logged_via_real_client(db, client):
@@ -150,8 +173,10 @@ def test_send_test_is_logged_via_real_client(db, client):
     журнал — именно это и есть основной путь диагностики «SMS не
     приходят»."""
     _chairman(db)
+    counterparty = _make_smsaero_counterparty(db)
+    db.commit()
     login(client, "chair1", "pass12345")
-    client.post("/sms/settings", data={"smsaero_email": "me@example.com", "smsaero_api_key": "secretkey123"})
+    client.post("/sms/settings", data={"counterparty_id": str(counterparty.id)})
 
     with patch("app.sms.smsaero.requests.post") as mock_post:
         mock_post.return_value.status_code = 200

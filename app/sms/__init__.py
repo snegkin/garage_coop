@@ -4,19 +4,37 @@
 приём для банков). app/auth.py и app/sms_settings.py вызывают только
 get_sms_client() и не импортируют конкретные клиенты напрямую.
 
+Креды (email/api_key) живут НЕ здесь и не в отдельном singleton, а на
+карточке контрагента (Counterparty.api_credential — тот же
+CounterpartyApiCredential, что и у баланса личного кабинета, см.
+app/counterparty_api/) — SmsSettings хранит только ССЫЛКУ
+(counterparty_id), какой контрагент сейчас обслуживает отправку SMS-кодов
+входа/восстановления пароля; председатель выбирает его на /sms/ из
+контрагентов с api_provider в SMS_CAPABLE_PROVIDERS. Перенесено сюда по
+прямой просьбе — раньше SMS Aero был особым случаем с собственными
+email/api_key/sender_sign прямо в SmsSettings, что создавало разнобой с
+остальными провайдерами (у них настройки — на карточке контрагента).
+
 Добавление нового агрегатора: реализовать SmsClient в отдельном модуле
-рядом с smsaero.py, добавить новое значение в models.SmsProvider (своя
-миграция на поля с реквизитами нового провайдера) и обработать его здесь.
+рядом с smsaero.py, добавить новое значение в models.CounterpartyApiProvider
+(и в SUPPORTED_PROVIDERS/get_client() app/counterparty_api/__init__.py,
+если у него тоже есть баланс) + в SMS_CAPABLE_PROVIDERS ниже, обработать в
+get_sms_client().
 """
 from __future__ import annotations
 
 from urllib.parse import urlparse
 
 from .. import database
-from ..models import SmsSettings, SmsProvider, SmsLog, SmsLogStatus, Cooperative
+from ..models import SmsSettings, Counterparty, CounterpartyApiProvider, SmsLog, SmsLogStatus, Cooperative
 from ..bank_api import crypto
 from .base import SmsClient, SmsError
 from .smsaero import SmsAeroClient
+
+# Провайдеры, которые умеют ОТПРАВЛЯТЬ SMS (не только читать баланс) — список
+# контрагентов для выбора на /sms/ фильтруется по нему. Пока единственный;
+# задел на второй SMS-агрегатор (см. докстринг выше).
+SMS_CAPABLE_PROVIDERS = {CounterpartyApiProvider.SMSAERO}
 
 
 def sms_site_identifier(coop: Cooperative | None) -> str:
@@ -84,15 +102,23 @@ class _LoggingSmsClient(SmsClient):
             database.db_session.commit()
 
 
-def get_sms_client(settings: SmsSettings | None) -> SmsClient | None:
+def get_sms_client() -> SmsClient | None:
     """None — интеграция не настроена (нет записи настроек, не выбран
-    провайдер, не заполнены обязательные реквизиты) — вызывающий код
-    показывает понятное сообщение вместо падения."""
-    if settings is None or settings.provider != SmsProvider.SMSAERO:
+    контрагент, у контрагента сменили провайдер на несовместимый, не
+    заполнены обязательные реквизиты) — вызывающий код показывает понятное
+    сообщение вместо падения. Без аргумента — сам находит нужного
+    контрагента через SmsSettings.counterparty_id, единственную запись
+    настроек (см. app/sms_settings.py)."""
+    settings = database.db_session.query(SmsSettings).first()
+    if settings is None or settings.counterparty_id is None:
         return None
-    if not settings.smsaero_email or not settings.smsaero_api_key_encrypted:
+    counterparty = database.db_session.get(Counterparty, settings.counterparty_id)
+    if counterparty is None or counterparty.api_provider not in SMS_CAPABLE_PROVIDERS:
         return None
-    api_key = crypto.decrypt(settings.smsaero_api_key_encrypted)
+    cred = counterparty.api_credential
+    if cred is None or not cred.login or not cred.secret_encrypted:
+        return None
+    api_key = crypto.decrypt(cred.secret_encrypted)
     if not api_key:
         return None
-    return _LoggingSmsClient(SmsAeroClient(settings.smsaero_email, api_key, settings.sender_sign or None))
+    return _LoggingSmsClient(SmsAeroClient(cred.login, api_key, cred.extra or None))

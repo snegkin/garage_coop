@@ -410,6 +410,44 @@ class BankRegistryFormat(Base):
     bank_account: Mapped["BankAccount"] = relationship(back_populates="registry_format")
 
 
+class CounterpartyApiProvider(str, enum.Enum):
+    """
+    Внешний API, из которого можно автоматически подтягивать баланс
+    ЛИЧНОГО КАБИНЕТА контрагента (сколько денег там лежит у самого
+    провайдера, либо сколько ему должен кооператив — см. ниже про знак) —
+    отдельная цифра от "баланса расчётов" (кто кому должен по
+    Expense/CounterpartyPayment, см. accounting.counterparty_balance()),
+    который считается независимо от этого API. Реализованы SMS Aero,
+    Beget.com и ТНС-Энерго Бизнес (см. app/counterparty_api/) — все берут
+    креды из CounterpartyApiCredential ниже (login/secret_encrypted/extra);
+    у ТНС-Энерго Бизнес в extra — код региона поддомена личного кабинета
+    (напр. "yar" для lk-b2b-yar.tns-e.ru). SMS Aero — раньше эти же креды
+    жили в отдельном SmsSettings (нужном ещё и для отправки СМС-кодов
+    входа, см. app/sms/), перенесены сюда, чтобы у всех контрагентов с API
+    была одна и та же точка настройки на их же карточке; SmsSettings
+    теперь хранит только ССЫЛКУ (counterparty_id), какой контрагент сейчас
+    обслуживает отправку.
+
+    TNS_ENERGO_BUSINESS — именно B2B-личный кабинет (lk-b2b-<регион>.tns-e.ru,
+    вход по email). Названо с суффиксом BUSINESS заранее — для физлиц у
+    ТНС-Энерго отдельный личный кабинет (lk.<регион>.tns-e.ru, вход по
+    номеру лицевого счёта, другой протокол входа) — если/когда до него
+    дойдут руки, это будет отдельное значение (TNS_ENERGO_PERSONAL или
+    подобное), не апгрейд текущего.
+
+    Знак external_balance — единая конвенция для всех провайдеров:
+    положительное = у кооператива есть деньги/кредит на стороне
+    провайдера, отрицательное = кооператив должен провайдеру. ЛК
+    ТНС-Энерго Бизнес показывает долг ПОЛОЖИТЕЛЬНЫМ числом (обратная
+    конвенция) — TnsEnergoBusinessBalanceClient инвертирует знак перед
+    сохранением, чтобы не расходиться с остальными провайдерами.
+    """
+    NONE = "none"
+    SMSAERO = "smsaero"
+    BEGET = "beget"
+    TNS_ENERGO_BUSINESS = "tns_energo_business"
+
+
 class Counterparty(Base):
     """Контрагент: организация или ИП, с которым кооператив расплачивается."""
     __tablename__ = "counterparty"
@@ -435,10 +473,53 @@ class Counterparty(Base):
     opening_balance: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
     opening_balance_date: Mapped[dt.date | None] = mapped_column(Date)
 
+    # Баланс ЛИЧНОГО КАБИНЕТА контрагента у стороннего провайдера (см.
+    # CounterpartyApiProvider выше) — НЕ баланс расчётов с контрагентом
+    # (opening_balance/counterparty_balance() выше), а отдельная величина
+    # (напр. у SMS Aero — сколько денег осталось на отправку смс).
+    # Обновляется app.counterparty_sync.sync_counterparty_balance(), той же
+    # кнопкой/cron, что и балансы расчётных счетов (см. app/bank_sync.py).
+    api_provider: Mapped[CounterpartyApiProvider] = mapped_column(Enum(CounterpartyApiProvider), default=CounterpartyApiProvider.NONE)
+    external_balance: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    external_balance_updated_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
+    external_balance_error: Mapped[str | None] = mapped_column(Text)
+
     expenses: Mapped[list["Expense"]] = relationship(back_populates="counterparty")
     payments: Mapped[list["CounterpartyPayment"]] = relationship(back_populates="counterparty")
     reconciliation_acts: Mapped[list["ReconciliationAct"]] = relationship(back_populates="counterparty")
     documents: Mapped[list["Document"]] = relationship(back_populates="counterparty")
+    api_credential: Mapped["CounterpartyApiCredential | None"] = relationship(
+        back_populates="counterparty", cascade="all, delete-orphan",
+    )
+
+
+class CounterpartyApiCredential(Base):
+    """
+    Реквизиты подключения к API контрагента (см. CounterpartyApiProvider
+    выше) — отдельная таблица, а не поля на Counterparty напрямую: тот же
+    принцип, что и у BankApiCredential (не нужны, пока api_provider —
+    NONE, содержат секрет). Не более одной записи на контрагента
+    (counterparty_id уникален).
+
+    Поля названы ОБЩО (login/secret_encrypted/extra), а не под конкретного
+    провайдера — у SMS Aero это email/api_key/подпись отправителя, у
+    Beget — логин/пароль хостинг-аккаунта (extra не используется); при
+    следующем провайдере с похожей формой кредов (ожидаемо — ТНС-Энерго)
+    новой миграции под ещё одну пару колонок не потребуется.
+
+    secret_encrypted — зашифрован Fernet (app/bank_api/crypto), не
+    хэширован: секрет нужно расшифровывать обратно перед каждым запросом
+    к провайдеру.
+    """
+    __tablename__ = "counterparty_api_credential"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    counterparty_id: Mapped[int] = mapped_column(ForeignKey("counterparty.id", ondelete="CASCADE"), unique=True)
+    login: Mapped[str | None] = mapped_column(String(255))
+    secret_encrypted: Mapped[str | None] = mapped_column(Text)
+    extra: Mapped[str | None] = mapped_column(String(255))
+
+    counterparty: Mapped["Counterparty"] = relationship(back_populates="api_credential")
 
 
 class CourtSection(Base):
@@ -2547,28 +2628,25 @@ class WebPushSubscription(Base):
 # СМС (подтверждение регистрации по телефону, восстановление пароля)
 # ---------------------------------------------------------------------------
 
-class SmsProvider(str, enum.Enum):
-    SMSAERO = "smsaero"  # пока единственный реализованный — см. app/sms/
-
-
 class SmsSettings(Base):
-    """Единственная запись — настройки СМС-провайдера. Тот же приём, что и
-    у MailboxSettings/EWeLinkAccount: секрет шифруется тем же Fernet (см.
-    app/bank_api/crypto.py — модуль общего назначения, несмотря на путь).
-    provider — задел на будущее (см. app/sms/__init__.py:get_sms_client) —
-    сейчас реализован только SMS Aero, но поле уже есть, чтобы при
-    добавлении второго агрегатора не потребовалась ещё одна миграция."""
+    """Единственная запись — НЕ сами реквизиты СМС-провайдера (они переехали
+    на карточку контрагента — см. CounterpartyApiCredential, тот же принцип
+    настройки, что у Beget/будущих провайдеров), а ссылка, какой контрагент
+    сейчас обслуживает отправку SMS-кодов входа/восстановления пароля
+    (app/auth.py), плюс состояние последней тестовой отправки. Председатель
+    выбирает контрагента на /sms/ из тех, у кого api_provider — один из
+    app.sms.SMS_CAPABLE_PROVIDERS; сами email/api_key редактируются на
+    карточке этого контрагента. ondelete="SET NULL" — удаление контрагента
+    просто возвращает /sms/ к состоянию «провайдер не выбран», без падения."""
     __tablename__ = "sms_settings"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    provider: Mapped[SmsProvider] = mapped_column(Enum(SmsProvider), default=SmsProvider.SMSAERO)
-
-    smsaero_email: Mapped[str | None] = mapped_column(String(255))
-    smsaero_api_key_encrypted: Mapped[str | None] = mapped_column(Text)
-    sender_sign: Mapped[str | None] = mapped_column(String(50))  # имя отправителя, зарегистрированное у провайдера
+    counterparty_id: Mapped[int | None] = mapped_column(ForeignKey("counterparty.id", ondelete="SET NULL"))
 
     last_test_result: Mapped[str | None] = mapped_column(Text)  # текст последней ошибки/успеха тестовой отправки
     last_test_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
+
+    counterparty: Mapped["Counterparty | None"] = relationship()
 
 
 class VerificationCodePurpose(str, enum.Enum):

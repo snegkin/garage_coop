@@ -349,6 +349,33 @@ def test_save_api_credential_requires_provider_selected(db, client):
     assert database.db_session.get(Counterparty, counterparty.id).api_credential is None
 
 
+def test_save_api_credential_requires_region_for_tns_energo(db, client):
+    """Регрессия: placeholder="yar" в поле региона выглядел как значение
+    по умолчанию — председатель оставлял поле пустым, думая, что оно само
+    подставится, а get_client() потом тихо считал контрагента не
+    настроенным. Теперь пустой регион отклоняется явно, при сохранении."""
+    counterparty = _make_counterparty(db, provider=CounterpartyApiProvider.TNS_ENERGO_BUSINESS)
+    make_user(db, "board9", "pass12345", role=RoleEnum.BOARD)
+    db.commit()
+    login(client, "board9", "pass12345")
+
+    resp = client.post(f"/counterparties/{counterparty.id}/api-credential", data={
+        "login": "me@example.com", "secret": "mypassword", "extra": "",
+    })
+    assert resp.status_code == 302
+    db.expire_all()
+    assert database.db_session.get(Counterparty, counterparty.id).api_credential is None
+
+    resp = client.post(f"/counterparties/{counterparty.id}/api-credential", data={
+        "login": "me@example.com", "secret": "mypassword", "extra": "yar",
+    })
+    assert resp.status_code == 302
+    db.expire_all()
+    cred = database.db_session.get(Counterparty, counterparty.id).api_credential
+    assert cred is not None
+    assert cred.extra == "yar"
+
+
 # ---------------------------------------------------------------------------
 # Защита от удаления контрагента с настроенным API
 # ---------------------------------------------------------------------------
@@ -376,6 +403,46 @@ def test_delete_counterparty_without_api_still_works(db, client):
     assert resp.status_code == 302
     db.expire_all()
     assert database.db_session.get(Counterparty, counterparty.id) is None
+
+
+def test_delete_allowed_after_switching_provider_to_none_even_with_leftover_credential(db, client):
+    """Регрессия: смена провайдера на «Не используется» намеренно НЕ
+    удаляет саму запись CounterpartyApiCredential (чтобы не терять креды
+    при временном отключении, см. save_api_credential) — но это не должно
+    мешать удалению самого контрагента, раз API у него уже не выбран."""
+    counterparty = _make_counterparty(db, provider=CounterpartyApiProvider.SMSAERO)
+    _make_credential(db, counterparty, login="me@example.com", secret="apikey123")
+    make_user(db, "board7", "pass12345", role=RoleEnum.BOARD)
+    db.commit()
+
+    counterparty.api_provider = CounterpartyApiProvider.NONE
+    db.commit()
+    assert counterparty.api_credential is not None  # запись кредов осталась, как и задумано
+
+    login(client, "board7", "pass12345")
+    resp = client.post(f"/counterparties/{counterparty.id}/delete")
+    assert resp.status_code == 302
+    db.expire_all()
+    assert database.db_session.get(Counterparty, counterparty.id) is None
+
+
+# ---------------------------------------------------------------------------
+# Баланс личного кабинета — виден и в общем списке контрагентов, не только
+# на карточке (регрессия: изначально колонку добавили только в detail.html)
+# ---------------------------------------------------------------------------
+
+def test_external_balance_shown_on_counterparty_list_page(db, client):
+    with_api = _make_counterparty(db, provider=CounterpartyApiProvider.SMSAERO, name="С API")
+    with_api.external_balance = Decimal("-150.00")
+    _make_counterparty(db, provider=CounterpartyApiProvider.NONE, name="Без API")
+    make_user(db, "board8", "pass12345", role=RoleEnum.BOARD)
+    db.commit()
+    login(client, "board8", "pass12345")
+
+    resp = client.get("/counterparties/")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert "-150,00" in body or "-150.00" in body  # разделитель дробной части зависит от локали
 
 
 # ---------------------------------------------------------------------------
@@ -464,22 +531,37 @@ def test_extract_balance_returns_none_when_absent():
 
 
 class _FakeTnsResponse:
-    def __init__(self, text):
+    """text — для страницы входа (HTML); json_data — для ответов на POST
+    (вход и запрос баланса — оба реально JSON, подтверждено живыми
+    запросами к lk-b2b-yar.tns-e.ru, включая настоящий успешный вход —
+    см. докстринг модуля)."""
+    def __init__(self, text="", json_data=None):
         self.text = text
+        self._json_data = json_data
+
+    def json(self):
+        if self._json_data is None:
+            raise ValueError("not json")
+        return self._json_data
 
 
 class _FakeTnsSession:
-    def __init__(self, login_html, result_html):
+    def __init__(self, login_html, auth_json, balance_json=None):
         self._login_html = login_html
-        self._result_html = result_html
+        self._auth_json = auth_json
+        self._balance_json = balance_json
         self.post_calls = []
+        self.get_urls = []
 
     def get(self, url, timeout=None):
-        return _FakeTnsResponse(self._login_html)
+        self.get_urls.append(url)
+        return _FakeTnsResponse(text=self._login_html)
 
     def post(self, url, data=None, timeout=None):
         self.post_calls.append((url, data))
-        return _FakeTnsResponse(self._result_html)
+        if url.endswith("/auth/"):
+            return _FakeTnsResponse(json_data=self._auth_json)
+        return _FakeTnsResponse(json_data=self._balance_json)
 
 
 def _login_page_html(rsa_rand="randvalue123"):
@@ -494,14 +576,25 @@ def _login_page_html(rsa_rand="randvalue123"):
     ) % (m_b64, e_b64, rsa_rand)
 
 
-_BALANCE_PAGE_HTML = (
-    '<div class="formattedValue "><span class="formattedValue__main">3 314,09</span>'
-    '<span class="formattedValue__currency">руб.</span></div>'
-)
+# Формат подтверждён живым запросом к lk-b2b-yar.tns-e.ru с настоящими
+# учётными данными кооператива (см. докстринг модуля, шаг 6) — баланс
+# приходит HTML-фрагментом внутри JSON-ответа async-компонента Битрикса.
+_BALANCE_AJAX_SUCCESS = {
+    "isSuccess": True,
+    "data": {"html": (
+        '<article class="balanceCard"><div class="balanceCard__content">'
+        '<span class="formattedValue " title="3 314,09">'
+        '<span class="formattedValue__main">3 314,09</span>'
+        '<span class="formattedValue__currency">руб.</span></span></div></article>'
+    )},
+}
 
 
 def test_get_balance_logs_in_and_inverts_sign(monkeypatch):
-    fake_session = _FakeTnsSession(_login_page_html(), _BALANCE_PAGE_HTML)
+    """Успешный вход (JSON success:true) не содержит саму величину
+    баланса — она приходит отдельным POST на async-компонент Битрикса
+    (найден по data-js-async-loader на главной странице ЛК)."""
+    fake_session = _FakeTnsSession(_login_page_html(), {"success": True, "data": {}}, _BALANCE_AJAX_SUCCESS)
     monkeypatch.setattr(tns_energo_business.requests, "Session", lambda: fake_session)
 
     client = TnsEnergoBusinessBalanceClient("me@example.com", "mypassword", "yar")
@@ -512,18 +605,20 @@ def test_get_balance_logs_in_and_inverts_sign(monkeypatch):
     assert info.amount == Decimal("-3314.09")
     assert info.as_of == dt.date.today()
 
-    assert len(fake_session.post_calls) == 1
-    url, data = fake_session.post_calls[0]
-    assert url == "https://lk-b2b-yar.tns-e.ru/auth/"
-    assert data["AUTH_TYPE"] == "LEGAL"
-    assert data["AUTH_ACTION"] == "Войти"
-    assert data["USER_LOGIN"] == "me@example.com"
-    assert data["__RSA_DATA"]  # непустая строка
-    assert "mypassword" not in data["__RSA_DATA"]  # пароль зашифрован, не в открытом виде
+    assert len(fake_session.post_calls) == 2
+    (auth_url, auth_data), (balance_url, balance_data) = fake_session.post_calls
+    assert auth_url == "https://lk-b2b-yar.tns-e.ru/auth/"
+    assert auth_data["AUTH_TYPE"] == "LEGAL"
+    assert auth_data["AUTH_ACTION"] == "Войти"
+    assert auth_data["USER_LOGIN"] == "me@example.com"
+    assert auth_data["__RSA_DATA"]  # непустая строка
+    assert "mypassword" not in auth_data["__RSA_DATA"]  # пароль зашифрован, не в открытом виде
+    assert balance_url == "https://lk-b2b-yar.tns-e.ru" + tns_energo_business._BALANCE_AJAX_PATH
+    assert balance_data is None
 
 
 def test_get_balance_raises_when_login_page_has_no_rsa_params(monkeypatch):
-    fake_session = _FakeTnsSession("<html>обычная страница</html>", _BALANCE_PAGE_HTML)
+    fake_session = _FakeTnsSession("<html>обычная страница</html>", {"success": True, "data": {}}, _BALANCE_AJAX_SUCCESS)
     monkeypatch.setattr(tns_energo_business.requests, "Session", lambda: fake_session)
 
     client = TnsEnergoBusinessBalanceClient("me@example.com", "mypassword", "yar")
@@ -531,13 +626,42 @@ def test_get_balance_raises_when_login_page_has_no_rsa_params(monkeypatch):
         client.get_balance()
 
 
-def test_get_balance_raises_when_balance_not_found_after_login(monkeypatch):
-    """Например, неверный логин/пароль — сервер возвращает страницу без
-    виджета баланса (снова форма входа с ошибкой)."""
-    fake_session = _FakeTnsSession(_login_page_html(), "<html>Неверный логин или пароль</html>")
+def test_get_balance_raises_with_server_error_message_on_wrong_credentials(monkeypatch):
+    """Подтверждено живым запросом: сервер отвечает JSON
+    {"success": false, "errors": [...]} с понятным текстом — этот текст
+    должен попасть в исключение как есть, а не потеряться за общей фразой
+    «не удалось найти баланс»."""
+    fake_session = _FakeTnsSession(_login_page_html(), {"success": False, "errors": ["Неверный логин или пароль"]})
     monkeypatch.setattr(tns_energo_business.requests, "Session", lambda: fake_session)
 
     client = TnsEnergoBusinessBalanceClient("me@example.com", "wrongpassword", "yar")
+    with pytest.raises(CounterpartyApiError, match="Неверный логин или пароль"):
+        client.get_balance()
+    assert len(fake_session.post_calls) == 1  # за балансом не ходили — вход не прошёл
+
+
+def test_get_balance_raises_when_balance_endpoint_rejects_request(monkeypatch):
+    """isSuccess: false у самого запроса баланса (например, сессия
+    истекла между входом и запросом) — отдельная, отличимая от неверного
+    пароля ошибка."""
+    fake_session = _FakeTnsSession(_login_page_html(), {"success": True, "data": {}}, {"isSuccess": False})
+    monkeypatch.setattr(tns_energo_business.requests, "Session", lambda: fake_session)
+
+    client = TnsEnergoBusinessBalanceClient("me@example.com", "mypassword", "yar")
+    with pytest.raises(CounterpartyApiError):
+        client.get_balance()
+
+
+def test_get_balance_raises_when_balance_not_found_in_fragment(monkeypatch):
+    """isSuccess: true, но HTML-фрагмент почему-то не содержит
+    formattedValue__main (например, изменилась вёрстка сайта)."""
+    fake_session = _FakeTnsSession(
+        _login_page_html(), {"success": True, "data": {}},
+        {"isSuccess": True, "data": {"html": "<article>тут нет баланса</article>"}},
+    )
+    monkeypatch.setattr(tns_energo_business.requests, "Session", lambda: fake_session)
+
+    client = TnsEnergoBusinessBalanceClient("me@example.com", "mypassword", "yar")
     with pytest.raises(CounterpartyApiError):
         client.get_balance()
 

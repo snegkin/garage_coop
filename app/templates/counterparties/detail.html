@@ -122,8 +122,8 @@
           </div>
           <div class="mb-3">
             <label class="form-label">{{ _("Регион (поддомен личного кабинета)") }}</label>
-            <input class="form-control" name="extra" value="{{ cred.extra if cred and cred.extra else '' }}" placeholder="yar">
-            <div class="form-text">{{ _("Например, «yar» — из адреса lk-b2b-yar.tns-e.ru вашего личного кабинета.") }}</div>
+            <input class="form-control" name="extra" value="{{ cred.extra if cred and cred.extra else '' }}" required>
+            <div class="form-text">{{ _("Обязательно. Например, «yar» — из адреса lk-b2b-yar.tns-e.ru вашего личного кабинета.") }}</div>
           </div>
           {% endif %}
         </div>

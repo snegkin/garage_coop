@@ -15,7 +15,7 @@ from . import database, audit
 from .i18n import translate as _
 from .auth import roles_required
 from .models import RoleEnum, Counterparty
-from .counterparty_api import get_client
+from .counterparty_api import get_client, unsupported_reason
 from .counterparty_api.base import CounterpartyApiError
 
 bp = Blueprint("counterparty_sync", __name__, url_prefix="/counterparties/<int:counterparty_id>")
@@ -29,7 +29,8 @@ def sync_counterparty_balance(counterparty: Counterparty) -> tuple[str, str]:
     """
     client = get_client(counterparty)
     if client is None:
-        return "unsupported", _("Для этого контрагента не настроено или не поддерживается автоматическое обновление баланса.")
+        reason = unsupported_reason(counterparty)
+        return "unsupported", _("Автоматическое обновление баланса недоступно: {reason}.").format(reason=reason)
 
     try:
         info = client.get_balance()

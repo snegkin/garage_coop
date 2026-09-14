@@ -162,7 +162,12 @@ def delete(counterparty_id):
         flash(_("Нельзя удалить контрагента — по нему есть записи о расходах или платежах."), "danger")
         return redirect(url_for("counterparties.list_counterparties"))
 
-    if counterparty.api_credential is not None:
+    if counterparty.api_provider != CounterpartyApiProvider.NONE:
+        # Не проверяем api_credential напрямую — при смене провайдера на
+        # NONE старая запись кредов намеренно не удаляется (см.
+        # save_api_credential ниже, чтобы не терять введённые данные при
+        # временном отключении интеграции), но раз провайдер уже "Не
+        # используется", удалению контрагента это мешать не должно.
         flash(_("Нельзя удалить контрагента с настроенным API — сначала уберите API («Не используется») на карточке."), "danger")
         return redirect(url_for("counterparties.list_counterparties"))
 
@@ -190,6 +195,15 @@ def save_api_credential(counterparty_id):
         return redirect(url_for("counterparties.detail", counterparty_id=counterparty_id))
 
     f = request.form
+    if counterparty.api_provider == CounterpartyApiProvider.TNS_ENERGO_BUSINESS and not f.get("extra", "").strip():
+        # Регион обязателен — без него не собрать адрес lk-b2b-<регион>.tns-e.ru.
+        # Пример в подсказке формы ("yar") — только подсказка, не placeholder
+        # со значением по умолчанию: раньше он лежал в HTML-атрибуте
+        # placeholder и выглядел как "уже заполнено", из-за чего поле
+        # оставляли пустым, думая, что оно само подставится при сохранении.
+        flash(_("Для ТНС-Энерго Бизнес обязательно укажите регион (поддомен личного кабинета)."), "danger")
+        return redirect(url_for("counterparties.detail", counterparty_id=counterparty_id))
+
     cred = counterparty.api_credential
     if cred is None:
         cred = CounterpartyApiCredential(counterparty_id=counterparty.id)

@@ -36,21 +36,38 @@ POST с паролем открытым текстом сервер отклон
 4. POST /auth/ той же сессией: AUTH_TYPE=LEGAL, AUTH_ACTION=Войти,
    USER_LOGIN=<email>, __RSA_DATA=<собранное>. Поле USER_PASSWORD в форме
    реальный браузер НЕ отправляет (JS отключает input перед сабмитом).
-5. Баланс виден на любой странице ЛК после входа (подтверждено на живой
-   странице) — первый элемент с классом formattedValue__main. Если он не
-   найден в ответе — считаем, что вход не удался (неверный логин/пароль/
-   регион), а не пытаемся отличить это от прочих ошибок сайта.
-6. ЛК показывает долг кооператива ПОЛОЖИТЕЛЬНЫМ числом — обратный знак
+5. **Подтверждено живым запросом (с заведомо неверным паролем)**: ответ на
+   POST — JSON, не HTML: `{"success": bool, "errors": [...], "data": {...}}`,
+   Content-Type: application/json, без каких-либо AJAX-заголовков в
+   запросе. При `success: false` — понятный текст в errors (напр.
+   "Неверный логин или пароль") — именно это подтверждает, что наш
+   RSA-шаг РАБОТАЕТ: сервер сумел расшифровать __RSA_DATA и дошёл до
+   проверки пароля по существу, а не отверг запрос как испорченный.
+6. **Подтверждено живым запросом с НАСТОЯЩИМИ учётными данными**: при
+   `success: true` сама числовая величина баланса не приходит ни в этом
+   JSON, ни в HTML главной страницы ЛК (`/`) — виджет баланса в разметке
+   страницы — это `<div class="asyncLoader" data-js-async-loader="{...
+   &quot;url&quot;:&quot;/bitrix/services/main/ajax.php?mode=class&c=
+   delement:contract.balance.info&action=getBalance&template=balance&quot;
+   ...}">`, т.е. подгружается ОТДЕЛЬНЫМ AJAX-запросом уже после отрисовки
+   страницы (стандартный компонент 1С-Битрикс — "async component").
+   Достаточно POST на этот URL той же сессией (cookies) — ответ:
+   `{"isSuccess": true, "data": {"html": "<article>...<span
+   class=\"formattedValue__main\">3 314,09</span>...</article>"}}` —
+   тот же формат HTML-фрагмента внутри, что и раньше ожидалось на целой
+   странице, просто внутри JSON-обёртки. Число внутри — реальный баланс,
+   сверено с тем, что председатель видел глазами в браузере.
+7. ЛК показывает долг кооператива ПОЛОЖИТЕЛЬНЫМ числом — обратный знак
    по сравнению с конвенцией остальных провайдеров этого проекта
    (отрицательное = кооператив должен, см. CounterpartyApiProvider) —
    поэтому знак инвертируется перед возвратом.
 
-ЧЕСТНАЯ ОГОВОРКА (как и с API Сбербанка в этом проекте, см. context.md):
-сам факт, что эта самодельная реализация RSA-шага будет принята сервером
-Битрикса — живым логином не проверялся (нет тестовых учётных данных) и
-не может быть проверен без реального аккаунта. Первая реальная проверка —
-кнопка «Обновить баланс» после того, как председатель введёт настоящие
-логин/пароль/регион на карточке контрагента.
+Вся цепочка — от RSA-шифрования до самого числа баланса — подтверждена
+живыми запросами к lk-b2b-yar.tns-e.ru с настоящими учётными данными
+кооператива, включая сверку итогового числа с тем, что видно в браузере.
+Единственное, что остаётся неподтверждённым: ведёт ли себя так же ЛК
+других регионов ТНС-Энерго (не только yar) — общий шаблон Битрикса,
+скорее всего, идентичен, но не проверялось.
 """
 from __future__ import annotations
 
@@ -72,6 +89,10 @@ REQUEST_TIMEOUT = 15  # секунд — тот же порядок, что и �
 
 _RSASEC_MARKER = "rsasec_form_bind"
 _BALANCE_RE = re.compile(r'formattedValue__main["\']?[^>]*>\s*([^<]+?)\s*<')
+# Async-компонент Битрикса, отдающий HTML-фрагмент с балансом — подтверждено
+# живым запросом (см. докстринг модуля, шаг 6), найден по атрибуту
+# data-js-async-loader на главной странице ЛК после входа.
+_BALANCE_AJAX_PATH = "/bitrix/services/main/ajax.php?mode=class&c=delement:contract.balance.info&action=getBalance&template=balance"
 
 
 def _extract_rsa_params(html: str) -> dict:
@@ -172,7 +193,7 @@ class TnsEnergoBusinessBalanceClient(CounterpartyApiClient):
         rsa_data = _rsa_encrypt(plaintext, exponent, modulus, chunk_size)
 
         try:
-            result_page = session.post(
+            auth_resp = session.post(
                 f"{self.base_url}/auth/",
                 data={"AUTH_TYPE": "LEGAL", "AUTH_ACTION": "Войти", "USER_LOGIN": self.email, "__RSA_DATA": rsa_data},
                 timeout=REQUEST_TIMEOUT,
@@ -180,11 +201,46 @@ class TnsEnergoBusinessBalanceClient(CounterpartyApiClient):
         except requests.RequestException as exc:
             raise CounterpartyApiError(f"не удалось выполнить вход в ТНС-Энерго Бизнес: {exc}") from exc
 
-        amount = _extract_balance(result_page.text)
+        # Ответ на попытку входа — JSON (подтверждено живым запросом, см.
+        # докстринг модуля), не HTML: {"success": bool, "errors": [...]}.
+        # При success: false — понятный текст ошибки уже готов в errors,
+        # не нужно гадать по отсутствию виджета баланса.
+        try:
+            auth_payload = auth_resp.json()
+        except ValueError as exc:
+            raise CounterpartyApiError(f"ТНС-Энерго Бизнес вернул нераспознаваемый ответ на попытку входа: {exc}") from exc
+
+        if not auth_payload.get("success"):
+            errors = auth_payload.get("errors") or []
+            message = "; ".join(errors) if errors else "вход отклонён без описания причины"
+            raise CounterpartyApiError(f"ТНС-Энерго Бизнес: {message}")
+
+        # Баланс — отдельный async-компонент Битрикса (см. докстринг,
+        # шаг 6), не часть страницы входа и не часть обычной HTML-страницы
+        # ЛК — сессия (cookies) уже аутентифицирована после успешного POST
+        # выше, достаточно дёрнуть этот эндпоинт напрямую.
+        try:
+            balance_resp = session.post(f"{self.base_url}{_BALANCE_AJAX_PATH}", timeout=REQUEST_TIMEOUT)
+        except requests.RequestException as exc:
+            raise CounterpartyApiError(f"вход выполнен, но не удалось получить баланс: {exc}") from exc
+
+        try:
+            balance_payload = balance_resp.json()
+        except ValueError as exc:
+            raise CounterpartyApiError(f"ТНС-Энерго Бизнес вернул нераспознаваемый ответ на запрос баланса: {exc}") from exc
+
+        if not balance_payload.get("isSuccess"):
+            raise CounterpartyApiError(
+                "ТНС-Энерго Бизнес отклонил запрос баланса — возможно, сессия истекла "
+                "или логин/пароль/регион всё же неверны"
+            )
+
+        fragment_html = (balance_payload.get("data") or {}).get("html") or ""
+        amount = _extract_balance(fragment_html)
         if amount is None:
             raise CounterpartyApiError(
-                "не удалось найти баланс после входа в ТНС-Энерго Бизнес — "
-                "проверьте логин, пароль и регион (поддомен) личного кабинета"
+                "вход выполнен, но не удалось найти баланс в ответе сервера — "
+                "возможно, изменилась вёрстка сайта"
             )
 
         return BalanceInfo(amount=-amount, as_of=dt.date.today())

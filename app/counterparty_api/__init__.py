@@ -32,6 +32,7 @@ from __future__ import annotations
 
 from ..models import Counterparty, CounterpartyApiProvider
 from ..bank_api import crypto
+from ..i18n import translate as _
 from .base import CounterpartyApiClient
 from .smsaero import SmsAeroBalanceClient
 from .beget import BegetBalanceClient
@@ -44,7 +45,10 @@ SUPPORTED_PROVIDERS = {
 
 def get_client(counterparty: Counterparty) -> CounterpartyApiClient | None:
     """None — интеграция не настроена или не реализована (вызывающий код
-    показывает понятное сообщение вместо падения)."""
+    показывает понятное сообщение вместо падения). Если нужно объяснить
+    пользователю КОНКРЕТНО, чего не хватает — см. unsupported_reason()
+    ниже, вызывается отдельно (get_client() сам не формирует текст, чтобы
+    не путать «клиент не построен» с «объяснение причины»)."""
     if counterparty.api_provider not in SUPPORTED_PROVIDERS:
         return None
 
@@ -65,3 +69,28 @@ def get_client(counterparty: Counterparty) -> CounterpartyApiClient | None:
         return TnsEnergoBusinessBalanceClient(cred.login, secret, cred.extra)
 
     return None
+
+
+def unsupported_reason(counterparty: Counterparty) -> str:
+    """Человекочитаемое объяснение, ПОЧЕМУ get_client(counterparty) вернул
+    None — чтобы председатель/правление сами понимали, чего не хватает
+    (не выбран провайдер? не сохранились логин/пароль? для ТНС-Энерго
+    Бизнес — не указан регион?), не гадая и не прося разработчика лезть в
+    БД. Вызывать только когда уже известно, что get_client() дал None —
+    сама по себе не проверяет, поддержан ли провайдер вообще успешно."""
+    if counterparty.api_provider == CounterpartyApiProvider.NONE:
+        return _("не выбран API — установите его в настройках контрагента")
+    if counterparty.api_provider not in SUPPORTED_PROVIDERS:
+        return _("этот провайдер выбран, но пока не реализован")
+
+    cred = counterparty.api_credential
+    if cred is None or not cred.login:
+        return _("не указан логин — заполните его кнопкой «Настроить API»")
+    if not cred.secret_encrypted:
+        return _("не указан пароль/API-ключ — заполните его кнопкой «Настроить API»")
+    if crypto.decrypt(cred.secret_encrypted) is None:
+        return _("не удалось расшифровать сохранённый секрет — сохраните пароль/API-ключ заново")
+    if counterparty.api_provider == CounterpartyApiProvider.TNS_ENERGO_BUSINESS and not cred.extra:
+        return _("не указан регион (поддомен личного кабинета) — заполните его кнопкой «Настроить API»")
+
+    return _("неизвестная причина")

@@ -1698,22 +1698,34 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Логин/пароль или API-ключ вводятся отдельно, кнопкой «Настроить API» на карточке контрагента после сохранения.":
             "The login/password or API key are entered separately, via the «Configure API» button on the vendor's page after saving.",
         "Баланс личного кабинета": "Personal-cabinet balance",
+        "Баланс р-ов": "Settlement bal.",
+        "Баланс ЛК": "Cabinet bal.",
         "не путать с балансом расчётов выше": "not to be confused with the settlement balance above",
         "ещё не обновлялся": "not updated yet",
         "Последняя ошибка": "Last error",
-        "Для этого контрагента не настроено или не поддерживается автоматическое обновление баланса.":
-            "This vendor has no configured or supported automatic balance update.",
+        "Автоматическое обновление баланса недоступно: {reason}.": "Automatic balance update isn't available: {reason}.",
+        "не выбран API — установите его в настройках контрагента": "no API selected — set one in the vendor's settings",
+        "этот провайдер выбран, но пока не реализован": "this provider is selected, but not implemented yet",
+        "не указан логин — заполните его кнопкой «Настроить API»": "no login specified — fill it in via the «Configure API» button",
+        "не указан пароль/API-ключ — заполните его кнопкой «Настроить API»": "no password/API key specified — fill it in via the «Configure API» button",
+        "не удалось расшифровать сохранённый секрет — сохраните пароль/API-ключ заново":
+            "couldn't decrypt the saved secret — save the password/API key again",
+        "не указан регион (поддомен личного кабинета) — заполните его кнопкой «Настроить API»":
+            "no region specified (personal cabinet subdomain) — fill it in via the «Configure API» button",
+        "неизвестная причина": "unknown reason",
         "Не удалось получить баланс: {error}": "Failed to fetch balance: {error}",
         "Баланс обновлён: {amount} ₽": "Balance updated: {amount} ₽",
         "Контрагент не найден.": "Vendor not found.",
         "Сначала выберите API в настройках контрагента.": "First select an API in the vendor's settings.",
+        "Для ТНС-Энерго Бизнес обязательно укажите регион (поддомен личного кабинета).":
+            "For TNS-Energo Business, the region (personal cabinet subdomain) is required.",
+        "Обязательно. Например, «yar» — из адреса lk-b2b-yar.tns-e.ru вашего личного кабинета.":
+            "Required. For example, “yar” — from your personal cabinet's address, lk-b2b-yar.tns-e.ru.",
         "Настройки API сохранены.": "API settings saved.",
         "Нельзя удалить контрагента с настроенным API — сначала уберите API («Не используется») на карточке.":
             "Can't delete a vendor with a configured API — first remove the API (“Not used”) on its page.",
         "Email личного кабинета": "Personal cabinet email",
         "Регион (поддомен личного кабинета)": "Region (personal cabinet subdomain)",
-        "Например, «yar» — из адреса lk-b2b-yar.tns-e.ru вашего личного кабинета.":
-            "For example, “yar” — from your personal cabinet's address, lk-b2b-yar.tns-e.ru.",
 
         # error pages / form-input safety net (app/errors.py, error.html)
         "Доступ запрещён": "Access denied",

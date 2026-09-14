@@ -8,7 +8,7 @@ from . import audit
 from .i18n import translate as _, parse_decimal, parse_optional_decimal as _parse_decimal
 from .auth import roles_required
 from .models import (
-    Counterparty, Expense, CounterpartyPayment, ReconciliationAct,
+    Counterparty, CounterpartyApiProvider, CounterpartyApiCredential, Expense, CounterpartyPayment, ReconciliationAct,
     BankAccount, BankStatementLine, Document, DocumentType, RoleEnum,
 )
 from .accounting import (
@@ -17,6 +17,7 @@ from .accounting import (
     reverse_counterparty_payment, delete_counterparty_payment_reversal,
 )
 from .uploads import save_upload
+from .bank_api import crypto
 
 bp = Blueprint("counterparties", __name__, url_prefix="/counterparties")
 
@@ -81,6 +82,16 @@ def _save_expense_documents(
     return documents
 
 
+def _parse_api_provider(value: str | None) -> CounterpartyApiProvider:
+    """Значение <select> ограничено enum'ом на разметке, но форма — обычный
+    POST, поэтому не доверяем ему вслепую: неизвестное/пустое значение —
+    NONE, как и было бы у только что созданного контрагента."""
+    try:
+        return CounterpartyApiProvider(value)
+    except ValueError:
+        return CounterpartyApiProvider.NONE
+
+
 @bp.route("/")
 @roles_required(RoleEnum.BOARD)
 def list_counterparties():
@@ -104,6 +115,7 @@ def create():
         comment=f.get("comment") or None,
         opening_balance=_parse_decimal(f.get("opening_balance")),
         opening_balance_date=dt.date.fromisoformat(f["opening_balance_date"]) if f.get("opening_balance_date") else None,
+        api_provider=_parse_api_provider(f.get("api_provider")),
     )
     database.db_session.add(counterparty)
     database.db_session.flush()
@@ -132,6 +144,7 @@ def edit(counterparty_id):
     counterparty.opening_balance = _parse_decimal(f.get("opening_balance"))
     opening_date = f.get("opening_balance_date")
     counterparty.opening_balance_date = dt.date.fromisoformat(opening_date) if opening_date else None
+    counterparty.api_provider = _parse_api_provider(f.get("api_provider"))
     audit.record("counterparty.edit", f"Изменены данные контрагента: {counterparty.name}", entity_type="counterparty", entity_id=counterparty.id)
     database.db_session.commit()
     flash(_("Данные контрагента обновлены."), "success")
@@ -149,11 +162,49 @@ def delete(counterparty_id):
         flash(_("Нельзя удалить контрагента — по нему есть записи о расходах или платежах."), "danger")
         return redirect(url_for("counterparties.list_counterparties"))
 
+    if counterparty.api_credential is not None:
+        flash(_("Нельзя удалить контрагента с настроенным API — сначала уберите API («Не используется») на карточке."), "danger")
+        return redirect(url_for("counterparties.list_counterparties"))
+
     audit.record("counterparty.delete", f"Удалён контрагент: {counterparty.name}")
     database.db_session.delete(counterparty)
     database.db_session.commit()
     flash(_("Контрагент удалён."), "success")
     return redirect(url_for("counterparties.list_counterparties"))
+
+
+@bp.route("/<int:counterparty_id>/api-credential", methods=["POST"])
+@roles_required(RoleEnum.BOARD)
+def save_api_credential(counterparty_id):
+    """Логин/секрет для API контрагента (SMS Aero, Beget и т.п., см.
+    CounterpartyApiCredential) — единая точка настройки на карточке
+    контрагента, независимо от провайдера. Пустой secret оставляет
+    прежнее значение (не заставляем правление вводить его заново при
+    правке одного лишь логина/подписи) — тот же приём, что у client_secret
+    банка/App Secret eWeLink."""
+    counterparty = database.db_session.get(Counterparty, counterparty_id)
+    if counterparty is None:
+        abort(404)
+    if counterparty.api_provider == CounterpartyApiProvider.NONE:
+        flash(_("Сначала выберите API в настройках контрагента."), "danger")
+        return redirect(url_for("counterparties.detail", counterparty_id=counterparty_id))
+
+    f = request.form
+    cred = counterparty.api_credential
+    if cred is None:
+        cred = CounterpartyApiCredential(counterparty_id=counterparty.id)
+        database.db_session.add(cred)
+
+    cred.login = f.get("login", "").strip() or None
+    secret = f.get("secret", "").strip()
+    if secret:
+        cred.secret_encrypted = crypto.encrypt(secret)
+    cred.extra = f.get("extra", "").strip() or None
+
+    audit.record("counterparty_api.credential_save", f"Обновлены реквизиты API контрагента: {counterparty.name}", entity_type="counterparty", entity_id=counterparty.id)
+    database.db_session.commit()
+    flash(_("Настройки API сохранены."), "success")
+    return redirect(url_for("counterparties.detail", counterparty_id=counterparty_id))
 
 
 # ---------------------------------------------------------------------------

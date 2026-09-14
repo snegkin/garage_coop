@@ -17,7 +17,7 @@ from . import recaptcha
 from .mail_client import MailError
 from .rate_limit import limiter
 from .i18n import translate as _
-from .models import User, RoleEnum, Person, Phone, MailboxSettings, SmsSettings, Cooperative, VerificationCode, VerificationCodePurpose
+from .models import User, RoleEnum, Person, Phone, MailboxSettings, Cooperative, VerificationCode, VerificationCodePurpose
 from .login_generation import generate_unique_login
 from .sms import get_sms_client, SmsError, sms_site_identifier
 
@@ -249,8 +249,7 @@ def login_by_phone():
     user = database.db_session.query(User).filter_by(person_id=person.id).first()
 
     if user is None:
-        sms_settings = database.db_session.query(SmsSettings).first()
-        client = get_sms_client(sms_settings)
+        client = get_sms_client()
         if client is None:
             flash(_("СМС-уведомления пока не настроены — обратитесь к председателю."), "danger")
             return redirect(url_for("auth.login"))
@@ -322,8 +321,7 @@ def register_phone_resend():
         flash(_("Запросите код заново, указав телефон и пароль."), "danger")
         return redirect(url_for("auth.login"))
 
-    sms_settings = database.db_session.query(SmsSettings).first()
-    client = get_sms_client(sms_settings)
+    client = get_sms_client()
     if client is None:
         flash(_("СМС-уведомления пока не настроены — обратитесь к председателю."), "danger")
         return redirect(url_for("auth.login"))
@@ -448,8 +446,7 @@ def forgot_password():
                     except MailError:
                         pass
             else:
-                sms_settings = database.db_session.query(SmsSettings).first()
-                client = get_sms_client(sms_settings)
+                client = get_sms_client()
                 if client is not None:
                     try:
                         client.send(target, _sms_code_text(_("Код для восстановления пароля"), code))

@@ -1,13 +1,16 @@
 """
-Настройки СМС-провайдера (`/sms/`) — используется для подтверждения
-номера телефона при самостоятельной регистрации и для восстановления
-пароля по телефону (см. app/auth.py, app/verification.py, app/sms/).
-Настраивает только председатель — тот же принцип, что у почты/eWeLink/
-API банка (app/mailbox.py, app/electricity_monitor.py, app/bank_sync.py).
+Настройки СМС (`/sms/`) — используется для подтверждения номера телефона
+при самостоятельной регистрации и для восстановления пароля по телефону
+(см. app/auth.py, app/verification.py, app/sms/). Настраивает только
+председатель — тот же принцип, что у почты/eWeLink/API банка
+(app/mailbox.py, app/electricity_monitor.py, app/bank_sync.py).
 
-Сейчас реализован только провайдер SMS Aero (models.SmsProvider) — поле
-provider уже есть в модели на случай добавления второго агрегатора позже
-(см. app/sms/__init__.py:get_sms_client).
+Сама страница НЕ хранит email/API-ключ — только ссылку на то, какой
+контрагент (раздел «Контрагенты») сейчас обслуживает отправку
+(SmsSettings.counterparty_id, см. app/models.py). Реквизиты вводятся на
+карточке этого контрагента, кнопкой «Настроить API» (app/counterparties.py)
+— тот же приём, что и у Beget/будущих провайдеров, чтобы не было разных
+мест настройки для разных контрагентов.
 """
 import datetime as dt
 import re
@@ -18,9 +21,8 @@ from . import database
 from . import audit
 from .i18n import translate as _
 from .auth import roles_required
-from .models import RoleEnum, SmsSettings, SmsProvider, SmsLog, Cooperative
-from .bank_api import crypto
-from .sms import get_sms_client, SmsError, sms_site_identifier
+from .models import RoleEnum, SmsSettings, Counterparty, CounterpartyApiProvider, SmsLog, Cooperative
+from .sms import get_sms_client, SmsError, sms_site_identifier, SMS_CAPABLE_PROVIDERS
 
 bp = Blueprint("sms_settings", __name__, url_prefix="/sms")
 
@@ -65,9 +67,16 @@ def view():
         .limit(500)
         .all()
     )
+    eligible_counterparties = (
+        database.db_session.query(Counterparty)
+        .filter(Counterparty.api_provider.in_(SMS_CAPABLE_PROVIDERS))
+        .order_by(Counterparty.name)
+        .all()
+    )
     return render_template(
         "sms_settings/page.html", settings=settings,
-        is_configured=get_sms_client(settings) is not None,
+        eligible_counterparties=eligible_counterparties,
+        is_configured=get_sms_client() is not None,
         entries=entries,
     )
 
@@ -75,18 +84,12 @@ def view():
 @bp.route("/settings", methods=["POST"])
 @roles_required(RoleEnum.CHAIRMAN)
 def save_settings():
-    """Пустое поле api_key оставляет прежнее значение (не заставляем
-    председателя вводить его заново при каждой правке email/подписи) —
-    тот же приём, что и у App Secret eWeLink/client_secret банка."""
+    """Сами email/api_key здесь больше не задаются — только выбор
+    контрагента, который их предоставляет (см. докстринг модуля).
+    Реквизиты настраиваются на карточке контрагента."""
     settings = _get_or_create_settings()
-    f = request.form
-
-    settings.provider = SmsProvider.SMSAERO
-    settings.smsaero_email = f.get("smsaero_email", "").strip() or None
-    api_key = f.get("smsaero_api_key", "").strip()
-    if api_key:
-        settings.smsaero_api_key_encrypted = crypto.encrypt(api_key)
-    settings.sender_sign = f.get("sender_sign", "").strip() or None
+    counterparty_id = request.form.get("counterparty_id", "").strip()
+    settings.counterparty_id = int(counterparty_id) if counterparty_id else None
 
     database.db_session.commit()
     flash(_("Настройки СМС сохранены."), "success")
@@ -97,9 +100,9 @@ def save_settings():
 @roles_required(RoleEnum.CHAIRMAN)
 def send_test():
     settings = _get_or_create_settings()
-    client = get_sms_client(settings)
+    client = get_sms_client()
     if client is None:
-        flash(_("Сначала укажите email и API-ключ SMS Aero."), "warning")
+        flash(_("Сначала выберите контрагента и настройте его API — см. раздел «Контрагенты»."), "warning")
         return redirect(url_for("sms_settings.view"))
 
     test_phone = request.form.get("test_phone", "").strip()

@@ -38,7 +38,7 @@ class _FakeSmsClient:
 @pytest.fixture()
 def fake_sms(monkeypatch):
     client = _FakeSmsClient()
-    monkeypatch.setattr("app.auth.get_sms_client", lambda settings: client)
+    monkeypatch.setattr("app.auth.get_sms_client", lambda: client)
     return client
 
 

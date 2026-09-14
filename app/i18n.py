@@ -99,14 +99,17 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Используется для подтверждения номера телефона при самостоятельной регистрации и для восстановления пароля по телефону.":
             "Used to confirm phone numbers during self-registration and for password recovery by phone.",
         "СМС настроены и готовы к отправке.": "SMS is configured and ready to send.",
-        "СМС ещё не настроены — регистрация и восстановление пароля по телефону не будут работать, пока не заполните email и API-ключ SMS Aero.":
-            "SMS isn't configured yet — phone registration and password recovery by phone won't work until you fill in the SMS Aero email and API key.",
-        "Провайдер": "Provider",
-        "Пока поддерживается только SMS Aero.": "Only SMS Aero is supported for now.",
+        "СМС ещё не настроены — регистрация и восстановление пароля по телефону не будут работать, пока не выберете контрагента и не заполните его API-ключ.":
+            "SMS isn't configured yet — phone registration and password recovery by phone won't work until you select a vendor and fill in its API key.",
+        "Контрагент, обслуживающий отправку SMS": "Vendor providing SMS sending",
+        "Email/API-ключ настраиваются на карточке контрагента, кнопкой «Настроить API».": "The email/API key are set on the vendor's page, via the «Configure API» button.",
+        "Подходящих контрагентов нет.": "No matching vendors.",
+        "Заведите контрагента с API = SMS Aero в разделе «Контрагенты»": "Add a vendor with API = SMS Aero in the “Vendors” section",
+        "Сначала выберите контрагента и настройте его API — см. раздел «Контрагенты».": "First select a vendor and configure its API — see the “Vendors” section.",
         "Email аккаунта SMS Aero": "SMS Aero account email",
         "API-ключ": "API key",
         "Личный кабинет SMS Aero → Профиль → API-ключ (не пароль от личного кабинета).": "SMS Aero account → Profile → API key (not your account password).",
-        "Имя отправителя (sign)": "Sender name (sign)",
+        "Подпись отправителя (необязательно)": "Sender sign (optional)",
         "Если зарегистрировано у провайдера — иначе используется значение по умолчанию SMS Aero.":
             "If registered with the provider — otherwise SMS Aero's default is used.",
         "Настройки СМС сохранены.": "SMS settings saved.",
@@ -121,7 +124,6 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Отправить": "Send",
         "Последний результат": "Last result",
         "Успешно отправлено.": "Sent successfully.",
-        "Сначала укажите email и API-ключ SMS Aero.": "First enter the SMS Aero email and API key.",
         "Укажите корректный номер телефона для теста.": "Enter a valid phone number for the test.",
         "необязательно": "optional",
         "Тестовое сообщение из системы учёта кооператива.": "Test message from the cooperative management system.",
@@ -1689,6 +1691,29 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "Couldn't find an account by number or by payer name for this registry entry.",
         "Зачислено (за вычетом комиссии)": "Credited (net of fee)",
         "комиссия": "fee",
+
+        # counterparty API integration (personal-cabinet balance, separate from the settlement balance)
+        "API для баланса личного кабинета": "API for personal-cabinet balance",
+        "Не используется": "Not used",
+        "Логин/пароль или API-ключ вводятся отдельно, кнопкой «Настроить API» на карточке контрагента после сохранения.":
+            "The login/password or API key are entered separately, via the «Configure API» button on the vendor's page after saving.",
+        "Баланс личного кабинета": "Personal-cabinet balance",
+        "не путать с балансом расчётов выше": "not to be confused with the settlement balance above",
+        "ещё не обновлялся": "not updated yet",
+        "Последняя ошибка": "Last error",
+        "Для этого контрагента не настроено или не поддерживается автоматическое обновление баланса.":
+            "This vendor has no configured or supported automatic balance update.",
+        "Не удалось получить баланс: {error}": "Failed to fetch balance: {error}",
+        "Баланс обновлён: {amount} ₽": "Balance updated: {amount} ₽",
+        "Контрагент не найден.": "Vendor not found.",
+        "Сначала выберите API в настройках контрагента.": "First select an API in the vendor's settings.",
+        "Настройки API сохранены.": "API settings saved.",
+        "Нельзя удалить контрагента с настроенным API — сначала уберите API («Не используется») на карточке.":
+            "Can't delete a vendor with a configured API — first remove the API (“Not used”) on its page.",
+        "Email личного кабинета": "Personal cabinet email",
+        "Регион (поддомен личного кабинета)": "Region (personal cabinet subdomain)",
+        "Например, «yar» — из адреса lk-b2b-yar.tns-e.ru вашего личного кабинета.":
+            "For example, “yar” — from your personal cabinet's address, lk-b2b-yar.tns-e.ru.",
 
         # error pages / form-input safety net (app/errors.py, error.html)
         "Доступ запрещён": "Access denied",

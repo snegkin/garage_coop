@@ -8,7 +8,7 @@
 <p class="text-muted">{{ _("Используется для подтверждения номера телефона при самостоятельной регистрации и для восстановления пароля по телефону.") }}</p>
 
 {% if not is_configured %}
-<div class="alert alert-warning">{{ _("СМС ещё не настроены — регистрация и восстановление пароля по телефону не будут работать, пока не заполните email и API-ключ SMS Aero.") }}</div>
+<div class="alert alert-warning">{{ _("СМС ещё не настроены — регистрация и восстановление пароля по телефону не будут работать, пока не выберете контрагента и не заполните его API-ключ.") }}</div>
 {% endif %}
 
 <h5 class="mb-3">{{ _("Журнал отправленных СМС") }}</h5>
@@ -64,27 +64,30 @@
       <div class="modal-body">
         <form method="post" action="{{ url_for('sms_settings.save_settings') }}" id="smsSettingsForm">
           <div class="mb-3">
-            <label class="form-label">{{ _("Провайдер") }}</label>
-            <input class="form-control" value="SMS Aero" disabled>
-            <div class="form-text">{{ _("Пока поддерживается только SMS Aero.") }}</div>
-          </div>
-          <div class="mb-3">
-            <label class="form-label">{{ _("Email аккаунта SMS Aero") }}</label>
-            <input class="form-control" type="text" name="smsaero_email" value="{{ settings.smsaero_email or '' }}">
-          </div>
-          <div class="mb-3">
-            <label class="form-label">{{ _("API-ключ") }}</label>
-            <input class="form-control" type="password" name="smsaero_api_key" placeholder="{{ _('оставьте пустым, чтобы не менять') if settings.smsaero_api_key_encrypted else '' }}">
-            <div class="form-text">{{ _("Личный кабинет SMS Aero → Профиль → API-ключ (не пароль от личного кабинета).") }}</div>
-          </div>
-          <div class="mb-3">
-            <label class="form-label">{{ _("Имя отправителя (sign)") }}</label>
-            <input class="form-control" type="text" name="sender_sign" value="{{ settings.sender_sign or '' }}" placeholder="{{ _('необязательно') }}">
-            <div class="form-text">{{ _("Если зарегистрировано у провайдера — иначе используется значение по умолчанию SMS Aero.") }}</div>
+            <label class="form-label">{{ _("Контрагент, обслуживающий отправку SMS") }}</label>
+            <select class="form-select" name="counterparty_id" data-searchable>
+              <option value="">{{ _("— не выбран —") }}</option>
+              {% for c in eligible_counterparties %}
+              <option value="{{ c.id }}" {{ "selected" if settings.counterparty_id == c.id }}>{{ c.name }}</option>
+              {% endfor %}
+            </select>
+            {% if eligible_counterparties %}
+            <div class="form-text">
+              {{ _("Email/API-ключ настраиваются на карточке контрагента, кнопкой «Настроить API».") }}
+              {% if settings.counterparty %}
+              <a href="{{ url_for('counterparties.detail', counterparty_id=settings.counterparty.id) }}">{{ _("Открыть карточку") }} «{{ settings.counterparty.name }}»</a>.
+              {% endif %}
+            </div>
+            {% else %}
+            <div class="form-text">
+              {{ _("Подходящих контрагентов нет.") }}
+              <a href="{{ url_for('counterparties.list_counterparties') }}">{{ _("Заведите контрагента с API = SMS Aero в разделе «Контрагенты»") }}</a>.
+            </div>
+            {% endif %}
           </div>
         </form>
 
-        {% if settings.smsaero_email and settings.smsaero_api_key_encrypted %}
+        {% if is_configured %}
         <hr>
         <h6 class="mb-3">{{ _("Тестовая отправка") }}</h6>
         <form method="post" action="{{ url_for('sms_settings.send_test') }}" class="row g-2 align-items-end">

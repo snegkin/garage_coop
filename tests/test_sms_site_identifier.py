@@ -13,7 +13,8 @@ from unittest.mock import patch
 import pytest
 
 from app.sms import sms_site_identifier
-from app.models import Cooperative, RoleEnum, Phone
+from app.models import Cooperative, RoleEnum, Phone, Counterparty, CounterpartyApiProvider, CounterpartyApiCredential, SmsSettings
+from app.bank_api import crypto
 
 from tests.conftest import make_person, make_user, login
 
@@ -26,6 +27,18 @@ def _make_coop(db, **kwargs):
     db.add(coop)
     db.flush()
     return coop
+
+
+def _configure_smsaero(db, email="me@example.com", api_key="secretkey123"):
+    """Креды теперь на карточке контрагента, SmsSettings — только ссылка
+    на него (см. app/sms/__init__.py)."""
+    counterparty = Counterparty(name="SMS Aero", api_provider=CounterpartyApiProvider.SMSAERO)
+    db.add(counterparty)
+    db.flush()
+    db.add(CounterpartyApiCredential(counterparty_id=counterparty.id, login=email, secret_encrypted=crypto.encrypt(api_key)))
+    db.add(SmsSettings(counterparty_id=counterparty.id))
+    db.flush()
+    return counterparty
 
 
 class _FakeSmsClient:
@@ -47,7 +60,7 @@ class _FakeSmsClient:
 @pytest.fixture()
 def fake_sms(monkeypatch):
     client = _FakeSmsClient()
-    monkeypatch.setattr("app.auth.get_sms_client", lambda settings: client)
+    monkeypatch.setattr("app.auth.get_sms_client", lambda: client)
     return client
 
 
@@ -174,8 +187,9 @@ def test_settings_test_message_includes_website(db, client):
     person = make_person(db, full_name="Председателев Пред Предович")
     make_user(db, "chair1", "pass12345", role=RoleEnum.CHAIRMAN, person=person)
     db.commit()
+    _configure_smsaero(db)
+    db.commit()
     login(client, "chair1", "pass12345")
-    client.post("/sms/settings", data={"smsaero_email": "me@example.com", "smsaero_api_key": "secretkey123"})
 
     with patch("app.sms.smsaero.requests.post") as mock_post:
         mock_post.return_value.status_code = 200

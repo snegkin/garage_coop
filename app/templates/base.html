@@ -1403,17 +1403,17 @@ function runContentScripts(root) {
 // (уже обработаны выше — у них свой JSON-контракт под конкретную задачу) и
 // формы с opt-out атрибутом data-no-ajax (задел на случай формы, которой
 // это не подходит — сейчас такой нет ни одной).
-document.addEventListener("submit", function (e) {
-  var form = e.target;
-  if (form.classList.contains("js-quick-charge-form") || form.classList.contains("js-quick-payment-form")) return;
-  if (form.hasAttribute("data-no-ajax")) return;
-  if (e.defaultPrevented) return; // confirm() внутри onsubmit уже вернул false — пользователь отменил действие
-
+// Вынесено в функцию (а не только внутрь обработчика submit ниже), чтобы её
+// можно было вызвать и напрямую — см. finance/member_account_detail.html: там
+// та же форма ведёт на роут с двойным контрактом (JSON для быстрых модалок на
+// СТРАНИЦЕ ГАРАЖА/ЧЕЛОВЕКА, обычный redirect+flash для этой самой страницы) —
+// заголовок X-Requested-With как раз и выбирает между ними на сервере, поэтому
+// для этого конкретного случая заголовок нужно не слать (opts.sendAjaxHeader
+// = false), иначе страница счёта получит вместо HTML тот же JSON.
+function submitFormAjax(form, opts) {
+  opts = opts || {};
+  var sendAjaxHeader = opts.sendAjaxHeader !== false;
   var modalEl = form.closest(".modal");
-  var isConfirmedAction = form.hasAttribute("onsubmit");
-  var isOptIn = form.hasAttribute("data-ajax");
-  if (!modalEl && !isConfirmedAction && !isOptIn) return;
-  e.preventDefault();
 
   var submitButton = modalEl
     ? modalEl.querySelector('.modal-footer button:not([type="button"])')
@@ -1449,7 +1449,7 @@ document.addEventListener("submit", function (e) {
   fetch(form.action, {
     method: "POST",
     body: new FormData(form),
-    headers: { "X-Requested-With": "XMLHttpRequest" },
+    headers: sendAjaxHeader ? { "X-Requested-With": "XMLHttpRequest" } : {},
   })
     .then(function (resp) {
       var landedUrl = new URL(resp.url, window.location.href);
@@ -1494,6 +1494,21 @@ document.addEventListener("submit", function (e) {
     .catch(function () {
       window.location.reload();
     });
+}
+
+document.addEventListener("submit", function (e) {
+  var form = e.target;
+  if (form.classList.contains("js-quick-charge-form") || form.classList.contains("js-quick-payment-form")) return;
+  if (form.hasAttribute("data-no-ajax")) return;
+  if (e.defaultPrevented) return; // confirm() внутри onsubmit уже вернул false — пользователь отменил действие
+
+  var modalEl = form.closest(".modal");
+  var isConfirmedAction = form.hasAttribute("onsubmit");
+  var isOptIn = form.hasAttribute("data-ajax");
+  if (!modalEl && !isConfirmedAction && !isOptIn) return;
+  e.preventDefault();
+
+  submitFormAjax(form);
 });
 </script>
 <script>

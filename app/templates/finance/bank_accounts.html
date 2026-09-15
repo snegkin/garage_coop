@@ -50,7 +50,7 @@
             {% if is_chairman() %}
             <li><hr class="dropdown-divider"></li>
             <li>
-              <form method="post" action="{{ url_for('bank_sync.sync_balance', account_id=account.id) }}" class="d-inline">
+              <form method="post" action="{{ url_for('bank_sync.sync_balance', account_id=account.id) }}" class="d-inline" data-ajax>
                 <button class="dropdown-item">{{ _("Обновить баланс") }}</button>
               </form>
             </li>

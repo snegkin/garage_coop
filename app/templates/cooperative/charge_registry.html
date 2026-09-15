@@ -12,7 +12,7 @@
 <p>{{ _("Сейчас в долгах") }}: <strong>{{ pending_count }}</strong> {{ _("лицевых счетов на сумму") }} <strong>{{ fmt2(pending_total) }} ₽</strong></p>
 
 {% if is_chairman() %}
-<form method="post" action="{{ url_for('bank_sync.send_charge_registry', account_id=account.id) }}" class="d-flex align-items-end gap-2 mb-2 flex-wrap">
+<form method="post" action="{{ url_for('bank_sync.send_charge_registry', account_id=account.id) }}" class="d-flex align-items-end gap-2 mb-2 flex-wrap" data-ajax>
   <div>
     <label class="form-label mb-0">{{ _("Период") }}</label>
     <input class="form-control" name="period" placeholder="{{ _("например, август 2026") }}" required>
@@ -53,7 +53,7 @@
       {% if is_chairman() %}
       <td>
         {% if batch.external_id %}
-        <form method="post" action="{{ url_for('bank_sync.refresh_charge_registry', account_id=account.id, batch_id=batch.id) }}">
+        <form method="post" action="{{ url_for('bank_sync.refresh_charge_registry', account_id=account.id, batch_id=batch.id) }}" data-ajax>
           <button class="btn btn-sm btn-outline-secondary">{{ _("Обновить статус") }}</button>
         </form>
         {% endif %}

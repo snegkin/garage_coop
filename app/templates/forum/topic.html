@@ -8,7 +8,7 @@
   </h3>
   <div class="d-flex gap-2 text-nowrap">
     {% if is_board() %}
-    <form method="post" action="{{ url_for('forum.reopen_topic' if topic.is_closed else 'forum.close_topic', topic_id=topic.id) }}">
+    <form method="post" action="{{ url_for('forum.reopen_topic' if topic.is_closed else 'forum.close_topic', topic_id=topic.id) }}" data-ajax>
       <button class="btn btn-sm btn-outline-secondary">{{ _("Открыть тему") if topic.is_closed else _("Закрыть тему") }}</button>
     </form>
     {% endif %}
@@ -54,7 +54,7 @@
 {% else %}
 <div class="bg-body p-4 rounded border">
   <h5 class="mb-3">{{ _("Ответить") }}</h5>
-  <form method="post" action="{{ url_for('forum.reply', topic_id=topic.id) }}">
+  <form method="post" action="{{ url_for('forum.reply', topic_id=topic.id) }}" data-ajax>
     {% include "forum/_editor.html" %}
     <div class="d-flex justify-content-end mt-3">
       <button class="btn btn-primary">{{ _("Отправить") }}</button>

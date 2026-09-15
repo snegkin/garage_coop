@@ -69,7 +69,7 @@
     {% if my_ballot %}
     <p class="text-muted small">{{ _("Вы уже проголосовали") }} «{{ choice_label[my_ballot.choice.value] }}» — {{ _("можно переголосовать, пока предложение на рассмотрении.") }}</p>
     {% endif %}
-    <form method="post" action="{{ url_for('proposals.board_vote', proposal_id=proposal.id) }}">
+    <form method="post" action="{{ url_for('proposals.board_vote', proposal_id=proposal.id) }}" data-ajax>
       <div class="mb-2">
         <label class="form-label small">{{ _("Комментарий (необязательно)") }}</label>
         <textarea class="form-control form-control-sm" name="comment" rows="2" placeholder="{{ _('Обоснуйте своё решение — комментарий будет виден всем.') }}">{{ my_ballot.comment or '' if my_ballot else '' }}</textarea>

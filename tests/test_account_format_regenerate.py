@@ -103,17 +103,58 @@ def test_regenerate_reports_conflict(app, db, client):
     assert db.get(MemberAccount, to_fix.id).account_number == "WRONG"  # не переименован — конфликт
 
 
-def test_account_format_page_lists_only_fee_types_with_type_code(app, db, client):
-    _fee_type(db, code="land_tax", name="Земельный налог", type_code="1")
-    _fee_type(db, code="target", name="Целевой взнос", type_code=None)
+def test_account_format_page_shows_all_types_but_regenerate_only_with_type_code(app, db, client):
+    land_tax = _fee_type(db, code="land_tax", name="Земельный налог", type_code="1")
+    target = _fee_type(db, code="target", name="Целевой взнос", type_code=None)
     make_user(db, "chair_fmt4", "pass12345", role=RoleEnum.CHAIRMAN)
     db.commit()
 
     login(client, "chair_fmt4", "pass12345")
     resp = client.get("/finance/account-format")
     assert resp.status_code == 200
-    assert "Земельный налог".encode() in resp.data
-    assert "Целевой взнос".encode() not in resp.data
+    # Оба вида показаны (названия/комментарии редактируются для всех) —
+    # но кнопка "Переименовать по формату" — только там, где есть формула.
+    assert f'name="scope" value="{land_tax.id}"'.encode() in resp.data
+    assert f'name="scope" value="{target.id}"'.encode() not in resp.data
+
+
+def test_bulk_update_fee_type_names_and_comments(app, db, client):
+    land_tax = _fee_type(db, code="land_tax", name="Земельный налог", type_code="1")
+    membership = _fee_type(db, code="membership", name="Членский взнос", type_code="2")
+    make_user(db, "chair_fmt6", "pass12345", role=RoleEnum.CHAIRMAN)
+    db.commit()
+
+    login(client, "chair_fmt6", "pass12345")
+    resp = client.post("/finance/account-format/fee-types", data={
+        f"name_{land_tax.id}": "Земельный налог (ААА)",
+        f"comment_{land_tax.id}": "по кадастровой стоимости",
+        f"name_{membership.id}": "Членский взнос",  # без изменений
+        f"comment_{membership.id}": "",
+    })
+    assert resp.status_code == 302
+
+    db.expire_all()
+    updated_land = db.get(FeeType, land_tax.id)
+    updated_member = db.get(FeeType, membership.id)
+    assert updated_land.name == "Земельный налог (ААА)"
+    assert updated_land.comment == "по кадастровой стоимости"
+    assert updated_member.name == "Членский взнос"
+
+    log = db.query(AuditLog).filter_by(action="fee_type.bulk_update").one()
+    assert "1" in log.summary  # изменён только один из двух
+
+
+def test_bulk_update_skips_blank_name(app, db, client):
+    """Пустое название не стирает существующее — пропускаем такой вид."""
+    land_tax = _fee_type(db, code="land_tax", name="Земельный налог", type_code="1")
+    make_user(db, "chair_fmt7", "pass12345", role=RoleEnum.CHAIRMAN)
+    db.commit()
+
+    login(client, "chair_fmt7", "pass12345")
+    client.post("/finance/account-format/fee-types", data={f"name_{land_tax.id}": "   "})
+
+    db.expire_all()
+    assert db.get(FeeType, land_tax.id).name == "Земельный налог"
 
 
 def test_regenerate_invalid_scope_404(app, db, client):

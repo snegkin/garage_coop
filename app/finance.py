@@ -1193,19 +1193,17 @@ def account_format():
             flash(_("Формат обновлён. Уже существующие номера оставлены как есть — новый формат применяется только к новым счетам."), "success")
         return redirect(url_for("finance.account_format"))
 
-    # Виды взноса, у которых вообще есть формула номера (type_code) — для
-    # них ниже отдельная кнопка "Переименовать по формату" на каждый вид
-    # (см. account_format_regenerate); у ручных видов без type_code (напр.
-    # "целевой взнос") номер по формуле не считается вовсе, показывать
-    # для них кнопку было бы нечестно — она ничего не изменит.
-    fee_types = (
-        database.db_session.query(FeeType)
-        .filter(FeeType.type_code.isnot(None))
-        .order_by(FeeType.is_penalty, FeeType.name)
-        .all()
-    )
+    # Все виды взноса — таблица ниже совмещает две независимые вещи:
+    # массовое редактирование названия/комментария (для ЛЮБОГО вида, см.
+    # account_format_update_fee_types) и кнопку "Переименовать по формату"
+    # (только для видов с type_code, см. account_format_regenerate — у
+    # ручных видов без него, напр. "целевой взнос", номер по формуле не
+    # считается вовсе, кнопка ничего бы не изменила).
+    fee_types = database.db_session.query(FeeType).order_by(FeeType.is_penalty, FeeType.name).all()
     fee_type_examples = {}
     for ft in fee_types:
+        if not ft.type_code:
+            continue
         if ft.per_garage:
             fee_type_examples[ft.id] = member_account_number(ft.type_code, 95, 0, ft.is_penalty, settings)
         else:
@@ -1262,6 +1260,45 @@ def account_format_regenerate():
         ), "warning")
     else:
         flash(_("«{label}»: приведено к формату — {changed}.", label=label, changed=changed), "success")
+    return redirect(url_for("finance.account_format"))
+
+
+@bp.route("/account-format/fee-types", methods=["POST"])
+@roles_required(RoleEnum.CHAIRMAN)
+def account_format_update_fee_types():
+    """
+    Массовое редактирование названия/комментария видов взноса — прямо в
+    таблице на /finance/account-format (см. её же кнопки "Переименовать по
+    формату" рядом), одной кнопкой сразу для всех видов, а не по одному
+    через /finance/fee-types (та страница — только для СОЗДАНИЯ новых
+    видов). Поля называются name_<id>/comment_<id> — по одному полю на
+    каждый существующий FeeType, независимо от того, есть ли у него
+    type_code (в отличие от кнопок переименования номеров, комментарий
+    осмыслен для любого вида, включая "целевой взнос").
+    """
+    f = request.form
+    fee_types = database.db_session.query(FeeType).all()
+    changed = 0
+    for ft in fee_types:
+        if f"name_{ft.id}" not in f:
+            continue
+        new_name = f.get(f"name_{ft.id}", "").strip()
+        new_comment = (f.get(f"comment_{ft.id}") or "").strip() or None
+        if not new_name:
+            continue  # пустое название — не стираем, пропускаем этот вид
+        if new_name == ft.name and new_comment == ft.comment:
+            continue
+        ft.name = new_name
+        ft.comment = new_comment
+        changed += 1
+
+    if changed:
+        audit.record("fee_type.bulk_update", f"Массово обновлены название/комментарий у видов взноса: {changed}")
+        database.db_session.commit()
+        flash(_("Обновлено видов взноса: {n}.", n=changed), "success")
+    else:
+        database.db_session.rollback()
+        flash(_("Изменений не найдено."), "info")
     return redirect(url_for("finance.account_format"))
 
 

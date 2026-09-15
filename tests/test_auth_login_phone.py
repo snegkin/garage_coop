@@ -27,8 +27,9 @@ class _FakeSmsClient:
     def __init__(self):
         self.sent = []  # [(phone_digits, text)]
 
-    def send(self, phone_digits, text):
+    def send(self, phone_digits, text, **kwargs):
         self.sent.append((phone_digits, text))
+        return None
 
     def last_code(self):
         """Достаёт 6-значный код из последнего отправленного текста —

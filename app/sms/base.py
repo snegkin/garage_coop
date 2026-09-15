@@ -17,9 +17,12 @@ class SmsError(Exception):
 
 class SmsClient(abc.ABC):
     @abc.abstractmethod
-    def send(self, phone_digits: str, text: str) -> None:
+    def send(self, phone_digits: str, text: str) -> str | None:
         """phone_digits — только цифры, российский номер без "+"/"8"
         (см. auth._normalize_phone_digits — 10 цифр без кода страны;
         конкретный клиент сам достраивает код страны, если он ему нужен
-        в этом виде). Кидает SmsError при неудаче, ничего не возвращает
-        при успехе."""
+        в этом виде). Кидает SmsError при неудаче. Возвращает id сообщения
+        у провайдера, если он его отдаёт (см. SmsAeroClient.send) — по
+        нему потом можно узнать реальную стоимость отправки (см.
+        scripts/reconcile_sms_charges.py); None, если провайдер id не
+        вернул или отправка не платная в контексте вызова."""

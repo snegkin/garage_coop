@@ -21,7 +21,11 @@
 </nav>
 {% endif %}
 <h3 class="mb-1">
+  {% if account.garage %}
   <a href="{{ url_for('garages.detail', garage_id=account.garage.id) }}" class="link-body-emphasis text-decoration-none">&larr; {{ account.fee_type.name }} — {{ account.person.full_name }} — {{ _("гараж") }} №{{ account.garage.number }}</a>
+  {% else %}
+  <a href="{{ url_for('persons.detail', person_id=account.person.id) }}" class="link-body-emphasis text-decoration-none">&larr; {{ account.fee_type.name }} — {{ account.person.full_name }}</a>
+  {% endif %}
   {% if account.is_archived %}<span class="badge bg-secondary">{{ _("архив") }}</span>{% endif %}
 </h3>
 {% if account.is_archived %}
@@ -184,7 +188,7 @@
               <option value=""></option>
               {% for t in transferable_accounts %}
               {% set t_balance = transferable_balances[t.id] %}
-              <option value="{{ t.id }}">{{ t.account_number }} — {{ t.person.full_name }} — {{ t.fee_type.name }}, {{ _("гараж") }} №{{ t.garage.number }} ({{ _("баланс") }} {{ fmt2(t_balance) }} ₽)</option>
+              <option value="{{ t.id }}">{{ t.account_number }} — {{ t.person.full_name }} — {{ t.fee_type.name }}{% if t.garage %}, {{ _("гараж") }} №{{ t.garage.number }}{% endif %} ({{ _("баланс") }} {{ fmt2(t_balance) }} ₽)</option>
               {% endfor %}
             </select>
           </div>

@@ -32,7 +32,7 @@ from . import penalty
 from . import name_declension
 from .i18n import translate as _
 from .auth import roles_required
-from .accounting import balance
+from .accounting import balance, reallocate_member_charges
 from .persons import build_statement
 from .models import (
     Person, Cooperative, CourtSection, RoleEnum, MemberAccount, PersonalAccount,
@@ -671,6 +671,68 @@ def state_duty_print():
             "legal_docs/state_duty_print.html", **context,
         )
     return render_template("legal_docs/state_duty_print.html", **context)
+
+
+@bp.route("/state-duty/charge", methods=["POST"])
+@roles_required(RoleEnum.BOARD)
+def state_duty_charge():
+    """
+    Начисляет уплаченную кооперативом госпошлину на личный счёт каждого
+    должника (вид взноса "telecom_disputes", FeeType.per_garage=False —
+    один счёт на человека, см. её докстринг) — отдельной кнопкой на самой
+    квитанции (state_duty_print.html), вручную, ПОСЛЕ того как госпошлина
+    реально уплачена: сам факт печати квитанции (state_duty_print) ещё не
+    значит, что деньги ушли — оплата происходит вне системы (банк/касса
+    суда), автоматической привязки к реальному платежу нет.
+
+    Суммы — те же hidden-поля duty_amount_{person_id}, что и в форме
+    «Скачать PDF» на той же странице (см. state_duty_print.html) — то, что
+    председатель в итоге напечатал и по факту оплатил, а не пересчитанная
+    заново подсказка (сумма госпошлины могла быть скорректирована вручную
+    перед печатью, см. suggest_state_duty).
+    """
+    person_ids = request.form.getlist("person_id")
+    fee_type = database.db_session.query(FeeType).filter_by(code="telecom_disputes").first()
+    if fee_type is None:
+        flash(_("Вид взноса «Телекоммуникационные услуги и споры» не найден — обратитесь к разработчику."), "danger")
+        return redirect(url_for("legal_docs.state_duty"))
+
+    charged = 0
+    for person_id_raw in person_ids:
+        person_id = int(person_id_raw)
+        raw_amount = request.form.get(f"duty_amount_{person_id}", "").strip().replace(",", ".")
+        try:
+            amount = Decimal(raw_amount) if raw_amount else Decimal("0")
+        except Exception:
+            amount = Decimal("0")
+        if amount <= 0:
+            continue
+        account = (
+            database.db_session.query(MemberAccount)
+            .filter_by(person_id=person_id, fee_type_id=fee_type.id, garage_id=None, is_archived=False)
+            .first()
+        )
+        if account is None:
+            continue  # не должно случаться в норме — счёт заводится автоматически всем текущим членам (garages.add_owner)
+        person = database.db_session.get(Person, person_id)
+        database.db_session.add(Charge(
+            account_id=account.id, year=dt.date.today().year, amount=amount,
+            comment=_("Госпошлина по иску, уплаченная кооперативом"),
+        ))
+        database.db_session.flush()
+        reallocate_member_charges(account)
+        audit.record(
+            "legal.state_duty_charged", entity_type="member_account", entity_id=account.id,
+            summary=f"Начислена госпошлина {audit.format_amount(amount)} на счёт {account.account_number} "
+                    f"({person.short_name if person else person_id})",
+        )
+        charged += 1
+    database.db_session.commit()
+    if charged:
+        flash(_("Госпошлина начислена на {n} счёт(ов).", n=charged), "success")
+    else:
+        flash(_("Нечего начислять — суммы не указаны, либо у должников не найден личный счёт."), "warning")
+    return redirect(url_for("legal_docs.state_duty"))
 
 
 # ---------------------------------------------------------------------------

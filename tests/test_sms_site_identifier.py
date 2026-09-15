@@ -45,8 +45,13 @@ class _FakeSmsClient:
     def __init__(self):
         self.sent = []
 
-    def send(self, phone_digits, text):
+    def send(self, phone_digits, text, **kwargs):
+        # **kwargs — purpose/person_id, см. app/sms/__init__.py:_LoggingSmsClient.send
+        # (auth.forgot_password их передаёт; эта заглушка подменяет
+        # get_sms_client() целиком, минуя _LoggingSmsClient, поэтому тоже
+        # должна их принимать, не падая).
         self.sent.append((phone_digits, text))
+        return None
 
     def last_text(self):
         return self.sent[-1][1]

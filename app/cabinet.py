@@ -312,10 +312,19 @@ def garages():
             .options(joinedload(MemberAccount.charges))
             .all()
         )
+        personal_accounts = []
         for acc in accounts:
             if acc.fee_type.is_penalty and not acc.charges:
                 continue
-            member_accounts_by_garage.setdefault(acc.garage_id, []).append(acc)
+            # garage_id=None — счета вида взноса с FeeType.per_garage=False
+            # (платное SMS для восстановления пароля, госпошлина, см. её
+            # докстринг) — ни к одному из гаражей ниже не относятся, эта
+            # страница сгруппирована по гаражам, поэтому для них отдельный
+            # список вместо группировки (см. cabinet/garages.html).
+            if acc.garage_id is None:
+                personal_accounts.append(acc)
+            else:
+                member_accounts_by_garage.setdefault(acc.garage_id, []).append(acc)
         for garage in [o.garage for o in ownerships] + contact_garages:
             if garage.account is not None:
                 electricity_by_garage[garage.id] = (garage.account, account_balance(garage))
@@ -323,4 +332,5 @@ def garages():
         "cabinet/garages.html", person=person, ownerships=ownerships, contact_garages=contact_garages,
         member_accounts_by_garage=member_accounts_by_garage,
         electricity_by_garage=electricity_by_garage,
+        personal_accounts=[(acc, account_balance(acc)) for acc in personal_accounts] if person is not None else [],
     )

@@ -30,7 +30,7 @@
 
 {% if is_board() %}
 <div class="d-flex align-items-center gap-2 mb-2">
-  <form method="post" action="{{ url_for('finance.update_member_account_number', account_id=account.id) }}" class="d-flex align-items-center gap-2" id="accountNumberForm">
+  <form method="post" action="{{ url_for('finance.update_member_account_number', account_id=account.id) }}" class="d-flex align-items-center gap-2" id="accountNumberForm" data-ajax>
     <label class="form-label mb-0">{{ _("Номер счёта") }}:</label>
     <input class="form-control form-control-sm" style="max-width:160px" name="account_number" id="accountNumberInput" value="{{ account.account_number }}">
     <button type="button" class="btn btn-sm btn-outline-secondary" id="defaultAccountNumberBtn">{{ _("По умолчанию") }}</button>
@@ -91,7 +91,7 @@
     </table>
 
     {% if is_board() %}
-    <form method="post" action="{{ url_for('finance.add_member_charge', account_id=account.id) }}" class="border rounded p-3 bg-body">
+    <form method="post" action="{{ url_for('finance.add_member_charge', account_id=account.id) }}" class="border rounded p-3 bg-body js-account-page-form">
       <div class="row g-2">
         <div class="col-4">
           <input class="form-control form-control-sm" type="number" name="year" placeholder="{{ _('год') }}" value="2026" required>
@@ -143,7 +143,7 @@
       </tbody>
     </table>
 
-    <form method="post" action="{{ url_for('finance.add_member_payment', account_id=account.id) }}" class="border rounded p-3 bg-body">
+    <form method="post" action="{{ url_for('finance.add_member_payment', account_id=account.id) }}" class="border rounded p-3 bg-body js-account-page-form">
       <div class="row g-2">
         <div class="col-4">
           <input class="form-control form-control-sm" type="date" name="date" value="{{ today.isoformat() }}" required>
@@ -274,7 +274,7 @@
 {% endif %}
 
 <script>
-document.addEventListener("DOMContentLoaded", function () {
+(function () {
   // «По умолчанию» — только СЧИТАЕТ номер по формуле (см.
   // finance.suggest_member_account_number) и подставляет его в поле, не
   // сохраняя сразу: председатель успевает посмотреть/поправить перед тем,
@@ -306,6 +306,23 @@ document.addEventListener("DOMContentLoaded", function () {
         errorBox.textContent = "{{ _("Не удалось выполнить запрос — проверьте соединение и попробуйте ещё раз.") }}";
         errorBox.classList.remove("d-none");
       });
+  });
+})();
+
+// Начисление/платёж на этой странице ведут на роут с двойным контрактом
+// (см. finance.add_member_charge/add_member_payment): при заголовке
+// X-Requested-With он отдаёт JSON — это нужно быстрым модалкам на странице
+// гаража/человека (js-quick-charge-form/js-quick-payment-form), а не этой
+// форме. Поэтому сюда не подходит общий data-ajax (см. submitFormAjax в
+// base.html) — вызываем ту же функцию напрямую, но без AJAX-заголовка,
+// чтобы роут отдал обычный redirect+flash, как для формы с выключенным JS,
+// а дальше он сам подменит #mainContent. Отдельная (не вложенная в IIFE
+// выше) — та завершается раньше времени, если нет кнопки «По умолчанию»
+// (не is_board()), а эти формы видны и без него.
+document.querySelectorAll(".js-account-page-form").forEach(function (form) {
+  form.addEventListener("submit", function (e) {
+    e.preventDefault();
+    submitFormAjax(form, { sendAjaxHeader: false });
   });
 });
 </script>

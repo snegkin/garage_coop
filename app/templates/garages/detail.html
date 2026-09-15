@@ -65,7 +65,7 @@
         <p><strong>{{ _("Дата приватизации участка") }}:</strong> {{ fmt_date(garage.land_privatization_date) if garage.land_privatization_date else "—" }}</p>
         {% endif %}
         {% if is_board() %}
-        <form method="post" action="{{ url_for('garages.update_comment', garage_id=garage.id) }}" class="mb-2">
+        <form method="post" action="{{ url_for('garages.update_comment', garage_id=garage.id) }}" class="mb-2" data-ajax>
           <label class="form-label mb-1"><strong>{{ _("Комментарий") }}</strong></label>
           <div class="d-flex gap-2">
             <input class="form-control form-control-sm" name="comment" value="{{ garage.comment or '' }}">
@@ -116,7 +116,7 @@
             <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
           </div>
           <div class="modal-body">
-            <form method="post" action="{{ url_for('garages.update_owner_share', garage_id=garage.id, ownership_id=o.id) }}">
+            <form method="post" action="{{ url_for('garages.update_owner_share', garage_id=garage.id, ownership_id=o.id) }}" id="editShareForm-{{ o.id }}">
               <div class="mb-3">
                 <label class="form-label">{{ _("Доля (0...1, например 0.5 для 50%)") }}</label>
                 <input class="form-control form-control-sm" type="text" inputmode="decimal" name="share" value="{{ o.share }}" required>
@@ -134,7 +134,6 @@
         </div>
       </div>
     </div>
-    <form method="post" action="{{ url_for('garages.update_owner_share', garage_id=garage.id, ownership_id=o.id) }}" id="editShareForm-{{ o.id }}" style="display:none"></form>
 
     <div class="modal fade" id="removeOwnerModal-{{ o.id }}" tabindex="-1" aria-hidden="true">
       <div class="modal-dialog">
@@ -190,7 +189,7 @@
     {% endif %}
     {% endfor %}
 
-    <form method="post" action="{{ url_for('garages.add_owner', garage_id=garage.id) }}" class="d-flex gap-2 mb-4">
+    <form method="post" action="{{ url_for('garages.add_owner', garage_id=garage.id) }}" class="d-flex gap-2 mb-4" data-ajax>
       <select name="person_id" class="form-select form-select-sm" style="max-width:220px" data-searchable required>
         <option value=""></option>
         {% for p in all_persons %}<option value="{{ p.id }}">{{ p.full_name }}</option>{% endfor %}
@@ -262,7 +261,7 @@
     {% endfor %}
     {% endif %}
     {% if is_board() or is_owner %}
-    <form method="post" action="{{ url_for('garages.add_contact', garage_id=garage.id) }}" class="d-flex gap-2">
+    <form method="post" action="{{ url_for('garages.add_contact', garage_id=garage.id) }}" class="d-flex gap-2" data-ajax>
       <select name="person_id" class="form-select form-select-sm" id="contactPersonSelect" data-searchable required>
         <option value=""></option>
         {% for p in all_persons %}
@@ -340,7 +339,7 @@
       <img src="{{ url_for('garages.photo_file', photo_id=photo.id) }}" class="card-img-top gallery-thumb" style="height:150px;object-fit:cover;cursor:pointer" data-gallery-index="{{ loop.index0 }}">
       <div class="card-body p-2">
         {% if is_board() %}
-        <form method="post" action="{{ url_for('garages.edit_photo', garage_id=garage.id, photo_id=photo.id) }}" enctype="multipart/form-data" class="mb-1">
+        <form method="post" action="{{ url_for('garages.edit_photo', garage_id=garage.id, photo_id=photo.id) }}" enctype="multipart/form-data" class="mb-1" data-ajax>
           <input class="form-control form-control-sm mb-1" name="caption" value="{{ photo.caption or '' }}" placeholder="{{ _('Подпись') }}">
           <input class="form-control form-control-sm mb-1" type="file" name="file" accept="image/*">
           <div class="d-flex gap-1">
@@ -408,7 +407,7 @@
 {% endif %}
 
 {% if is_board() %}
-<form method="post" action="{{ url_for('garages.add_photo', garage_id=garage.id) }}" enctype="multipart/form-data" class="d-flex gap-2 border rounded p-3 bg-body mb-4" style="max-width:600px">
+<form method="post" action="{{ url_for('garages.add_photo', garage_id=garage.id) }}" enctype="multipart/form-data" class="d-flex gap-2 border rounded p-3 bg-body mb-4" style="max-width:600px" data-ajax>
   <input class="form-control form-control-sm" type="file" name="file" accept="image/*" required>
   <input class="form-control form-control-sm" name="caption" placeholder="{{ _('Подпись (необязательно)') }}">
   <button class="btn btn-sm btn-primary">{{ _("Загрузить фото") }}</button>
@@ -446,7 +445,7 @@
 </div>
 
 {% if is_board() or is_owner %}
-<form method="post" action="{{ url_for('garages.add_document_photo', garage_id=garage.id) }}" enctype="multipart/form-data" class="d-flex gap-2 border rounded p-3 bg-body mb-4">
+<form method="post" action="{{ url_for('garages.add_document_photo', garage_id=garage.id) }}" enctype="multipart/form-data" class="d-flex gap-2 border rounded p-3 bg-body mb-4" data-ajax>
   <select name="doc_type" class="form-select form-select-sm" style="max-width:220px">
     <option value="technical_plan">{{ garage_document_type_label('technical_plan') }}</option>
     <option value="usrn_extract">{{ garage_document_type_label('usrn_extract') }}</option>
@@ -647,7 +646,7 @@
     {% if account %}
     <p class="text-muted small">{{ _("Лицевой счёт на электричество — общий на гараж, без разбивки между собственниками.") }}</p>
     {% if is_board() %}
-    <form method="post" action="{{ url_for('garages.update_account_number', garage_id=garage.id) }}" class="d-flex align-items-center gap-2 mb-2">
+    <form method="post" action="{{ url_for('garages.update_account_number', garage_id=garage.id) }}" class="d-flex align-items-center gap-2 mb-2" data-ajax>
       <label class="form-label mb-0">{{ _("Номер счёта") }}:</label>
       <input class="form-control form-control-sm" style="max-width:160px" name="account_number" value="{{ account.account_number }}">
       <button class="btn btn-sm btn-primary">{{ _("Сохранить") }}</button>
@@ -662,7 +661,7 @@
 
     {% if current_meter and (is_board() or is_owner) %}
     <h6 class="mt-3">{{ _("Внести показания") }}</h6>
-    <form method="post" action="{{ url_for('garages.add_electricity_reading', garage_id=garage.id) }}" class="d-flex gap-2 border rounded p-3 bg-body">
+    <form method="post" action="{{ url_for('garages.add_electricity_reading', garage_id=garage.id) }}" class="d-flex gap-2 border rounded p-3 bg-body" data-ajax>
       <input class="form-control form-control-sm flex-grow-1" inputmode="decimal" name="reading" placeholder="{{ _('Показания') }}" required>
       <button class="btn btn-sm btn-primary text-nowrap">{{ _("Внести показания") }}</button>
     </form>
@@ -670,7 +669,7 @@
 
     {% if account and is_privileged() %}
     <h6 class="mt-3">{{ _("Зарегистрировать платёж") }}</h6>
-    <form method="post" action="{{ url_for('garages.add_payment', garage_id=garage.id) }}" class="border rounded p-3 bg-body">
+    <form method="post" action="{{ url_for('garages.add_payment', garage_id=garage.id) }}" class="border rounded p-3 bg-body" data-ajax>
       <div class="row g-2">
         <div class="col-4">
           <input class="form-control form-control-sm" type="date" name="date" value="{{ today.isoformat() }}" required>

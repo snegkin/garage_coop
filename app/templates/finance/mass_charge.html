@@ -3,7 +3,7 @@
 {% block content %}
 <h3 class="mb-3">{{ _("Массовое начисление на лицевые счета") }}</h3>
 
-<form method="post" class="row g-4">
+<form method="post" class="row g-4" data-ajax>
   <div class="col-md-7">
     <div class="bg-body p-4 rounded border h-100">
       <div class="row g-3">
@@ -266,7 +266,7 @@ function updatePreview() {
 }
 
 // Update preview on input change
-document.addEventListener("DOMContentLoaded", function () {
+(function () {
   const list = document.getElementById("garagePickerList");
   const filter = document.getElementById("garagePickerFilter");
   const selectAllBtn = document.getElementById("garagePickerSelectAll");
@@ -313,7 +313,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
   // Initial preview
   updatePreview();
-});
+})();
 </script>
 
 {% if results %}

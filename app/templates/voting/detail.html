@@ -100,7 +100,7 @@
 <div class="card bg-body mb-3">
   <div class="card-body">
     <h6 class="card-title">{{ _("Добавить вопрос повестки") }}</h6>
-    <form method="post" action="{{ url_for('voting.add_question', vote_id=vote.id) }}" class="row g-2">
+    <form method="post" action="{{ url_for('voting.add_question', vote_id=vote.id) }}" class="row g-2" data-ajax>
       <div class="col-12">
         <textarea class="form-control" name="text" rows="2" placeholder="{{ _('Текст вопроса') }}" required></textarea>
       </div>
@@ -114,7 +114,7 @@
   </div>
 </div>
 
-<form method="post" action="{{ url_for('voting.open_vote', vote_id=vote.id) }}">
+<form method="post" action="{{ url_for('voting.open_vote', vote_id=vote.id) }}" data-ajax>
   <button class="btn btn-primary" {{ 'disabled' if not vote.questions }}>{{ _("Открыть голосование") }}</button>
 </form>
 {% endif %}
@@ -178,7 +178,7 @@
       <p class="text-muted small">{{ _("Подписанный протокол ещё не прикреплён.") }}</p>
     {% endif %}
     {% if is_chairman() %}
-    <form method="post" action="{{ url_for('voting.attach_protocol', vote_id=vote.id) }}" enctype="multipart/form-data" class="row g-2 mt-1">
+    <form method="post" action="{{ url_for('voting.attach_protocol', vote_id=vote.id) }}" enctype="multipart/form-data" class="row g-2 mt-1" data-ajax>
       <div class="col-8"><input class="form-control form-control-sm" type="file" name="protocol_file" required></div>
       <div class="col-4"><button class="btn btn-sm btn-primary w-100">{{ _("Прикрепить") if not vote.protocol_document_id else _("Заменить") }}</button></div>
     </form>

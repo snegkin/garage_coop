@@ -22,7 +22,7 @@
     <div class="card bg-body mb-3">
       <div class="card-body">
         <h6 class="card-title">{{ _("Загрузить с cbr.ru") }}</h6>
-        <form method="post" action="{{ url_for('penalty.fetch_key_rate') }}" class="row g-2 align-items-end">
+        <form method="post" action="{{ url_for('penalty.fetch_key_rate') }}" class="row g-2 align-items-end" data-ajax>
           <div class="col-5">
             <label class="form-label">{{ _("С даты") }}</label>
             <input class="form-control form-control-sm" type="date" name="from_date" value="{{ suggested_from_date }}" required>
@@ -42,7 +42,7 @@
       <div class="card-body">
         <h6 class="card-title">{{ _("Внести вручную") }}</h6>
         <p class="text-muted small">{{ _("Если сайт ЦБ недоступен — можно завести ставку самостоятельно, по данным cbr.ru.") }}</p>
-        <form method="post" action="{{ url_for('penalty.add_manual_key_rate') }}" class="row g-2 align-items-end">
+        <form method="post" action="{{ url_for('penalty.add_manual_key_rate') }}" class="row g-2 align-items-end" data-ajax>
           <div class="col-5">
             <label class="form-label">{{ _("Действует с") }}</label>
             <input class="form-control form-control-sm" type="date" name="effective_date" required>

@@ -69,7 +69,7 @@
       {% endif %}
     </div>
     <div class="text-end">
-      <form method="post" action="{{ url_for('counterparty_sync.sync_balance', counterparty_id=counterparty.id) }}" class="d-inline">
+      <form method="post" action="{{ url_for('counterparty_sync.sync_balance', counterparty_id=counterparty.id) }}" class="d-inline" data-ajax>
         <button class="btn btn-outline-primary btn-sm">{{ _("Обновить баланс") }}</button>
       </form>
       <button class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#apiCredentialModal">{{ _("Настроить API") }}</button>
@@ -746,7 +746,7 @@
 // выборе счёт подставляется автоматически и блокируется от ручного
 // изменения, пока строка не будет очищена — иначе можно было бы случайно
 // сослаться на выписку одного банка, а списание указать с другого.
-document.addEventListener("DOMContentLoaded", function () {
+(function () {
   document.querySelectorAll('form').forEach(function (form) {
     var lineSelect = form.querySelector('select[name="bank_statement_line_id"]');
     var accountSelect = form.querySelector('select[name="bank_account_id"]');
@@ -809,6 +809,6 @@ document.addEventListener("DOMContentLoaded", function () {
       }
     });
   }
-});
+})();
 </script>
 {% endblock %}

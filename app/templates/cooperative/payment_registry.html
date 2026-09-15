@@ -10,7 +10,7 @@
 </p>
 
 {% if is_chairman() %}
-<form method="post" action="{{ url_for('bank_sync.upload_payment_registry_file', account_id=account.id) }}" enctype="multipart/form-data" class="d-flex align-items-end gap-2 mb-2 flex-wrap">
+<form method="post" action="{{ url_for('bank_sync.upload_payment_registry_file', account_id=account.id) }}" enctype="multipart/form-data" class="d-flex align-items-end gap-2 mb-2 flex-wrap" data-ajax>
   <div>
     <label class="form-label mb-0">{{ _("Или загрузить файл(ы) реестра вручную (CP1251)") }}</label>
     <input class="form-control" type="file" name="registry_file" accept=".txt,.csv" multiple required>
@@ -22,7 +22,7 @@
   <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('bank_sync.registry_format_settings', account_id=account.id) }}">{{ _("Настроить формат файла") }}</a>
 </p>
 {% if pending_entries %}
-<form method="post" action="{{ url_for('bank_sync.allocate_all_payment_registry_entries', account_id=account.id) }}" class="mb-3">
+<form method="post" action="{{ url_for('bank_sync.allocate_all_payment_registry_entries', account_id=account.id) }}" class="mb-3" data-ajax>
   <input type="hidden" name="date_from" value="{{ date_from.isoformat() if date_from else '' }}">
   <input type="hidden" name="date_to" value="{{ date_to.isoformat() if date_to else '' }}">
   <button class="btn btn-outline-primary">{{ _("Разнести всё возможное") }} ({{ pending_entries }})</button>
@@ -114,13 +114,13 @@
 </nav>
 
 {% if is_chairman() %}
-<form method="post" action="{{ url_for('bank_sync.match_registry_and_statement_manual', account_id=account.id) }}" class="d-inline">
+<form method="post" action="{{ url_for('bank_sync.match_registry_and_statement_manual', account_id=account.id) }}" class="d-inline" data-ajax>
   <button class="btn btn-sm btn-outline-secondary mt-2">{{ _("Сопоставить с выпиской") }}</button>
 </form>
 {% endif %}
 
 <script>
-document.addEventListener("DOMContentLoaded", function () {
+(function () {
   // «Разнести» — AJAX, чтобы не терять положение прокрутки: обычный
   // POST+redirect после нажатия внизу длинного списка возвращал бы
   // наверх страницы. Роут отдаёт JSON при заголовке X-Requested-With,
@@ -163,6 +163,6 @@ document.addEventListener("DOMContentLoaded", function () {
         });
     });
   });
-});
+})();
 </script>
 {% endblock %}

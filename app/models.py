@@ -1814,12 +1814,27 @@ class ElectricityReading(Base):
     charge: Mapped["Charge | None"] = relationship(back_populates="reading", uselist=False)
 
 
+class ElectricityTariffKind(str, enum.Enum):
+    """Раздельные тарифы: поставщик выставляет кооперативу свою ставку
+    (SUPPLIER — по ней считается MasterMeterReading, «входящая» сумма
+    долга перед поставщиком), кооператив выставляет счёт членам по своей,
+    не обязательно совпадающей (MEMBER — по ней считается ElectricityReading/
+    Charge, «исходящая» сумма начисления на лицевой счёт). Раньше это был
+    один и тот же тариф на обе стороны — разделено по прямой просьбе."""
+    SUPPLIER = "supplier"
+    MEMBER = "member"
+
+
 class ElectricityTariff(Base):
-    """История тарифов на электроэнергию (руб/кВт·ч). Действующим считается тариф
-    с последней effective_date, не позже даты, на которую он ищется."""
+    """История тарифов на электроэнергию (руб/кВт·ч), отдельно для каждого
+    kind (см. ElectricityTariffKind) — свой независимый список
+    effective_date у поставщика и у кооператива. Действующим считается
+    тариф этого kind с последней effective_date, не позже даты, на которую
+    он ищется (см. accounting.current_tariff)."""
     __tablename__ = "electricity_tariff"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    kind: Mapped[ElectricityTariffKind] = mapped_column(Enum(ElectricityTariffKind), default=ElectricityTariffKind.MEMBER, index=True)
     rate: Mapped[Decimal] = mapped_column(Numeric(10, 4))
     effective_date: Mapped[dt.date] = mapped_column(Date, index=True)
     comment: Mapped[str | None] = mapped_column(Text)

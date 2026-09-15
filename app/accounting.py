@@ -30,7 +30,7 @@ from sqlalchemy import func
 from . import database
 from .i18n import translate as _
 from .models import (
-    AccountNumberSettings, ElectricityTariff, ElectricitySettings, Cooperative, Garage, LandTaxYear,
+    AccountNumberSettings, ElectricityTariff, ElectricityTariffKind, ElectricitySettings, Cooperative, Garage, LandTaxYear,
     Charge, Payment, MemberAccount, FeeType, ChargeAllocation, KeyRate,
     Counterparty, Expense, CounterpartyPayment, ExpenseAllocation, BankAccount, GarageOwnership,
 )
@@ -674,13 +674,18 @@ def get_electricity_settings() -> ElectricitySettings:
     return settings
 
 
-def current_tariff(as_of: dt.date | None = None) -> ElectricityTariff | None:
-    """Действующий тариф на указанную дату (по умолчанию — сегодня): последняя
-    запись, у которой effective_date не позже этой даты."""
+def current_tariff(kind: ElectricityTariffKind, as_of: dt.date | None = None) -> ElectricityTariff | None:
+    """Действующий тариф заданного вида (SUPPLIER — по нему кооператив
+    платит поставщику, MEMBER — по нему платят члены кооперативу, см.
+    ElectricityTariffKind) на указанную дату (по умолчанию — сегодня):
+    последняя запись этого вида, у которой effective_date не позже этой
+    даты. kind обязателен (не имеет значения по умолчанию) — у каждого
+    вызывающего места однозначно свой вид, перепутать их означало бы
+    списывать с членов кооператива по тарифу поставщика или наоборот."""
     as_of = as_of or dt.date.today()
     return (
         database.db_session.query(ElectricityTariff)
-        .filter(ElectricityTariff.effective_date <= as_of)
+        .filter(ElectricityTariff.kind == kind, ElectricityTariff.effective_date <= as_of)
         .order_by(ElectricityTariff.effective_date.desc(), ElectricityTariff.id.desc())
         .first()
     )

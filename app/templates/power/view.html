@@ -4,7 +4,7 @@
 <h3 class="mb-3">{{ _("Электроэнергия") }}</h3>
 
 <div class="row g-4 mb-4">
-  <div class="col-md-6">
+  <div class="col-md-4">
     <div class="d-flex justify-content-between align-items-center mb-2">
       <h5 class="mb-0">{{ _("Поставщик электроэнергии") }}</h5>
       <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#supplierModal">
@@ -29,23 +29,54 @@
     {% endif %}
   </div>
 
-  <div class="col-md-6">
+  <div class="col-md-4">
     <div class="d-flex justify-content-between align-items-center mb-2">
-      <h5 class="mb-0">{{ _("Тариф") }}</h5>
-      <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#tariffModal">+ {{ _("Добавить тариф") }}</button>
+      <h5 class="mb-0">{{ _("Тариф поставщика") }}</h5>
+      <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#supplierTariffModal">+ {{ _("Добавить") }}</button>
     </div>
-    {% if tariff %}
-    <p class="fs-4 mb-1">{{ fmt2(tariff.rate) }} ₽/{{ _("кВт·ч") }}</p>
-    <p class="text-muted small">{{ _("действует с") }} {{ fmt_date(tariff.effective_date) }}</p>
+    <p class="text-muted small">{{ _("По этому тарифу считается сумма долга кооператива перед поставщиком (показания общего счётчика ниже).") }}</p>
+    {% if supplier_tariff %}
+    <p class="fs-4 mb-1">{{ fmt2(supplier_tariff.rate) }} ₽/{{ _("кВт·ч") }}</p>
+    <p class="text-muted small">{{ _("действует с") }} {{ fmt_date(supplier_tariff.effective_date) }}</p>
     {% else %}
     <p class="text-muted">{{ _("Тариф пока не задан.") }}</p>
     {% endif %}
 
-    {% if tariffs %}
+    {% if supplier_tariffs %}
     <table class="table table-sm bg-body sortable mt-2">
       <thead><tr><th>{{ _("Действует с") }}</th><th>{{ _("По") }}</th><th>{{ _("Тариф") }}</th><th>{{ _("Комментарий") }}</th></tr></thead>
       <tbody>
-        {% for t, end_date in tariffs %}
+        {% for t, end_date in supplier_tariffs %}
+        <tr>
+          <td data-sort-value="{{ t.effective_date }}">{{ fmt_date(t.effective_date) }}</td>
+          <td>{{ fmt_date(end_date) if end_date else _("действует сейчас") }}</td>
+          <td data-sort-value="{{ t.rate }}">{{ fmt2(t.rate) }} ₽</td>
+          <td>{{ t.comment or "—" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+  </div>
+
+  <div class="col-md-4">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <h5 class="mb-0">{{ _("Тариф для членов кооператива") }}</h5>
+      <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#memberTariffModal">+ {{ _("Добавить") }}</button>
+    </div>
+    <p class="text-muted small">{{ _("По этому тарифу считаются начисления за электричество на лицевые счета — показания в гаражах (раздел «Гаражи»).") }}</p>
+    {% if member_tariff %}
+    <p class="fs-4 mb-1">{{ fmt2(member_tariff.rate) }} ₽/{{ _("кВт·ч") }}</p>
+    <p class="text-muted small">{{ _("действует с") }} {{ fmt_date(member_tariff.effective_date) }}</p>
+    {% else %}
+    <p class="text-muted">{{ _("Тариф пока не задан.") }}</p>
+    {% endif %}
+
+    {% if member_tariffs %}
+    <table class="table table-sm bg-body sortable mt-2">
+      <thead><tr><th>{{ _("Действует с") }}</th><th>{{ _("По") }}</th><th>{{ _("Тариф") }}</th><th>{{ _("Комментарий") }}</th></tr></thead>
+      <tbody>
+        {% for t, end_date in member_tariffs %}
         <tr>
           <td data-sort-value="{{ t.effective_date }}">{{ fmt_date(t.effective_date) }}</td>
           <td>{{ fmt_date(end_date) if end_date else _("действует сейчас") }}</td>
@@ -133,18 +164,48 @@
     </div>
   </div>
 </div>
+
+<!-- Модалка: новый тариф поставщика -->
+<div class="modal fade" id="supplierTariffModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <form method="post" action="{{ url_for('power.add_tariff') }}">
+        <input type="hidden" name="kind" value="supplier">
+        <div class="modal-header">
+          <h5 class="modal-title">{{ _("Новый тариф поставщика") }}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">{{ _("Тариф, ₽/кВт·ч") }}</label>
+            <input class="form-control" name="rate" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">{{ _("Действует с") }}</label>
+            <input class="form-control" type="date" name="effective_date" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">{{ _("Комментарий") }}</label>
+            <textarea class="form-control" name="comment"></textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+          <button class="btn btn-primary">{{ _("Сохранить") }}</button>
+        </div>
       </form>
     </div>
   </div>
 </div>
 
-<!-- Модалка: новый тариф -->
-<div class="modal fade" id="tariffModal" tabindex="-1" aria-hidden="true">
+<!-- Модалка: новый тариф для членов кооператива -->
+<div class="modal fade" id="memberTariffModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg">
     <div class="modal-content">
       <form method="post" action="{{ url_for('power.add_tariff') }}">
+        <input type="hidden" name="kind" value="member">
         <div class="modal-header">
-          <h5 class="modal-title">{{ _("Новый тариф") }}</h5>
+          <h5 class="modal-title">{{ _("Новый тариф для членов кооператива") }}</h5>
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body">
@@ -237,10 +298,12 @@
 
 <script>
 (function () {
-  // Тариф и сумма в форме внесения показаний — чисто информационные readonly-поля,
-  // сервер сам определяет тариф по месяцу оплаты и сам считает сумму при сохранении.
+  // Тариф и сумма в форме внесения показаний общего счётчика — чисто
+  // информационные readonly-поля, сервер сам определяет тариф ПОСТАВЩИКА
+  // (не для членов — это разные значения, см. ElectricityTariffKind) по
+  // месяцу оплаты и сам считает сумму при сохранении.
   const allTariffs = [
-    {% for t, _end in tariffs %}
+    {% for t, _end in supplier_tariffs %}
     { rate: {{ t.rate }}, effective_date: "{{ t.effective_date.isoformat() }}" }{{ "," if not loop.last }}
     {% endfor %}
   ];

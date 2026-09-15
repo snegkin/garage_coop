@@ -303,16 +303,22 @@ def sync_account_balance(account: BankAccount) -> tuple[str, str]:
         database.db_session.commit()
         return "error", _("Не удалось получить баланс из банка: {error}").format(error=str(e))
 
+    # В журнал — только если баланс реально изменился (см. тот же приём в
+    # counterparty_sync.sync_counterparty_balance): этот прогон обычно
+    # ничего не находит (запускается и по cron, см. докстринг выше), писать
+    # запись на каждый такой "пустой" синк только шумело бы в журнале.
+    balance_changed = account.balance != info.amount
     account.balance = info.amount
     account.balance_updated_at = info.as_of
     cred.last_balance_sync_at = dt.datetime.utcnow()
     cred.last_error = None
     _persist_rotated_refresh_token(cred, client)
-    audit.record(
-        "bank_api.balance_sync", entity_type="bank_account", entity_id=account.id,
-        summary=f"Баланс счёта {account.bank_name} {account.checking_account} обновлён из банка: "
-                f"{audit.format_amount(info.amount)}",
-    )
+    if balance_changed:
+        audit.record(
+            "bank_api.balance_sync", entity_type="bank_account", entity_id=account.id,
+            summary=f"Баланс счёта {account.bank_name} {account.checking_account} обновлён из банка: "
+                    f"{audit.format_amount(info.amount)}",
+        )
     database.db_session.commit()
     return "success", _("Баланс обновлён из банка: {amount} ₽").format(amount=info.amount)
 
@@ -476,13 +482,19 @@ def sync_account_statement(account: BankAccount, date_from: dt.date, date_to: dt
     # Сопоставить новые строки выписки с записями реестра
     direct, parametric = _match_registry_and_statement(account.id)
 
-    audit.record(
-        "bank_api.statement_sync", entity_type="bank_account", entity_id=account.id,
-        summary=f"Загружена выписка счёта {account.bank_name} {account.checking_account} за "
-                f"{audit.format_date(date_from)}—{audit.format_date(date_to)}: {added} новых операций, "
-                f"{auto_allocated} разнесено автоматически, "
-                f"{direct + parametric} сопоставлено с реестром ({direct} прямых, {parametric} параметрических)",
-    )
+    # В журнал — только если что-то реально произошло: выписка за период
+    # часто пустая или целиком уже загружена раньше (added=0), и без новых
+    # непогашенных строк сопоставление с реестром тоже ничего не находит
+    # (direct=parametric=0) — такой "пустой" синк, что при ручном нажатии
+    # кнопки, что по cron, только шумел бы в журнале.
+    if added or auto_allocated or direct or parametric:
+        audit.record(
+            "bank_api.statement_sync", entity_type="bank_account", entity_id=account.id,
+            summary=f"Загружена выписка счёта {account.bank_name} {account.checking_account} за "
+                    f"{audit.format_date(date_from)}—{audit.format_date(date_to)}: {added} новых операций, "
+                    f"{auto_allocated} разнесено автоматически, "
+                    f"{direct + parametric} сопоставлено с реестром ({direct} прямых, {parametric} параметрических)",
+        )
     database.db_session.commit()
     stats = {"added": added, "auto_allocated": auto_allocated, "direct": direct, "parametric": parametric}
     return "success", _("Выписка обновлена: {n} новых операций.").format(n=added), stats

@@ -26,7 +26,7 @@ from app.accounting import balance
 from app.models import (
     RoleEnum, BankAccount, BankApiProvider, BankApiCredential, BankStatementLine,
     ChargeRegistryBatch, ChargeRegistryStatus, PaymentRegistryEntry,
-    MemberAccount, FeeType, Charge, Payment, GarageContact, PersonalAccount,
+    MemberAccount, FeeType, Charge, Payment, GarageContact, PersonalAccount, AuditLog,
 )
 
 from tests.conftest import make_person, make_garage, make_ownership, make_user, login
@@ -312,6 +312,24 @@ def test_sync_balance_error_is_recorded(app, db, client, monkeypatch):
     assert "банк недоступен" in updated.api_credential.last_error
 
 
+def test_sync_balance_unchanged_does_not_duplicate_audit_log(app, db, client, monkeypatch):
+    """Второй синк с тем же балансом — новой записи в журнале нет (не шумим)."""
+    account = make_bank_account(db, provider=BankApiProvider.SBERBANK)
+    make_credential(db, account)
+    make_user(db, "chair3b", "pass12345", role=RoleEnum.CHAIRMAN)
+    db.commit()
+    login(client, "chair3b", "pass12345")
+
+    stub = _StubClient(balance_result=BalanceInfo(amount=Decimal("12345.67"), as_of=dt.date(2026, 8, 24)))
+    monkeypatch.setattr(bank_sync, "get_client", lambda acc: stub)
+
+    client.post(f"/cooperative/bank-accounts/{account.id}/sync-balance")
+    client.post(f"/cooperative/bank-accounts/{account.id}/sync-balance")
+
+    logs = db.query(AuditLog).filter_by(action="bank_api.balance_sync", entity_id=account.id).all()
+    assert len(logs) == 1
+
+
 # ---------------------------------------------------------------------------
 # Выписка — дедупликация по external_uid
 # ---------------------------------------------------------------------------
@@ -340,6 +358,26 @@ def test_sync_statement_deduplicates_by_external_uid(app, db, client, monkeypatc
     assert resp.status_code == 302
     lines = database.db_session.query(BankStatementLine).filter_by(bank_account_id=account.id).all()
     assert len(lines) == 2  # дубль не добавился
+
+
+def test_sync_statement_empty_does_not_log_audit(app, db, client, monkeypatch):
+    """Выписка за период пустая (или целиком уже загружена раньше) — в журнал ничего не пишем."""
+    account = make_bank_account(db, provider=BankApiProvider.SBERBANK)
+    make_credential(db, account)
+    make_user(db, "chair5b", "pass12345", role=RoleEnum.CHAIRMAN)
+    db.commit()
+    login(client, "chair5b", "pass12345")
+
+    stub = _StubClient(statement_result=[])
+    monkeypatch.setattr(bank_sync, "get_client", lambda acc: stub)
+
+    resp = client.post(
+        f"/cooperative/bank-accounts/{account.id}/sync-statement",
+        data={"date_from": "2026-08-01", "date_to": "2026-08-02"},
+    )
+    assert resp.status_code == 302
+    logs = db.query(AuditLog).filter_by(action="bank_api.statement_sync", entity_id=account.id).all()
+    assert len(logs) == 0
 
 
 # ---------------------------------------------------------------------------

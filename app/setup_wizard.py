@@ -32,7 +32,7 @@ from .i18n import translate as _, parse_decimal, parse_optional_decimal as _pars
 from .auth import roles_required
 from .permissions import sync_user_role
 from .models import (
-    Cooperative, BankAccount, Counterparty, ElectricitySettings, ElectricityTariff,
+    Cooperative, BankAccount, Counterparty, ElectricitySettings, ElectricityTariff, ElectricityTariffKind,
     MasterMeterReading, Garage, GarageOwnership, Person, PersonalAccount, BoardTerm, RoleEnum,
     CsvImportProfile, User,
 )
@@ -200,19 +200,41 @@ def counterparty_step():
 @bp.route("/tariff", methods=["GET", "POST"])
 @roles_required(RoleEnum.CHAIRMAN)
 def tariff_step():
+    """Тариф — сразу оба вида одной датой действия (см. ElectricityTariffKind):
+    поставщик — по нему считается долг кооператива перед поставщиком,
+    для членов — по нему считаются начисления за электричество на
+    лицевые счета. Часто совпадают на старте (кооператив передаёт
+    показания без наценки), но это два независимых значения, а не одно
+    на двоих — можно сразу указать разные."""
     if request.method == "POST":
         f = request.form
+        effective_date = dt.date.fromisoformat(f["effective_date"])
+        comment = f.get("comment") or None
         database.db_session.add(ElectricityTariff(
-            rate=parse_decimal(f["rate"]),
-            effective_date=dt.date.fromisoformat(f["effective_date"]),
-            comment=f.get("comment") or None,
+            kind=ElectricityTariffKind.SUPPLIER, rate=parse_decimal(f["supplier_rate"]),
+            effective_date=effective_date, comment=comment,
+        ))
+        database.db_session.add(ElectricityTariff(
+            kind=ElectricityTariffKind.MEMBER, rate=parse_decimal(f["member_rate"]),
+            effective_date=effective_date, comment=comment,
         ))
         database.db_session.commit()
         flash(_("Тариф добавлен."), "success")
         return redirect(url_for("setup_wizard.index"))
 
-    tariffs = database.db_session.query(ElectricityTariff).order_by(ElectricityTariff.effective_date.desc()).all()
-    return render_template("setup/tariff.html", tariffs=tariffs, today=dt.date.today())
+    supplier_tariffs = (
+        database.db_session.query(ElectricityTariff)
+        .filter_by(kind=ElectricityTariffKind.SUPPLIER)
+        .order_by(ElectricityTariff.effective_date.desc()).all()
+    )
+    member_tariffs = (
+        database.db_session.query(ElectricityTariff)
+        .filter_by(kind=ElectricityTariffKind.MEMBER)
+        .order_by(ElectricityTariff.effective_date.desc()).all()
+    )
+    return render_template(
+        "setup/tariff.html", supplier_tariffs=supplier_tariffs, member_tariffs=member_tariffs, today=dt.date.today(),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -222,11 +244,11 @@ def tariff_step():
 @bp.route("/meter", methods=["GET", "POST"])
 @roles_required(RoleEnum.CHAIRMAN)
 def meter_step():
-    tariff = current_tariff()
+    tariff = current_tariff(ElectricityTariffKind.SUPPLIER)
 
     if request.method == "POST":
         if tariff is None:
-            flash(_("Сначала добавьте тариф на электроэнергию — без него нельзя рассчитать сумму по показаниям."), "danger")
+            flash(_("Сначала добавьте тариф поставщика на электроэнергию — без него нельзя рассчитать сумму по показаниям."), "danger")
             return redirect(url_for("setup_wizard.meter_step"))
 
         f = request.form

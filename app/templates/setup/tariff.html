@@ -4,21 +4,46 @@
 {% set title = _("Тариф на электроэнергию") %}
 {% include "setup/_step_header.html" with context %}
 
-{% if tariffs %}
-<table class="table table-bordered bg-body mb-4" style="max-width:500px">
-  <thead><tr><th>{{ _("Действует с") }}</th><th>{{ _("Ставка, ₽/кВт·ч") }}</th></tr></thead>
-  <tbody>
-    {% for t in tariffs %}
-    <tr><td>{{ fmt_date(t.effective_date) }}</td><td>{{ fmt2(t.rate) }}</td></tr>
-    {% endfor %}
-  </tbody>
-</table>
-{% endif %}
+<div class="row g-4 mb-3" style="max-width:900px">
+  <div class="col-md-6">
+    <h6>{{ _("Поставщик") }}</h6>
+    {% if supplier_tariffs %}
+    <table class="table table-bordered bg-body">
+      <thead><tr><th>{{ _("Действует с") }}</th><th>{{ _("Ставка, ₽/кВт·ч") }}</th></tr></thead>
+      <tbody>
+        {% for t in supplier_tariffs %}
+        <tr><td>{{ fmt_date(t.effective_date) }}</td><td>{{ fmt2(t.rate) }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+  </div>
+  <div class="col-md-6">
+    <h6>{{ _("Для членов кооператива") }}</h6>
+    {% if member_tariffs %}
+    <table class="table table-bordered bg-body">
+      <thead><tr><th>{{ _("Действует с") }}</th><th>{{ _("Ставка, ₽/кВт·ч") }}</th></tr></thead>
+      <tbody>
+        {% for t in member_tariffs %}
+        <tr><td>{{ fmt_date(t.effective_date) }}</td><td>{{ fmt2(t.rate) }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+  </div>
+</div>
 
-<form method="post" class="bg-body p-4 rounded border" style="max-width:500px">
-  <div class="mb-3">
-    <label class="form-label">{{ _("Ставка, ₽/кВт·ч") }}</label>
-    <input class="form-control" type="text" inputmode="decimal" name="rate" required>
+<form method="post" class="bg-body p-4 rounded border" style="max-width:600px">
+  <p class="text-muted small">{{ _("Два независимых тарифа: по одному кооператив платит поставщику, по другому выставляет счёт членам за потреблённое ими электричество. На старте они часто совпадают — но это не обязательно, можно указать разные суммы сразу.") }}</p>
+  <div class="row g-2 mb-3">
+    <div class="col-6">
+      <label class="form-label">{{ _("Ставка поставщика, ₽/кВт·ч") }}</label>
+      <input class="form-control" type="text" inputmode="decimal" name="supplier_rate" required>
+    </div>
+    <div class="col-6">
+      <label class="form-label">{{ _("Ставка для членов, ₽/кВт·ч") }}</label>
+      <input class="form-control" type="text" inputmode="decimal" name="member_rate" required>
+    </div>
   </div>
   <div class="mb-3">
     <label class="form-label">{{ _("Действует с") }}</label>

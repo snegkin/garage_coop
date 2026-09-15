@@ -7,7 +7,7 @@ from . import database
 from . import audit
 from .i18n import translate as _, parse_decimal
 from .auth import roles_required
-from .models import Counterparty, ElectricityTariff, MasterMeterReading, Document, DocumentType, RoleEnum, Expense, BankAccount
+from .models import Counterparty, ElectricityTariff, ElectricityTariffKind, MasterMeterReading, Document, DocumentType, RoleEnum, Expense, BankAccount
 from .accounting import get_electricity_settings, current_tariff, pay_counterparty, reallocate_counterparty_expenses, expense_paid_amount, counterparty_balance
 from .uploads import save_upload
 
@@ -35,17 +35,29 @@ def _readings_with_amounts(readings_desc):
     return result
 
 
+def _tariffs_with_range(kind):
+    """Список тарифов заданного вида, каждый — с датой окончания действия
+    (день перед началом следующего ПО ЭТОМУ ЖЕ ВИДУ, не по обоим сразу —
+    у поставщика и у кооператива теперь независимые истории)."""
+    tariffs = (
+        database.db_session.query(ElectricityTariff)
+        .filter(ElectricityTariff.kind == kind)
+        .order_by(ElectricityTariff.effective_date.desc())
+        .all()
+    )
+    result = []
+    for i, t in enumerate(tariffs):
+        end_date = tariffs[i - 1].effective_date - dt.timedelta(days=1) if i > 0 else None
+        result.append((t, end_date))
+    return result
+
+
 @bp.route("/")
 @roles_required(RoleEnum.BOARD)
 def view():
     settings = get_electricity_settings()
-    tariffs = database.db_session.query(ElectricityTariff).order_by(ElectricityTariff.effective_date.desc()).all()
-
-    # для каждого тарифа — дата окончания действия (день перед началом следующего по дате)
-    tariffs_with_range = []
-    for i, t in enumerate(tariffs):
-        end_date = tariffs[i - 1].effective_date - dt.timedelta(days=1) if i > 0 else None
-        tariffs_with_range.append((t, end_date))
+    supplier_tariffs = _tariffs_with_range(ElectricityTariffKind.SUPPLIER)
+    member_tariffs = _tariffs_with_range(ElectricityTariffKind.MEMBER)
 
     readings = (
         database.db_session.query(MasterMeterReading)
@@ -62,8 +74,10 @@ def view():
     return render_template(
         "power/view.html",
         settings=settings,
-        tariff=current_tariff(),
-        tariffs=tariffs_with_range,
+        supplier_tariff=current_tariff(ElectricityTariffKind.SUPPLIER),
+        member_tariff=current_tariff(ElectricityTariffKind.MEMBER),
+        supplier_tariffs=supplier_tariffs,
+        member_tariffs=member_tariffs,
         readings=readings_with_amounts,
         expense_paid=expense_paid,
         bank_accounts=bank_accounts,
@@ -99,13 +113,19 @@ def save_supplier():
 @bp.route("/tariff", methods=["POST"])
 @roles_required(RoleEnum.BOARD)
 def add_tariff():
+    """Один роут на оба вида тарифа (kind из формы) — см. ElectricityTariffKind:
+    два разных модальных окна на power/view.html (тариф поставщика / тариф
+    для членов) шлют сюда одно и то же с разным скрытым полем kind."""
     f = request.form
+    kind = ElectricityTariffKind(f["kind"])
     database.db_session.add(ElectricityTariff(
+        kind=kind,
         rate=parse_decimal(f["rate"]),
         effective_date=dt.date.fromisoformat(f["effective_date"]),
         comment=f.get("comment") or None,
     ))
-    audit.record("power.tariff_add", f"Добавлен тариф на электроэнергию {parse_decimal(f['rate'])} ₽/кВт·ч с {audit.format_date(dt.date.fromisoformat(f['effective_date']))}")
+    kind_label = _("поставщика") if kind == ElectricityTariffKind.SUPPLIER else _("для членов кооператива")
+    audit.record("power.tariff_add", f"Добавлен тариф на электроэнергию ({kind_label}) {parse_decimal(f['rate'])} ₽/кВт·ч с {audit.format_date(dt.date.fromisoformat(f['effective_date']))}")
     database.db_session.commit()
     flash(_("Тариф добавлен."), "success")
     return redirect(url_for("power.view"))
@@ -127,9 +147,9 @@ def add_master_reading():
         flash(_("Запись за {year}-{month:02d} уже существует.", year=year, month=month), "warning")
         return redirect(url_for("power.view"))
 
-    tariff = current_tariff(dt.date(year, month, 1))
+    tariff = current_tariff(ElectricityTariffKind.SUPPLIER, dt.date(year, month, 1))
     if tariff is None:
-        flash(_("Нет тарифа, действующего на этот месяц — сначала добавьте тариф."), "danger")
+        flash(_("Нет тарифа поставщика, действующего на этот месяц — сначала добавьте тариф."), "danger")
         return redirect(url_for("power.view"))
 
     document_id = None

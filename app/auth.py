@@ -17,7 +17,10 @@ from . import recaptcha
 from .mail_client import MailError
 from .rate_limit import limiter
 from .i18n import translate as _
-from .models import User, RoleEnum, Person, Phone, MailboxSettings, Cooperative, VerificationCode, VerificationCodePurpose
+from .models import (
+    User, RoleEnum, Person, Phone, MailboxSettings, Cooperative, VerificationCode, VerificationCodePurpose,
+    NotificationChannel,
+)
 from .login_generation import generate_unique_login
 from .sms import get_sms_client, SmsError, sms_site_identifier
 
@@ -547,6 +550,24 @@ def force_change_password():
             "account.password_change", entity_type="user", entity_id=g.user.id,
             summary=f"Пользователь «{g.user.username}» сменил пароль при первом входе",
         )
+        # Галочка «получать push-уведомления» — здесь, а не на форме входа/
+        # восстановления (там неуместно: пользователь заходит регулярно, а
+        # эта страница — ровно один раз при самом первом входе, см. докстринг
+        # выше), по умолчанию отмечена. Человек уже вошёл (это g.user, не
+        # чужая запись, как в reset_password) — сразу и включаем канал, и
+        # заводим одноразовый флаг, по которому следующая же страница
+        # (дашборд) запросит у браузера разрешение (см. base.html,
+        # app/__init__.py:_inject_user). По прямой просьбе — сразу ВСЕ виды
+        # уведомлений, не только сам факт канала; лишнее человек отключит
+        # сам в настройках профиля.
+        if request.form.get("enable_webpush") == "1":
+            g.user.notify_channel = NotificationChannel.WEBPUSH
+            g.user.notify_charge = True
+            g.user.notify_payment = True
+            g.user.notify_news = True
+            g.user.notify_forum = True
+            g.user.notify_board_chat = True
+            session["webpush_prompt"] = True
         database.db_session.commit()
         flash(_("Пароль изменён."), "success")
         return redirect(url_for("main.dashboard"))

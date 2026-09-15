@@ -26,14 +26,14 @@ scripts/reconcile_sms_charges.py — забирает её отдельно, с 
 кооператива) — то же самое, что произошло бы у НОВОГО члена автоматически
 при добавлении его собственником (см. accounting.ensure_personal_member_accounts,
 вызывается оттуда же, где и обычные лицевые счета). Номер счёта — по той
-же формуле, что и accounting.person_member_account_number (тип_кода + id
-человека, дополненный нулями до ширины account_number_settings.garage_digits,
-+ ещё нулевой хвост в ширину owner_digits — не порядковый номер
-собственника по смыслу, а просто заполнитель длины, чтобы номер был той
-же длины, что у обычных гаражных счетов, по прямой просьбе), без
-обращения к живым моделям приложения (см. соглашение проекта — схема
-миграций, напр. d1786b15be12) — переопределение формулы в accounting.py
-её не затронет.
+же формуле, что и accounting.person_member_account_number (тип_кода +
+нулевой заполнитель в ширину owner_digits СРАЗУ после кода типа (не
+порядковый номер собственника по смыслу, а просто заполнитель длины,
+чтобы номер был той же длины, что у обычных гаражных счетов, по прямой
+просьбе) + id человека, дополненный нулями до ширины
+account_number_settings.garage_digits), без обращения к живым моделям
+приложения (см. соглашение проекта — схема миграций, напр. d1786b15be12)
+— переопределение формулы в accounting.py её не затронет.
 
 Revision ID: 4aafd6b5140a
 Revises: 3fcedcde5c0c
@@ -117,12 +117,14 @@ def upgrade() -> None:
         ), {"pid": person_id, "ftid": fee_type_id}).fetchone()
         if exists is not None:
             continue
-        # Хвост нулями в ширину owner_digits — не порядковый номер
+        # Заполнитель нулями в ширину owner_digits — не порядковый номер
         # собственника (для этого вида взноса такого понятия нет, счёт не
         # привязан к гаражу, см. докстринг ниже), а просто заполнитель,
         # чтобы номер был той же длины, что у обычных гаражных счетов
         # (по прямой просьбе — см. accounting.person_member_account_number).
-        account_number = f"{TYPE_CODE}{str(person_id).zfill(garage_digits)}{'0' * owner_digits}"
+        # СРАЗУ после кода типа, а не в конце — иначе зрительно сливается с
+        # id человека.
+        account_number = f"{TYPE_CODE}{'0' * owner_digits}{str(person_id).zfill(garage_digits)}"
         conn.execute(sa.text(
             "INSERT INTO member_account (person_id, garage_id, fee_type_id, account_number, opened_date, is_archived) "
             "VALUES (:pid, NULL, :ftid, :num, date('now'), 0)"

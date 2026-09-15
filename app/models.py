@@ -2002,6 +2002,16 @@ class FeeType(Base):
     type_code: Mapped[str | None] = mapped_column(String(5))
     is_penalty: Mapped[bool] = mapped_column(Boolean, default=False)  # пеня по этому виду взноса
 
+    # per_garage=False — счёт этого вида взноса один на ЧЕЛОВЕКА, а не на пару
+    # (гараж, собственник), как обычно (см. MemberAccount.garage_id, теперь
+    # nullable именно из-за этого случая): для расходов, которые не связаны с
+    # конкретным гаражом — например, платное SMS для восстановления пароля
+    # или взысканная с должника госпошлина (см. FeeType "telecom_disputes",
+    # создаётся в migrations). Заводится не в garages._ensure_member_accounts
+    # (та проходит по владению ГАРАЖОМ), а отдельно — см.
+    # accounting.ensure_personal_member_account.
+    per_garage: Mapped[bool] = mapped_column(Boolean, default=True)
+
 
 class PersonalAccount(Base):
     """
@@ -2177,14 +2187,21 @@ class MemberAccount(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     person_id: Mapped[int] = mapped_column(ForeignKey("person.id"), index=True)
-    garage_id: Mapped[int] = mapped_column(ForeignKey("garage.id", ondelete="CASCADE"), index=True)
+    # nullable — счёт вида взноса с FeeType.per_garage=False (см. её докстринг)
+    # не привязан ни к какому гаражу, один на человека сразу за все его
+    # гаражи; уникальность (person_id, garage_id=NULL, fee_type_id) для таких
+    # счетов НЕ обеспечена индексом ниже (NULL в SQL не равен самому себе —
+    # несколько строк с одинаковым NULL уникальный индекс не остановит),
+    # проверяется на уровне приложения перед созданием, см.
+    # accounting.ensure_personal_member_account.
+    garage_id: Mapped[int | None] = mapped_column(ForeignKey("garage.id", ondelete="CASCADE"), index=True)
     fee_type_id: Mapped[int] = mapped_column(ForeignKey("fee_type.id"), index=True)
     account_number: Mapped[str] = mapped_column(String(20))
     opened_date: Mapped[dt.date] = mapped_column(Date, default=dt.date.today)
     is_archived: Mapped[bool] = mapped_column(Boolean, default=False)
 
     person: Mapped["Person"] = relationship()
-    garage: Mapped["Garage"] = relationship()
+    garage: Mapped["Garage | None"] = relationship()
     fee_type: Mapped["FeeType"] = relationship()
     charges: Mapped[list["Charge"]] = relationship(back_populates="account", cascade="all, delete-orphan")
     payments: Mapped[list["Payment"]] = relationship(back_populates="account", cascade="all, delete-orphan")
@@ -2722,6 +2739,26 @@ class SmsLog(Base):
     text: Mapped[str] = mapped_column(Text)
     status: Mapped[SmsLogStatus] = mapped_column(Enum(SmsLogStatus), index=True)
     error: Mapped[str | None] = mapped_column(Text)  # текст ошибки провайдера/сети — только при status=failed
+
+    # Поля ниже нужны только для восстановления пароля по SMS (единственное
+    # место, откуда сейчас передаются purpose/person_id, см. auth.forgot_password)
+    # — платная услуга, стоимость которой взыскивается с получателя (см.
+    # FeeType "telecom_disputes"). Для остальных отправок (регистрация,
+    # тестовая отправка) остаются NULL — они бесплатны для получателя, эти
+    # SMS не нужно ни с кем сверять по стоимости.
+    purpose: Mapped[str | None] = mapped_column(String(30), index=True)  # напр. "password_reset"
+    person_id: Mapped[int | None] = mapped_column(ForeignKey("person.id", ondelete="SET NULL"), index=True)
+    # id сообщения у провайдера (data.id в ответе SmsAeroClient.send()) — по
+    # нему потом запрашивается реальная стоимость (см.
+    # scripts/reconcile_sms_charges.py), т.к. в самом ответе на отправку
+    # стоимость не приходит.
+    provider_message_id: Mapped[str | None] = mapped_column(String(50))
+    # Начисление за эту SMS создаётся отдельно (см. reconcile_sms_charges.py),
+    # с задержкой — провайдер отдаёт стоимость не сразу, а в истории.
+    charge_id: Mapped[int | None] = mapped_column(ForeignKey("charge.id", ondelete="SET NULL"), unique=True)
+
+    person: Mapped["Person | None"] = relationship()
+    charge: Mapped["Charge | None"] = relationship()
 
 
 # ---------------------------------------------------------------------------

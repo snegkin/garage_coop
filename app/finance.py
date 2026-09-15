@@ -16,7 +16,8 @@ from .models import (
     Cooperative, BankAccount,
 )
 from .accounting import (
-    get_settings, electricity_account_number, member_account_number, owner_index_for, balance as _balance,
+    get_settings, electricity_account_number, member_account_number, person_member_account_number,
+    owner_index_for, balance as _balance,
     compute_land_tax, reallocate_member_charges, dues_due_date,
 )
 
@@ -226,7 +227,11 @@ def member_accounts():
     has_unpaid_penalty = any(a.fee_type.is_penalty and bal < 0 for a, bal in rows)
     all_persons = database.db_session.query(Person).order_by(Person.full_name).all()
     all_garages = database.db_session.query(Garage).order_by(Garage.number).all()
-    all_fee_types = database.db_session.query(FeeType).order_by(FeeType.name).all()
+    # per_garage=False (напр. "telecom_disputes") сюда не попадают — у них
+    # ровно один счёт на человека, заводится автоматически (см.
+    # accounting.ensure_personal_member_accounts), эта форма всегда просит
+    # выбрать гараж и для них не подходит.
+    all_fee_types = database.db_session.query(FeeType).filter(FeeType.per_garage.is_(True)).order_by(FeeType.name).all()
     coop = database.db_session.query(Cooperative).first()
 
     # Год для графика собираемости — из query-параметра (переключатель на
@@ -287,13 +292,20 @@ def member_account_detail(account_id):
     # Счета, на которые можно зачесть средства с этого (см.
     # transfer_member_account_funds) — того же человека или того же
     # гаража, не произвольные чужие счета.
+    # garage_id может быть NULL (см. FeeType.per_garage=False) — "IS NULL"
+    # в SQL совпал бы с ЛЮБЫМ другим счётом без гаража, в т.ч. чужим, а не
+    # только с совладельцами ЭТОГО гаража, поэтому такое сравнение включаем
+    # в условие, только когда есть реальный гараж для сравнения.
+    same_target = [MemberAccount.person_id == account.person_id]
+    if account.garage_id is not None:
+        same_target.append(MemberAccount.garage_id == account.garage_id)
     transferable_accounts = (
         database.db_session.query(MemberAccount)
         .join(Person, MemberAccount.person_id == Person.id)
         .join(FeeType, MemberAccount.fee_type_id == FeeType.id)
         .filter(
             MemberAccount.id != account.id,
-            or_(MemberAccount.person_id == account.person_id, MemberAccount.garage_id == account.garage_id),
+            or_(*same_target),
         )
         .order_by(MemberAccount.account_number)
         .all()
@@ -349,10 +361,15 @@ def suggest_member_account_number(account_id):
             "error": _("У вида взноса «{name}» нет кода для формулы номера — задайте номер вручную.")
             .format(name=account.fee_type.name),
         }
-    owner_index = owner_index_for(account.garage_id, account.person_id)
-    account_number = member_account_number(
-        account.fee_type.type_code, account.garage_id, owner_index, account.fee_type.is_penalty,
-    )
+    if account.garage_id is None:
+        # per_garage=False — счёт не привязан к гаражу (см. FeeType.per_garage),
+        # своя формула номера без гаража и порядкового номера собственника.
+        account_number = person_member_account_number(account.fee_type.type_code, account.person_id)
+    else:
+        owner_index = owner_index_for(account.garage_id, account.person_id)
+        account_number = member_account_number(
+            account.fee_type.type_code, account.garage_id, owner_index, account.fee_type.is_penalty,
+        )
     return {"account_number": account_number}
 
 
@@ -366,8 +383,11 @@ def add_member_charge(account_id):
     на отдельную страницу счёта ради одного начисления неудобно. Роут
     отдаёт JSON при заголовке X-Requested-With — тот же приём, что и в
     bank_sync.py (allocate_statement_line и т.п.); обычная форма (JS
-    отключён, либо форма на самой странице счёта) по-прежнему работает
-    через redirect+flash.
+    отключён, либо форма на самой странице счёта, см. её собственный
+    JS-обработчик в member_account_detail.html — он намеренно шлёт fetch
+    БЕЗ этого заголовка, чтобы получить не JSON, а обычный redirect+flash
+    и подменить им #mainContent целиком) по-прежнему работает через
+    redirect+flash.
     """
     is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
 
@@ -987,6 +1007,16 @@ def create_member_account():
     garage_id = int(f["garage_id"])
     fee_type_id = int(f["fee_type_id"])
 
+    fee_type_check = database.db_session.get(FeeType, fee_type_id)
+    if fee_type_check is None or not fee_type_check.per_garage:
+        # per_garage=False — счёт этого вида один на человека, без привязки
+        # к гаражу (см. FeeType.per_garage), заводится автоматически
+        # (accounting.ensure_personal_member_accounts) — эта форма всегда
+        # с конкретным гаражом, для таких видов взноса не годится (и не
+        # должна предлагаться в выпадающем списке, см. finance.member_accounts).
+        flash(_("Этот вид взноса не привязан к гаражу — отдельный счёт заводится автоматически."), "danger")
+        return redirect(url_for("finance.member_accounts"))
+
     existing = database.db_session.query(MemberAccount).filter_by(
         person_id=person_id, garage_id=garage_id, fee_type_id=fee_type_id, is_archived=False,
     ).first()
@@ -1030,10 +1060,11 @@ def delete_member_account(account_id):
     account = database.db_session.get(MemberAccount, account_id)
     if account is None:
         abort(404)
+    garage_label = f"гараж {account.garage.number}, " if account.garage else ""
     audit.record(
         "member_account.delete", entity_type="member_account", entity_id=account.id,
         summary=f"Удалён счёт {account.account_number} ({account.person.short_name}, "
-                f"гараж {account.garage.number}, {account.fee_type.name})",
+                f"{garage_label}{account.fee_type.name})",
     )
     database.db_session.delete(account)
     database.db_session.commit()
@@ -1082,10 +1113,14 @@ def _regenerate_account_numbers(settings) -> tuple[int, int]:
     for account in database.db_session.query(MemberAccount).all():
         if not account.fee_type.type_code:
             continue  # у ручных счетов без кода вида — номер не трогаем
-        owner_index = owner_index_by_garage_person.get((account.garage_id, account.person_id), 0)
-        new_number = member_account_number(
-            account.fee_type.type_code, account.garage_id, owner_index, account.fee_type.is_penalty, settings,
-        )
+        if account.garage_id is None:
+            # per_garage=False — без гаража и без порядкового номера собственника.
+            new_number = person_member_account_number(account.fee_type.type_code, account.person_id, settings)
+        else:
+            owner_index = owner_index_by_garage_person.get((account.garage_id, account.person_id), 0)
+            new_number = member_account_number(
+                account.fee_type.type_code, account.garage_id, owner_index, account.fee_type.is_penalty, settings,
+            )
         if new_number == account.account_number:
             continue
         conflict = database.db_session.query(MemberAccount).filter(
@@ -1167,7 +1202,7 @@ def mass_charge():
     начисление идёт на все гаражи, как и раньше).
     """
     fee_types_list = database.db_session.query(FeeType).filter(
-        FeeType.type_code.isnot(None), FeeType.is_penalty.is_(False)
+        FeeType.type_code.isnot(None), FeeType.is_penalty.is_(False), FeeType.per_garage.is_(True)
     ).order_by(FeeType.name).all()
     coop = database.db_session.query(Cooperative).first()
     all_garages = database.db_session.query(Garage).order_by(Garage.number).all()

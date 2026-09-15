@@ -17,14 +17,14 @@ from .uploads import save_upload
 from .models import (
     Garage, Person, GarageOwnership, GarageOwnershipEvent, GarageOwnershipEventType, GarageContact, GaragePhoto,
     GarageDocumentPhoto, GarageDocumentType,
-    PersonalAccount, MemberAccount, FeeType, RoleEnum, ElectricityMeter, ElectricityReading,
+    PersonalAccount, MemberAccount, FeeType, RoleEnum, ElectricityMeter, ElectricityReading, ElectricityTariffKind,
     Charge, Payment, User,
 )
 from sqlalchemy.orm import joinedload
 from .accounting import (
     electricity_account_number, member_account_number, balance, current_tariff, reallocate_garage_charges,
     charge_paid_amount, split_amount_by_shares, redistribute_member_account_balance, next_owner_index,
-    transfer_member_account_balance,
+    transfer_member_account_balance, ensure_personal_member_accounts,
 )
 
 bp = Blueprint("garages", __name__, url_prefix="/garages")
@@ -44,13 +44,17 @@ def _meter_history(garage: Garage):
 
 def _ensure_member_accounts(garage: Garage, person_id: int, owner_index: int):
     """
-    Заводит члену кооператива лицевые счета на все виды взносов/налогов,
-    для которых задан type_code (см. FeeType), по этому гаражу — если их
-    ещё нет. Электричество сюда не входит — у него отдельный счёт на гараж.
+    Заводит члену кооператива лицевые счета на все ГАРАЖНЫЕ виды взносов/
+    налогов (per_garage=True — по умолчанию, см. FeeType), для которых
+    задан type_code, по этому гаражу — если их ещё нет. Электричество сюда
+    не входит — у него отдельный счёт на гараж. Виды взноса per_garage=False
+    (не привязаны к гаражу вовсе) заводятся отдельно, см.
+    accounting.ensure_personal_member_accounts — эта функция вызывается
+    рядом с этой, не отсюда, т.к. у неё нет параметра "гараж".
     """
     fee_types = (
         database.db_session.query(FeeType)
-        .filter(FeeType.type_code.isnot(None))
+        .filter(FeeType.type_code.isnot(None), FeeType.per_garage.is_(True))
         .all()
     )
     for fee_type in fee_types:
@@ -121,7 +125,7 @@ def _archive_owner_accounts_and_reuse(garage: Garage, new_person_id: int) -> Non
 
     fee_types = (
         database.db_session.query(FeeType)
-        .filter(FeeType.type_code.isnot(None))
+        .filter(FeeType.type_code.isnot(None), FeeType.per_garage.is_(True))
         .all()
     )
     missing_fee_types = [ft for ft in fee_types if ft.id not in handled_fee_type_ids]
@@ -195,6 +199,7 @@ def create():
             database.db_session.add(GarageOwnership(garage_id=garage.id, person_id=int(person_id), share=share))
             database.db_session.flush()
             _ensure_member_accounts(garage, int(person_id), owner_index)
+            ensure_personal_member_accounts(int(person_id))
             owner_index += 1
 
         # фото гаража (необязательно)
@@ -500,6 +505,7 @@ def add_owner(garage_id):
         else:
             owner_index = next_owner_index(garage.id)
             _ensure_member_accounts(garage, person_id, owner_index)
+        ensure_personal_member_accounts(person_id)
         database.db_session.add(GarageOwnershipEvent(
             garage_id=garage.id, person_id=person_id, event_type=GarageOwnershipEventType.ADDED,
             share=share, comment=comment, created_by_user_id=g.user.id,
@@ -997,7 +1003,7 @@ def add_electricity_reading(garage_id):
         return redirect(url_for("garages.detail", garage_id=garage_id, tab="account"))
 
     amount = None
-    tariff = current_tariff(reading_date)
+    tariff = current_tariff(ElectricityTariffKind.MEMBER, reading_date)
     tariff_rate = tariff.rate if tariff is not None else None
     if baseline is not None:
         delta = reading_value - baseline
@@ -1091,7 +1097,7 @@ def edit_last_reading(garage_id):
 
     tariff_rate = last_reading.tariff
     if tariff_rate is None:
-        tariff = current_tariff(last_reading.reading_date)
+        tariff = current_tariff(ElectricityTariffKind.MEMBER, last_reading.reading_date)
         tariff_rate = tariff.rate if tariff is not None else None
 
     amount = None

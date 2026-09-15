@@ -86,10 +86,21 @@ class _LoggingSmsClient(SmsClient):
     def __init__(self, inner: SmsClient):
         self._inner = inner
 
-    def send(self, phone_digits: str, text: str) -> None:
+    def send(
+        self, phone_digits: str, text: str, *, purpose: str | None = None, person_id: int | None = None,
+    ) -> str | None:
+        """purpose/person_id — только для платных SMS, которые потом нужно
+        взыскать с получателя (сейчас только forgot_password передаёт их,
+        см. её докстринг) — сохраняются в SmsLog вместе с id сообщения у
+        провайдера (если он его вернул), дальше scripts/reconcile_sms_charges.py
+        по ним находит стоимость и создаёт начисление. Не часть абстрактного
+        SmsClient.send (остальные вызовы — регистрация, тестовая отправка —
+        их не передают, это нормально, оба параметра опциональны)."""
         error = None
+        message_id = None
         try:
-            self._inner.send(phone_digits, text)
+            message_id = self._inner.send(phone_digits, text)
+            return message_id
         except SmsError as exc:
             error = str(exc)
             raise
@@ -98,8 +109,18 @@ class _LoggingSmsClient(SmsClient):
                 phone=phone_digits, text=text,
                 status=SmsLogStatus.FAILED if error else SmsLogStatus.SENT,
                 error=error,
+                purpose=purpose, person_id=person_id, provider_message_id=message_id,
             ))
             database.db_session.commit()
+
+    def get_message_cost(self, message_id: str):
+        """Делегирует провайдеру — см. scripts/reconcile_sms_charges.py,
+        единственный вызывающий код. Не часть абстрактного SmsClient: пока
+        есть только SmsAeroClient (умеет), при добавлении второго
+        агрегатора без этого метода здесь будет AttributeError — вызывающий
+        код (reconcile_sms_charges.py) уже это учитывает и пропускает
+        такие записи, а не падает."""
+        return self._inner.get_message_cost(message_id)
 
 
 def get_sms_client() -> SmsClient | None:

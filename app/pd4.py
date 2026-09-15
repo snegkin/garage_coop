@@ -59,7 +59,7 @@ def select():
         debt = balance(account)
         if debt < 0:
             rows.append((account, debt))
-    rows.sort(key=lambda r: (r[0].person.full_name, r[0].garage.number))
+    rows.sort(key=lambda r: (r[0].person.full_name, r[0].garage.number if r[0].garage else ""))
 
     return render_template("pd4/select.html", rows=rows, all_persons=all_persons, q=q)
 

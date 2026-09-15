@@ -449,7 +449,14 @@ def forgot_password():
                 client = get_sms_client()
                 if client is not None:
                     try:
-                        client.send(target, _sms_code_text(_("Код для восстановления пароля"), code))
+                        # purpose/person_id — эта SMS платная (см. предупреждение
+                        # на forgot_password.html), стоимость взыскивается с
+                        # получателя отдельным начислением позже, когда её
+                        # узнает scripts/reconcile_sms_charges.py (см. SmsLog).
+                        client.send(
+                            target, _sms_code_text(_("Код для восстановления пароля"), code),
+                            purpose="password_reset", person_id=person.id,
+                        )
                     except SmsError:
                         pass
 

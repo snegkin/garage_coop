@@ -25,10 +25,10 @@
     </thead>
     <tbody id="rowsTable">
       {% for account, debt in rows %}
-      <tr data-search="{{ (account.person.full_name ~ ' ' ~ account.garage.number ~ ' ' ~ account.account_number ~ ' ' ~ account.fee_type.name)|lower }}">
+      <tr data-search="{{ (account.person.full_name ~ ' ' ~ (account.garage.number if account.garage else '') ~ ' ' ~ account.account_number ~ ' ' ~ account.fee_type.name)|lower }}">
         <td><input type="checkbox" name="account_id" value="{{ account.id }}" checked></td>
         {% if is_board() %}<td>{{ account.person.full_name }}</td>{% endif %}
-        <td data-sort-value="{{ account.garage.number }}">№{{ account.garage.number }}</td>
+        <td data-sort-value="{{ account.garage.number if account.garage else '' }}">{{ "№" ~ account.garage.number if account.garage else "—" }}</td>
         <td>{{ account.fee_type.name }}</td>
         <td class="text-end">{{ account.account_number }}</td>
         <td class="text-danger" data-sort-value="{{ debt }}">{{ fmt2(-debt) }} ₽</td>

@@ -46,9 +46,9 @@ def get_settings() -> AccountNumberSettings:
     return settings
 
 
-def _garage_digits(garage_id: int, width: int) -> str:
-    """ID гаража в БД — всегда целое число, дополняем нулями до нужной ширины."""
-    digits = str(garage_id)
+def _padded_digits(value: int, width: int) -> str:
+    """ID (гаража или человека) в БД — всегда целое число, дополняем нулями до нужной ширины."""
+    digits = str(value)
     if len(digits) > width:
         return digits[-width:]
     return digits.zfill(width)
@@ -56,7 +56,7 @@ def _garage_digits(garage_id: int, width: int) -> str:
 
 def electricity_account_number(garage_id: int, settings: AccountNumberSettings | None = None) -> str:
     settings = settings or get_settings()
-    return f"{settings.electricity_prefix}{_garage_digits(garage_id, settings.garage_digits)}{'0' * settings.owner_digits}"
+    return f"{settings.electricity_prefix}{_padded_digits(garage_id, settings.garage_digits)}{'0' * settings.owner_digits}"
 
 
 def member_account_number(
@@ -65,8 +65,54 @@ def member_account_number(
 ) -> str:
     settings = settings or get_settings()
     owner_part = str(owner_index % (10 ** settings.owner_digits)).zfill(settings.owner_digits)
-    base = f"{fee_type_code}{_garage_digits(garage_id, settings.garage_digits)}{owner_part}"
+    base = f"{fee_type_code}{_padded_digits(garage_id, settings.garage_digits)}{owner_part}"
     return f"{settings.penalty_prefix}{base}" if is_penalty else base
+
+
+def person_member_account_number(
+    fee_type_code: str, person_id: int, settings: AccountNumberSettings | None = None,
+) -> str:
+    """Номер лицевого счёта вида взноса с FeeType.per_garage=False — один на
+    человека сразу за все его гаражи (см. её докстринг), поэтому в формуле
+    вместо номера гаража берётся id самого человека, и нет порядкового
+    номера собственника (он существует, только чтобы различать
+    совладельцев ОДНОГО гаража — здесь этого разделения нет вовсе)."""
+    settings = settings or get_settings()
+    return f"{fee_type_code}{_padded_digits(person_id, settings.garage_digits)}"
+
+
+def ensure_personal_member_accounts(person_id: int) -> None:
+    """
+    Заводит человеку лицевые счета на все виды взносов с per_garage=False
+    (сейчас только "telecom_disputes" — платные SMS для восстановления
+    пароля, взысканная госпошлина по искам, см. FeeType.per_garage), если
+    их ещё нет — по одному на человека сразу за все его гаражи, а не по
+    одному на каждый (в отличие от garages._ensure_member_accounts). Вызывать
+    при появлении человека как собственника (garages.add_owner и т.п.) —
+    так же, как garages._ensure_member_accounts для обычных, гаражных видов
+    взноса, просто отдельной функцией (там фильтр по гаражу, тут его нет).
+
+    Не проверяет is_board()/права — вызывающий код сам решает, когда
+    уместно завести счёт (при появлении собственника, при бэкофилле в
+    миграции); сам факт наличия счёта ничего не начисляет.
+    """
+    fee_types = (
+        database.db_session.query(FeeType)
+        .filter(FeeType.per_garage.is_(False))
+        .all()
+    )
+    for fee_type in fee_types:
+        exists = (
+            database.db_session.query(MemberAccount)
+            .filter_by(person_id=person_id, garage_id=None, fee_type_id=fee_type.id, is_archived=False)
+            .first()
+        )
+        if exists:
+            continue
+        number = person_member_account_number(fee_type.type_code or "Т", person_id)
+        database.db_session.add(MemberAccount(
+            person_id=person_id, garage_id=None, fee_type_id=fee_type.id, account_number=number,
+        ))
 
 
 def next_owner_index(garage_id: int, settings: AccountNumberSettings | None = None) -> int:
@@ -884,7 +930,11 @@ def pd4_qr_payload(coop: Cooperative, bank_account, member_account: MemberAccoun
         "CorrespAcc": account_digits(bank_account.correspondent_account) if bank_account else "",
         "PayeeINN": coop.inn,
         "KPP": coop.kpp,
-        "Purpose": f"{member_account.fee_type.name}, гараж №{member_account.garage.number}, л/с {member_account.account_number}",
+        "Purpose": (
+            f"{member_account.fee_type.name}, гараж №{member_account.garage.number}, л/с {member_account.account_number}"
+            if member_account.garage else
+            f"{member_account.fee_type.name}, л/с {member_account.account_number}"
+        ),
         "Sum": str(int((amount * 100).to_integral_value())),
         "LastName": payer.full_name,
         "PersAcc": member_account.account_number,

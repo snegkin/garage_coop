@@ -28,7 +28,7 @@ def _rated_fee_types():
     предлагаются в finance.mass_charge (с type_code, не пеня): земельный
     налог, членский взнос, целевой взнос и т.п."""
     return database.db_session.query(FeeType).filter(
-        FeeType.type_code.isnot(None), FeeType.is_penalty.is_(False)
+        FeeType.type_code.isnot(None), FeeType.is_penalty.is_(False), FeeType.per_garage.is_(True)
     ).order_by(FeeType.name).all()
 
 

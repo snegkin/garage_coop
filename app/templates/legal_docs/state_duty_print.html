@@ -14,6 +14,14 @@
       <input type="hidden" name="format" value="pdf">
       <button class="btn btn-outline-primary">{{ _("Скачать PDF") }}</button>
     </form>
+    <form method="post" action="{{ url_for('legal_docs.state_duty_charge') }}" class="d-inline"
+          onsubmit="return confirm('{{ _('Начислить эту госпошлину на личные счета должников? Только если она уже реально уплачена.') }}')">
+      {% for item in items %}
+      <input type="hidden" name="person_id" value="{{ item.person.id }}">
+      <input type="hidden" name="duty_amount_{{ item.person.id }}" value="{{ item.duty_amount }}">
+      {% endfor %}
+      <button class="btn btn-outline-success">{{ _("Госпошлина уплачена — начислить должникам") }}</button>
+    </form>
     <a class="btn btn-outline-secondary" href="{{ url_for('legal_docs.state_duty') }}">{{ _("Назад к выбору") }}</a>
   </div>
 </div>

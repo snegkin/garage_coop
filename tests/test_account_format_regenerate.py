@@ -349,6 +349,17 @@ def test_backfill_requires_type_code(app, db, client):
 
 
 def test_backfill_button_shown_only_with_type_code(app, db, client):
+    """
+    "Завести всем"/"Переименовать" — только у видов с заданным кодом счёта
+    (без него номер посчитать нечем). "Удалить у всех" код не требует —
+    показана у обоих.
+    """
+    # Миграция 4aafd6b5140a сама заводит FeeType "telecom_disputes" (с
+    # кодом счёта) в любой БД, включая тестовую — убираем, чтобы не мешал
+    # точному счёту кнопок ниже (он не имеет отношения к этому тесту).
+    db.query(FeeType).delete()
+    db.commit()
+
     land_tax = _fee_type(db, code="land_tax", name="Земельный налог", type_code="1")
     target = _fee_type(db, code="target", name="Целевой взнос", type_code=None)
     make_user(db, "chair_bf5", "pass12345", role=RoleEnum.CHAIRMAN)
@@ -357,5 +368,55 @@ def test_backfill_button_shown_only_with_type_code(app, db, client):
     login(client, "chair_bf5", "pass12345")
     resp = client.get("/finance/account-format")
     assert resp.status_code == 200
-    assert f'name="fee_type_id" value="{land_tax.id}"'.encode() in resp.data
-    assert f'name="fee_type_id" value="{target.id}"'.encode() not in resp.data
+    # ">Завести всем</button>" — именно кнопка, а не упоминание в описании вверху страницы
+    assert resp.data.count(">Завести всем</button>".encode()) == 1  # только у land_tax
+    assert resp.data.count(">Удалить у всех</button>".encode()) == 2  # у обоих
+
+
+def test_bulk_delete_removes_accounts_without_history(app, db, client):
+    p1 = make_person(db, full_name="Без Истории Первый")
+    p2 = make_person(db, full_name="Без Истории Второй")
+    g1 = make_garage(db, number="106")
+    g2 = make_garage(db, number="107")
+    make_ownership(db, g1, p1)
+    make_ownership(db, g2, p2)
+    target = _fee_type(db, code="target", name="Целевой взнос", type_code="4")
+    a1 = MemberAccount(person_id=p1.id, garage_id=g1.id, fee_type_id=target.id, account_number="T1")
+    a2 = MemberAccount(person_id=p2.id, garage_id=g2.id, fee_type_id=target.id, account_number="T2")
+    db.add(a1)
+    db.add(a2)
+    make_user(db, "chair_bd1", "pass12345", role=RoleEnum.CHAIRMAN)
+    db.commit()
+
+    login(client, "chair_bd1", "pass12345")
+    resp = client.post("/finance/account-format/bulk-delete", data={"fee_type_id": str(target.id)})
+    assert resp.status_code == 302
+
+    db.expire_all()
+    assert db.query(MemberAccount).filter_by(fee_type_id=target.id).count() == 0
+
+    log = db.query(AuditLog).filter_by(action="member_account.bulk_delete").one()
+    assert "Целевой взнос" in log.summary
+
+
+def test_bulk_delete_skips_accounts_with_history(app, db, client):
+    from app.models import Charge
+
+    person = make_person(db, full_name="С Историей Собственников")
+    garage = make_garage(db, number="108")
+    make_ownership(db, garage, person)
+    target = _fee_type(db, code="target", name="Целевой взнос", type_code="4")
+    account = MemberAccount(person_id=person.id, garage_id=garage.id, fee_type_id=target.id, account_number="T3")
+    db.add(account)
+    db.flush()
+    db.add(Charge(account_id=account.id, fee_type_id=target.id, year=2026, amount=Decimal("100")))
+    make_user(db, "chair_bd2", "pass12345", role=RoleEnum.CHAIRMAN)
+    db.commit()
+
+    login(client, "chair_bd2", "pass12345")
+    resp = client.post("/finance/account-format/bulk-delete", data={"fee_type_id": str(target.id)}, follow_redirects=True)
+    assert resp.status_code == 200
+    assert "Пропущено".encode() in resp.data
+
+    db.expire_all()
+    assert db.query(MemberAccount).filter_by(fee_type_id=target.id).count() == 1  # не удалён

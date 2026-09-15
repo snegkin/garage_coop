@@ -1,9 +1,48 @@
 {% extends "base.html" %}
 {% block title %}{{ _("Формат лицевых счетов") }}{% endblock %}
+
+{% macro card(name_field, name_value, name_editable, type_code_field, type_code_value, type_code_required, comment_field, comment_value, comment_editable, example) %}
+<div class="border rounded p-3 mb-3">
+  <div class="row g-2 mb-2 align-items-center">
+    <div class="col-sm-3"><label class="form-label mb-0 text-muted">{{ _("Название") }}</label></div>
+    <div class="col-sm-9">
+      {% if name_editable %}
+      <input class="form-control form-control-sm" name="{{ name_field }}" value="{{ name_value }}" form="feeTypeBulkForm" required>
+      {% else %}
+      <span class="text-muted">{{ name_value }}</span>
+      {% endif %}
+    </div>
+  </div>
+  <div class="row g-2 mb-2 align-items-center">
+    <div class="col-sm-3"><label class="form-label mb-0 text-muted">{{ _("Код счёта") }}</label></div>
+    <div class="col-sm-9">
+      <input class="form-control form-control-sm" style="max-width:140px" name="{{ type_code_field }}" value="{{ type_code_value or '' }}" form="feeTypeBulkForm" maxlength="10"{% if type_code_required %} required{% endif %}>
+    </div>
+  </div>
+  <div class="row g-2 mb-2 align-items-center">
+    <div class="col-sm-3"><label class="form-label mb-0 text-muted">{{ _("Комментарий") }}</label></div>
+    <div class="col-sm-9">
+      {% if comment_editable %}
+      <input class="form-control form-control-sm" name="{{ comment_field }}" value="{{ comment_value or '' }}" form="feeTypeBulkForm">
+      {% else %}
+      <span class="text-muted">—</span>
+      {% endif %}
+    </div>
+  </div>
+  <div class="row g-2 mb-2 align-items-center">
+    <div class="col-sm-3"><label class="form-label mb-0 text-muted">{{ _("Пример номера") }}</label></div>
+    <div class="col-sm-9">{% if example %}<code>{{ example }}</code>{% else %}<span class="text-muted">—</span>{% endif %}</div>
+  </div>
+  {% if caller %}
+  <div class="d-flex flex-wrap gap-2 mt-3">{{ caller() }}</div>
+  {% endif %}
+</div>
+{% endmacro %}
+
 {% block content %}
 <h3 class="mb-3">{{ _("Формат лицевых счетов") }}</h3>
 <p class="text-muted small">{{ _("Новый формат применяется ко всем счетам, которые будут созданы впредь. Уже существующие номера можно либо оставить как есть, либо пересчитать под новый формат прямо сейчас (см. флажок ниже).") }}</p>
-<p class="text-muted small">{{ _("Название, комментарий и код счёта видов взноса можно поправить сразу у нескольких — измените нужные поля и один раз нажмите «Сохранить» под таблицей (код счёта задаёт формулу номера для НОВЫХ счетов — уже выданные не переименовывает; коды электричества и видов взноса — из одного пространства, занять чужой код нельзя). Кнопка «Переименовать» у отдельного вида — если сам формат уже верный, но конкретный вид счетов когда-то завели не по формуле (вручную, импортом), приводит к формату только его, не трогая остальные (доступно только видам с заданным кодом счёта). Пример посчитан для гаража/человека №95 по формату, сохранённому в форме слева — если меняли там поля, сначала нажмите «Сохранить» там.") }}</p>
+<p class="text-muted small">{{ _("Название, комментарий и код счёта видов взноса можно поправить сразу у нескольких — измените нужные поля и один раз нажмите «Сохранить» внизу (код счёта задаёт формулу номера для НОВЫХ счетов — уже выданные не переименовывает; коды электричества и видов взноса — из одного пространства, занять чужой код нельзя). «Переименовать» — привести уже выданные номера этого вида к текущему формату (когда завели не по формуле). «Завести всем»/«Удалить у всех» — массово завести недостающие счета этого вида ВСЕМ текущим собственникам гаражей или, наоборот, убрать у всех (кроме счетов с историей начислений/платежей — те не трогает). Пример посчитан для гаража/человека №95 по формату, сохранённому в форме слева — если меняли там поля, сначала нажмите «Сохранить» там.") }}</p>
 
 <div class="row g-4">
   <div class="col-lg-4">
@@ -28,7 +67,7 @@
         <label class="form-check-label" for="regenerate_existing">
           {{ _("Пересчитать уже существующие номера под новый формат (где это возможно без конфликтов)") }}
         </label>
-        <div class="form-text">{{ _("Если не отмечено — уже выданные людям номера не меняются, новый формат затронет только счета, заведённые впредь. Применяется сразу ко ВСЕМ видам счетов разом — для отдельных видов см. таблицу справа.") }}</div>
+        <div class="form-text">{{ _("Если не отмечено — уже выданные людям номера не меняются, новый формат затронет только счета, заведённые впредь. Применяется сразу ко ВСЕМ видам счетов разом — для отдельных видов см. карточки справа.") }}</div>
       </div>
 
       <button class="btn btn-primary">{{ _("Сохранить") }}</button>
@@ -36,64 +75,35 @@
   </div>
 
   <div class="col-lg-8">
-    <div class="bg-body p-4 rounded border">
-      <div class="table-responsive">
-        <table class="table table-sm mb-3">
-          <thead><tr><th style="width:32%">{{ _("Название") }}</th><th style="width:7%">{{ _("Код счёта") }}</th><th>{{ _("Комментарий") }}</th><th>{{ _("Пример") }}</th><th class="no-sort"></th></tr></thead>
-          <tbody>
-            <tr>
-              <td>
-                {% if electricity_fee_type %}
-                <input class="form-control form-control-sm" name="name_{{ electricity_fee_type.id }}" value="{{ electricity_fee_type.name }}" form="feeTypeBulkForm" required>
-                {% else %}
-                <span class="text-muted">{{ _("Электричество") }}</span>
-                {% endif %}
-              </td>
-              <td><input class="form-control form-control-sm" name="electricity_type_code" value="{{ settings.type_code }}" form="feeTypeBulkForm" maxlength="10" required></td>
-              <td>
-                {% if electricity_fee_type %}
-                <input class="form-control form-control-sm" name="comment_{{ electricity_fee_type.id }}" value="{{ electricity_fee_type.comment or '' }}" form="feeTypeBulkForm">
-                {% else %}
-                <span class="text-muted">—</span>
-                {% endif %}
-              </td>
-              <td><code>{{ example_electricity }}</code></td>
-              <td class="text-end">
-                <form method="post" action="{{ url_for('finance.account_format_regenerate') }}" data-ajax>
-                  <input type="hidden" name="scope" value="electricity">
-                  <button class="btn btn-sm btn-outline-primary">{{ _("Переименовать") }}</button>
-                </form>
-              </td>
-            </tr>
-            {% for ft in fee_types %}
-            <tr>
-              <td><input class="form-control form-control-sm" name="name_{{ ft.id }}" value="{{ ft.name }}" form="feeTypeBulkForm" required></td>
-              <td><input class="form-control form-control-sm" name="type_code_{{ ft.id }}" value="{{ ft.type_code or '' }}" form="feeTypeBulkForm" maxlength="5"></td>
-              <td><input class="form-control form-control-sm" name="comment_{{ ft.id }}" value="{{ ft.comment or '' }}" form="feeTypeBulkForm"></td>
-              <td>{% if ft.id in fee_type_examples %}<code>{{ fee_type_examples[ft.id] }}</code>{% else %}<span class="text-muted">—</span>{% endif %}</td>
-              <td class="text-end">
-                {% if ft.type_code %}
-                <div class="d-flex gap-1 justify-content-end">
-                  <form method="post" action="{{ url_for('finance.account_format_regenerate') }}" data-ajax>
-                    <input type="hidden" name="scope" value="{{ ft.id }}">
-                    <button class="btn btn-sm btn-outline-primary">{{ _("Переименовать") }}</button>
-                  </form>
-                  <form method="post" action="{{ url_for('finance.account_format_backfill') }}" data-ajax>
-                    <input type="hidden" name="fee_type_id" value="{{ ft.id }}">
-                    <button class="btn btn-sm btn-outline-secondary" title="{{ _('Завести этот счёт всем текущим собственникам, у кого его ещё нет') }}">{{ _("Завести всем") }}</button>
-                  </form>
-                </div>
-                {% endif %}
-              </td>
-            </tr>
-            {% else %}
-            <tr><td colspan="5" class="text-muted">{{ _("Видов взноса пока нет.") }}</td></tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-      <button class="btn btn-primary" form="feeTypeBulkForm">{{ _("Сохранить") }}</button>
-    </div>
+    {% call card("name_" ~ (electricity_fee_type.id if electricity_fee_type else ""), electricity_fee_type.name if electricity_fee_type else _("Электричество"), electricity_fee_type is not none, "electricity_type_code", settings.type_code, true, "comment_" ~ (electricity_fee_type.id if electricity_fee_type else ""), electricity_fee_type.comment if electricity_fee_type else none, electricity_fee_type is not none, example_electricity) %}
+      <form method="post" action="{{ url_for('finance.account_format_regenerate') }}" data-ajax>
+        <input type="hidden" name="scope" value="electricity">
+        <button class="btn btn-sm btn-outline-primary">{{ _("Переименовать") }}</button>
+      </form>
+    {% endcall %}
+
+    {% for ft in fee_types %}
+    {% call card("name_" ~ ft.id, ft.name, true, "type_code_" ~ ft.id, ft.type_code, false, "comment_" ~ ft.id, ft.comment, true, fee_type_examples.get(ft.id)) %}
+      {% if ft.type_code %}
+      <form method="post" action="{{ url_for('finance.account_format_regenerate') }}" data-ajax>
+        <input type="hidden" name="scope" value="{{ ft.id }}">
+        <button class="btn btn-sm btn-outline-primary">{{ _("Переименовать") }}</button>
+      </form>
+      <form method="post" action="{{ url_for('finance.account_format_backfill') }}" data-ajax>
+        <input type="hidden" name="fee_type_id" value="{{ ft.id }}">
+        <button class="btn btn-sm btn-outline-secondary" title="{{ _('Завести этот счёт всем текущим собственникам, у кого его ещё нет') }}">{{ _("Завести всем") }}</button>
+      </form>
+      {% endif %}
+      <form method="post" action="{{ url_for('finance.account_format_bulk_delete') }}" onsubmit="return confirm('{{ _('Удалить счета этого вида у всех текущих собственников (кроме счетов с историей начислений/платежей)?') }}')">
+        <input type="hidden" name="fee_type_id" value="{{ ft.id }}">
+        <button class="btn btn-sm btn-outline-danger" title="{{ _('Удалить счета этого вида у всех, кроме счетов с историей начислений/платежей') }}">{{ _("Удалить у всех") }}</button>
+      </form>
+    {% endcall %}
+    {% else %}
+    <p class="text-muted">{{ _("Видов взноса пока нет.") }}</p>
+    {% endfor %}
+
+    <button class="btn btn-primary" form="feeTypeBulkForm">{{ _("Сохранить") }}</button>
   </div>
 </div>
 <form method="post" action="{{ url_for('finance.account_format_update_fee_types') }}" id="feeTypeBulkForm" data-ajax hidden></form>

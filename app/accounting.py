@@ -72,13 +72,22 @@ def member_account_number(
 def person_member_account_number(
     fee_type_code: str, person_id: int, settings: AccountNumberSettings | None = None,
 ) -> str:
-    """Номер лицевого счёта вида взноса с FeeType.per_garage=False — один на
+    """
+    Номер лицевого счёта вида взноса с FeeType.per_garage=False — один на
     человека сразу за все его гаражи (см. её докстринг), поэтому в формуле
-    вместо номера гаража берётся id самого человека, и нет порядкового
-    номера собственника (он существует, только чтобы различать
-    совладельцев ОДНОГО гаража — здесь этого разделения нет вовсе)."""
+    вместо номера гаража берётся id самого человека. Порядкового номера
+    собственника по смыслу тоже нет (он существует только чтобы различать
+    совладельцев ОДНОГО гаража, а не разных людей — здесь этого деления
+    нет вовсе) — но для единообразия с остальными счетами (одинаковая
+    ОБЩАЯ длина номера, см. member_account_number) хвост в ширину
+    owner_digits всё равно дописывается, только нулями, а не индексом:
+    "30950" для type_code="3", person_id=95, owner_digits=1 (по умолчанию)
+    — по прямой просьбе, чтобы номер визуально не выделялся длиной среди
+    счетов, заведённых по гаражу ("20950" у земельного налога и т.п.),
+    хотя по сути это не "нулевой собственник", а просто заполнитель длины.
+    """
     settings = settings or get_settings()
-    return f"{fee_type_code}{_padded_digits(person_id, settings.garage_digits)}"
+    return f"{fee_type_code}{_padded_digits(person_id, settings.garage_digits)}{'0' * settings.owner_digits}"
 
 
 def ensure_personal_member_accounts(person_id: int) -> None:

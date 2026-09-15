@@ -28,7 +28,7 @@
   {% if families_error %}
   <p class="text-danger small mb-2">{{ _("Не удалось получить список домов:") }} {{ families_error }}</p>
   {% elif families %}
-  <form method="post" action="{{ url_for('electricity_monitor.save_family') }}" class="row g-2 align-items-end">
+  <form method="post" action="{{ url_for('electricity_monitor.save_family') }}" class="row g-2 align-items-end" data-ajax>
     <div class="col-auto">
       <select class="form-select form-select-sm" name="family_id" required>
         {% for fam in families %}
@@ -258,7 +258,7 @@
   </a>
   {% endif %}
   {% if is_authorized %}
-  <form method="post" action="{{ url_for('electricity_monitor.test_connection') }}">
+  <form method="post" action="{{ url_for('electricity_monitor.test_connection') }}" data-ajax>
     <button class="btn btn-sm btn-outline-primary">{{ _("Проверить подключение") }}</button>
   </form>
   <form method="post" action="{{ url_for('electricity_monitor.unbind') }}" onsubmit="return confirm('{{ _('Сбросить подключение к eWeLink?') }}')">
@@ -306,8 +306,12 @@
     const maxLocal = toLocalInputValue(maxDate);
     fromInput.min = toInput.min = minLocal;
     fromInput.max = toInput.max = maxLocal;
-    // по умолчанию — последние HISTORY_HOURS часов данных (или весь диапазон, если он короче)
-    const defaultFromMs = Math.max(minDate.getTime(), maxDate.getTime() - {{ history_hours_default }} * 60 * 60 * 1000);
+    // Датапикеры «с/по» (и первый запрос к history-data, см. fetchAndRender
+    // ниже) — сразу на HISTORY_FETCH_HOURS (30 дней, или весь диапазон, если
+    // он короче): дальше масштаб/прокрутка графика в пределах этих дней не
+    // требуют нового похода на сервер. Видимый ПОНАЧАЛУ масштаб графика уже
+    // (HISTORY_VIEW_HOURS, 3 дня) — применяется отдельно, см. applyInitialZoom.
+    const defaultFromMs = Math.max(minDate.getTime(), maxDate.getTime() - {{ history_fetch_hours_default }} * 60 * 60 * 1000);
     fromInput.value = toLocalInputValue(new Date(defaultFromMs));
     toInput.value = maxLocal;
   } else {
@@ -418,10 +422,27 @@
         }, datasetStyle(colors[i % colors.length]));
       });
     chart.config.type = chartType;
-    chart.resetZoom();
+    // Масштаб НЕ сбрасывается здесь (раньше сбрасывался при каждом render) —
+    // render() вызывается и при переключении галочек фаз/типа графика, а не
+    // только при новой загрузке данных; сброс масштаба тут же после того,
+    // как applyInitialZoom() его сузил (см. fetchAndRender), стирал бы этот
+    // узкий начальный масштаб при первом же клике по галочке. Явный сброс —
+    // отдельно, в fetchAndRender(), когда данные действительно новые.
     chart.update();
     emptyMsg.classList.toggle("d-none", anyPoints);
     canvas.classList.toggle("d-none", !anyPoints);
+  }
+
+  // Загружается сразу весь запас (HISTORY_FETCH_HOURS дней, см. defaultFromMs
+  // выше) — прокрутка/отдаление графика назад в его пределах работают без
+  // нового запроса к серверу. Но ПОКАЗЫВАЕМ при первом открытии страницы
+  // только последние HISTORY_VIEW_HOURS часов — более узкий, читаемый
+  // масштаб, который можно раздвинуть колесом мыши/жестом прямо в браузере.
+  let isFirstLoad = true;
+  function applyInitialZoom() {
+    const maxMs = new Date(toInput.value).getTime();
+    const minMs = Math.max(new Date(fromInput.value).getTime(), maxMs - {{ history_view_hours_default }} * 60 * 60 * 1000);
+    chart.zoomScale("x", { min: minMs, max: maxMs });
   }
 
   function fetchAndRender() {
@@ -433,7 +454,19 @@
     const until = new Date(toInput.value).toISOString();
     fetch(historyUrl + "?since=" + encodeURIComponent(since) + "&until=" + encodeURIComponent(until))
       .then(function (r) { return r.json(); })
-      .then(function (data) { lastData = data; render(); })
+      .then(function (data) {
+        lastData = data;
+        render();
+        if (isFirstLoad) {
+          applyInitialZoom();
+          isFirstLoad = false;
+        } else {
+          // Ручной выбор диапазона кнопкой «Показать» — в отличие от
+          // первого открытия, здесь ожидаемо увидеть весь запрошенный
+          // период целиком, а не тот же узкий трёхдневный масштаб.
+          chart.resetZoom();
+        }
+      })
       .catch(function () {
         emptyMsg.textContent = "{{ _('Не удалось загрузить историю — проверьте соединение и попробуйте ещё раз.') }}";
         emptyMsg.classList.remove("d-none");

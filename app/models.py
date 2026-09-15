@@ -2163,7 +2163,13 @@ class AccountNumberSettings(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     garage_digits: Mapped[int] = mapped_column(Integer, default=3)   # ширина номера гаража, напр. 3 -> "095"
     owner_digits: Mapped[int] = mapped_column(Integer, default=1)    # ширина порядкового номера собственника
-    electricity_prefix: Mapped[str] = mapped_column(String(10), default="0")
+    # Код типа для счёта на электричество — тот же смысл, что и
+    # FeeType.type_code у видов взноса (см. её докстринг), просто здесь не
+    # привязан к FeeType: у электричества (PersonalAccount) своего FeeType
+    # нет, поэтому свой отдельный код типа хранится тут же, в настройках
+    # формата (было electricity_prefix — переименовано для единообразия
+    # терминологии с FeeType.type_code, по прямой просьбе).
+    type_code: Mapped[str] = mapped_column(String(10), default="0")
     penalty_prefix: Mapped[str] = mapped_column(String(10), default="П")
 
 

@@ -1631,5 +1631,54 @@ document.addEventListener("click", function (e) {
   btn.textContent = nowCollapsed ? btn.dataset.expandLabel : btn.dataset.collapseLabel;
 });
 </script>
+{% if webpush_prompt %}
+<script>
+// Запрос браузерного разрешения на push сразу после первого входа — если
+// человек отметил галочку на форме принудительной смены пароля (см.
+// auth/force_change_password.html, там же и её докстринг — почему именно
+// там, а не на форме входа), а не только через настройки профиля
+// (cabinet/profile.html, тот же поток отдельной кнопкой). webpush_prompt —
+// одноразовый флаг из сессии (см. app/__init__.py:_inject_user), поэтому
+// сам этот блок вообще не рендерится на обычных страницах.
+(function () {
+  if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
+  // Уже отказали раньше в этом браузере — повторный subscribe() всё равно
+  // не покажет диалог снова, просто тихо провалится; не пытаемся.
+  if (window.Notification && Notification.permission === "denied") return;
+
+  function urlBase64ToUint8Array(base64String) {
+    var padding = "=".repeat((4 - base64String.length % 4) % 4);
+    var base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+    var rawData = atob(base64);
+    var outputArray = new Uint8Array(rawData.length);
+    for (var i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
+    return outputArray;
+  }
+
+  navigator.serviceWorker.register("/service-worker.js").then(function (registration) {
+    return registration.pushManager.getSubscription().then(function (existing) {
+      if (existing) return; // уже подписан в этом браузере — просить нечего
+      return registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array({{ webpush_public_key | tojson }}),
+      }).then(function (sub) {
+        var csrfMeta = document.querySelector('meta[name="csrf-token"]');
+        var headers = { "Content-Type": "application/json" };
+        if (csrfMeta) headers["X-CSRFToken"] = csrfMeta.getAttribute("content");
+        return fetch({{ url_for('cabinet.webpush_subscribe') | tojson }}, {
+          method: "POST", headers: headers, body: JSON.stringify(sub.toJSON()),
+        });
+      });
+    });
+  }).catch(function () {
+    // Человек отклонил системный диалог разрешения (или браузер не смог
+    // зарегистрировать service worker) — молча ничего не делаем, канал
+    // notify_channel=webpush уже сохранён (см. auth._complete_login), он
+    // просто не будет фактически доставлять, пока подписки нет; попробовать
+    // ещё раз можно вручную в настройках профиля.
+  });
+})();
+</script>
+{% endif %}
 </body>
 </html>

@@ -2,7 +2,7 @@ import datetime as dt
 import os
 import logging
 
-from flask import Flask, g, redirect, request, url_for
+from flask import Flask, g, redirect, request, session, url_for
 from flask_wtf import CSRFProtect
 
 from config import Config
@@ -201,6 +201,22 @@ def create_app(config_class=Config):
         else:
             login_next_url = request.path
 
+        # Одноразовый флаг из auth.force_change_password (галочка «получать
+        # push-уведомления» на форме принудительной смены пароля при первом
+        # входе, см. её докстринг) — просим разрешение на push прямо на
+        # первой странице ПОСЛЕ входа (см. base.html), а не только глубоко в
+        # настройках профиля (cabinet/profile.html, тот же поток, но по
+        # кнопке). session.pop — сработает ровно один раз, на следующем же
+        # рендере уйдёт. webpush_public_key достаём только тут же, не на
+        # каждой странице — он нужен исключительно для этого одноразового
+        # запроса.
+        webpush_prompt = False
+        webpush_public_key = None
+        if user and session.pop("webpush_prompt", False):
+            from . import webpush as _webpush
+            webpush_public_key = _webpush.get_or_create_settings().public_key
+            webpush_prompt = True
+
         return {
             "current_user": user, "coop_name": coop_name, "balance": _balance,
             "is_board": is_board, "is_chairman": is_chairman, "is_privileged": is_privileged,
@@ -212,6 +228,8 @@ def create_app(config_class=Config):
             "pending_proposals_count": pending_proposals,
             "mailbox_unread_count": mailbox_unread,
             "login_next_url": login_next_url,
+            "webpush_prompt": webpush_prompt,
+            "webpush_public_key": webpush_public_key,
         }
 
     from .main import bp as main_bp

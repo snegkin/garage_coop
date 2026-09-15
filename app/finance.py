@@ -1076,27 +1076,42 @@ def delete_member_account(account_id):
 # Формат номеров лицевых счетов
 # ---------------------------------------------------------------------------
 
-def _regenerate_account_numbers(settings) -> tuple[int, int]:
+def _regenerate_account_numbers(settings, scope: str | int | None = None) -> tuple[int, int]:
     """
-    Пересчитывает номера всех существующих счетов под новые настройки формата.
+    Пересчитывает номера существующих счетов под текущие настройки формата.
     Меняет только те, что реально отличаются, и только если новый номер
     не конфликтует с уже занятым. Возвращает (изменено, не удалось из-за конфликта).
+
+    scope — какие счета трогать:
+      None          — вообще все (вызывается с чекбоксом "Пересчитать
+                      существующие" на форме настроек формата, сразу все
+                      виды разом);
+      "electricity" — только счета на электричество (PersonalAccount);
+      int           — только счета одного вида взноса (MemberAccount.fee_type_id).
+    Оба последних — отдельные кнопки "Переименовать по формату" на каждый
+    вид счёта (см. account_format_regenerate) — полезно, когда конкретный
+    вид был когда-то заведён не по формуле (ручной ввод, импорт), а
+    остальные виды уже в порядке и трогать их незачем.
     """
     changed = 0
     failed = 0
 
-    for account in database.db_session.query(PersonalAccount).join(Garage).all():
-        new_number = electricity_account_number(account.garage.id, settings)
-        if new_number == account.account_number:
-            continue
-        conflict = database.db_session.query(PersonalAccount).filter(
-            PersonalAccount.account_number == new_number, PersonalAccount.id != account.id
-        ).first()
-        if conflict:
-            failed += 1
-            continue
-        account.account_number = new_number
-        changed += 1
+    if scope is None or scope == "electricity":
+        for account in database.db_session.query(PersonalAccount).join(Garage).all():
+            new_number = electricity_account_number(account.garage.id, settings)
+            if new_number == account.account_number:
+                continue
+            conflict = database.db_session.query(PersonalAccount).filter(
+                PersonalAccount.account_number == new_number, PersonalAccount.id != account.id
+            ).first()
+            if conflict:
+                failed += 1
+                continue
+            account.account_number = new_number
+            changed += 1
+
+    if scope == "electricity":
+        return changed, failed
 
     # индекс собственника по каждому гаражу (порядок по id владения) — нужен для номера счёта члена
     owner_index_by_garage_person = {}
@@ -1110,7 +1125,10 @@ def _regenerate_account_numbers(settings) -> tuple[int, int]:
         for idx, o in enumerate(ownerships):
             owner_index_by_garage_person[(garage.id, o.person_id)] = idx
 
-    for account in database.db_session.query(MemberAccount).all():
+    member_query = database.db_session.query(MemberAccount)
+    if isinstance(scope, int):
+        member_query = member_query.filter(MemberAccount.fee_type_id == scope)
+    for account in member_query.all():
         if not account.fee_type.type_code:
             continue  # у ручных счетов без кода вида — номер не трогаем
         if account.garage_id is None:
@@ -1175,13 +1193,76 @@ def account_format():
             flash(_("Формат обновлён. Уже существующие номера оставлены как есть — новый формат применяется только к новым счетам."), "success")
         return redirect(url_for("finance.account_format"))
 
+    # Виды взноса, у которых вообще есть формула номера (type_code) — для
+    # них ниже отдельная кнопка "Переименовать по формату" на каждый вид
+    # (см. account_format_regenerate); у ручных видов без type_code (напр.
+    # "целевой взнос") номер по формуле не считается вовсе, показывать
+    # для них кнопку было бы нечестно — она ничего не изменит.
+    fee_types = (
+        database.db_session.query(FeeType)
+        .filter(FeeType.type_code.isnot(None))
+        .order_by(FeeType.is_penalty, FeeType.name)
+        .all()
+    )
+    fee_type_examples = {}
+    for ft in fee_types:
+        if ft.per_garage:
+            fee_type_examples[ft.id] = member_account_number(ft.type_code, 95, 0, ft.is_penalty, settings)
+        else:
+            fee_type_examples[ft.id] = person_member_account_number(ft.type_code, 95, settings)
+
     return render_template(
         "finance/account_format.html",
         settings=settings,
         example_electricity=electricity_account_number(95, settings),
-        example_member=member_account_number("1", 95, 0, False, settings),
-        example_penalty=member_account_number("1", 95, 0, True, settings),
+        fee_types=fee_types,
+        fee_type_examples=fee_type_examples,
     )
+
+
+@bp.route("/account-format/regenerate", methods=["POST"])
+@roles_required(RoleEnum.CHAIRMAN)
+def account_format_regenerate():
+    """
+    Переименовать по ТЕКУЩЕМУ (уже сохранённому) формату счета ОДНОГО вида
+    — отдельная кнопка на каждый вид (см. finance/account_format.html), в
+    отличие от чекбокса "Пересчитать существующие" на форме настроек
+    (тот применяет формат сразу ко всем видам разом, и заодно требует
+    пересохранить саму форму). Нужно, когда сам формат уже верный, но
+    конкретный вид счетов был когда-то заведён не по формуле (ручной ввод,
+    импорт) — остальные виды при этом трогать не нужно.
+    """
+    settings = get_settings()
+    scope_raw = request.form.get("scope", "")
+    if scope_raw == "electricity":
+        scope = "electricity"
+        label = _("Электричество")
+    else:
+        try:
+            fee_type_id = int(scope_raw)
+        except ValueError:
+            abort(404)
+        fee_type = database.db_session.get(FeeType, fee_type_id)
+        if fee_type is None:
+            abort(404)
+        scope = fee_type_id
+        label = fee_type.name
+
+    changed, failed = _regenerate_account_numbers(settings, scope=scope)
+    audit.record(
+        "account_format.regenerate_type",
+        f"Переименованы по формату счета вида «{label}»: изменено — {changed}, "
+        f"не удалось из-за конфликта — {failed}",
+    )
+    database.db_session.commit()
+    if failed:
+        flash(_(
+            "«{label}»: приведено к формату — {changed}. Не удалось из-за конфликта номеров: {failed} — поправьте вручную на страницах счетов.",
+            label=label, changed=changed, failed=failed,
+        ), "warning")
+    else:
+        flash(_("«{label}»: приведено к формату — {changed}.", label=label, changed=changed), "success")
+    return redirect(url_for("finance.account_format"))
 
 
 # ---------------------------------------------------------------------------

@@ -26,8 +26,6 @@
 
   <div class="alert alert-light border mt-3 mb-3">
     <div><strong>{{ _("Пример — электричество (гараж 95)") }}:</strong> <code>{{ example_electricity }}</code></div>
-    <div><strong>{{ _("Пример — взнос (гараж 95, вид «1»)") }}:</strong> <code>{{ example_member }}</code></div>
-    <div><strong>{{ _("Пример — пеня по нему") }}:</strong> <code>{{ example_penalty }}</code></div>
   </div>
 
   <div class="form-check mb-3">
@@ -35,9 +33,41 @@
     <label class="form-check-label" for="regenerate_existing">
       {{ _("Пересчитать уже существующие номера под новый формат (где это возможно без конфликтов)") }}
     </label>
-    <div class="form-text">{{ _("Если не отмечено — уже выданные людям номера не меняются, новый формат затронет только счета, заведённые впредь.") }}</div>
+    <div class="form-text">{{ _("Если не отмечено — уже выданные людям номера не меняются, новый формат затронет только счета, заведённые впредь. Применяется сразу ко ВСЕМ видам счетов разом — для отдельных видов см. таблицу ниже.") }}</div>
   </div>
 
   <button class="btn btn-primary">{{ _("Сохранить") }}</button>
 </form>
+
+<h5 class="mt-4 mb-2">{{ _("Переименовать по текущему формату — по видам") }}</h5>
+<p class="text-muted small" style="max-width:700px">{{ _("Если сам формат уже верный, но конкретный вид счетов когда-то завели не по формуле (вручную, импортом) — можно привести к формату только его, не трогая остальные. Пример посчитан для гаража/человека №95 по формату, сохранённому выше (если меняли поля формы, сначала нажмите «Сохранить»).") }}</p>
+<table class="table table-sm bg-body" style="max-width:700px">
+  <thead><tr><th>{{ _("Вид счёта") }}</th><th>{{ _("Пример") }}</th><th class="no-sort"></th></tr></thead>
+  <tbody>
+    <tr>
+      <td>{{ _("Электричество") }}</td>
+      <td><code>{{ example_electricity }}</code></td>
+      <td class="text-end">
+        <form method="post" action="{{ url_for('finance.account_format_regenerate') }}" data-ajax>
+          <input type="hidden" name="scope" value="electricity">
+          <button class="btn btn-sm btn-outline-primary">{{ _("Переименовать по формату") }}</button>
+        </form>
+      </td>
+    </tr>
+    {% for ft in fee_types %}
+    <tr>
+      <td>{{ ft.name }}</td>
+      <td><code>{{ fee_type_examples[ft.id] }}</code></td>
+      <td class="text-end">
+        <form method="post" action="{{ url_for('finance.account_format_regenerate') }}" data-ajax>
+          <input type="hidden" name="scope" value="{{ ft.id }}">
+          <button class="btn btn-sm btn-outline-primary">{{ _("Переименовать по формату") }}</button>
+        </form>
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="3" class="text-muted">{{ _("Нет видов взноса с формулой номера.") }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
 {% endblock %}

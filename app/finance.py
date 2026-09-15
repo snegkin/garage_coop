@@ -1234,6 +1234,38 @@ def _backfill_member_accounts(fee_type: FeeType) -> tuple[int, int]:
     return created, failed
 
 
+def _delete_member_accounts_bulk(fee_type: FeeType) -> tuple[int, int]:
+    """
+    Массово удаляет счета вида взноса fee_type у ВСЕХ, у кого он сейчас
+    заведён — симметрично _backfill_member_accounts, только в обратную
+    сторону (кнопка «Удалить у всех» рядом с «Завести всем», см.
+    account_format_bulk_delete). Нужно, когда вид взноса завели/массово
+    завели по ошибке не тем, или он больше не нужен всем поголовно
+    (например, «Пеня» — в норме заводится не всем, а по ситуации).
+
+    Удаляет ТОЛЬКО счета без единого начисления/платежа (по прямой
+    просьбе — по счетам с историей нельзя терять данные массовой
+    операцией; одиночное ручное удаление такого счёта через
+    delete_member_account намеренно им не мешает, там своё, явное
+    подтверждение председателем). Возвращает (удалено, пропущено
+    из-за истории).
+    """
+    accounts = database.db_session.query(MemberAccount).filter_by(fee_type_id=fee_type.id, is_archived=False).all()
+    deleted = 0
+    skipped = 0
+    for account in accounts:
+        has_history = (
+            database.db_session.query(Charge).filter_by(account_id=account.id).first() is not None
+            or database.db_session.query(Payment).filter_by(account_id=account.id).first() is not None
+        )
+        if has_history:
+            skipped += 1
+            continue
+        database.db_session.delete(account)
+        deleted += 1
+    return deleted, skipped
+
+
 @bp.route("/account-format", methods=["GET", "POST"])
 @roles_required(RoleEnum.CHAIRMAN)
 def account_format():
@@ -1400,6 +1432,43 @@ def account_format_backfill():
         flash(_("«{name}»: заведено счетов — {created}.", name=fee_type.name, created=created), "success")
     else:
         flash(_("«{name}»: у всех текущих собственников счёт этого вида уже есть.", name=fee_type.name), "info")
+    return redirect(url_for("finance.account_format"))
+
+
+@bp.route("/account-format/bulk-delete", methods=["POST"])
+@roles_required(RoleEnum.CHAIRMAN)
+def account_format_bulk_delete():
+    """
+    Массово удалить счета этого вида взноса у ВСЕХ, у кого он сейчас
+    заведён — кнопка «Удалить у всех» рядом с «Завести всем» на каждой
+    строке таблицы (см. finance/account_format.html). Симметрично
+    account_format_backfill, но в обратную сторону; счета с историей
+    начислений/платежей не трогает — см. _delete_member_accounts_bulk.
+    """
+    try:
+        fee_type_id = int(request.form.get("fee_type_id", ""))
+    except ValueError:
+        abort(404)
+    fee_type = database.db_session.get(FeeType, fee_type_id)
+    if fee_type is None:
+        abort(404)
+
+    deleted, skipped = _delete_member_accounts_bulk(fee_type)
+    audit.record(
+        "member_account.bulk_delete",
+        f"Массово удалены счета вида «{fee_type.name}»: удалено — {deleted}, "
+        f"пропущено из-за истории начислений/платежей — {skipped}",
+    )
+    database.db_session.commit()
+    if skipped:
+        flash(_(
+            "«{name}»: удалено счетов — {deleted}. Пропущено (есть начисления/платежи) — {skipped}: их можно удалить только по одному, со страницы счёта.",
+            name=fee_type.name, deleted=deleted, skipped=skipped,
+        ), "warning")
+    elif deleted:
+        flash(_("«{name}»: удалено счетов — {deleted}.", name=fee_type.name, deleted=deleted), "success")
+    else:
+        flash(_("«{name}»: счетов этого вида нет.", name=fee_type.name), "info")
     return redirect(url_for("finance.account_format"))
 
 

@@ -49,18 +49,25 @@ def bank_accounts():
 @roles_required(RoleEnum.BOARD)
 def fee_types():
     types = database.db_session.query(FeeType).order_by(FeeType.name).all()
-    return render_template("finance/fee_types.html", types=types)
+    return render_template("finance/fee_types.html", types=types, electricity_type_code=get_settings().type_code)
 
 
 @bp.route("/fee-types/new", methods=["POST"])
 @roles_required(RoleEnum.CHAIRMAN)
 def create_fee_type():
     f = request.form
+    type_code = f.get("type_code") or None
+    if type_code and type_code == get_settings().type_code:
+        flash(_(
+            "Код счёта «{code}» зарезервирован за электричеством (см. /finance/account-format) — выберите другой.",
+            code=type_code,
+        ), "danger")
+        return redirect(url_for("finance.fee_types"))
     database.db_session.add(FeeType(
         code=f["code"],
         name=f["name"],
         comment=f.get("comment") or None,
-        type_code=f.get("type_code") or None,
+        type_code=type_code,
         is_penalty=bool(f.get("is_penalty")),
     ))
     audit.record("fee_type.create", f"Добавлен вид взноса: {f['name']} ({f['code']})")
@@ -1153,6 +1160,80 @@ def _regenerate_account_numbers(settings, scope: str | int | None = None) -> tup
     return changed, failed
 
 
+def _backfill_member_accounts(fee_type: FeeType) -> tuple[int, int]:
+    """
+    Заводит недостающие счета вида взноса fee_type ВСЕМ текущим
+    собственникам гаражей — тем же способом, каким это происходит
+    автоматически при добавлении НОВОГО собственника (см.
+    garages._ensure_member_accounts/accounting.ensure_personal_member_accounts),
+    но задним числом. Нужно, когда вид взноса завели (или ему только что
+    задали код счёта, см. account_format_update_fee_types) ПОЗЖЕ, чем
+    появилась основная масса владений — уже действующим собственникам
+    счёт сам не появится, только тем, кого добавят впредь. Пример из
+    жизни — «Целевой взнос»: завели не при первом запуске, а по ходу
+    работы кооператива, когда владельцев уже много.
+
+    per_garage=True — по одному счёту на каждую пару (гараж, собственник);
+    per_garage=False — по одному счёту на человека, без разбивки по
+    гаражам (как и в формуле номера, см. person_member_account_number).
+    Возвращает (заведено, не удалось из-за конфликта номера — на
+    практике не должно происходить, формула та же, что и у остальных
+    счетов этого вида, но проверяем той же логикой, что и
+    _regenerate_account_numbers, а не полагаемся на IntegrityError).
+    """
+    created = 0
+    failed = 0
+
+    if fee_type.per_garage:
+        owner_index_by_garage_person = {}
+        for garage in database.db_session.query(Garage).all():
+            ownerships = (
+                database.db_session.query(GarageOwnership)
+                .filter_by(garage_id=garage.id)
+                .order_by(GarageOwnership.id)
+                .all()
+            )
+            for idx, o in enumerate(ownerships):
+                owner_index_by_garage_person[(garage.id, o.person_id)] = idx
+
+        for (garage_id, person_id), owner_index in owner_index_by_garage_person.items():
+            exists = database.db_session.query(MemberAccount).filter_by(
+                person_id=person_id, garage_id=garage_id, fee_type_id=fee_type.id, is_archived=False,
+            ).first()
+            if exists:
+                continue
+            number = member_account_number(fee_type.type_code, garage_id, owner_index, fee_type.is_penalty)
+            conflict = database.db_session.query(MemberAccount).filter_by(account_number=number).first()
+            if conflict:
+                failed += 1
+                continue
+            database.db_session.add(MemberAccount(
+                person_id=person_id, garage_id=garage_id, fee_type_id=fee_type.id, account_number=number,
+            ))
+            created += 1
+    else:
+        person_ids = {
+            row[0] for row in database.db_session.query(GarageOwnership.person_id).distinct().all()
+        }
+        for person_id in person_ids:
+            exists = database.db_session.query(MemberAccount).filter_by(
+                person_id=person_id, garage_id=None, fee_type_id=fee_type.id, is_archived=False,
+            ).first()
+            if exists:
+                continue
+            number = person_member_account_number(fee_type.type_code, person_id)
+            conflict = database.db_session.query(MemberAccount).filter_by(account_number=number).first()
+            if conflict:
+                failed += 1
+                continue
+            database.db_session.add(MemberAccount(
+                person_id=person_id, garage_id=None, fee_type_id=fee_type.id, account_number=number,
+            ))
+            created += 1
+
+    return created, failed
+
+
 @bp.route("/account-format", methods=["GET", "POST"])
 @roles_required(RoleEnum.CHAIRMAN)
 def account_format():
@@ -1198,9 +1279,25 @@ def account_format():
     # (только для видов с type_code, см. account_format_regenerate — у
     # ручных видов без него, напр. "целевой взнос", номер по формуле не
     # считается вовсе, кнопка ничего бы не изменила).
+    #
+    # FeeType с code="electricity" — необязательная запись (заводится
+    # вручную на /finance/fee-types, см. seed.py) только ради названия
+    # платежа в квитанциях/QR (см. accounting.pd4_qr_payload_electricity и
+    # её соседей по коду — если записи нет, используется заглушка
+    # "Электроэнергия"); её type_code НЕ участвует в формуле номера счёта
+    # на электричество (та не через FeeType/MemberAccount вовсе, а через
+    # PersonalAccount + AccountNumberSettings.type_code, см.
+    # electricity_account_number) — поэтому показываем её ОТДЕЛЬНОЙ
+    # строкой с полем electricity_type_code вместо обычного type_code_<id>,
+    # а не в общем цикле ниже (иначе была бы вторая, всегда бесполезная,
+    # "Электричество"). Строка нужна всегда, даже если такой FeeType ещё
+    # не заведён — иначе редактировать код счёта электричества будет
+    # негде.
     fee_types = database.db_session.query(FeeType).order_by(FeeType.is_penalty, FeeType.name).all()
+    electricity_fee_type = next((ft for ft in fee_types if ft.code == "electricity"), None)
+    regular_fee_types = [ft for ft in fee_types if ft is not electricity_fee_type]
     fee_type_examples = {}
-    for ft in fee_types:
+    for ft in regular_fee_types:
         if not ft.type_code:
             continue
         if ft.per_garage:
@@ -1212,7 +1309,8 @@ def account_format():
         "finance/account_format.html",
         settings=settings,
         example_electricity=electricity_account_number(95, settings),
-        fee_types=fee_types,
+        electricity_fee_type=electricity_fee_type,
+        fee_types=regular_fee_types,
         fee_type_examples=fee_type_examples,
     )
 
@@ -1262,6 +1360,49 @@ def account_format_regenerate():
     return redirect(url_for("finance.account_format"))
 
 
+@bp.route("/account-format/backfill", methods=["POST"])
+@roles_required(RoleEnum.CHAIRMAN)
+def account_format_backfill():
+    """
+    Завести недостающие счета этого вида взноса всем ТЕКУЩИМ собственникам
+    гаражей — кнопка «Завести всем» рядом с «Переименовать» на каждой
+    строке таблицы (см. finance/account_format.html). Нужно для вида
+    взноса, заведённого (или получившего код счёта) уже ПОСЛЕ того, как
+    появилась основная масса собственников — тем счёт сам не заведётся,
+    в отличие от новых собственников впредь (см. _backfill_member_accounts).
+    Только для видов с заданным кодом счёта — без него номер посчитать
+    нечем (кнопка и не показывается в таблице для остальных).
+    """
+    try:
+        fee_type_id = int(request.form.get("fee_type_id", ""))
+    except ValueError:
+        abort(404)
+    fee_type = database.db_session.get(FeeType, fee_type_id)
+    if fee_type is None:
+        abort(404)
+    if not fee_type.type_code:
+        flash(_("У вида взноса «{name}» нет кода счёта — задать номер нечем.", name=fee_type.name), "danger")
+        return redirect(url_for("finance.account_format"))
+
+    created, failed = _backfill_member_accounts(fee_type)
+    audit.record(
+        "member_account.backfill",
+        f"Заведены недостающие счета вида «{fee_type.name}»: заведено — {created}, "
+        f"не удалось из-за конфликта — {failed}",
+    )
+    database.db_session.commit()
+    if failed:
+        flash(_(
+            "«{name}»: заведено счетов — {created}. Не удалось из-за конфликта номеров: {failed}.",
+            name=fee_type.name, created=created, failed=failed,
+        ), "warning")
+    elif created:
+        flash(_("«{name}»: заведено счетов — {created}.", name=fee_type.name, created=created), "success")
+    else:
+        flash(_("«{name}»: у всех текущих собственников счёт этого вида уже есть.", name=fee_type.name), "info")
+    return redirect(url_for("finance.account_format"))
+
+
 @bp.route("/account-format/fee-types", methods=["POST"])
 @roles_required(RoleEnum.CHAIRMAN)
 def account_format_update_fee_types():
@@ -1286,16 +1427,28 @@ def account_format_update_fee_types():
     формулу для НОВЫХ счетов; чтобы применить к уже существующим, нужна
     отдельная кнопка "Переименовать по формату" у нужного вида (см.
     account_format_regenerate).
+
+    Код счёта электричества и коды видов взноса — из одного пространства
+    (см. account_format_regenerate/_regenerate_account_numbers, номер
+    счёта начинается именно с этого кода) — занять код, уже занятый ДРУГИМ
+    видом/электричеством, нельзя: такую попытку пропускаем (остальные поля
+    той же строки, если менялись, всё равно сохраняются) и перечисляем
+    конфликты одним flash-сообщением вместо тихого исправления задним
+    числом.
     """
     f = request.form
     settings = get_settings()
     fee_types = database.db_session.query(FeeType).all()
     changed = 0
+    conflicts = []
 
     new_elec_code = (f.get("electricity_type_code") or "").strip()
     if new_elec_code and new_elec_code != settings.type_code:
-        settings.type_code = new_elec_code
-        changed += 1
+        if any(ft.type_code == new_elec_code for ft in fee_types):
+            conflicts.append(_("Электричество — код «{code}» уже занят видом взноса", code=new_elec_code))
+        else:
+            settings.type_code = new_elec_code
+            changed += 1
 
     for ft in fee_types:
         if f"name_{ft.id}" not in f:
@@ -1305,6 +1458,9 @@ def account_format_update_fee_types():
         new_type_code = (f.get(f"type_code_{ft.id}") or "").strip() or None
         if not new_name:
             continue  # пустое название — не стираем, пропускаем этот вид
+        if new_type_code and new_type_code == settings.type_code:
+            conflicts.append(_("«{name}» — код «{code}» зарезервирован за электричеством", name=ft.name, code=new_type_code))
+            new_type_code = ft.type_code  # не меняем, остальные поля строки — ниже, как обычно
         if new_name == ft.name and new_comment == ft.comment and new_type_code == ft.type_code:
             continue
         ft.name = new_name
@@ -1318,6 +1474,9 @@ def account_format_update_fee_types():
         flash(_("Обновлено видов взноса: {n}.", n=changed), "success")
     else:
         database.db_session.rollback()
+    if conflicts:
+        flash(_("Не удалось из-за занятых кодов счёта: {list}.", list="; ".join(conflicts)), "warning")
+    elif not changed:
         flash(_("Изменений не найдено."), "info")
     return redirect(url_for("finance.account_format"))
 

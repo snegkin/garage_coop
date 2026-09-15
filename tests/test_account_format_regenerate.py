@@ -118,6 +118,35 @@ def test_account_format_page_shows_all_types_but_regenerate_only_with_type_code(
     assert f'name="scope" value="{target.id}"'.encode() not in resp.data
 
 
+def test_electricity_fee_type_merged_into_single_row(app, db, client):
+    """
+    FeeType(code="electricity") — необязательная запись только ради
+    названия в квитанциях (см. accounting.pd4_qr_payload_electricity), её
+    type_code для нумерации счёта на электричество не используется (та
+    идёт через PersonalAccount + AccountNumberSettings.type_code). Если
+    такая запись заведена — её название/комментарий редактируются в ТОЙ
+    ЖЕ строке "Электричество", а не отдельной второй строкой, и без
+    отдельной (бесполезной для неё) кнопки "Переименовать" по fee_type_id.
+    """
+    elec = _fee_type(db, code="electricity", name="Электричество", type_code=None)
+    make_user(db, "chair_fmt9", "pass12345", role=RoleEnum.CHAIRMAN)
+    db.commit()
+
+    login(client, "chair_fmt9", "pass12345")
+    resp = client.get("/finance/account-format")
+    assert resp.status_code == 200
+    assert resp.data.count("Электричество".encode()) == 1  # не дублируется
+    assert f'name="name_{elec.id}"'.encode() in resp.data  # название редактируемо
+    assert f'name="type_code_{elec.id}"'.encode() not in resp.data  # свой code_type не задействован
+    assert b'name="scope" value="electricity"' in resp.data
+    assert f'name="scope" value="{elec.id}"'.encode() not in resp.data  # нет второй, бесполезной кнопки
+
+    resp = client.post("/finance/account-format/fee-types", data={f"name_{elec.id}": "Электроэнергия"})
+    assert resp.status_code == 302
+    db.expire_all()
+    assert db.get(FeeType, elec.id).name == "Электроэнергия"
+
+
 def test_bulk_update_fee_type_names_and_comments(app, db, client):
     land_tax = _fee_type(db, code="land_tax", name="Земельный налог", type_code="1")
     membership = _fee_type(db, code="membership", name="Членский взнос", type_code="2")
@@ -131,7 +160,7 @@ def test_bulk_update_fee_type_names_and_comments(app, db, client):
         f"type_code_{land_tax.id}": "1",  # без изменений
         f"name_{membership.id}": "Членский взнос",  # без изменений
         f"comment_{membership.id}": "",
-        f"type_code_{membership.id}": "9",  # изменён
+        f"type_code_{membership.id}": "5",  # изменён (не "9" — зарезервирован за электричеством)
     })
     assert resp.status_code == 302
 
@@ -141,7 +170,7 @@ def test_bulk_update_fee_type_names_and_comments(app, db, client):
     assert updated_land.name == "Земельный налог (ААА)"
     assert updated_land.comment == "по кадастровой стоимости"
     assert updated_member.name == "Членский взнос"
-    assert updated_member.type_code == "9"
+    assert updated_member.type_code == "5"
 
     log = db.query(AuditLog).filter_by(action="fee_type.bulk_update").one()
     assert "2" in log.summary  # изменены оба (у земельного — название/комментарий, у членского — код)
@@ -153,7 +182,7 @@ def test_bulk_update_electricity_type_code(app, db, client):
 
     login(client, "chair_fmt8", "pass12345")
     settings = get_settings()
-    assert settings.type_code == "0"
+    assert settings.type_code == "9"  # дефолт — по прямой просьбе, счета на электричество последние в списке
     resp = client.post("/finance/account-format/fee-types", data={"electricity_type_code": "Э"})
     assert resp.status_code == 302
 
@@ -181,3 +210,152 @@ def test_regenerate_invalid_scope_404(app, db, client):
     login(client, "chair_fmt5", "pass12345")
     resp = client.post("/finance/account-format/regenerate", data={"scope": "not-a-number"})
     assert resp.status_code == 404
+
+
+def test_bulk_update_rejects_type_code_reserved_by_electricity(app, db, client):
+    """Код "9" (дефолт для электричества) занять видом взноса нельзя."""
+    membership = _fee_type(db, code="membership", name="Членский взнос", type_code="2")
+    make_user(db, "chair_fmt10", "pass12345", role=RoleEnum.CHAIRMAN)
+    db.commit()
+
+    login(client, "chair_fmt10", "pass12345")
+    settings = get_settings()
+    assert settings.type_code == "9"
+    resp = client.post("/finance/account-format/fee-types", data={
+        f"name_{membership.id}": "Членский взнос",
+        f"type_code_{membership.id}": "9",
+    }, follow_redirects=True)
+    assert resp.status_code == 200
+    assert "зарезервирован".encode() in resp.data
+
+    db.expire_all()
+    assert db.get(FeeType, membership.id).type_code == "2"  # не изменился
+
+
+def test_bulk_update_rejects_electricity_code_used_by_fee_type(app, db, client):
+    """И наоборот: электричеству нельзя занять код, уже занятый видом взноса."""
+    _fee_type(db, code="membership", name="Членский взнос", type_code="2")
+    make_user(db, "chair_fmt11", "pass12345", role=RoleEnum.CHAIRMAN)
+    db.commit()
+
+    login(client, "chair_fmt11", "pass12345")
+    resp = client.post("/finance/account-format/fee-types", data={"electricity_type_code": "2"}, follow_redirects=True)
+    assert resp.status_code == 200
+    assert "зарезервирован".encode() in resp.data or "занят".encode() in resp.data
+
+    db.expire_all()
+    assert get_settings().type_code == "9"  # не изменился
+
+
+def test_create_fee_type_rejects_reserved_type_code(app, db, client):
+    make_user(db, "chair_fmt12", "pass12345", role=RoleEnum.CHAIRMAN)
+    db.commit()
+    login(client, "chair_fmt12", "pass12345")
+    assert get_settings().type_code == "9"
+
+    resp = client.post("/finance/fee-types/new", data={
+        "code": "some_fee", "name": "Некий взнос", "type_code": "9",
+    }, follow_redirects=True)
+    assert resp.status_code == 200
+    assert "зарезервирован".encode() in resp.data
+    assert db.query(FeeType).filter_by(code="some_fee").first() is None
+
+
+def test_backfill_creates_missing_accounts_for_existing_owners(app, db, client):
+    """
+    "Целевой взнос" и т.п. заведены ПОСЛЕ того, как гаражи/собственники уже
+    были — счёт сам не появился (это заводится только при добавлении
+    НОВОГО собственника, см. garages._ensure_member_accounts). Кнопка
+    "Завести всем" — бэкофилл задним числом для уже существующих.
+    """
+    from app.accounting import member_account_number, get_settings
+
+    p1 = make_person(db, full_name="Первый Собственников")
+    p2 = make_person(db, full_name="Второй Собственников")
+    g1 = make_garage(db, number="101")
+    g2 = make_garage(db, number="102")
+    make_ownership(db, g1, p1)
+    make_ownership(db, g2, p2)
+    target = _fee_type(db, code="target", name="Целевой взнос", type_code="4")
+    make_user(db, "chair_bf1", "pass12345", role=RoleEnum.CHAIRMAN)
+    db.commit()
+
+    login(client, "chair_bf1", "pass12345")
+    resp = client.post("/finance/account-format/backfill", data={"fee_type_id": str(target.id)})
+    assert resp.status_code == 302
+
+    db.expire_all()
+    accounts = db.query(MemberAccount).filter_by(fee_type_id=target.id).all()
+    assert len(accounts) == 2
+    settings = get_settings()
+    numbers = {a.account_number for a in accounts}
+    assert member_account_number("4", g1.id, 0, False, settings) in numbers
+    assert member_account_number("4", g2.id, 0, False, settings) in numbers
+
+    log = db.query(AuditLog).filter_by(action="member_account.backfill").one()
+    assert "Целевой взнос" in log.summary
+
+
+def test_backfill_skips_existing_accounts(app, db, client):
+    person = make_person(db, full_name="Уже Есть Счётович")
+    garage = make_garage(db, number="103")
+    make_ownership(db, garage, person)
+    target = _fee_type(db, code="target", name="Целевой взнос", type_code="4")
+    db.add(MemberAccount(person_id=person.id, garage_id=garage.id, fee_type_id=target.id, account_number="EXISTING"))
+    make_user(db, "chair_bf2", "pass12345", role=RoleEnum.CHAIRMAN)
+    db.commit()
+
+    login(client, "chair_bf2", "pass12345")
+    resp = client.post("/finance/account-format/backfill", data={"fee_type_id": str(target.id)}, follow_redirects=True)
+    assert resp.status_code == 200
+    assert "уже есть".encode() in resp.data
+
+    db.expire_all()
+    accounts = db.query(MemberAccount).filter_by(fee_type_id=target.id).all()
+    assert len(accounts) == 1  # не задвоили
+
+
+def test_backfill_per_garage_false_one_account_per_person(app, db, client):
+    """per_garage=False — один счёт на человека, а не на каждый его гараж."""
+    person = make_person(db, full_name="Два Гаража Человекович")
+    g1 = make_garage(db, number="104")
+    g2 = make_garage(db, number="105")
+    make_ownership(db, g1, person)
+    make_ownership(db, g2, person)
+    disputes = _fee_type(db, code="disputes2", name="Споры", type_code="5", per_garage=False)
+    make_user(db, "chair_bf3", "pass12345", role=RoleEnum.CHAIRMAN)
+    db.commit()
+
+    login(client, "chair_bf3", "pass12345")
+    resp = client.post("/finance/account-format/backfill", data={"fee_type_id": str(disputes.id)})
+    assert resp.status_code == 302
+
+    db.expire_all()
+    accounts = db.query(MemberAccount).filter_by(fee_type_id=disputes.id).all()
+    assert len(accounts) == 1
+    assert accounts[0].garage_id is None
+
+
+def test_backfill_requires_type_code(app, db, client):
+    target = _fee_type(db, code="target", name="Целевой взнос", type_code=None)
+    make_user(db, "chair_bf4", "pass12345", role=RoleEnum.CHAIRMAN)
+    db.commit()
+
+    login(client, "chair_bf4", "pass12345")
+    resp = client.post("/finance/account-format/backfill", data={"fee_type_id": str(target.id)}, follow_redirects=True)
+    assert resp.status_code == 200
+    assert "нет кода счёта".encode() in resp.data
+    assert db.query(MemberAccount).filter_by(fee_type_id=target.id).count() == 0
+
+
+def test_backfill_button_shown_only_with_type_code(app, db, client):
+    land_tax = _fee_type(db, code="land_tax", name="Земельный налог", type_code="1")
+    target = _fee_type(db, code="target", name="Целевой взнос", type_code=None)
+    make_user(db, "chair_bf5", "pass12345", role=RoleEnum.CHAIRMAN)
+    db.commit()
+
+    login(client, "chair_bf5", "pass12345")
+    resp = client.get("/finance/account-format")
+    assert resp.status_code == 200
+    assert f'name="fee_type_id" value="{land_tax.id}"'.encode() in resp.data
+    assert f'name="fee_type_id" value="{target.id}"'.encode() not in resp.data

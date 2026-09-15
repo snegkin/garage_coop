@@ -3,7 +3,7 @@
 {% block content %}
 <h3 class="mb-3">{{ _("Формат лицевых счетов") }}</h3>
 <p class="text-muted small">{{ _("Новый формат применяется ко всем счетам, которые будут созданы впредь. Уже существующие номера можно либо оставить как есть, либо пересчитать под новый формат прямо сейчас (см. флажок ниже).") }}</p>
-<p class="text-muted small">{{ _("Название, комментарий и код счёта видов взноса можно поправить сразу у нескольких — измените нужные поля и один раз нажмите «Сохранить» под таблицей (код счёта задаёт формулу номера для НОВЫХ счетов — уже выданные не переименовывает). Кнопка «Переименовать» у отдельного вида — если сам формат уже верный, но конкретный вид счетов когда-то завели не по формуле (вручную, импортом), приводит к формату только его, не трогая остальные (доступно только видам с заданным кодом счёта). Пример посчитан для гаража/человека №95 по формату, сохранённому в форме слева — если меняли там поля, сначала нажмите «Сохранить» там.") }}</p>
+<p class="text-muted small">{{ _("Название, комментарий и код счёта видов взноса можно поправить сразу у нескольких — измените нужные поля и один раз нажмите «Сохранить» под таблицей (код счёта задаёт формулу номера для НОВЫХ счетов — уже выданные не переименовывает; коды электричества и видов взноса — из одного пространства, занять чужой код нельзя). Кнопка «Переименовать» у отдельного вида — если сам формат уже верный, но конкретный вид счетов когда-то завели не по формуле (вручную, импортом), приводит к формату только его, не трогая остальные (доступно только видам с заданным кодом счёта). Пример посчитан для гаража/человека №95 по формату, сохранённому в форме слева — если меняли там поля, сначала нажмите «Сохранить» там.") }}</p>
 
 <div class="row g-4">
   <div class="col-lg-4">
@@ -42,9 +42,21 @@
           <thead><tr><th style="width:32%">{{ _("Название") }}</th><th style="width:7%">{{ _("Код счёта") }}</th><th>{{ _("Комментарий") }}</th><th>{{ _("Пример") }}</th><th class="no-sort"></th></tr></thead>
           <tbody>
             <tr>
-              <td class="text-muted">{{ _("Электричество") }}</td>
+              <td>
+                {% if electricity_fee_type %}
+                <input class="form-control form-control-sm" name="name_{{ electricity_fee_type.id }}" value="{{ electricity_fee_type.name }}" form="feeTypeBulkForm" required>
+                {% else %}
+                <span class="text-muted">{{ _("Электричество") }}</span>
+                {% endif %}
+              </td>
               <td><input class="form-control form-control-sm" name="electricity_type_code" value="{{ settings.type_code }}" form="feeTypeBulkForm" maxlength="10" required></td>
-              <td class="text-muted">—</td>
+              <td>
+                {% if electricity_fee_type %}
+                <input class="form-control form-control-sm" name="comment_{{ electricity_fee_type.id }}" value="{{ electricity_fee_type.comment or '' }}" form="feeTypeBulkForm">
+                {% else %}
+                <span class="text-muted">—</span>
+                {% endif %}
+              </td>
               <td><code>{{ example_electricity }}</code></td>
               <td class="text-end">
                 <form method="post" action="{{ url_for('finance.account_format_regenerate') }}" data-ajax>
@@ -61,10 +73,16 @@
               <td>{% if ft.id in fee_type_examples %}<code>{{ fee_type_examples[ft.id] }}</code>{% else %}<span class="text-muted">—</span>{% endif %}</td>
               <td class="text-end">
                 {% if ft.type_code %}
-                <form method="post" action="{{ url_for('finance.account_format_regenerate') }}" data-ajax>
-                  <input type="hidden" name="scope" value="{{ ft.id }}">
-                  <button class="btn btn-sm btn-outline-primary">{{ _("Переименовать") }}</button>
-                </form>
+                <div class="d-flex gap-1 justify-content-end">
+                  <form method="post" action="{{ url_for('finance.account_format_regenerate') }}" data-ajax>
+                    <input type="hidden" name="scope" value="{{ ft.id }}">
+                    <button class="btn btn-sm btn-outline-primary">{{ _("Переименовать") }}</button>
+                  </form>
+                  <form method="post" action="{{ url_for('finance.account_format_backfill') }}" data-ajax>
+                    <input type="hidden" name="fee_type_id" value="{{ ft.id }}">
+                    <button class="btn btn-sm btn-outline-secondary" title="{{ _('Завести этот счёт всем текущим собственникам, у кого его ещё нет') }}">{{ _("Завести всем") }}</button>
+                  </form>
+                </div>
                 {% endif %}
               </td>
             </tr>

@@ -2168,8 +2168,13 @@ class AccountNumberSettings(Base):
     # привязан к FeeType: у электричества (PersonalAccount) своего FeeType
     # нет, поэтому свой отдельный код типа хранится тут же, в настройках
     # формата (было electricity_prefix — переименовано для единообразия
-    # терминологии с FeeType.type_code, по прямой просьбе).
-    type_code: Mapped[str] = mapped_column(String(10), default="0")
+    # терминологии с FeeType.type_code, по прямой просьбе). По умолчанию
+    # "9" (было "0"), а не 1/2/3 как у обычных видов — по прямой просьбе,
+    # чтобы счета на электричество шли ПОСЛЕДНИМИ в списках, отсортированных
+    # по номеру, а не первыми. Зарезервирован за электричеством — FeeType.
+    # type_code не может совпадать с этим значением (см.
+    # finance.create_fee_type/account_format_update_fee_types).
+    type_code: Mapped[str] = mapped_column(String(10), default="9")
     penalty_prefix: Mapped[str] = mapped_column(String(10), default="П")
 
 

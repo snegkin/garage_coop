@@ -46,7 +46,7 @@
           <div class="mb-3">
             <label class="form-label">{{ _("Код счёта (1 цифра)") }}</label>
             <input class="form-control" name="type_code" maxlength="1" placeholder="{{ _('напр. 1') }}">
-            <div class="form-text">{{ _("Оставьте пустым, если этому виду взноса не нужен отдельный лицевой счёт на человека.") }}</div>
+            <div class="form-text">{{ _("Оставьте пустым, если этому виду взноса не нужен отдельный лицевой счёт на человека. Код «{code}» занят электричеством (см. /finance/account-format) — выбрать нельзя.", code=electricity_type_code) }}</div>
           </div>
           <div class="form-check mb-3">
             <input class="form-check-input" type="checkbox" name="is_penalty" id="isPenalty">

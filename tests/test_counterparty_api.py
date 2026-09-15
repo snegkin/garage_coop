@@ -250,6 +250,23 @@ def test_sync_counterparty_balance_updates_fields(db, monkeypatch):
     assert log.entity_id == counterparty.id
 
 
+def test_sync_counterparty_balance_unchanged_does_not_duplicate_audit_log(db, monkeypatch):
+    """Второй синк с тем же балансом — новой записи в журнале нет (не шумим)."""
+    counterparty = _make_counterparty(db, provider=CounterpartyApiProvider.SMSAERO)
+    db.commit()
+
+    stub = _StubClient(balance_result=BalanceInfo(amount=Decimal("337.03"), as_of=dt.date(2026, 9, 14)))
+    monkeypatch.setattr(counterparty_sync, "get_client", lambda cp: stub)
+
+    counterparty_sync.sync_counterparty_balance(counterparty)
+    counterparty_sync.sync_counterparty_balance(counterparty)
+
+    logs = db.query(AuditLog).filter_by(
+        action="counterparty_api.balance_sync", entity_id=counterparty.id,
+    ).all()
+    assert len(logs) == 1
+
+
 def test_sync_counterparty_balance_error_is_recorded(db, monkeypatch):
     counterparty = _make_counterparty(db, provider=CounterpartyApiProvider.SMSAERO)
     db.commit()

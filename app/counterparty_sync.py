@@ -39,14 +39,20 @@ def sync_counterparty_balance(counterparty: Counterparty) -> tuple[str, str]:
         database.db_session.commit()
         return "error", _("Не удалось получить баланс: {error}").format(error=str(e))
 
+    # В журнал — только если баланс реально изменился: этот прогон (и
+    # ручной кнопкой, и по cron, см. докстринг выше) обычно ничего не
+    # находит, писать запись на каждый такой "пустой" синк только шумело
+    # бы в журнале.
+    balance_changed = counterparty.external_balance != info.amount
     counterparty.external_balance = info.amount
     counterparty.external_balance_updated_at = dt.datetime.utcnow()
     counterparty.external_balance_error = None
-    audit.record(
-        "counterparty_api.balance_sync", entity_type="counterparty", entity_id=counterparty.id,
-        summary=f"Баланс личного кабинета контрагента {counterparty.name} обновлён: "
-                f"{audit.format_amount(info.amount)}",
-    )
+    if balance_changed:
+        audit.record(
+            "counterparty_api.balance_sync", entity_type="counterparty", entity_id=counterparty.id,
+            summary=f"Баланс личного кабинета контрагента {counterparty.name} обновлён: "
+                    f"{audit.format_amount(info.amount)}",
+        )
     database.db_session.commit()
     return "success", _("Баланс обновлён: {amount} ₽").format(amount=info.amount)
 

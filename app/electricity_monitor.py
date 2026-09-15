@@ -39,8 +39,9 @@ from .ewelink import EWeLinkClient, EWeLinkTokens, EWeLinkApiError, EWeLinkAuthE
 
 bp = Blueprint("electricity_monitor", __name__, url_prefix="/electricity")
 
-HISTORY_HOURS = 24 * 3  # период по умолчанию для графика при первом открытии страницы (см. view())
-MAX_CHART_POINTS = 1500  # точек на устройство в ответе history_data() — при 30 днях с опросом раз в 5 минут сырых точек ~8600, а за более старую историю может быть больше; без ограничения график будет тормозить
+HISTORY_FETCH_HOURS = 24 * 30  # период по умолчанию для ЗАГРУЗКИ данных при первом открытии страницы (без ?since=&until=, см. history_data()) — грузим сразу за 30 дней, чтобы прокрутка/масштаб графика назад не требовали лишнего похода на сервер
+HISTORY_VIEW_HOURS = 24 * 3  # период НАЧАЛЬНОГО масштаба графика (см. monitor.html) — узкое окно поверх уже загруженных HISTORY_FETCH_HOURS, чтобы сразу открывался читаемый недавний график, а не размазанный на весь месяц; раздвинуть/промотать до полных 30 дней можно прямо в браузере без перезагрузки
+MAX_CHART_POINTS = 8640  # точек на устройство в ответе history_data() — при опросе раз в 5 минут за HISTORY_FETCH_HOURS (30 дней) сырых точек ~8640, т.е. порог практически не прореживает дефолтный запрос (иначе даже начальный узкий масштаб HISTORY_VIEW_HOURS получил бы точку раз в ~29 минут вместо раз в ~5); прореживание реально включается только при вручную расширенном периоде за пределами 30 дней — без ограничения совсем график на таком периоде будет тормозить
 OAUTH_STATE_SESSION_KEY = "ewelink_oauth_state"
 
 
@@ -210,7 +211,8 @@ def view():
         total_power=total_power,
         total_day_kwh=total_day_kwh,
         total_month_kwh=total_month_kwh,
-        history_hours_default=HISTORY_HOURS,
+        history_fetch_hours_default=HISTORY_FETCH_HOURS,
+        history_view_hours_default=HISTORY_VIEW_HOURS,
         history_min=history_min,
         history_max=history_max,
         is_configured=bool(account.app_id and account.family_id),
@@ -228,12 +230,15 @@ def history_data():
     период — параметрами ?since=&until= (ISO UTC, см. _parse_iso_utc), задаётся
     пользователем через два datetime-local в браузере, ограниченные реальными
     границами данных (см. view():history_min/history_max). Без параметров —
-    последние HISTORY_HOURS часов, тот же диапазон, что при первом открытии
-    страницы. Отдаёт мощность в Вт, как она хранится в БД, — перевод в кВт и
+    последние HISTORY_FETCH_HOURS часов, тот же диапазон, что при первом
+    открытии страницы (там же грузится этот же "полный" запас данных — видимый
+    поначалу масштаб графика уже, см. HISTORY_VIEW_HOURS в monitor.html, но
+    прокрутка/отдаление назад в пределах этого запаса не требует нового
+    запроса). Отдаёт мощность в Вт, как она хранится в БД, — перевод в кВт и
     выбор видимых фаз/масштаб/прокрутка по времени делает JS на клиенте, без
     повторных запросов к серверу (кроме смены диапазона дат)."""
     until = _parse_iso_utc(request.args.get("until")) or dt.datetime.utcnow()
-    since = _parse_iso_utc(request.args.get("since")) or (until - dt.timedelta(hours=HISTORY_HOURS))
+    since = _parse_iso_utc(request.args.get("since")) or (until - dt.timedelta(hours=HISTORY_FETCH_HOURS))
     if since > until:
         since, until = until, since
 

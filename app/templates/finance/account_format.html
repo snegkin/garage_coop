@@ -2,79 +2,81 @@
 {% block title %}{{ _("Формат лицевых счетов") }}{% endblock %}
 {% block content %}
 <h3 class="mb-3">{{ _("Формат лицевых счетов") }}</h3>
-<p class="text-muted small">{{ _("Новый формат применяется ко всем счетам, которые будут созданы впредь. Уже существующие номера можно либо оставить как есть, либо пересчитать под новый формат прямо сейчас (см. флажок ниже).") }}</p>
+<div class="row g-4">
+  <div class="col-lg-6">
+    <p class="text-muted small">{{ _("Новый формат применяется ко всем счетам, которые будут созданы впредь. Уже существующие номера можно либо оставить как есть, либо пересчитать под новый формат прямо сейчас (см. флажок ниже).") }}</p>
 
-<form method="post" class="bg-body p-4 rounded border" style="max-width:500px">
-  <div class="row g-3">
-    <div class="col-md-6">
-      <label class="form-label">{{ _("Ширина номера гаража (цифр)") }}</label>
-      <input class="form-control" type="number" min="1" max="9" name="garage_digits" value="{{ settings.garage_digits }}" required>
-    </div>
-    <div class="col-md-6">
-      <label class="form-label">{{ _("Ширина номера собственника (цифр)") }}</label>
-      <input class="form-control" type="number" min="1" max="3" name="owner_digits" value="{{ settings.owner_digits }}" required>
-    </div>
-    <div class="col-md-6">
-      <label class="form-label">{{ _("Префикс счёта на электричество") }}</label>
-      <input class="form-control" name="electricity_prefix" value="{{ settings.electricity_prefix }}" maxlength="10">
-    </div>
-    <div class="col-md-6">
-      <label class="form-label">{{ _("Префикс пени") }}</label>
-      <input class="form-control" name="penalty_prefix" value="{{ settings.penalty_prefix }}" maxlength="10">
-    </div>
+    <form method="post" class="bg-body p-4 rounded border">
+      <div class="row g-3">
+        <div class="col-md-6">
+          <label class="form-label">{{ _("Ширина номера гаража (цифр)") }}</label>
+          <input class="form-control" type="number" min="1" max="9" name="garage_digits" value="{{ settings.garage_digits }}" required>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">{{ _("Ширина номера собственника (цифр)") }}</label>
+          <input class="form-control" type="number" min="1" max="3" name="owner_digits" value="{{ settings.owner_digits }}" required>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">{{ _("Префикс пени") }}</label>
+          <input class="form-control" name="penalty_prefix" value="{{ settings.penalty_prefix }}" maxlength="10">
+        </div>
+      </div>
+
+      <div class="form-check mb-3">
+        <input class="form-check-input" type="checkbox" name="regenerate_existing" id="regenerate_existing">
+        <label class="form-check-label" for="regenerate_existing">
+          {{ _("Пересчитать уже существующие номера под новый формат (где это возможно без конфликтов)") }}
+        </label>
+        <div class="form-text">{{ _("Если не отмечено — уже выданные людям номера не меняются, новый формат затронет только счета, заведённые впредь. Применяется сразу ко ВСЕМ видам счетов разом — для отдельных видов см. таблицу справа.") }}</div>
+      </div>
+
+      <button class="btn btn-primary">{{ _("Сохранить") }}</button>
+    </form>
   </div>
 
-  <div class="alert alert-light border mt-3 mb-3">
-    <div><strong>{{ _("Пример — электричество (гараж 95)") }}:</strong> <code>{{ example_electricity }}</code></div>
+  <div class="col-lg-6">
+    <h5 class="mb-2">{{ _("Виды взноса") }}</h5>
+    <p class="text-muted small">{{ _("Название, комментарий и код счёта можно поправить сразу у нескольких видов — измените нужные поля и один раз нажмите «Сохранить» внизу таблицы (код счёта задаёт формулу номера для НОВЫХ счетов — уже выданные не переименовывает). Кнопка «Переименовать по формату» — для отдельного вида: если сам формат уже верный, но конкретный вид счетов когда-то завели не по формуле (вручную, импортом), можно привести к формату только его, не трогая остальные (доступно только видам с заданным кодом счёта). Пример посчитан для гаража/человека №95 по формату, сохранённому выше (если меняли поля формы слева, сначала нажмите «Сохранить» там).") }}</p>
+    <div class="table-responsive">
+      <table class="table table-sm bg-body">
+        <thead><tr><th>{{ _("Название") }}</th><th>{{ _("Код счёта") }}</th><th>{{ _("Комментарий") }}</th><th>{{ _("Пример") }}</th><th class="no-sort"></th></tr></thead>
+        <tbody>
+          <tr>
+            <td class="text-muted">{{ _("Электричество") }}</td>
+            <td><input class="form-control form-control-sm" name="electricity_type_code" value="{{ settings.type_code }}" form="feeTypeBulkForm" maxlength="10" required></td>
+            <td class="text-muted">—</td>
+            <td><code>{{ example_electricity }}</code></td>
+            <td class="text-end">
+              <form method="post" action="{{ url_for('finance.account_format_regenerate') }}" data-ajax>
+                <input type="hidden" name="scope" value="electricity">
+                <button class="btn btn-sm btn-outline-primary">{{ _("Переименовать по формату") }}</button>
+              </form>
+            </td>
+          </tr>
+          {% for ft in fee_types %}
+          <tr>
+            <td><input class="form-control form-control-sm" name="name_{{ ft.id }}" value="{{ ft.name }}" form="feeTypeBulkForm" required></td>
+            <td><input class="form-control form-control-sm" name="type_code_{{ ft.id }}" value="{{ ft.type_code or '' }}" form="feeTypeBulkForm" maxlength="5"></td>
+            <td><input class="form-control form-control-sm" name="comment_{{ ft.id }}" value="{{ ft.comment or '' }}" form="feeTypeBulkForm"></td>
+            <td>{% if ft.id in fee_type_examples %}<code>{{ fee_type_examples[ft.id] }}</code>{% else %}<span class="text-muted">—</span>{% endif %}</td>
+            <td class="text-end">
+              {% if ft.type_code %}
+              <form method="post" action="{{ url_for('finance.account_format_regenerate') }}" data-ajax>
+                <input type="hidden" name="scope" value="{{ ft.id }}">
+                <button class="btn btn-sm btn-outline-primary">{{ _("Переименовать по формату") }}</button>
+              </form>
+              {% endif %}
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="5" class="text-muted">{{ _("Видов взноса пока нет.") }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <form method="post" action="{{ url_for('finance.account_format_update_fee_types') }}" id="feeTypeBulkForm" data-ajax>
+      <button class="btn btn-primary">{{ _("Сохранить") }}</button>
+    </form>
   </div>
-
-  <div class="form-check mb-3">
-    <input class="form-check-input" type="checkbox" name="regenerate_existing" id="regenerate_existing">
-    <label class="form-check-label" for="regenerate_existing">
-      {{ _("Пересчитать уже существующие номера под новый формат (где это возможно без конфликтов)") }}
-    </label>
-    <div class="form-text">{{ _("Если не отмечено — уже выданные людям номера не меняются, новый формат затронет только счета, заведённые впредь. Применяется сразу ко ВСЕМ видам счетов разом — для отдельных видов см. таблицу ниже.") }}</div>
-  </div>
-
-  <button class="btn btn-primary">{{ _("Сохранить") }}</button>
-</form>
-
-<h5 class="mt-4 mb-2">{{ _("Виды взноса") }}</h5>
-<p class="text-muted small" style="max-width:900px">{{ _("Название и комментарий можно поправить сразу у нескольких видов — измените нужные поля и один раз нажмите «Сохранить названия» внизу таблицы. Кнопка «Переименовать по формату» — для отдельного вида: если сам формат уже верный, но конкретный вид счетов когда-то завели не по формуле (вручную, импортом), можно привести к формату только его, не трогая остальные (доступно только видам с кодом формулы — см. /finance/fee-types). Пример посчитан для гаража/человека №95 по формату, сохранённому выше (если меняли поля формы, сначала нажмите «Сохранить»).") }}</p>
-<table class="table table-sm bg-body" style="max-width:900px">
-  <thead><tr><th>{{ _("Название") }}</th><th>{{ _("Комментарий") }}</th><th>{{ _("Пример") }}</th><th class="no-sort"></th></tr></thead>
-  <tbody>
-    <tr>
-      <td class="text-muted">{{ _("Электричество") }}</td>
-      <td class="text-muted">—</td>
-      <td><code>{{ example_electricity }}</code></td>
-      <td class="text-end">
-        <form method="post" action="{{ url_for('finance.account_format_regenerate') }}" data-ajax>
-          <input type="hidden" name="scope" value="electricity">
-          <button class="btn btn-sm btn-outline-primary">{{ _("Переименовать по формату") }}</button>
-        </form>
-      </td>
-    </tr>
-    {% for ft in fee_types %}
-    <tr>
-      <td><input class="form-control form-control-sm" name="name_{{ ft.id }}" value="{{ ft.name }}" form="feeTypeBulkForm" required></td>
-      <td><input class="form-control form-control-sm" name="comment_{{ ft.id }}" value="{{ ft.comment or '' }}" form="feeTypeBulkForm"></td>
-      <td>{% if ft.id in fee_type_examples %}<code>{{ fee_type_examples[ft.id] }}</code>{% else %}<span class="text-muted">—</span>{% endif %}</td>
-      <td class="text-end">
-        {% if ft.type_code %}
-        <form method="post" action="{{ url_for('finance.account_format_regenerate') }}" data-ajax>
-          <input type="hidden" name="scope" value="{{ ft.id }}">
-          <button class="btn btn-sm btn-outline-primary">{{ _("Переименовать по формату") }}</button>
-        </form>
-        {% endif %}
-      </td>
-    </tr>
-    {% else %}
-    <tr><td colspan="4" class="text-muted">{{ _("Видов взноса пока нет.") }}</td></tr>
-    {% endfor %}
-  </tbody>
-</table>
-<form method="post" action="{{ url_for('finance.account_format_update_fee_types') }}" id="feeTypeBulkForm" data-ajax>
-  <button class="btn btn-primary">{{ _("Сохранить названия") }}</button>
-</form>
+</div>
 {% endblock %}

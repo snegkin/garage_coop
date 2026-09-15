@@ -1162,7 +1162,6 @@ def account_format():
         f = request.form
         settings.garage_digits = max(1, min(9, int(f.get("garage_digits") or 3)))
         settings.owner_digits = max(1, min(3, int(f.get("owner_digits") or 1)))
-        settings.electricity_prefix = f.get("electricity_prefix", "0")
         settings.penalty_prefix = f.get("penalty_prefix", "П")
         database.db_session.flush()
 
@@ -1267,33 +1266,54 @@ def account_format_regenerate():
 @roles_required(RoleEnum.CHAIRMAN)
 def account_format_update_fee_types():
     """
-    Массовое редактирование названия/комментария видов взноса — прямо в
-    таблице на /finance/account-format (см. её же кнопки "Переименовать по
-    формату" рядом), одной кнопкой сразу для всех видов, а не по одному
-    через /finance/fee-types (та страница — только для СОЗДАНИЯ новых
-    видов). Поля называются name_<id>/comment_<id> — по одному полю на
-    каждый существующий FeeType, независимо от того, есть ли у него
-    type_code (в отличие от кнопок переименования номеров, комментарий
-    осмыслен для любого вида, включая "целевой взнос").
+    Массовое редактирование видов взноса — прямо в таблице на
+    /finance/account-format (см. её же кнопки "Переименовать по формату"
+    рядом), одной кнопкой сразу для всех видов, а не по одному через
+    /finance/fee-types (та страница — только для СОЗДАНИЯ новых видов).
+    Поля называются name_<id>/comment_<id>/type_code_<id> — по одному
+    набору на каждый существующий FeeType, независимо от того, был ли у
+    него уже задан type_code изначально (в отличие от кнопок
+    переименования номеров, само редактирование осмысленно для любого
+    вида, включая "целевой взнос" без формулы номера — так ему её можно
+    задать задним числом). Заодно, той же кнопкой — код типа для
+    электричества (AccountNumberSettings.type_code, поле
+    electricity_type_code), т.к. он показан в той же таблице строкой
+    "Электричество" и по смыслу — то же самое, просто не привязан к
+    конкретному FeeType (см. её докстринг в models.py).
+
+    Смена type_code (в т.ч. электричества) НЕ переименовывает уже
+    выданные счета сама по себе — как и с name/comment, это только меняет
+    формулу для НОВЫХ счетов; чтобы применить к уже существующим, нужна
+    отдельная кнопка "Переименовать по формату" у нужного вида (см.
+    account_format_regenerate).
     """
     f = request.form
+    settings = get_settings()
     fee_types = database.db_session.query(FeeType).all()
     changed = 0
+
+    new_elec_code = (f.get("electricity_type_code") or "").strip()
+    if new_elec_code and new_elec_code != settings.type_code:
+        settings.type_code = new_elec_code
+        changed += 1
+
     for ft in fee_types:
         if f"name_{ft.id}" not in f:
             continue
         new_name = f.get(f"name_{ft.id}", "").strip()
         new_comment = (f.get(f"comment_{ft.id}") or "").strip() or None
+        new_type_code = (f.get(f"type_code_{ft.id}") or "").strip() or None
         if not new_name:
             continue  # пустое название — не стираем, пропускаем этот вид
-        if new_name == ft.name and new_comment == ft.comment:
+        if new_name == ft.name and new_comment == ft.comment and new_type_code == ft.type_code:
             continue
         ft.name = new_name
         ft.comment = new_comment
+        ft.type_code = new_type_code
         changed += 1
 
     if changed:
-        audit.record("fee_type.bulk_update", f"Массово обновлены название/комментарий у видов взноса: {changed}")
+        audit.record("fee_type.bulk_update", f"Массово обновлены виды взноса (название/комментарий/код счёта): {changed}")
         database.db_session.commit()
         flash(_("Обновлено видов взноса: {n}.", n=changed), "success")
     else:

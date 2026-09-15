@@ -56,7 +56,7 @@ def _padded_digits(value: int, width: int) -> str:
 
 def electricity_account_number(garage_id: int, settings: AccountNumberSettings | None = None) -> str:
     settings = settings or get_settings()
-    return f"{settings.electricity_prefix}{_padded_digits(garage_id, settings.garage_digits)}{'0' * settings.owner_digits}"
+    return f"{settings.type_code}{_padded_digits(garage_id, settings.garage_digits)}{'0' * settings.owner_digits}"
 
 
 def member_account_number(

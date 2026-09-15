@@ -71,7 +71,7 @@ def test_regenerate_electricity_scope_does_not_touch_member_accounts(app, db, cl
     updated_personal = db.get(PersonalAccount, personal_account.id)
     updated_member = db.get(MemberAccount, member_account.id)
     settings = get_settings()
-    assert updated_personal.account_number == f"{settings.electricity_prefix}{str(garage.id).zfill(settings.garage_digits)}{'0' * settings.owner_digits}"
+    assert updated_personal.account_number == f"{settings.type_code}{str(garage.id).zfill(settings.garage_digits)}{'0' * settings.owner_digits}"
     assert updated_member.account_number == "M-OLD"  # электричество — не задело взносы
 
 
@@ -128,8 +128,10 @@ def test_bulk_update_fee_type_names_and_comments(app, db, client):
     resp = client.post("/finance/account-format/fee-types", data={
         f"name_{land_tax.id}": "Земельный налог (ААА)",
         f"comment_{land_tax.id}": "по кадастровой стоимости",
+        f"type_code_{land_tax.id}": "1",  # без изменений
         f"name_{membership.id}": "Членский взнос",  # без изменений
         f"comment_{membership.id}": "",
+        f"type_code_{membership.id}": "9",  # изменён
     })
     assert resp.status_code == 302
 
@@ -139,9 +141,25 @@ def test_bulk_update_fee_type_names_and_comments(app, db, client):
     assert updated_land.name == "Земельный налог (ААА)"
     assert updated_land.comment == "по кадастровой стоимости"
     assert updated_member.name == "Членский взнос"
+    assert updated_member.type_code == "9"
 
     log = db.query(AuditLog).filter_by(action="fee_type.bulk_update").one()
-    assert "1" in log.summary  # изменён только один из двух
+    assert "2" in log.summary  # изменены оба (у земельного — название/комментарий, у членского — код)
+
+
+def test_bulk_update_electricity_type_code(app, db, client):
+    make_user(db, "chair_fmt8", "pass12345", role=RoleEnum.CHAIRMAN)
+    db.commit()
+
+    login(client, "chair_fmt8", "pass12345")
+    settings = get_settings()
+    assert settings.type_code == "0"
+    resp = client.post("/finance/account-format/fee-types", data={"electricity_type_code": "Э"})
+    assert resp.status_code == 302
+
+    db.expire_all()
+    settings = get_settings()
+    assert settings.type_code == "Э"
 
 
 def test_bulk_update_skips_blank_name(app, db, client):

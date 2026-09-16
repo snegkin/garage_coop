@@ -148,23 +148,18 @@ def add_tariff():
     return redirect(url_for("power.view"))
 
 
-@bp.route("/tariff/<int:tariff_id>/edit", methods=["POST"])
-@roles_required(RoleEnum.BOARD)
-def edit_tariff(tariff_id):
-    """Править можно только последний (по effective_date) тариф своего вида
-    — более ранние уже могли использоваться для расчётов, и правка задним
-    числом исказила бы уже сохранённые суммы. Для тарифа поставщика
-    дополнительно проверяем, что на него ещё не ссылается ни одно
-    показание общего счётчика (MasterMeterReading.tariff_id — прямая
-    ссылка на запись, в отличие от тарифа для членов, который читатели
-    показаний копируют числом, см. garages.add_meter_reading): иначе
-    показанная в таблице сумма (считается на лету по r.tariff.rate)
-    разошлась бы с уже созданным Expense.amount, зафиксированным при
-    создании показания."""
-    tariff = database.db_session.get(ElectricityTariff, tariff_id)
-    if tariff is None:
-        abort(404)
-
+def _tariff_edit_guard_error(tariff) -> str | None:
+    """Общая проверка для edit_tariff/delete_tariff: править/удалять можно
+    только последний (по effective_date) тариф своего вида — более ранние
+    уже могли использоваться для расчётов, и правка/удаление задним числом
+    исказили бы уже сохранённые суммы. Для тарифа поставщика дополнительно
+    проверяем, что на него ещё не ссылается ни одно показание общего
+    счётчика (MasterMeterReading.tariff_id — прямая ссылка на запись, в
+    отличие от тарифа для членов, который читатели показаний копируют
+    числом, см. garages.add_meter_reading): иначе показанная в таблице
+    сумма (считается на лету по r.tariff.rate) разошлась бы с уже
+    созданным Expense.amount, зафиксированным при создании показания.
+    Возвращает текст ошибки или None, если можно продолжать."""
     latest = (
         database.db_session.query(ElectricityTariff)
         .filter_by(kind=tariff.kind)
@@ -172,8 +167,7 @@ def edit_tariff(tariff_id):
         .first()
     )
     if latest is None or latest.id != tariff.id:
-        flash(_("Можно редактировать только последний добавленный тариф этого вида."), "danger")
-        return redirect(url_for("power.view"))
+        return _("Можно изменять только последний добавленный тариф этого вида.")
 
     if tariff.kind == ElectricityTariffKind.SUPPLIER:
         used = (
@@ -182,11 +176,24 @@ def edit_tariff(tariff_id):
             .first()
         )
         if used is not None:
-            flash(_(
+            return _(
                 "Этот тариф уже использован в показаниях общего счётчика — "
-                "редактирование заблокировано, чтобы не исказить уже посчитанные суммы."
-            ), "danger")
-            return redirect(url_for("power.view"))
+                "изменение заблокировано, чтобы не исказить уже посчитанные суммы."
+            )
+    return None
+
+
+@bp.route("/tariff/<int:tariff_id>/edit", methods=["POST"])
+@roles_required(RoleEnum.BOARD)
+def edit_tariff(tariff_id):
+    tariff = database.db_session.get(ElectricityTariff, tariff_id)
+    if tariff is None:
+        abort(404)
+
+    error = _tariff_edit_guard_error(tariff)
+    if error:
+        flash(error, "danger")
+        return redirect(url_for("power.view"))
 
     f = request.form
     tariff.rate = parse_decimal(f["rate"])
@@ -196,6 +203,26 @@ def edit_tariff(tariff_id):
     audit.record("power.tariff_edit", f"Изменён тариф на электроэнергию ({kind_label}): {tariff.rate} ₽/кВт·ч с {audit.format_date(tariff.effective_date)}")
     database.db_session.commit()
     flash(_("Тариф изменён."), "success")
+    return redirect(url_for("power.view"))
+
+
+@bp.route("/tariff/<int:tariff_id>/delete", methods=["POST"])
+@roles_required(RoleEnum.BOARD)
+def delete_tariff(tariff_id):
+    tariff = database.db_session.get(ElectricityTariff, tariff_id)
+    if tariff is None:
+        abort(404)
+
+    error = _tariff_edit_guard_error(tariff)
+    if error:
+        flash(error, "danger")
+        return redirect(url_for("power.view"))
+
+    kind_label = _("поставщика") if tariff.kind == ElectricityTariffKind.SUPPLIER else _("для членов кооператива")
+    audit.record("power.tariff_delete", f"Удалён тариф на электроэнергию ({kind_label}) {tariff.rate} ₽/кВт·ч с {audit.format_date(tariff.effective_date)}")
+    database.db_session.delete(tariff)
+    database.db_session.commit()
+    flash(_("Тариф удалён."), "success")
     return redirect(url_for("power.view"))
 
 
@@ -323,6 +350,117 @@ def add_master_reading():
 
     database.db_session.commit()
     flash(_("Показания общего счётчика внесены."), "success")
+    return redirect(url_for("power.view"))
+
+
+@bp.route("/readings/<int:reading_id>/edit", methods=["POST"])
+@roles_required(RoleEnum.BOARD)
+def edit_master_reading(reading_id):
+    """
+    Правка — только для последнего (по году/месяцу) показания и только пока
+    по связанному расходу перед поставщиком ничего не оплачено (та же логика
+    и по той же причине, что и у delete_reading: платёж уже списан со счёта,
+    задним числом менять сумму под ним нельзя). Год/месяц/показания/потери/
+    комментарий — как при добавлении; тариф выбирается заново по новому
+    году/месяцу, сумма и связанный расход (если есть) пересчитываются.
+    Смена счёта оплаты/строки выписки в правку не входит — раз показание ещё
+    не оплачено, оплата вносится отдельно, в карточке контрагента.
+    """
+    reading = database.db_session.get(MasterMeterReading, reading_id)
+    if reading is None:
+        abort(404)
+
+    latest = (
+        database.db_session.query(MasterMeterReading)
+        .order_by(MasterMeterReading.year.desc(), MasterMeterReading.month.desc())
+        .first()
+    )
+    if latest is None or latest.id != reading.id:
+        flash(_("Можно редактировать только самое последнее показание."), "danger")
+        return redirect(url_for("power.view"))
+
+    if reading.expense_id is not None and expense_paid_amount(reading.expense) > 0:
+        flash(_(
+            "Нельзя редактировать показание — по связанному расходу перед поставщиком "
+            "уже есть оплата. Сначала разберитесь с платежом в карточке контрагента."
+        ), "danger")
+        return redirect(url_for("power.view"))
+
+    f = request.form
+    year = int(f["year"])
+    month = int(f["month"])
+
+    duplicate = (
+        database.db_session.query(MasterMeterReading)
+        .filter(MasterMeterReading.year == year, MasterMeterReading.month == month, MasterMeterReading.id != reading.id)
+        .first()
+    )
+    if duplicate:
+        flash(_("Запись за {year}-{month:02d} уже существует.", year=year, month=month), "warning")
+        return redirect(url_for("power.view"))
+
+    tariff = current_tariff(ElectricityTariffKind.SUPPLIER, dt.date(year, month, 1))
+    if tariff is None:
+        flash(_("Нет тарифа поставщика, действующего на этот месяц — сначала добавьте тариф."), "danger")
+        return redirect(url_for("power.view"))
+
+    reading.year = year
+    reading.month = month
+    reading.reading_date = dt.date(year, month, 1)
+    reading.reading = parse_decimal(f["reading"])
+    reading.line_loss = parse_optional_decimal(f.get("line_loss"))
+    reading.tariff_id = tariff.id
+    reading.comment = f.get("comment") or None
+    database.db_session.flush()
+
+    all_readings = (
+        database.db_session.query(MasterMeterReading)
+        .order_by(MasterMeterReading.year.desc(), MasterMeterReading.month.desc())
+        .all()
+    )
+    amount = dict((r.id, a) for r, a, _delta in _readings_with_amounts(all_readings)).get(reading.id)
+    reading.amount = amount
+
+    settings = get_electricity_settings()
+    if reading.expense_id is not None:
+        expense = reading.expense
+        if amount and amount > 0:
+            # Расход уже создан и ещё не оплачен (проверено выше) —
+            # просто актуализируем сумму/дату под новые показания.
+            expense.amount = amount
+            expense.date = reading.reading_date
+            expense.description = _("Электроэнергия за {month}.{year} (общий счётчик)", month=month, year=year)
+            reallocate_counterparty_expenses(expense.counterparty)
+        else:
+            # Сумма ушла в 0/отрицательную — неоплаченный (paid_amount==0,
+            # проверено выше) расход больше не нужен; раз он не оплачен, у
+            # него нет собственных ExpenseAllocation, значит удаление не
+            # затрагивает распределение платежей по другим расходам этого
+            # контрагента — reallocate звать не нужно (как и в delete_reading).
+            reading.expense_id = None
+            database.db_session.delete(expense)
+    elif amount and amount > 0:
+        if settings.supplier is None:
+            flash(_(
+                "Показание изменено, но расход перед поставщиком не создан — "
+                "сначала укажите поставщика электроэнергии."
+            ), "warning")
+        else:
+            expense = Expense(
+                counterparty_id=settings.supplier.id,
+                date=reading.reading_date,
+                amount=amount,
+                category=_("Электроэнергия"),
+                description=_("Электроэнергия за {month}.{year} (общий счётчик)", month=month, year=year),
+            )
+            database.db_session.add(expense)
+            database.db_session.flush()
+            reading.expense_id = expense.id
+            reallocate_counterparty_expenses(settings.supplier)
+
+    audit.record("power.reading_edit", f"Изменено показание общего счётчика за {month}.{year}")
+    database.db_session.commit()
+    flash(_("Показание изменено."), "success")
     return redirect(url_for("power.view"))
 
 

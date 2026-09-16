@@ -420,7 +420,8 @@
           <div class="form-check mb-3">
             <input class="form-check-input" type="checkbox" name="adjust_balance" id="mmAdjustBalance" checked>
             <label class="form-check-label" for="mmAdjustBalance">{{ _("Списать эту сумму со счёта сейчас") }}</label>
-            <div class="form-text">{{ _("Снимите галку, если оплата вносится задним числом только для истории — деньги уже были списаны со счёта раньше, до этой записи в системе, и повторно уменьшать баланс не нужно.") }}</div>
+            <div class="form-text" data-adjust-balance-hint>{{ _("Снимите галку, если оплата вносится задним числом только для истории — деньги уже были списаны со счёта раньше, до этой записи в системе, и повторно уменьшать баланс не нужно.") }}</div>
+            <div class="form-text d-none" data-adjust-balance-lock-hint>{{ _("Строка выписки уже подтверждает, что деньги списаны — повторно уменьшать баланс счёта не нужно.") }}</div>
           </div>
         </div>
         <div class="modal-footer">
@@ -453,6 +454,26 @@
     return best;
   }
 
+  // Автоподбор строки выписки по посчитанной сумме — только пока ничего не
+  // выбрано вручную (или предыдущий автоподбор с тех пор не заменили) и
+  // только при однозначном совпадении, решать при нескольких кандидатах —
+  // человеку. Тот же приём, что и в форме платежа контрагенту (см.
+  // counterparties/detail.html), но там подбор по сумме происходит один
+  // раз при открытии модалки — здесь сумма известна только после ввода
+  // показаний, поэтому подбор идёт при каждом пересчёте.
+  function maybeAutoSelectStatementLine(amountValue) {
+    const lineSelect = document.querySelector('#readingModal select[name="bank_statement_line_id"]');
+    if (!lineSelect || lineSelect.value || amountValue === null) return;
+    const target = amountValue.toFixed(2);
+    const matches = Array.from(lineSelect.options).filter(function (o) {
+      return o.value && o.dataset.amount && parseFloat(o.dataset.amount).toFixed(2) === target;
+    });
+    if (matches.length === 1) {
+      lineSelect.value = matches[0].value;
+      lineSelect.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+  }
+
   function update() {
     const year = document.getElementById("mmYear").value;
     const month = String(document.getElementById("mmMonth").value).padStart(2, "0");
@@ -472,7 +493,13 @@
       const delta = reading - lastReading;
       quantityPreview.value = delta.toFixed(2);
       const billed = delta + (isNaN(lineLoss) ? 0 : lineLoss);
-      amountPreview.value = tariff ? (billed > 0 ? (billed * tariff.rate).toFixed(2) + " ₽" : "0.00 ₽") : "";
+      if (tariff && billed > 0) {
+        const amountValue = billed * tariff.rate;
+        amountPreview.value = amountValue.toFixed(2) + " ₽";
+        maybeAutoSelectStatementLine(amountValue);
+      } else {
+        amountPreview.value = tariff ? "0.00 ₽" : "";
+      }
     } else {
       quantityPreview.value = lastReading === null ? "{{ _('первая запись') }}" : "";
       amountPreview.value = lastReading === null ? "{{ _('первая запись') }}" : "";
@@ -493,20 +520,36 @@
 // случайно сослаться на выписку одного банка, а списание указать с
 // другого. Тот же приём, что и в форме платежа контрагенту (см.
 // counterparties/detail.html).
+//
+// "Списать эту сумму со счёта сейчас" при выбранной строке выписки —
+// деньги по ней уже списаны в прошлом (это и есть смысл ссылки на
+// выписку), повторно уменьшать баланс счёта сейчас не нужно: чекбокс
+// снимается и блокируется, пока строка не будет очищена.
 (function () {
   const form = document.querySelector('#readingModal form');
   const lineSelect = form.querySelector('select[name="bank_statement_line_id"]');
   const accountSelect = form.querySelector('select[name="bank_account_id"]');
+  const adjustBalance = form.querySelector('input[name="adjust_balance"]');
   if (!lineSelect || !accountSelect) return;
-  const hint = form.querySelector('[data-account-lock-hint]');
+  const accountHint = form.querySelector('[data-account-lock-hint]');
+  const adjustBalanceHint = form.querySelector('[data-adjust-balance-hint]');
+  const adjustBalanceLockHint = form.querySelector('[data-adjust-balance-lock-hint]');
 
   function applyLineSelection() {
     const opt = lineSelect.options[lineSelect.selectedIndex];
     const bankAccountId = opt ? opt.dataset.bankAccountId : "";
-    const locked = !!(lineSelect.value && bankAccountId);
-    accountSelect.disabled = locked;
-    if (hint) hint.classList.toggle("d-none", !locked);
-    if (locked) accountSelect.value = bankAccountId;
+    const lineSelected = !!lineSelect.value;
+    const accountLocked = lineSelected && !!bankAccountId;
+    accountSelect.disabled = accountLocked;
+    if (accountHint) accountHint.classList.toggle("d-none", !accountLocked);
+    if (accountLocked) accountSelect.value = bankAccountId;
+
+    if (adjustBalance) {
+      adjustBalance.disabled = lineSelected;
+      adjustBalance.checked = !lineSelected;
+      if (adjustBalanceHint) adjustBalanceHint.classList.toggle("d-none", lineSelected);
+      if (adjustBalanceLockHint) adjustBalanceLockHint.classList.toggle("d-none", !lineSelected);
+    }
   }
 
   lineSelect.addEventListener("change", applyLineSelection);

@@ -5,7 +5,7 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 
 from . import database
 from . import audit
-from .i18n import translate as _, parse_decimal
+from .i18n import translate as _, parse_decimal, parse_optional_decimal
 from .auth import roles_required
 from .models import Counterparty, ElectricityTariff, ElectricityTariffKind, MasterMeterReading, Document, DocumentType, RoleEnum, Expense, BankAccount
 from .accounting import (
@@ -20,8 +20,11 @@ bp = Blueprint("power", __name__, url_prefix="/power")
 def _readings_with_amounts(readings_desc):
     """
     readings_desc — список MasterMeterReading, отсортированный по (год, месяц) по убыванию.
-    Возвращает список (reading, amount): amount = (текущие показания − предыдущие) × тариф,
-    None для самой первой по времени записи (не с чем сравнивать).
+    Возвращает список (reading, amount, delta):
+    - delta = текущие показания − предыдущие (чистая дельта счётчика, для справки);
+    - amount = (delta + потери в линии) × тариф — «начисленный объём» энергосбыта,
+      не чистая дельта (см. MasterMeterReading.line_loss).
+    Оба None для самой первой по времени записи (не с чем сравнивать).
     """
     chronological = list(reversed(readings_desc))
     result = []
@@ -29,10 +32,12 @@ def _readings_with_amounts(readings_desc):
     for r in chronological:
         if previous is None:
             amount = None
+            delta = None
         else:
             delta = r.reading - previous.reading
-            amount = (delta * r.tariff.rate).quantize(Decimal("0.01")) if delta > 0 else Decimal("0.00")
-        result.append((r, amount))
+            billed_kwh = delta + (r.line_loss or Decimal("0"))
+            amount = (billed_kwh * r.tariff.rate).quantize(Decimal("0.01")) if billed_kwh > 0 else Decimal("0.00")
+        result.append((r, amount, delta))
         previous = r
     result.reverse()
     return result
@@ -69,7 +74,7 @@ def view():
     )
     readings_with_amounts = _readings_with_amounts(readings)
     expense_paid = {
-        r.id: expense_paid_amount(r.expense) for r, _amt in readings_with_amounts if r.expense_id
+        r.id: expense_paid_amount(r.expense) for r, _amt, _delta in readings_with_amounts if r.expense_id
     }
     bank_accounts = database.db_session.query(BankAccount).order_by(BankAccount.is_primary.desc(), BankAccount.bank_name).all()
     counterparties = database.db_session.query(Counterparty).order_by(Counterparty.name).all()
@@ -236,6 +241,7 @@ def add_master_reading():
         month=month,
         reading_date=dt.date(year, month, 1),
         reading=parse_decimal(f["reading"]),
+        line_loss=parse_optional_decimal(f.get("line_loss")),
         tariff_id=tariff.id,
         comment=f.get("comment") or None,
         document_id=document_id,
@@ -244,15 +250,16 @@ def add_master_reading():
     database.db_session.flush()
 
     # Сумму считаем той же логикой, что и таблица показаний на экране
-    # (относительно хронологически предыдущего показания) — и заодно
-    # наконец сохраняем её в MasterMeterReading.amount (раньше поле не
-    # заполнялось, сумма всегда пересчитывалась на лету при отображении).
+    # (относительно хронологически предыдущего показания, плюс потери в
+    # линии) — и заодно наконец сохраняем её в MasterMeterReading.amount
+    # (раньше поле не заполнялось, сумма всегда пересчитывалась на лету
+    # при отображении).
     all_readings = (
         database.db_session.query(MasterMeterReading)
         .order_by(MasterMeterReading.year.desc(), MasterMeterReading.month.desc())
         .all()
     )
-    amount = dict((r.id, a) for r, a in _readings_with_amounts(all_readings)).get(reading.id)
+    amount = dict((r.id, a) for r, a, _delta in _readings_with_amounts(all_readings)).get(reading.id)
     reading.amount = amount
 
     # Автоматически заводим расход перед поставщиком на эту сумму (см.

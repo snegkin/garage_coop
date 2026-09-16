@@ -8,7 +8,10 @@ from . import audit
 from .i18n import translate as _, parse_decimal
 from .auth import roles_required
 from .models import Counterparty, ElectricityTariff, ElectricityTariffKind, MasterMeterReading, Document, DocumentType, RoleEnum, Expense, BankAccount
-from .accounting import get_electricity_settings, current_tariff, pay_counterparty, reallocate_counterparty_expenses, expense_paid_amount, counterparty_balance
+from .accounting import (
+    get_electricity_settings, current_tariff, pay_counterparty, reallocate_counterparty_expenses, expense_paid_amount,
+    counterparty_balance, available_statement_lines, resolve_statement_line,
+)
 from .uploads import save_upload
 
 bp = Blueprint("power", __name__, url_prefix="/power")
@@ -71,6 +74,12 @@ def view():
     bank_accounts = database.db_session.query(BankAccount).order_by(BankAccount.is_primary.desc(), BankAccount.bank_name).all()
     counterparties = database.db_session.query(Counterparty).order_by(Counterparty.name).all()
     supplier_balance = counterparty_balance(settings.supplier) if settings.supplier else None
+    # По умолчанию форма внесения показаний предлагает предыдущий календарный
+    # месяц от сегодняшней даты — показания вносятся постфактум (в начале
+    # месяца — за предыдущий), поэтому это обычно и есть следующий по счёту
+    # месяц после уже внесённых показаний.
+    today = dt.date.today()
+    default_reading_month_date = dt.date(today.year, today.month, 1) - dt.timedelta(days=1)
     return render_template(
         "power/view.html",
         settings=settings,
@@ -80,9 +89,12 @@ def view():
         member_tariffs=member_tariffs,
         readings=readings_with_amounts,
         expense_paid=expense_paid,
+        default_reading_year=default_reading_month_date.year,
+        default_reading_month=default_reading_month_date.month,
         bank_accounts=bank_accounts,
         counterparties=counterparties,
         supplier_balance=supplier_balance,
+        referenceable_statement_lines=available_statement_lines(),
     )
 
 
@@ -203,6 +215,11 @@ def add_master_reading():
         flash(_("Нет тарифа поставщика, действующего на этот месяц — сначала добавьте тариф."), "danger")
         return redirect(url_for("power.view"))
 
+    statement_line, error = resolve_statement_line(f)
+    if error:
+        flash(error, "danger")
+        return redirect(url_for("power.view"))
+
     document_id = None
     file_path = save_upload(request.files.get("document_file"), current_app.config["UPLOAD_FOLDER"])
     if file_path:
@@ -257,21 +274,28 @@ def add_master_reading():
                 amount=amount,
                 category=_("Электроэнергия"),
                 description=_("Электроэнергия за {month}.{year} (общий счётчик)", month=month, year=year),
-                document_id=document_id,
             )
             database.db_session.add(expense)
             database.db_session.flush()
             reading.expense_id = expense.id
+            # Document.expense_id, не Expense.document_id — у расхода может
+            # быть несколько документов (см. Expense.documents), тот же файл
+            # от энергосбыта привязан и к показанию (reading.document_id
+            # выше), и к заведённому по нему расходу.
+            if document_id is not None:
+                doc.expense_id = expense.id
 
             bank_account_id = f.get("bank_account_id")
             bank_account = database.db_session.get(BankAccount, int(bank_account_id)) if bank_account_id else None
-            if bank_account is not None:
+            if bank_account is not None or statement_line is not None:
                 pay_counterparty(
                     counterparty=settings.supplier,
                     date=reading.reading_date,
                     amount=amount,
                     bank_account=bank_account,
                     comment=_("Оплата за электроэнергию {month}.{year}", month=month, year=year),
+                    adjust_balance=bool(f.get("adjust_balance")),
+                    bank_statement_line_id=statement_line.id if statement_line else None,
                 )
                 audit.record(
                     "power.reading_add",

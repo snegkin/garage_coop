@@ -7,62 +7,60 @@
 {% set top_member_tariff = member_tariffs[0][0] if member_tariffs else None %}
 
 <style>
-/* Три верхние карточки (поставщик / тариф поставщика / тариф для членов)
-   имеют текст разной длины над таблицами — из-за этого без общей сетки
-   таблицы съезжают на разную высоту и строка смотрится неаккуратно.
-   CSS grid с одинаковыми "строками" (заголовок / текст / таблица) решает
-   это: высота каждой строки равна высоте самой высокой ячейки в ней, и
-   таблицы во всех трёх колонках всегда начинаются на одной линии. */
+/* Тариф поставщика и тариф для членов — карточки одного вида с текстом
+   разной длины над таблицами, из-за этого без общей сетки таблицы
+   съезжают на разную высоту и строка смотрится неаккуратно. CSS grid с
+   одинаковыми "строками" (заголовок / текст / таблица) решает это:
+   высота каждой строки равна высоте самой высокой ячейки в ней, и обе
+   таблицы всегда начинаются на одной линии. */
 .power-top-grid {
   display: grid;
   grid-template-columns: 1fr;
-  grid-template-areas: "h1" "b1" "t1" "h2" "b2" "t2" "h3" "b3" "t3";
+  grid-template-areas: "h1" "b1" "t1" "h2" "b2" "t2";
   column-gap: 1.5rem;
   row-gap: .75rem;
 }
 @media (min-width: 768px) {
   .power-top-grid {
-    grid-template-columns: repeat(3, 1fr);
-    grid-template-areas: "h1 h2 h3" "b1 b2 b3" "t1 t2 t3";
+    grid-template-columns: repeat(2, 1fr);
+    grid-template-areas: "h1 h2" "b1 b2" "t1 t2";
   }
 }
 .pg-h1 { grid-area: h1; } .pg-b1 { grid-area: b1; } .pg-t1 { grid-area: t1; }
 .pg-h2 { grid-area: h2; } .pg-b2 { grid-area: b2; } .pg-t2 { grid-area: t2; }
-.pg-h3 { grid-area: h3; } .pg-b3 { grid-area: b3; } .pg-t3 { grid-area: t3; }
 </style>
 
-<div class="power-top-grid mb-4">
-  <div class="pg-h1 d-flex justify-content-between align-items-center mb-2">
+<div class="mb-4">
+  <div class="d-flex justify-content-between align-items-center mb-2">
     <h5 class="mb-0">{{ _("Поставщик электроэнергии") }}</h5>
     <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#supplierModal">
       {{ _("Изменить") if settings.supplier else _("Указать поставщика") }}
     </button>
   </div>
-  <div class="pg-b1">
-    {% if settings.supplier %}
-    <table class="table table-bordered bg-body">
-      <tr><th style="width:160px">{{ _("Название") }}</th><td><a href="{{ url_for('counterparties.detail', counterparty_id=settings.supplier.id) }}">{{ settings.supplier.name }}</a></td></tr>
-      <tr><th>{{ _("ИНН") }}</th><td>{{ settings.supplier.inn or "—" }}</td></tr>
-      <tr>
-        <th>{{ _("Баланс расчётов") }}</th>
-        <td>
-          <span class="{{ 'text-danger' if supplier_balance < 0 else 'text-success' }}">{{ fmt2(supplier_balance) }} ₽</span>
-          <a class="small ms-1" href="{{ url_for('counterparties.detail', counterparty_id=settings.supplier.id) }}">{{ _("вся история") }}</a>
-        </td>
-      </tr>
-    </table>
-    <p class="text-muted small">{{ _("Реквизиты, расходы и платежи по поставщику — в карточке контрагента (ссылка выше). Баланс здесь — это баланс расчётов с ним же (раздел «Контрагенты»), отдельного баланса у поставщика нет.") }}</p>
-    {% else %}
-    <p class="text-muted">{{ _("Поставщик пока не указан.") }}</p>
-    {% endif %}
-  </div>
-  <div class="pg-t1"></div>
+  {% if settings.supplier %}
+  <table class="table table-bordered bg-body">
+    <tr><th style="width:160px">{{ _("Название") }}</th><td><a href="{{ url_for('counterparties.detail', counterparty_id=settings.supplier.id) }}">{{ settings.supplier.name }}</a></td></tr>
+    <tr><th>{{ _("ИНН") }}</th><td>{{ settings.supplier.inn or "—" }}</td></tr>
+    <tr>
+      <th>{{ _("Баланс расчётов") }}</th>
+      <td>
+        <span class="{{ 'text-danger' if supplier_balance < 0 else 'text-success' }}">{{ fmt2(supplier_balance) }} ₽</span>
+        <a class="small ms-1" href="{{ url_for('counterparties.detail', counterparty_id=settings.supplier.id) }}">{{ _("вся история") }}</a>
+      </td>
+    </tr>
+  </table>
+  <p class="text-muted small">{{ _("Реквизиты, расходы и платежи по поставщику — в карточке контрагента (ссылка выше). Баланс здесь — это баланс расчётов с ним же (раздел «Контрагенты»), отдельного баланса у поставщика нет.") }}</p>
+  {% else %}
+  <p class="text-muted">{{ _("Поставщик пока не указан.") }}</p>
+  {% endif %}
+</div>
 
-  <div class="pg-h2 d-flex justify-content-between align-items-center mb-2">
+<div class="power-top-grid mb-4">
+  <div class="pg-h1 d-flex justify-content-between align-items-center mb-2">
     <h5 class="mb-0">{{ _("Тариф поставщика") }}</h5>
     <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#supplierTariffModal">+ {{ _("Добавить") }}</button>
   </div>
-  <div class="pg-b2">
+  <div class="pg-b1">
     <p class="text-muted small">{{ _("По этому тарифу считается сумма долга кооператива перед поставщиком (показания общего счётчика ниже).") }}</p>
     {% if supplier_tariff %}
     <p class="fs-4 mb-1">{{ fmt2(supplier_tariff.rate) }} ₽/{{ _("кВт·ч") }}</p>
@@ -71,7 +69,7 @@
     <p class="text-muted">{{ _("Тариф пока не задан.") }}</p>
     {% endif %}
   </div>
-  <div class="pg-t2">
+  <div class="pg-t1">
     {% if supplier_tariffs %}
     <table class="table table-sm bg-body sortable">
       <thead><tr><th>{{ _("Действует с") }}</th><th>{{ _("По") }}</th><th>{{ _("Тариф") }}</th><th>{{ _("Комментарий") }}</th><th class="no-sort"></th></tr></thead>
@@ -94,11 +92,11 @@
     {% endif %}
   </div>
 
-  <div class="pg-h3 d-flex justify-content-between align-items-center mb-2">
+  <div class="pg-h2 d-flex justify-content-between align-items-center mb-2">
     <h5 class="mb-0">{{ _("Тариф для членов кооператива") }}</h5>
     <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#memberTariffModal">+ {{ _("Добавить") }}</button>
   </div>
-  <div class="pg-b3">
+  <div class="pg-b2">
     <p class="text-muted small">{{ _("По этому тарифу считаются начисления за электричество на лицевые счета — показания в гаражах (раздел «Гаражи»).") }}</p>
     {% if member_tariff %}
     <p class="fs-4 mb-1">{{ fmt2(member_tariff.rate) }} ₽/{{ _("кВт·ч") }}</p>
@@ -107,7 +105,7 @@
     <p class="text-muted">{{ _("Тариф пока не задан.") }}</p>
     {% endif %}
   </div>
-  <div class="pg-t3">
+  <div class="pg-t2">
     {% if member_tariffs %}
     <table class="table table-sm bg-body sortable">
       <thead><tr><th>{{ _("Действует с") }}</th><th>{{ _("По") }}</th><th>{{ _("Тариф") }}</th><th>{{ _("Комментарий") }}</th><th class="no-sort"></th></tr></thead>

@@ -1849,7 +1849,14 @@ class MasterMeterReading(Base):
 
     Тариф — ссылка на actual запись в electricity_tariff (не копия числа),
     выбирается автоматически по месяцу оплаты. Сумма нигде не хранится —
-    считается на лету как (текущие показания − предыдущие) × ставка тарифа.
+    считается на лету как (текущие показания − предыдущие + потери) ×
+    ставка тарифа.
+
+    line_loss — потери в линии за этот месяц (кВт·ч), из счёта энергосбыта:
+    сумма к оплате считается не по чистой дельте показаний, а по
+    «начисленному объёму» = дельта + потери (энергосбыт добавляет потери
+    на линии до счётчика кооператива к оплате отдельно от того, что
+    физически показал счётчик). NULL — потери не указаны, считается как 0.
     """
     __tablename__ = "master_meter_reading"
 
@@ -1858,7 +1865,8 @@ class MasterMeterReading(Base):
     month: Mapped[int] = mapped_column(Integer)  # 1-12
     reading_date: Mapped[dt.date] = mapped_column(Date, index=True)  # вычисляется из year/month (первое число месяца)
     reading: Mapped[Decimal] = mapped_column(Numeric(14, 2))
-    amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))  # автоматически: (показание - предыдущее) * тариф
+    line_loss: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))  # автоматически: (показание - предыдущее + потери) * тариф
     tariff_id: Mapped[int] = mapped_column(ForeignKey("electricity_tariff.id"), index=True)
     comment: Mapped[str | None] = mapped_column(Text)
     expense_id: Mapped[int | None] = mapped_column(

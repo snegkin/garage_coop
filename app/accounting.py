@@ -32,7 +32,7 @@ from .i18n import translate as _
 from .models import (
     AccountNumberSettings, ElectricityTariff, ElectricityTariffKind, ElectricitySettings, Cooperative, Garage, LandTaxYear,
     Charge, Payment, MemberAccount, FeeType, ChargeAllocation, KeyRate,
-    Counterparty, Expense, CounterpartyPayment, ExpenseAllocation, BankAccount, GarageOwnership,
+    Counterparty, Expense, CounterpartyPayment, ExpenseAllocation, BankAccount, BankStatementLine, GarageOwnership,
 )
 
 
@@ -545,6 +545,69 @@ def counterparty_balance(counterparty: Counterparty) -> Decimal:
     paid = sum((p.amount for p in counterparty.payments), Decimal("0"))
     opening = counterparty.opening_balance or Decimal("0")
     return opening + paid - charged
+
+
+def available_statement_lines(exclude_payment_id: int | None = None) -> list[BankStatementLine]:
+    """
+    Строки выписки банка (списания), ещё не привязанные ни к одному
+    действующему CounterpartyPayment — доступны для выбора в форме оплаты
+    контрагенту как альтернатива прикреплению скана платёжки (см.
+    resolve_statement_line). Список общий для всех контрагентов/форм оплаты
+    (счёт поставщика электроэнергии в разделе «Электроэнергия» — такой же
+    CounterpartyPayment, как и обычный платёж в разделе «Контрагенты»).
+
+    exclude_payment_id — id платежа, который сейчас правится: его текущая
+    привязка не считается «занятой», иначе форма правки не смогла бы
+    показать её как уже выбранную. Платёж, который был сторнирован
+    (payment.reversed_by), в число занимающих строку не входит — сторно
+    означает, что этот платёж не состоялся/оказался ошибочным, и та же
+    строка выписки должна снова стать доступна для привязки к новому,
+    правильному платежу (сторно не трогает bank_statement_line_id исходного
+    платежа, он остаётся у уже недействующей записи).
+    """
+    already_referenced = {
+        p.bank_statement_line_id
+        for p in database.db_session.query(CounterpartyPayment)
+        .filter(CounterpartyPayment.bank_statement_line_id.isnot(None))
+        .all()
+        if not p.reversed_by
+    }
+    if exclude_payment_id is not None:
+        excluded_payment = database.db_session.get(CounterpartyPayment, exclude_payment_id)
+        if excluded_payment is not None and excluded_payment.bank_statement_line_id is not None:
+            already_referenced.discard(excluded_payment.bank_statement_line_id)
+    query = database.db_session.query(BankStatementLine).filter(BankStatementLine.direction == "debit")
+    if already_referenced:
+        query = query.filter(~BankStatementLine.id.in_(already_referenced))
+    return query.order_by(BankStatementLine.operation_date.desc()).all()
+
+
+def resolve_statement_line(f, exclude_payment_id: int | None = None) -> tuple[BankStatementLine | None, str | None]:
+    """
+    Разбирает bank_statement_line_id из формы платежа контрагенту —
+    альтернатива прикреплению скана платёжки (см. pay_counterparty/
+    edit_counterparty_payment). Возвращает (строка_или_None,
+    текст_ошибки_или_None). exclude_payment_id — см. available_statement_lines.
+    """
+    raw = f.get("bank_statement_line_id")
+    if not raw:
+        return None, None
+    line = database.db_session.get(BankStatementLine, int(raw))
+    if line is None:
+        return None, _("Строка выписки не найдена.")
+    if line.direction != "debit":
+        return None, _("Сослаться можно только на списание (расход) в выписке, не на зачисление.")
+    conflict_query = (
+        database.db_session.query(CounterpartyPayment)
+        .filter(CounterpartyPayment.bank_statement_line_id == line.id)
+        .filter(~CounterpartyPayment.reversed_by.any())
+    )
+    if exclude_payment_id is not None:
+        conflict_query = conflict_query.filter(CounterpartyPayment.id != exclude_payment_id)
+    conflict = conflict_query.first()
+    if conflict is not None:
+        return None, _("Эта строка выписки уже привязана к другому платежу.")
+    return line, None
 
 
 def pay_counterparty(

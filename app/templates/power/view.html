@@ -353,12 +353,12 @@
           <div class="row g-2 mb-3">
             <div class="col-6">
               <label class="form-label">{{ _("Год") }}</label>
-              <input class="form-control" type="number" name="year" id="mmYear" value="2026" required>
+              <input class="form-control" type="number" name="year" id="mmYear" value="{{ default_reading_year }}" required>
             </div>
             <div class="col-6">
               <label class="form-label">{{ _("Месяц") }}</label>
               <select class="form-select" name="month" id="mmMonth" required>
-                {% for m in range(1, 13) %}<option value="{{ m }}">{{ m }}</option>{% endfor %}
+                {% for m in range(1, 13) %}<option value="{{ m }}" {{ "selected" if m == default_reading_month }}>{{ m }}</option>{% endfor %}
               </select>
             </div>
           </div>
@@ -394,6 +394,22 @@
               {% endfor %}
             </select>
             <div class="form-text">{{ _("Если выбрать счёт, при сохранении сразу спишется сумма и расход перед поставщиком будет отмечен оплаченным. Если не выбирать — расход останется неоплаченным, оплатить можно будет позже в карточке контрагента.") }}</div>
+            <div class="form-text d-none" data-account-lock-hint>{{ _("Подставлен автоматически по выбранной строке выписки — чтобы изменить, сначала очистите поле «Строка выписки банка».") }}</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">{{ _("Или уже совершённая операция — строка выписки банка") }}</label>
+            <select class="form-select" name="bank_statement_line_id" data-searchable data-placeholder="{{ _('— не указана —') }}">
+              <option value=""></option>
+              {% for line in referenceable_statement_lines %}
+              <option value="{{ line.id }}" data-bank-account-id="{{ line.bank_account_id }}" data-amount="{{ line.amount }}">{{ fmt_date(line.operation_date) }} — {{ fmt2(line.amount) }} ₽ — {{ line.bank_account.bank_name }} ({{ line.bank_account.checking_account }}) — {{ line.counterparty_name or "—" }}{% if line.payment_purpose %} — {{ line.payment_purpose[:60] }}{% endif %}</option>
+              {% endfor %}
+            </select>
+            <div class="form-text">{{ _("Если счёт от поставщика уже пришёл и оплачен — вместо ручного выбора счёта сошлитесь на уже загруженную строку выписки банка, счёт списания подставится сам.") }}</div>
+          </div>
+          <div class="form-check mb-3">
+            <input class="form-check-input" type="checkbox" name="adjust_balance" id="mmAdjustBalance" checked>
+            <label class="form-check-label" for="mmAdjustBalance">{{ _("Списать эту сумму со счёта сейчас") }}</label>
+            <div class="form-text">{{ _("Снимите галку, если оплата вносится задним числом только для истории — деньги уже были списаны со счёта раньше, до этой записи в системе, и повторно уменьшать баланс не нужно.") }}</div>
           </div>
         </div>
         <div class="modal-footer">
@@ -451,6 +467,34 @@
     document.getElementById(id).addEventListener("change", update);
   });
   update();
+})();
+
+// Поле "Оплатить со счёта" и "Строка выписки банка" — строка выписки уже
+// знает свой банковский счёт (data-bank-account-id на каждом <option>),
+// поэтому при её выборе счёт подставляется автоматически и блокируется от
+// ручного изменения, пока строка не будет очищена — иначе можно было бы
+// случайно сослаться на выписку одного банка, а списание указать с
+// другого. Тот же приём, что и в форме платежа контрагенту (см.
+// counterparties/detail.html).
+(function () {
+  const form = document.querySelector('#readingModal form');
+  const lineSelect = form.querySelector('select[name="bank_statement_line_id"]');
+  const accountSelect = form.querySelector('select[name="bank_account_id"]');
+  if (!lineSelect || !accountSelect) return;
+  const hint = form.querySelector('[data-account-lock-hint]');
+
+  function applyLineSelection() {
+    const opt = lineSelect.options[lineSelect.selectedIndex];
+    const bankAccountId = opt ? opt.dataset.bankAccountId : "";
+    const locked = !!(lineSelect.value && bankAccountId);
+    accountSelect.disabled = locked;
+    if (hint) hint.classList.toggle("d-none", !locked);
+    if (locked) accountSelect.value = bankAccountId;
+  }
+
+  lineSelect.addEventListener("change", applyLineSelection);
+  form.addEventListener("submit", function () { accountSelect.disabled = false; });
+  applyLineSelection();
 })();
 </script>
 {% endblock %}

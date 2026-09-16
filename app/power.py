@@ -131,6 +131,57 @@ def add_tariff():
     return redirect(url_for("power.view"))
 
 
+@bp.route("/tariff/<int:tariff_id>/edit", methods=["POST"])
+@roles_required(RoleEnum.BOARD)
+def edit_tariff(tariff_id):
+    """Править можно только последний (по effective_date) тариф своего вида
+    — более ранние уже могли использоваться для расчётов, и правка задним
+    числом исказила бы уже сохранённые суммы. Для тарифа поставщика
+    дополнительно проверяем, что на него ещё не ссылается ни одно
+    показание общего счётчика (MasterMeterReading.tariff_id — прямая
+    ссылка на запись, в отличие от тарифа для членов, который читатели
+    показаний копируют числом, см. garages.add_meter_reading): иначе
+    показанная в таблице сумма (считается на лету по r.tariff.rate)
+    разошлась бы с уже созданным Expense.amount, зафиксированным при
+    создании показания."""
+    tariff = database.db_session.get(ElectricityTariff, tariff_id)
+    if tariff is None:
+        abort(404)
+
+    latest = (
+        database.db_session.query(ElectricityTariff)
+        .filter_by(kind=tariff.kind)
+        .order_by(ElectricityTariff.effective_date.desc(), ElectricityTariff.id.desc())
+        .first()
+    )
+    if latest is None or latest.id != tariff.id:
+        flash(_("Можно редактировать только последний добавленный тариф этого вида."), "danger")
+        return redirect(url_for("power.view"))
+
+    if tariff.kind == ElectricityTariffKind.SUPPLIER:
+        used = (
+            database.db_session.query(MasterMeterReading)
+            .filter_by(tariff_id=tariff.id)
+            .first()
+        )
+        if used is not None:
+            flash(_(
+                "Этот тариф уже использован в показаниях общего счётчика — "
+                "редактирование заблокировано, чтобы не исказить уже посчитанные суммы."
+            ), "danger")
+            return redirect(url_for("power.view"))
+
+    f = request.form
+    tariff.rate = parse_decimal(f["rate"])
+    tariff.effective_date = dt.date.fromisoformat(f["effective_date"])
+    tariff.comment = f.get("comment") or None
+    kind_label = _("поставщика") if tariff.kind == ElectricityTariffKind.SUPPLIER else _("для членов кооператива")
+    audit.record("power.tariff_edit", f"Изменён тариф на электроэнергию ({kind_label}): {tariff.rate} ₽/кВт·ч с {audit.format_date(tariff.effective_date)}")
+    database.db_session.commit()
+    flash(_("Тариф изменён."), "success")
+    return redirect(url_for("power.view"))
+
+
 @bp.route("/readings/new", methods=["POST"])
 @roles_required(RoleEnum.BOARD)
 def add_master_reading():

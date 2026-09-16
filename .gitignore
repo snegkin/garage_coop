@@ -17,3 +17,6 @@ venv/
 # IDE
 .vscode/
 .idea/
+
+# Личные настройки Claude Code (не для команды)
+.claude/settings.local.json

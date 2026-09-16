@@ -5,6 +5,7 @@
 
 {% set top_supplier_tariff = supplier_tariffs[0][0] if supplier_tariffs else None %}
 {% set top_member_tariff = member_tariffs[0][0] if member_tariffs else None %}
+{% set latest_reading = readings[0][0] if readings else None %}
 
 <style>
 /* Тариф поставщика и тариф для членов — карточки одного вида с текстом
@@ -82,7 +83,12 @@
           <td>{{ t.comment or "—" }}</td>
           <td class="no-sort">
             {% if loop.first %}
-            <button type="button" class="btn btn-sm btn-outline-secondary btn-icon-square" data-bs-toggle="modal" data-bs-target="#editSupplierTariffModal" title="{{ _('Изменить') }}">✎</button>
+            <div class="d-flex gap-1 justify-content-end">
+              <button type="button" class="btn btn-sm btn-outline-secondary btn-icon-square" data-bs-toggle="modal" data-bs-target="#editSupplierTariffModal" title="{{ _('Изменить') }}">✎</button>
+              <form method="post" action="{{ url_for('power.delete_tariff', tariff_id=t.id) }}" onsubmit="return confirm('{{ _('Удалить тариф?') }}')">
+                <button class="btn btn-sm btn-outline-danger btn-icon-square" title="{{ _('Удалить') }}">✕</button>
+              </form>
+            </div>
             {% endif %}
           </td>
         </tr>
@@ -118,7 +124,12 @@
           <td>{{ t.comment or "—" }}</td>
           <td class="no-sort">
             {% if loop.first %}
-            <button type="button" class="btn btn-sm btn-outline-secondary btn-icon-square" data-bs-toggle="modal" data-bs-target="#editMemberTariffModal" title="{{ _('Изменить') }}">✎</button>
+            <div class="d-flex gap-1 justify-content-end">
+              <button type="button" class="btn btn-sm btn-outline-secondary btn-icon-square" data-bs-toggle="modal" data-bs-target="#editMemberTariffModal" title="{{ _('Изменить') }}">✎</button>
+              <form method="post" action="{{ url_for('power.delete_tariff', tariff_id=t.id) }}" onsubmit="return confirm('{{ _('Удалить тариф?') }}')">
+                <button class="btn btn-sm btn-outline-danger btn-icon-square" title="{{ _('Удалить') }}">✕</button>
+              </form>
+            </div>
             {% endif %}
           </td>
         </tr>
@@ -160,9 +171,12 @@
       <td>{% if r.document_id %}<a href="{{ url_for('cooperative.download_document', doc_id=r.document_id) }}">{{ _("скачать") }}</a>{% else %}—{% endif %}</td>
       <td class="no-sort">
         {% if loop.first %}
-        <form method="post" action="{{ url_for('power.delete_reading', reading_id=r.id) }}" onsubmit="return confirm('{{ _('Удалить показание?') }}')">
-          <button class="btn btn-sm btn-outline-danger btn-icon-square" title="{{ _('Удалить') }}">✕</button>
-        </form>
+        <div class="d-flex gap-1 justify-content-end">
+          <button type="button" class="btn btn-sm btn-outline-secondary btn-icon-square" data-bs-toggle="modal" data-bs-target="#editReadingModal" title="{{ _('Изменить') }}">✎</button>
+          <form method="post" action="{{ url_for('power.delete_reading', reading_id=r.id) }}" onsubmit="return confirm('{{ _('Удалить показание?') }}')">
+            <button class="btn btn-sm btn-outline-danger btn-icon-square" title="{{ _('Удалить') }}">✕</button>
+          </form>
+        </div>
         {% endif %}
       </td>
     </tr>
@@ -432,6 +446,53 @@
     </div>
   </div>
 </div>
+
+{% if latest_reading %}
+<!-- Модалка: редактирование последнего показания общего счётчика -->
+<div class="modal fade" id="editReadingModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <form method="post" action="{{ url_for('power.edit_master_reading', reading_id=latest_reading.id) }}">
+        <div class="modal-header">
+          <h5 class="modal-title">{{ _("Изменить показание общего счётчика") }}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <p class="text-muted small">{{ _("Редактировать можно только последнее показание — и только пока по связанному расходу перед поставщиком ничего не оплачено.") }}</p>
+          <div class="row g-2 mb-3">
+            <div class="col-6">
+              <label class="form-label">{{ _("Год") }}</label>
+              <input class="form-control" type="number" name="year" value="{{ latest_reading.year }}" required>
+            </div>
+            <div class="col-6">
+              <label class="form-label">{{ _("Месяц") }}</label>
+              <select class="form-select" name="month" required>
+                {% for m in range(1, 13) %}<option value="{{ m }}" {{ "selected" if m == latest_reading.month }}>{{ m }}</option>{% endfor %}
+              </select>
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">{{ _("Показания, кВт·ч") }}</label>
+            <input class="form-control" inputmode="decimal" name="reading" value="{{ latest_reading.reading }}" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">{{ _("Потери в линии, кВт·ч") }}</label>
+            <input class="form-control" inputmode="decimal" name="line_loss" value="{{ latest_reading.line_loss if latest_reading.line_loss is not none else '' }}">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">{{ _("Комментарий") }}</label>
+            <textarea class="form-control" name="comment">{{ latest_reading.comment or "" }}</textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+          <button class="btn btn-primary">{{ _("Сохранить") }}</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
 
 <script>
 (function () {

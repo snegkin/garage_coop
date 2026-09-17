@@ -1,5 +1,6 @@
 import os
 import warnings
+from datetime import timedelta
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -112,6 +113,14 @@ class Config:
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = "Lax"
     SESSION_COOKIE_SECURE = os.environ.get("FORCE_HTTPS", "0") == "1"
+
+    # Срок жизни сессии при отмеченной галке "Запомнить меня" (см.
+    # auth._complete_login: session.permanent=True включает именно этот
+    # срок). Без галки сессия остаётся обычной cookie сессии браузера —
+    # стирается при его закрытии, PERMANENT_SESSION_LIFETIME на неё не
+    # влияет (Flask применяет это значение только когда session.permanent
+    # выставлен в True).
+    PERMANENT_SESSION_LIFETIME = timedelta(days=365)
 
     # Flask-WTF CSRF: токен живёт столько же, сколько разумно ожидать, что
     # пользователь не закроет открытую форму (например, длинную форму импорта CSV).

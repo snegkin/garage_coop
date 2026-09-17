@@ -138,7 +138,7 @@ def roles_required(*roles: RoleEnum):
     return decorator
 
 
-def _complete_login(user: User, summary: str):
+def _complete_login(user: User, summary: str, remember: bool = False):
     """Общий хвост успешного входа — заводит сессию, пишет аудит,
     редиректит на next (если безопасный), иначе — на главную (по прямой
     просьбе не уводить рядового члена на дашборд/«мои гаражи»
@@ -147,9 +147,15 @@ def _complete_login(user: User, summary: str):
     g.user на этот момент ещё не обновлён (before_request отработал ДО
     входа в этот же запрос) — роль берём из уже известного user, не через
     permissions.is_board()/g.user. Используется и обычным входом по
-    логину, и входом по телефону."""
+    логину, и входом по телефону.
+
+    remember — галка «Запомнить меня»: session.permanent=True переводит
+    cookie сессии из обычной cookie сессии браузера (стирается при его
+    закрытии) в постоянную, живущую PERMANENT_SESSION_LIFETIME (см.
+    config.py — 12 месяцев). Без галки поведение как раньше."""
     session.clear()
     session["user_id"] = user.id
+    session.permanent = remember
     audit.record("auth.login", entity_type="user", entity_id=user.id, summary=summary, actor=user)
     database.db_session.commit()
     next_url = request.args.get("next")
@@ -166,6 +172,7 @@ def login():
     if request.method == "POST":
         username = request.form["username"].strip()
         password = request.form["password"]
+        remember = bool(request.form.get("remember_me"))
         user = database.db_session.query(User).filter_by(username=username).first()
 
         if user is None or not check_password_hash(user.password_hash, password):
@@ -197,7 +204,7 @@ def login():
             database.db_session.commit()
             flash(_("Учётная запись отключена."), "danger")
         else:
-            return _complete_login(user, f"Успешный вход: «{username}»")
+            return _complete_login(user, f"Успешный вход: «{username}»", remember=remember)
 
     # Сама форма входа теперь ещё и всегда доступна дропдауном в шапке
     # (см. base.html, auth/_login_form.html) — эта страница нужна как
@@ -236,6 +243,7 @@ def login_by_phone():
     """
     phone = request.form.get("phone", "").strip()
     password = request.form.get("password", "")
+    remember = bool(request.form.get("remember_me"))
     digits = _normalize_phone_digits(phone)
 
     if len(digits) < 7 or not password:
@@ -267,7 +275,7 @@ def login_by_phone():
             flash(_("Не удалось отправить СМС: {error}", error=str(exc)), "danger")
             return redirect(url_for("auth.login"))
         database.db_session.commit()
-        return render_template("auth/verify_phone_code.html", phone=phone)
+        return render_template("auth/verify_phone_code.html", phone=phone, remember=remember)
 
     if not check_password_hash(user.password_hash, password):
         audit.record(
@@ -298,6 +306,7 @@ def register_phone_resend():
     непогашенного кода с первого запроса (см. login_by_phone), берём его
     оттуда, а не просим ввести снова."""
     phone = request.form.get("phone", "").strip()
+    remember = bool(request.form.get("remember_me"))
     digits = _normalize_phone_digits(phone)
     if len(digits) < 7:
         flash(_("Некорректный номер телефона."), "danger")
@@ -338,7 +347,7 @@ def register_phone_resend():
         return redirect(url_for("auth.login"))
     database.db_session.commit()
     flash(_("Код отправлен повторно."), "success")
-    return render_template("auth/verify_phone_code.html", phone=phone)
+    return render_template("auth/verify_phone_code.html", phone=phone, remember=remember)
 
 
 @bp.route("/register-phone/confirm", methods=["POST"])
@@ -349,6 +358,7 @@ def register_phone_confirm():
     и лежит в payload кода (см. verification.consume_code)."""
     phone = request.form.get("phone", "").strip()
     code = request.form.get("code", "").strip()
+    remember = bool(request.form.get("remember_me"))
     digits = _normalize_phone_digits(phone)
 
     person = _person_by_phone_digits(digits)
@@ -356,7 +366,7 @@ def register_phone_confirm():
     if not ok or person is None or password_hash is None:
         database.db_session.commit()  # попытка (attempts) должна сохраниться, даже если код неверный
         flash(_("Неверный или истёкший код."), "danger")
-        return render_template("auth/verify_phone_code.html", phone=phone)
+        return render_template("auth/verify_phone_code.html", phone=phone, remember=remember)
 
     # На случай, если аккаунт уже успели создать другим путём между
     # запросом кода и его подтверждением (например, открыли форму в двух
@@ -384,7 +394,7 @@ def register_phone_confirm():
         "account.self_register_by_phone", entity_type="user", entity_id=user.id,
         summary=f"Учётная запись «{username}» создана самостоятельно по номеру телефона для {person.full_name} (подтверждено СМС-кодом)",
     )
-    return _complete_login(user, f"Успешный вход по телефону (новая учётная запись «{username}»)")
+    return _complete_login(user, f"Успешный вход по телефону (новая учётная запись «{username}»)", remember=remember)
 
 
 # ---------------------------------------------------------------------------

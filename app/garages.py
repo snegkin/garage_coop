@@ -433,6 +433,7 @@ def detail(garage_id):
         next_garage=next_garage,
         page_title=title,
         ownership_events=ownership_events,
+        is_owner_or_board=is_owner_or_board(garage),
     )
 
 

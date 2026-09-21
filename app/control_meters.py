@@ -335,6 +335,87 @@ def root_level_reconciliation(date_from: dt.date, date_to: dt.date) -> NodeRecon
 
 
 # ---------------------------------------------------------------------------
+# Схема (Mermaid) — альтернативный, графический вид того же дерева, что и
+# cmtree.render_tree (_tree.html), переключатель «Дерево/Схема» на list.html.
+# ---------------------------------------------------------------------------
+
+def _mermaid_escape(text: str) -> str:
+    """HTML-экранирование для подписи блока Mermaid — сами подписи (имя узла,
+    номер гаража) в итоге попадают в HTML как есть (см. list.html:
+    {{ scheme_mermaid | safe }}, экранирование только здесь, до | safe), и
+    Mermaid-синтаксис тоже чувствителен к кавычкам внутри ["..."]."""
+    return (
+        text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        .replace('"', "&quot;").replace("\n", " ")
+    )
+
+
+def _mermaid_status_class(rec: NodeReconciliation | None) -> str:
+    """Тот же набор статусов, что и бейджи в _tree.html (см. render_tree) —
+    цвет блока схемы вместо текста бейджа."""
+    if rec is None or rec.loss is None:
+        return "cmMuted"
+    if rec.is_negative:
+        return "cmBad"
+    if rec.loss == 0:
+        return "cmOk"
+    return "cmWarn" if rec.is_partial else "cmInfo"
+
+
+def build_scheme_mermaid(tree, reconcile_default, reconcile_garage_default) -> str:
+    """Текст Mermaid flowchart по тому же дереву {"kind", "node", "children"},
+    что и cmtree.render_tree (_tree.html) — с той же подсветкой статуса
+    сверки и кликом на карточку узла/гаража-точки подключения (см.
+    _mermaid_status_class).
+
+    Обычные подключённые гаражи (Garage.control_meter_id) отдельными
+    блоками НЕ рисуются — как и в текстовом дереве, только их количество в
+    подписи узла (n.garages) — иначе схема на большом кооперативе раздулась
+    бы до сотен блоков и стала бы нечитаемой."""
+    lines = [
+        "flowchart TD",
+        "classDef cmOk fill:#d1e7dd,stroke:#0f5132,color:#0f5132",
+        "classDef cmWarn fill:#fff3cd,stroke:#997404,color:#664d03",
+        "classDef cmBad fill:#f8d7da,stroke:#842029,color:#842029",
+        "classDef cmInfo fill:#cff4fc,stroke:#055160,color:#055160",
+        "classDef cmMuted fill:#e9ecef,stroke:#495057,color:#495057",
+    ]
+
+    def dom_id(kind, n):
+        if kind == "node" and n is None:
+            return "cmRoot"
+        return f"{'cmGw' if kind == 'garage' else 'cmNode'}{n.id}"
+
+    def walk(entries, parent_id):
+        for entry in entries:
+            n, kind = entry["node"], entry["kind"]
+            this_id = dom_id(kind, n)
+
+            if kind == "node" and n is None:
+                label, url = _("Ввод (общий счётчик)"), url_for("power.view")
+                status = _mermaid_status_class(reconcile_default(None))
+            elif kind == "garage":
+                label, url = _("Гараж №{number}", number=n.number), url_for("garages.detail", garage_id=n.id)
+                status = _mermaid_status_class(reconcile_garage_default(n))
+            else:
+                garage_count = len(n.garages)
+                label = f"{n.name} ({garage_count})" if garage_count else n.name
+                url = url_for("control_meters.detail", node_id=n.id)
+                status = _mermaid_status_class(reconcile_default(n))
+
+            lines.append(f'{this_id}["{_mermaid_escape(label)}"]')
+            lines.append(f'click {this_id} "{url}"')
+            lines.append(f"class {this_id} {status}")
+            if parent_id is not None:
+                lines.append(f"{parent_id} --> {this_id}")
+
+            walk(entry["children"], this_id)
+
+    walk(tree, None)
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
 # Узлы, запитанные через абонентский счётчик гаража (ControlMeter.
 # parent_garage_id) — напр. общее освещение, подключённое не к вводу и не к
 # другому узлу дерева, а прямо к щитку конкретного гаража. Показания
@@ -433,9 +514,10 @@ def list_tree():
     all_nodes = database.db_session.query(ControlMeter).all()
     tree = _wrap_with_root(_build_tree(all_nodes, _gateway_garages()))
     root_reconciliation = reconcile_node_default(None)
+    scheme_mermaid = build_scheme_mermaid(tree, reconcile_node_default, reconcile_garage_supply_default)
     return render_template(
         "control_meters/list.html", tree=tree,
-        root_reconciliation=root_reconciliation,
+        root_reconciliation=root_reconciliation, scheme_mermaid=scheme_mermaid,
         reconcile_default=reconcile_node_default, reconcile_garage_default=reconcile_garage_supply_default,
     )
 

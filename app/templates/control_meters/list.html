@@ -24,7 +24,55 @@
   </div>
 </div>
 
-<div class="bg-body p-3 rounded border" style="max-width:900px">
+<div class="btn-group mb-3" role="group" aria-label="{{ _('Вид дерева узлов') }}">
+  <button type="button" class="btn btn-outline-primary active" id="cmViewTreeBtn">{{ _("Дерево") }}</button>
+  <button type="button" class="btn btn-outline-primary" id="cmViewSchemeBtn">{{ _("Схема") }}</button>
+</div>
+
+<div id="cmTreeView" class="bg-body p-3 rounded border" style="max-width:900px">
   {{ cmtree.render_tree(tree, current_node_id=None, ancestor_ids=[], reconcile_default=reconcile_default, reconcile_garage_default=reconcile_garage_default) }}
 </div>
+
+<div id="cmSchemeView" class="bg-body p-3 rounded border d-none" style="overflow-x:auto">
+  <p class="text-muted small mb-2">{{ _("Клик по блоку открывает карточку узла/гаража. Цвет — статус последней сверки: зелёный — ОК, жёлтый/голубой — есть потери (жёлтый — по неполным данным), красный — аномалия (отрицательные потери), серый — данных недостаточно.") }}</p>
+  <pre class="mermaid">{{ scheme_mermaid | safe }}</pre>
+</div>
+
+<script type="module">
+  import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: document.documentElement.getAttribute("data-bs-theme") === "dark" ? "dark" : "default",
+    securityLevel: "loose",  // нужен для click-навигации по блокам на свои же страницы (см. build_scheme_mermaid)
+  });
+
+  var treeBtn = document.getElementById("cmViewTreeBtn");
+  var schemeBtn = document.getElementById("cmViewSchemeBtn");
+  var treeView = document.getElementById("cmTreeView");
+  var schemeView = document.getElementById("cmSchemeView");
+  var rendered = false;
+
+  function showTree() {
+    treeView.classList.remove("d-none");
+    schemeView.classList.add("d-none");
+    treeBtn.classList.add("active");
+    schemeBtn.classList.remove("active");
+  }
+
+  function showScheme() {
+    treeView.classList.add("d-none");
+    schemeView.classList.remove("d-none");
+    treeBtn.classList.remove("active");
+    schemeBtn.classList.add("active");
+    // Рендерим Mermaid лениво, при первом переключении — контейнер до этого
+    // скрыт (d-none), а на скрытом элементе Mermaid неверно считает размеры.
+    if (!rendered) {
+      rendered = true;
+      mermaid.run({ querySelector: "#cmSchemeView .mermaid" });
+    }
+  }
+
+  treeBtn.addEventListener("click", showTree);
+  schemeBtn.addEventListener("click", showScheme);
+</script>
 {% endblock %}

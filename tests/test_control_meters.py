@@ -9,14 +9,16 @@
 исключение потребителей без данных из суммы/деления, дочерний узел
 учитывается целиком, отрицательные потери не скрываются),
 root_level_reconciliation (сверка с MasterMeterReading), права доступа
-(BOARD-only) и аудит.
+(BOARD-only), аудит и графическую схему (build_scheme_mermaid — тот же
+Mermaid-текст, что рендерится на вкладке «Схема» /control-meters/).
 """
 import datetime as dt
 from decimal import Decimal
 
 from app.control_meters import (
     reconcile_node, reconcile_node_default, root_level_reconciliation,
-    garage_supplied_nodes_delta, reconcile_garage_supply, _build_tree, _gateway_garages,
+    garage_supplied_nodes_delta, reconcile_garage_supply, reconcile_garage_supply_default,
+    _build_tree, _gateway_garages, _wrap_with_root, build_scheme_mermaid,
 )
 from app.models import (
     RoleEnum, ControlMeter, ControlMeterReading, ElectricityMeter, ElectricityReading,
@@ -640,3 +642,73 @@ def test_gateway_garages_returns_only_garages_with_supplied_nodes(db):
 
     result = _gateway_garages()
     assert [g.id for g in result] == [garage_with_node.id]
+
+
+# ---------------------------------------------------------------------------
+# Схема (build_scheme_mermaid) — переключатель «Схема» на /control-meters/
+# ---------------------------------------------------------------------------
+
+def test_build_scheme_mermaid_includes_root_node_and_edges(app, db):
+    top = _make_node(db, "Верх")
+    child = _make_node(db, "Низ", parent_id=top.id)
+    garage = make_garage(db, number="1")
+    garage.control_meter_id = child.id
+    db.commit()
+
+    all_nodes = db.query(ControlMeter).all()
+    tree = _wrap_with_root(_build_tree(all_nodes, _gateway_garages()))
+    with app.test_request_context():
+        text = build_scheme_mermaid(tree, reconcile_node_default, reconcile_garage_supply_default)
+
+    assert text.startswith("flowchart TD")
+    assert 'cmRoot["Ввод (общий счётчик)"]' in text
+    assert f'cmNode{top.id}["Верх"]' in text
+    # у "Низ" один подключённый гараж — счётчик в подписи (см. build_scheme_mermaid)
+    assert f'cmNode{child.id}["Низ (1)"]' in text
+    assert f"cmRoot --> cmNode{top.id}" in text
+    assert f"cmNode{top.id} --> cmNode{child.id}" in text
+    # обычный подключённый гараж отдельным блоком не рисуется (см. докстринг)
+    assert "Гараж №1" not in text
+
+
+def test_build_scheme_mermaid_escapes_quotes_in_node_name(app, db):
+    node = ControlMeter(name='Линия "А"')
+    db.add(node)
+    db.commit()
+
+    tree = _wrap_with_root(_build_tree([node], []))
+    with app.test_request_context():
+        text = build_scheme_mermaid(tree, reconcile_node_default, reconcile_garage_supply_default)
+
+    assert "&quot;" in text
+    assert '"А"' not in text  # сырая кавычка сломала бы Mermaid-синтаксис блока
+
+
+def test_build_scheme_mermaid_includes_gateway_garage_block(app, db):
+    garage = make_garage(db, number="42")
+    node = _make_node(db, "Освещение")
+    node.parent_garage_id = garage.id
+    db.commit()
+
+    tree = _wrap_with_root(_build_tree([node], _gateway_garages()))
+    with app.test_request_context():
+        text = build_scheme_mermaid(tree, reconcile_node_default, reconcile_garage_supply_default)
+
+    assert f'cmGw{garage.id}["Гараж №42"]' in text
+    assert f"cmGw{garage.id} --> cmNode{node.id}" in text
+
+
+def test_control_meters_list_page_includes_mermaid_scheme(db, client):
+    """Smoke-тест на переключатель «Схема» — контейнер и CDN-скрипт Mermaid
+    попадают на страницу /control-meters/."""
+    _make_board(db)
+    _make_node(db, "Верх")
+    db.commit()
+    login(client, "board1", "pass1234")
+
+    resp = client.get("/control-meters/")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert 'id="cmSchemeView"' in body
+    assert "flowchart TD" in body
+    assert "mermaid" in body.lower()

@@ -232,10 +232,12 @@ def detail(person_id):
     if not is_board() and g.user.person_id != person_id:
         abort(403)
     account = database.db_session.query(User).filter_by(person_id=person.id).first()
-    # Пени без начислений (баланс — 0) НЕ отфильтровываются здесь — этим
-    # занимается чекбокс «Актуальные» на клиенте (data-zero-penalty, см.
-    # persons/detail.html), иначе для таких счетов чекбокс не работал бы:
-    # строка не долетала бы до шаблона ни в каком состоянии галки.
+    # Счета с нулевым балансом (пеня без начислений, "telecom_disputes" и
+    # т.п.) НЕ отфильтровываются здесь — этим занимается чекбокс
+    # «Актуальные» на клиенте (data-zero-noncore, см. persons/detail.html
+    # и models.CORE_FEE_TYPE_CODES), иначе для таких счетов чекбокс не
+    # работал бы: строка не долетала бы до шаблона ни в каком состоянии
+    # галки.
     member_accounts = (
         database.db_session.query(MemberAccount)
         .filter_by(person_id=person.id)
@@ -276,7 +278,7 @@ def _statement_row(account_number: str, url: str, label: str, charges, payments)
     }
 
 
-def build_statement(person) -> dict:
+def build_statement(person, categories: set[str] | None = None) -> dict:
     """
     Сводная выписка по ВСЕМ лицевым счетам человека сразу — взносы/налог
     (MemberAccount) и, если он собственник гаража(ей), электричество
@@ -294,9 +296,17 @@ def build_statement(person) -> dict:
     слагаемых — «Баланс» (без пени) и «Пеня» — и складывается в
     penalty_rows/grand_total ниже.
 
-    Используется и persons.statement() (личная печатная выписка), и
-    legal_docs.debt_notice() (уведомление о задолженности на нескольких
-    должников разом) — ровно одна реализация сводки долга на человека.
+    categories — если задано (см. legal_docs.debt_categories), в rows
+    попадают только счета из этого набора: правление не судится и не
+    рассылает претензии за электричество (должника просто отключают до
+    погашения, см. app/power.py) — при формировании настоящего требования
+    (уведомление о задолженности/иск, см. legal_docs.py) электричество по
+    умолчанию исключается из суммы, хотя председатель может включить его
+    вручную. penalty_rows фильтру не подчиняются: пеня считается только по
+    MemberAccount независимо от вида взноса (у электричества своего вида
+    пени в системе нет вовсе). persons.statement() (личная выписка члена
+    кооператива) вызывает build_statement БЕЗ categories — видит вообще
+    всё, это не легальное требование, а просто справочная информация.
     """
     member_accounts = (
         database.db_session.query(MemberAccount)
@@ -326,16 +336,19 @@ def build_statement(person) -> dict:
 
     rows, penalty_rows = [], []
     for ma in member_accounts:
+        if not ma.fee_type.is_penalty and categories is not None and f"fee:{ma.fee_type_id}" not in categories:
+            continue
         row = _statement_row(
             ma.account_number, url_for("finance.member_account_detail", account_id=ma.id),
             f"{ma.fee_type.name}, {_('гараж')} №{ma.garage.number}", ma.charges, ma.payments,
         )
         (penalty_rows if ma.fee_type.is_penalty else rows).append(row)
-    for pa in personal_accounts:
-        rows.append(_statement_row(
-            pa.account_number, url_for("garages.detail", garage_id=pa.garage_id),
-            f"{_('Электричество')}, {_('гараж')} №{pa.garage.number}", pa.garage.charges, pa.garage.payments,
-        ))
+    if categories is None or "electricity" in categories:
+        for pa in personal_accounts:
+            rows.append(_statement_row(
+                pa.account_number, url_for("garages.detail", garage_id=pa.garage_id),
+                f"{_('Электричество')}, {_('гараж')} №{pa.garage.number}", pa.garage.charges, pa.garage.payments,
+            ))
 
     all_rows = rows + penalty_rows
     years = [r["year_from"] for r in all_rows if r["year_from"]] + [r["year_to"] for r in all_rows if r["year_to"]]

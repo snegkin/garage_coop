@@ -53,7 +53,7 @@ from . import audit
 from .i18n import translate as _
 from .auth import roles_required
 from .persons import build_statement
-from .legal_docs import list_debtor_persons, build_yearly_debt_breakdown
+from .legal_docs import list_debtor_persons, build_yearly_debt_breakdown, debt_categories, parse_selected_categories
 from .models import Person, Cooperative, RoleEnum, Document, DocumentType, PostalDispatch, PostalDispatchStatus
 
 bp = Blueprint("postal_letters", __name__, url_prefix="/postal-letters")
@@ -99,12 +99,23 @@ def _selected_persons_or_redirect():
     return persons
 
 
-def _render_debt_notice_pdf(person: Person, coop: Cooperative | None, chairman: Person | None, today: dt.date) -> bytes | None:
+def _render_debt_notice_pdf(
+    person: Person, coop: Cooperative | None, chairman: Person | None, today: dt.date, categories: set[str],
+) -> bytes | None:
     """PDF на одного получателя — переиспользует тот же шаблон/макрос, что
     и app.legal_docs.debt_notice (legal_docs/debt_notice_pdf.html поддерживает
     список docs, здесь всегда список из одного письма — Почте нужен
-    отдельный PDF-файл на каждое отправление)."""
-    docs = [{"person": person, "summary": build_statement(person), "years": build_yearly_debt_breakdown(person)}]
+    отдельный PDF-файл на каждое отправление).
+
+    categories — см. legal_docs.debt_categories(): по умолчанию без
+    электричества (за него кооператив не судится и не рассылает
+    претензии, см. докстринг модуля) — письмо по Почте формируется на ту
+    же задолженность, что попала бы в уведомление/иск, а не на вообще
+    весь баланс человека."""
+    docs = [{
+        "person": person, "summary": build_statement(person, categories=categories),
+        "years": build_yearly_debt_breakdown(person, categories),
+    }]
     html_str = render_template(
         "legal_docs/debt_notice_pdf.html", docs=docs, coop=coop, chairman=chairman, today=today, hide_chat_widgets=True,
     )
@@ -195,17 +206,18 @@ def list_view():
 def new():
     if request.method == "GET":
         debtors = list_debtor_persons()
-        return render_template("postal_letters/new.html", debtors=debtors)
+        return render_template("postal_letters/new.html", debtors=debtors, categories=debt_categories())
 
     persons = _selected_persons_or_redirect()
     if persons is None:
         return redirect(url_for("postal_letters.new"))
 
+    selected = parse_selected_categories(request.form)
     coop, chairman = _coop_and_chairman()
     today = dt.date.today()
     created = 0
     for person in persons:
-        pdf_bytes = _render_debt_notice_pdf(person, coop, chairman, today)
+        pdf_bytes = _render_debt_notice_pdf(person, coop, chairman, today, selected)
         if pdf_bytes is None:
             database.db_session.rollback()
             return redirect(url_for("postal_letters.new"))

@@ -13,6 +13,7 @@
 
 <form method="post" action="{{ url_for('legal_docs.lawsuit_print') }}">
   <input type="hidden" name="proceeding_type" value="{{ proceeding_type }}">
+  {% for key in selected_categories %}<input type="hidden" name="category" value="{{ key }}">{% endfor %}
   {% for draft in drafts %}
   <div class="mb-4 bg-body p-3 rounded border">
     <h5>{{ draft.person.full_name }}</h5>

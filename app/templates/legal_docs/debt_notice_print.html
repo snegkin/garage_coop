@@ -8,6 +8,7 @@
     <button class="btn btn-primary" onclick="window.print()">{{ _("Печать") }}</button>
     <form method="post" action="{{ url_for('legal_docs.debt_notice') }}" class="d-inline">
       {% for doc in docs %}<input type="hidden" name="person_id" value="{{ doc.person.id }}">{% endfor %}
+      {% for key in selected_categories %}<input type="hidden" name="category" value="{{ key }}">{% endfor %}
       <input type="hidden" name="format" value="pdf">
       <button class="btn btn-outline-primary">{{ _("Скачать PDF") }}</button>
     </form>

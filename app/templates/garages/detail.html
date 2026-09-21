@@ -301,7 +301,7 @@
     </tr>
     {% endif %}
     {% for row in account_summary_rows %}
-    <tr data-account-row="{{ row.id }}" data-archived="{{ 1 if row.is_archived else 0 }}" data-zero-penalty="{{ 1 if row.fee_type.is_penalty and row.balance == 0 else 0 }}">
+    <tr data-account-row="{{ row.id }}" data-archived="{{ 1 if row.is_archived else 0 }}" data-zero-noncore="{{ 1 if row.fee_type.code not in CORE_FEE_TYPE_CODES and row.balance == 0 else 0 }}">
       <td>{% if is_board() %}<a href="{{ url_for('persons.detail', person_id=row.person.id) }}">{{ row.person.full_name }}</a>{% else %}{{ row.person.full_name }}{% endif %}{% if row.is_archived %} <span class="badge bg-secondary">{{ _("архив") }}</span>{% endif %}</td>
       <td>{{ row.fee_type.name }}</td>
       <td class="text-end">{{ row.account_number }}</td>

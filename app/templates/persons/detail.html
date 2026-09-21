@@ -148,7 +148,7 @@
   <tbody>
     {% for acc in member_accounts %}
     {% set bal = balance(acc) %}
-    <tr data-account-row="{{ acc.id }}" data-archived="{{ 1 if acc.is_archived else 0 }}" data-zero-penalty="{{ 1 if acc.fee_type.is_penalty and bal == 0 else 0 }}">
+    <tr data-account-row="{{ acc.id }}" data-archived="{{ 1 if acc.is_archived else 0 }}" data-zero-noncore="{{ 1 if acc.fee_type.code not in CORE_FEE_TYPE_CODES and bal == 0 else 0 }}">
       <td onclick="window.location='{{ url_for('finance.member_account_detail', account_id=acc.id) }}'" style="cursor:pointer" data-sort-value="{{ acc.garage.number if acc.garage else '' }}">{{ "№" ~ acc.garage.number if acc.garage else "—" }}{% if acc.is_archived %} <span class="badge bg-secondary">{{ _("архив") }}</span>{% endif %}</td>
       <td onclick="window.location='{{ url_for('finance.member_account_detail', account_id=acc.id) }}'" style="cursor:pointer">{{ acc.fee_type.name }}</td>
       <td onclick="window.location='{{ url_for('finance.member_account_detail', account_id=acc.id) }}'" style="cursor:pointer" class="text-end">{{ acc.account_number }}</td>

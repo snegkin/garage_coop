@@ -750,7 +750,8 @@ def test_statement_filter_text_includes_settlement_status(app, db, client):
 
     bank_account = make_bank_account(db)
     line = BankStatementLine(
-        bank_account_id=bank_account.id, external_uid="op-un", operation_date=dt.date(2026, 8, 20),
+        bank_account_id=bank_account.id, external_uid="op-un",
+        operation_date=dt.date.today() - dt.timedelta(days=5),
         direction="credit", amount=Decimal("100.00"), payment_purpose="Взнос без счёта",
     )
     db.add(line)

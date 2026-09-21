@@ -485,6 +485,58 @@ def test_sync_statement_auto_allocates_credit_with_account_number(app, db, clien
     assert balance(member_account) == Decimal("0.00")  # долг погашен автоматически, FIFO уже применён
 
 
+def test_sync_statement_ignores_archived_account_with_same_number(app, db, client, monkeypatch):
+    """Регрессия: после смены собственника гаража номер счёта переходит
+    новому владельцу, а старый счёт остаётся в базе с тем же
+    account_number, но is_archived=True (см. _find_account_by_number).
+    Платёж по этому номеру обязан уйти на АКТИВНЫЙ счёт, а не на архивный
+    счёт прежнего собственника — иначе он числится «разнесённым», а долг
+    текущего собственника не гасится."""
+    old_person = make_person(db, full_name="Белов Сергей Анатольевич")
+    new_person = make_person(db, full_name="Белова Татьяна Витальевна")
+    garage = make_garage(db)
+    fee_type = FeeType(code="10", name="Членский взнос")
+    db.add(fee_type)
+    db.flush()
+    archived_account = MemberAccount(
+        person_id=old_person.id, garage_id=garage.id, fee_type_id=fee_type.id,
+        account_number="10360", is_archived=True,
+    )
+    active_account = MemberAccount(
+        person_id=new_person.id, garage_id=garage.id, fee_type_id=fee_type.id,
+        account_number="10360", is_archived=False,
+    )
+    db.add(archived_account)
+    db.add(active_account)
+    db.flush()
+    db.add(Charge(account_id=active_account.id, year=2026, amount=Decimal("1710.00")))
+
+    bank_account = make_bank_account(db, provider=BankApiProvider.SBERBANK)
+    make_credential(db, bank_account)
+    make_user(db, "chair13b", "pass12345", role=RoleEnum.CHAIRMAN)
+    db.commit()
+    login(client, "chair13b", "pass12345")
+
+    stub = _StubClient(statement_result=[
+        StatementLine(
+            external_uid="op-1b", operation_date=dt.date(2026, 8, 15), direction="credit", amount=Decimal("1710.00"),
+            payment_purpose="ЧЛЕНСКИЙ ВЗНОС, ГАРАЖ №36, Л/С 10360; № 10360",
+        ),
+    ])
+    monkeypatch.setattr(bank_sync, "get_client", lambda acc: stub)
+
+    client.post(
+        f"/cooperative/bank-accounts/{bank_account.id}/sync-statement",
+        data={"date_from": "2026-08-01", "date_to": "2026-08-31"},
+    )
+
+    line = database.db_session.query(BankStatementLine).filter_by(bank_account_id=bank_account.id).one()
+    assert line.matched_payment_id is not None
+    payment = database.db_session.get(Payment, line.matched_payment_id)
+    assert payment.account_id == active_account.id
+    assert balance(active_account) == Decimal("0.00")
+
+
 def test_sync_statement_does_not_auto_allocate_debits(app, db, client, monkeypatch):
     """Списания не должны пытаться погасить чей-то долг, даже если в тексте
     случайно нашёлся похожий на ЛС номер."""

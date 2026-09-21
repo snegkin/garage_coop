@@ -863,8 +863,18 @@ def refresh_charge_registry(account_id, batch_id):
 
 def _find_account_by_number(account_number: str):
     """Возвращает (kind, объект) — ("member", MemberAccount) или ("garage", Garage),
-    либо (None, None), если лицевой счёт с таким номером не найден ни там, ни там."""
-    member_account = database.db_session.query(MemberAccount).filter_by(account_number=account_number).first()
+    либо (None, None), если лицевой счёт с таким номером не найден ни там, ни там.
+
+    is_archived=False обязателен: при смене собственника гаража номер
+    счёта переходит новому владельцу, а старый (архивный) счёт остаётся в
+    базе с тем же account_number (см. MemberAccount.is_archived и
+    garages._archive_owner_accounts_and_reuse) — без этого фильтра платёж
+    от текущего собственника мог молча уйти на счёт предыдущего."""
+    member_account = (
+        database.db_session.query(MemberAccount)
+        .filter_by(account_number=account_number, is_archived=False)
+        .first()
+    )
     if member_account is not None:
         return "member", member_account
     personal_account = database.db_session.query(PersonalAccount).filter_by(account_number=account_number).first()

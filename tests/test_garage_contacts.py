@@ -1,8 +1,9 @@
 """
 Лица для связи по гаражу (GarageContact) — редактирование записи (человек +
 отношение) без удаления и повторного добавления, см. app/garages.py:
-edit_contact. Права те же, что у add_contact/remove_contact: правление или
-собственник этого гаража (is_owner_or_board).
+edit_contact. Права те же, что у add_contact/remove_contact: только
+правление (is_board) — форма выбора человека берёт полный список членов
+кооператива (all_persons), собственнику его видеть не положено.
 """
 from app.models import RoleEnum, GarageContact
 
@@ -51,7 +52,7 @@ def test_edit_contact_can_change_person(db, client):
     assert contact.person_id == contact_person_b.id
 
 
-def test_owner_can_edit_own_garage_contact(db, client):
+def test_owner_cannot_edit_own_garage_contact(db, client):
     owner = make_person(db, full_name="Собственник Собственникович")
     contact_person = make_person(db, full_name="Контакт Контактович")
     garage = make_garage(db, number="203")
@@ -65,10 +66,10 @@ def test_owner_can_edit_own_garage_contact(db, client):
     resp = client.post(f"/garages/{garage.id}/contacts/{contact.id}/edit", data={
         "person_id": str(contact_person.id), "relation": "друг",
     })
-    assert resp.status_code == 302
+    assert resp.status_code == 403
 
     db.refresh(contact)
-    assert contact.relation == "друг"
+    assert contact.relation == "сосед"
 
 
 def test_unrelated_member_cannot_edit_garage_contact(db, client):

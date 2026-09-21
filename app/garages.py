@@ -662,7 +662,7 @@ def add_contact(garage_id):
     garage = database.db_session.get(Garage, garage_id)
     if garage is None:
         abort(404)
-    if not is_owner_or_board(garage):
+    if not is_board():
         abort(403)
     person_id = int(request.form["person_id"])
     relation = request.form.get("relation") or None
@@ -680,7 +680,7 @@ def edit_contact(garage_id, contact_id):
     garage = database.db_session.get(Garage, garage_id)
     if garage is None:
         abort(404)
-    if not is_owner_or_board(garage):
+    if not is_board():
         abort(403)
     contact = database.db_session.get(GarageContact, contact_id)
     if contact is None or contact.garage_id != garage_id:
@@ -698,7 +698,7 @@ def remove_contact(garage_id, contact_id):
     garage = database.db_session.get(Garage, garage_id)
     if garage is None:
         abort(404)
-    if not is_owner_or_board(garage):
+    if not is_board():
         abort(403)
     contact = database.db_session.get(GarageContact, contact_id)
     if contact and contact.garage_id == garage_id:

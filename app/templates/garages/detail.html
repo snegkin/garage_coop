@@ -203,7 +203,7 @@
   <div class="col-md-6">
     <h5>{{ _("Лица для связи") }}</h5>
     <table class="table table-sm bg-body sortable">
-      <thead><tr><th>{{ _("ФИО") }}</th><th>{{ _("Отношение") }}</th>{% if is_owner_or_board %}<th class="no-sort"></th>{% endif %}</tr></thead>
+      <thead><tr><th>{{ _("ФИО") }}</th><th>{{ _("Отношение") }}</th>{% if is_board() %}<th class="no-sort"></th>{% endif %}</tr></thead>
       <tbody>
         {% for c in garage.contacts %}
         <tr>

@@ -70,6 +70,11 @@ def create_app(config_class=Config):
     from . import postal_letters
     app.jinja_env.globals["status_label"] = postal_letters.status_label
     app.jinja_env.globals["status_badge"] = postal_letters.status_badge
+    # Чек-бокс «Актуальные» у таблиц лицевых счетов (persons/detail.html,
+    # garages/detail.html, finance/member_accounts.html) — см. models.py:
+    # CORE_FEE_TYPE_CODES.
+    from .models import CORE_FEE_TYPE_CODES
+    app.jinja_env.globals["CORE_FEE_TYPE_CODES"] = CORE_FEE_TYPE_CODES
     # Р/сч на печатной квитанции ПД-4 — без пробелов-разрядов, даже если в
     # реквизитах кооператива номер внесён с ними для читаемости человеком
     # (см. accounting.account_digits).

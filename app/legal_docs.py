@@ -36,7 +36,7 @@ from .accounting import balance, reallocate_member_charges
 from .persons import build_statement
 from .models import (
     Person, Cooperative, CourtSection, RoleEnum, MemberAccount, PersonalAccount,
-    GarageOwnership, Charge, FeeType, KeyRate,
+    GarageOwnership, Charge, FeeType, KeyRate, CORE_FEE_TYPE_CODES,
 )
 
 bp = Blueprint("legal_docs", __name__, url_prefix="/legal-docs")
@@ -54,8 +54,18 @@ def list_debtor_persons() -> list[dict]:
     долга (без пени, для показа в пикере). Пеня и точная сумма иска
     считаются отдельно на конкретной странице инструмента, здесь только
     ориентировочный итог, чтобы было по чему сортировать/искать.
+
+    debt_by_category — та же сумма, но разбитая по видам (ключи — см.
+    debt_categories() ниже: "fee:<id>" для непеневых FeeType, "electricity"
+    для платы за электричество) — используется пикером (_debtor_picker.html)
+    для клиентской фильтрации по чек-боксам «учитывать в подборке»: за
+    электричество кооператив в суд не обращается и претензий не рассылает
+    (должника просто отключают до погашения, см. app/power.py), поэтому
+    оно должно быть исключаемым из выбора отдельно от остальных видов
+    долга. "debt" — сумма ВСЕХ категорий сразу (как и раньше, для сортировки
+    и как безопасный дефолт там, где фильтр ещё не применяется).
     """
-    debts: dict[int, Decimal] = {}
+    debt_by_category: dict[int, dict[str, Decimal]] = {}
 
     member_accounts = (
         database.db_session.query(MemberAccount)
@@ -66,7 +76,9 @@ def list_debtor_persons() -> list[dict]:
     for ma in member_accounts:
         b = balance(ma)
         if b < 0:
-            debts[ma.person_id] = debts.get(ma.person_id, Decimal("0")) + b
+            bucket = debt_by_category.setdefault(ma.person_id, {})
+            key = f"fee:{ma.fee_type_id}"
+            bucket[key] = bucket.get(key, Decimal("0")) - b
 
     ownerships = database.db_session.query(GarageOwnership).all()
     for o in ownerships:
@@ -78,13 +90,60 @@ def list_debtor_persons() -> list[dict]:
                 # при нескольких собственниках относим весь долг на каждого
                 # (тот же принцип, что и на карточке личного кабинета) —
                 # пикер и печатная форма всё равно строятся по человеку.
-                debts[o.person_id] = debts.get(o.person_id, Decimal("0")) + b
+                bucket = debt_by_category.setdefault(o.person_id, {})
+                bucket["electricity"] = bucket.get("electricity", Decimal("0")) - b
 
-    if not debts:
+    if not debt_by_category:
         return []
 
-    persons = database.db_session.query(Person).filter(Person.id.in_(debts.keys())).order_by(Person.full_name).all()
-    return [{"person": p, "debt": -debts[p.id]} for p in persons]
+    persons = database.db_session.query(Person).filter(Person.id.in_(debt_by_category.keys())).order_by(Person.full_name).all()
+    return [
+        {
+            "person": p, "debt_by_category": debt_by_category[p.id],
+            "debt": sum(debt_by_category[p.id].values(), Decimal("0")),
+        }
+        for p in persons
+    ]
+
+
+def debt_categories() -> list[dict]:
+    """Виды задолженности для чек-боксов «учитывать в подборке» во всех
+    пикерах должников (уведомление о задолженности, госпошлина, иск,
+    заказные письма — app/postal_letters.py). key — стабильный
+    идентификатор, тот же, что и в debt_by_category выше и в
+    parse_selected_categories(). default — по CORE_FEE_TYPE_CODES
+    (models.py): за электричество кооператив не судится и не рассылает
+    претензии (отключает должника, см. app/power.py), прочие
+    нестандартные виды (напр. "telecom_disputes" — взысканная госпошлина,
+    не первичный долг) — тоже по умолчанию не входят, их надо включать
+    осознанно через чек-бокс."""
+    fee_types = (
+        database.db_session.query(FeeType)
+        .filter(FeeType.is_penalty.is_(False))
+        .order_by(FeeType.name)
+        .all()
+    )
+    cats = [
+        {"key": f"fee:{ft.id}", "label": ft.name, "default": ft.code in CORE_FEE_TYPE_CODES}
+        for ft in fee_types
+    ]
+    cats.append({"key": "electricity", "label": _("Электричество"), "default": False})
+    return cats
+
+
+def default_debt_categories() -> set[str]:
+    return {c["key"] for c in debt_categories() if c["default"]}
+
+
+def parse_selected_categories(source) -> set[str]:
+    """source — request.form/request.args (любой объект с .getlist).
+    Чек-боксы, которые пришли НЕ отмеченными, браузер вообще не отправляет
+    — то есть «пользователь снял все галки» и «форма фильтр не показывала
+    вовсе» неотличимы на уровне HTTP-запроса в любом случае, поэтому при
+    полном отсутствии поля возвращаем безопасный дефолт
+    (default_debt_categories()), а не пустой набор."""
+    values = source.getlist("category")
+    return set(values) if values else default_debt_categories()
 
 
 def resolve_court_section(person: Person, coop: Cooperative) -> CourtSection | None:
@@ -129,24 +188,31 @@ def _key_rates():
     return [r.effective_date for r in key_rows], [r.rate_percent for r in key_rows]
 
 
-def compute_claim_totals(person: Person, coop: Cooperative, target_date: dt.date) -> dict:
+def compute_claim_totals(person: Person, coop: Cooperative, target_date: dt.date, categories: set[str]) -> dict:
     """
     Сумма основного долга (без пени, из build_statement) + официальный
     расчёт пени день-в-день (penalty.compute_charge_penalty_breakdown —
     та же функция, что и persons.penalty_calculation, готовящая расчёт
     именно для суда) — общая цена иска, используется и для подсказки
     госпошлины (тул 2), и для суммы требования в исковом заявлении (тул 3).
+
+    categories — см. debt_categories(): по умолчанию электричество в цену
+    иска не входит (кооператив за него не судится, см. build_statement) —
+    председатель может включить его вручную через чек-бокс на странице
+    выбора должников. Пеня считается только по счетам ВЫБРАННЫХ видов
+    взноса (электричество своего вида пени не имеет вовсе).
     """
-    summary = build_statement(person)
+    summary = build_statement(person, categories=categories)
     key_dates, key_rates = _key_rates()
 
+    fee_type_ids = {int(key.split(":", 1)[1]) for key in categories if key.startswith("fee:")}
     charges = (
         database.db_session.query(Charge)
         .join(MemberAccount, Charge.account_id == MemberAccount.id)
         .join(FeeType, MemberAccount.fee_type_id == FeeType.id)
-        .filter(FeeType.is_penalty.is_(False), MemberAccount.person_id == person.id)
+        .filter(FeeType.is_penalty.is_(False), MemberAccount.person_id == person.id, MemberAccount.fee_type_id.in_(fee_type_ids))
         .all()
-    )
+    ) if fee_type_ids else []
     penalty_entries = []
     penalty_total = Decimal("0")
     for charge in charges:
@@ -519,7 +585,7 @@ def person_court_section_assign(person_id):
 # 1. Уведомление о задолженности
 # ---------------------------------------------------------------------------
 
-def build_yearly_debt_breakdown(person: Person) -> list[dict]:
+def build_yearly_debt_breakdown(person: Person, categories: set[str]) -> list[dict]:
     """
     Разбивка ОСНОВНОГО долга (без пени) по годам — сколько начислено и
     сколько оплачено в КАЖДОМ году отдельно, а не суммирование каждого
@@ -536,6 +602,11 @@ def build_yearly_debt_breakdown(person: Person) -> list[dict]:
     за просрочку), в разбивку не входит и здесь не считается: её итог
     показывается отдельной строкой (см. persons.build_statement,
     используемую для суммарных цифр в том же уведомлении).
+
+    categories — см. debt_categories()/parse_selected_categories(): только
+    счета из этого набора попадают в разбивку (по умолчанию — без
+    электричества, за него кооператив не судится и не рассылает
+    претензии).
     """
     member_accounts = (
         database.db_session.query(MemberAccount)
@@ -544,12 +615,14 @@ def build_yearly_debt_breakdown(person: Person) -> list[dict]:
         .options(joinedload(MemberAccount.charges), joinedload(MemberAccount.payments))
         .all()
     )
+    member_accounts = [ma for ma in member_accounts if f"fee:{ma.fee_type_id}" in categories]
+
     owned_garage_ids = [
         o.garage_id for o in
         database.db_session.query(GarageOwnership).filter_by(person_id=person.id).all()
     ]
     personal_accounts = []
-    if owned_garage_ids:
+    if owned_garage_ids and "electricity" in categories:
         personal_accounts = (
             database.db_session.query(PersonalAccount)
             .filter(PersonalAccount.garage_id.in_(owned_garage_ids))
@@ -584,19 +657,23 @@ def build_yearly_debt_breakdown(person: Person) -> list[dict]:
 def debt_notice():
     if request.method == "GET":
         debtors = list_debtor_persons()
-        return render_template("legal_docs/debt_notice_picker.html", debtors=debtors)
+        return render_template("legal_docs/debt_notice_picker.html", debtors=debtors, categories=debt_categories())
 
     persons = _selected_persons_or_redirect()
     if persons is None:
         return redirect(url_for("legal_docs.debt_notice"))
 
+    selected = parse_selected_categories(request.form)
     coop, chairman = _coop_and_chairman()
     docs = [
-        {"person": p, "summary": build_statement(p), "years": build_yearly_debt_breakdown(p)}
+        {"person": p, "summary": build_statement(p, categories=selected), "years": build_yearly_debt_breakdown(p, selected)}
         for p in persons
     ]
 
-    context = dict(docs=docs, coop=coop, chairman=chairman, today=dt.date.today(), hide_chat_widgets=True)
+    context = dict(
+        docs=docs, coop=coop, chairman=chairman, today=dt.date.today(), hide_chat_widgets=True,
+        selected_categories=selected,
+    )
     if request.form.get("format") == "pdf":
         return _render_pdf_or_fallback(
             "legal_docs/debt_notice_pdf.html", "uvedomlenie_o_zadolzhennosti.pdf",
@@ -613,7 +690,7 @@ def debt_notice():
 @roles_required(RoleEnum.BOARD)
 def state_duty():
     debtors = list_debtor_persons()
-    return render_template("legal_docs/state_duty_picker.html", debtors=debtors)
+    return render_template("legal_docs/state_duty_picker.html", debtors=debtors, categories=debt_categories())
 
 
 @bp.route("/state-duty/review", methods=["POST"])
@@ -623,11 +700,12 @@ def state_duty_review():
     if persons is None:
         return redirect(url_for("legal_docs.state_duty"))
 
+    selected = parse_selected_categories(request.form)
     coop, _chairman = _coop_and_chairman()
     target_date = dt.date.today()
     items = []
     for p in persons:
-        totals = compute_claim_totals(p, coop, target_date)
+        totals = compute_claim_totals(p, coop, target_date, selected)
         items.append({
             "person": p, "section": resolve_court_section(p, coop) if coop else None,
             "claim_amount": totals["claim_amount"],
@@ -743,7 +821,7 @@ def state_duty_charge():
 @roles_required(RoleEnum.BOARD)
 def lawsuit():
     debtors = list_debtor_persons()
-    return render_template("legal_docs/lawsuit_picker.html", debtors=debtors)
+    return render_template("legal_docs/lawsuit_picker.html", debtors=debtors, categories=debt_categories())
 
 
 @bp.route("/lawsuit/draft", methods=["POST"])
@@ -753,12 +831,13 @@ def lawsuit_draft():
     if persons is None:
         return redirect(url_for("legal_docs.lawsuit"))
 
+    selected = parse_selected_categories(request.form)
     proceeding_type = "writ" if request.form.get("proceeding_type") == "writ" else "claim"
     coop, _chairman = _coop_and_chairman()
     target_date = dt.date.today()
     drafts = []
     for p in persons:
-        totals = compute_claim_totals(p, coop, target_date)
+        totals = compute_claim_totals(p, coop, target_date, selected)
         section = resolve_court_section(p, coop) if coop else None
         duty_amount = suggest_lawsuit_duty(totals["claim_amount"], proceeding_type)
         header = build_lawsuit_header(p, coop, section, proceeding_type)
@@ -767,6 +846,7 @@ def lawsuit_draft():
 
     return render_template(
         "legal_docs/lawsuit_draft.html", drafts=drafts, coop=coop, proceeding_type=proceeding_type,
+        selected_categories=selected,
     )
 
 
@@ -778,6 +858,7 @@ def lawsuit_print():
         flash(_("Выберите хотя бы одного должника."), "danger")
         return redirect(url_for("legal_docs.lawsuit"))
 
+    selected = parse_selected_categories(request.form)
     proceeding_type = "writ" if request.form.get("proceeding_type") == "writ" else "claim"
     coop, chairman = _coop_and_chairman()
     target_date = dt.date.today()
@@ -793,7 +874,7 @@ def lawsuit_print():
         # пересчитан заново на сегодня (см. compute_claim_totals), а не
         # перенесён из момента составления черновика: правление могло
         # сформировать черновик раньше, чем распечатало готовый иск.
-        totals = compute_claim_totals(p, coop, target_date)
+        totals = compute_claim_totals(p, coop, target_date, selected)
         docs.append({
             "person": p, "header": header, "text": text, "body_html": _paragraphs_html(text),
             "penalty_entries": totals["penalty_entries"], "penalty_total": totals["penalty_total"],
@@ -802,6 +883,7 @@ def lawsuit_print():
     context = dict(
         docs=docs, coop=coop, chairman=chairman, target_date=target_date,
         proceeding_type=proceeding_type, hide_chat_widgets=True,
+        selected_categories=selected,
     )
     if request.form.get("format") == "pdf":
         return _render_pdf_or_fallback(

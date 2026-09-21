@@ -8,6 +8,7 @@
     <button class="btn btn-primary" onclick="window.print()">{{ _("Печать") }}</button>
     <form method="post" action="{{ url_for('legal_docs.lawsuit_print') }}" class="d-inline">
       <input type="hidden" name="proceeding_type" value="{{ proceeding_type }}">
+      {% for key in selected_categories %}<input type="hidden" name="category" value="{{ key }}">{% endfor %}
       {% for doc in docs %}
       <input type="hidden" name="person_id" value="{{ doc.person.id }}">
       <textarea name="text_{{ doc.person.id }}" hidden>{{ doc.text }}</textarea>

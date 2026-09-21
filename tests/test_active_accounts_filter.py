@@ -1,8 +1,11 @@
 """
 Чекбокс «Актуальные» (JS, включён по умолчанию) на таблицах лицевых счетов
 страницы гаража, страницы человека и общего списка «Финансы» — скрывает на
-клиенте архивные счета (MemberAccount.is_archived) и полностью погашенные
-пени (вид взноса — пеня, баланс ровно 0). Сама фильтрация — в base.html
+клиенте архивные счета (MemberAccount.is_archived) и счета видов взноса,
+не входящих в CORE_FEE_TYPE_CODES (членские/целевые взносы, земельный
+налог — эти показываются всегда), если их баланс сейчас ровно 0 (пеня,
+"telecom_disputes" и любые другие нестандартные виды — data-zero-noncore,
+см. models.CORE_FEE_TYPE_CODES). Сама фильтрация — в base.html
 (гараж/человек) и в скрипте finance/member_accounts.html (общий список);
 здесь проверяем только, что нужная разметка (чекбокс + data-атрибуты
 на строках) действительно попадает в HTML.
@@ -46,7 +49,7 @@ def test_garage_detail_has_active_only_checkbox_and_row_markers(app, db, client)
     assert 'id="garageAccountsActiveOnly"' in html
     assert "checked" in html.split('id="garageAccountsActiveOnly"')[1].split(">")[0]
     assert f'data-account-row="{penalty_acc.id}"' in html
-    assert 'data-zero-penalty="1"' in html
+    assert 'data-zero-noncore="1"' in html
     assert 'data-archived="0"' in html
 
 
@@ -75,13 +78,13 @@ def test_garage_detail_shows_penalty_account_with_no_charges_at_all(app, db, cli
     assert resp.status_code == 200
     html = resp.get_data(as_text=True)
     assert f'data-account-row="{penalty_acc.id}"' in html
-    assert 'data-zero-penalty="1"' in html
+    assert 'data-zero-noncore="1"' in html
 
     resp2 = client.get(f"/persons/{person.id}")
     assert resp2.status_code == 200
     html2 = resp2.get_data(as_text=True)
     assert f'data-account-row="{penalty_acc.id}"' in html2
-    assert 'data-zero-penalty="1"' in html2
+    assert 'data-zero-noncore="1"' in html2
 
 
 def test_person_detail_has_active_only_checkbox_and_archived_marker(app, db, client):
@@ -107,6 +110,32 @@ def test_person_detail_has_active_only_checkbox_and_archived_marker(app, db, cli
     assert 'id="personAccountsActiveOnly"' in html
     assert 'data-archived="1"' in html
     assert "архив" in html  # бейдж архивного счёта
+
+
+def test_zero_balance_non_core_fee_type_is_marked_noncore(app, db, client):
+    """Виды взноса вне CORE_FEE_TYPE_CODES (напр. "telecom_disputes" —
+    взысканная госпошлина, не пеня) с нулевым балансом теперь тоже
+    считаются шумом чекбокса «Актуальные», не только пеня — общее
+    правило: показываются всегда только членские/целевые взносы и
+    земельный налог, остальное — если есть реальный баланс."""
+    person = make_person(db, full_name="Прочий Должник")
+    # "telecom_disputes" заводится ещё миграцией 4aafd6b5140a (общий для
+    # всей БД), заводить второй с тем же code нельзя (unique) — переиспользуем.
+    other = db.query(FeeType).filter_by(code="telecom_disputes").one()
+    zero_acc = MemberAccount(person_id=person.id, fee_type_id=other.id, account_number="30000")
+    db.add(zero_acc)
+    db.flush()
+    db.add(Charge(account_id=zero_acc.id, year=2026, amount=Decimal("100.00")))
+    db.add(Payment(account_id=zero_acc.id, date=dt.date(2026, 1, 1), amount=Decimal("100.00")))
+    make_user(db, "board_filter5", "pass12345", role=RoleEnum.BOARD)
+    db.commit()
+    login(client, "board_filter5", "pass12345")
+
+    resp = client.get(f"/persons/{person.id}")
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+    assert f'data-account-row="{zero_acc.id}"' in html
+    assert 'data-zero-noncore="1"' in html
 
 
 def test_finance_member_accounts_has_active_only_checkbox(app, db, client):

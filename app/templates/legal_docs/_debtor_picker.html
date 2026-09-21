@@ -1,8 +1,27 @@
-{# Ожидает переменную debtors (список {person, debt} из legal_docs.list_debtor_persons)
-   и form_action (url для POST). Мультивыбор должников с поиском — тот же
-   JS-паттерн, что и у выбора гаражей в finance/mass_charge.html, только по
-   людям и с суммой долга вместо собственника. #}
+{# Ожидает переменные:
+   - debtors: список {person, debt, debt_by_category} из legal_docs.list_debtor_persons
+   - categories: список {key, label, default} из legal_docs.debt_categories() —
+     чек-боксы "учитывать в подборке" (по умолчанию без электричества: за
+     него кооператив не судится и не рассылает претензии, а отключает
+     должника, см. app/power.py)
+   - form_action (url для POST)
+   Мультивыбор должников с поиском — тот же JS-паттерн, что и у выбора
+   гаражей в finance/mass_charge.html, только по людям и с суммой долга
+   вместо собственника; сумма и видимость строк пересчитываются на
+   клиенте при переключении категорий долга (см. скрипт внизу). #}
 <form method="post" action="{{ form_action }}">
+  {% if categories %}
+  <div class="mb-2">
+    <div class="fw-semibold small mb-1">{{ _("Учитывать в подборке:") }}</div>
+    {% for cat in categories %}
+    <div class="form-check form-check-inline">
+      <input class="form-check-input debtor-category-toggle" type="checkbox" name="category" value="{{ cat.key }}"
+             id="debtorCategory{{ loop.index }}" {{ "checked" if cat.default }}>
+      <label class="form-check-label" for="debtorCategory{{ loop.index }}">{{ cat.label }}</label>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
   <div class="d-flex gap-2 mb-2">
     <input type="text" class="form-control form-control-sm" id="debtorPickerFilter" placeholder="{{ _('Поиск по ФИО…') }}">
     <button type="button" class="btn btn-sm btn-primary text-nowrap" id="debtorPickerSelectAll">{{ _("Выбрать все") }}</button>
@@ -10,12 +29,14 @@
   </div>
   <div class="border rounded p-2 bg-body-tertiary" style="max-height:360px; overflow-y:auto" id="debtorPickerList">
     {% for row in debtors %}
-    <div class="form-check debtor-picker-row d-flex justify-content-between align-items-center" data-search="{{ row.person.full_name|lower }}">
+    <div class="form-check debtor-picker-row d-flex justify-content-between align-items-center"
+         data-search="{{ row.person.full_name|lower }}"
+         data-debt-breakdown="{% for k, v in row.debt_by_category.items() %}{{ k }}={{ v }}{{ '|' if not loop.last }}{% endfor %}">
       <span>
         <input class="form-check-input" type="checkbox" name="person_id" value="{{ row.person.id }}" id="debtorCheck{{ row.person.id }}">
         <label class="form-check-label" for="debtorCheck{{ row.person.id }}">{{ row.person.full_name }}</label>
       </span>
-      <span class="text-danger small">{{ fmt2(row.debt) }} ₽</span>
+      <span class="text-danger small"><span class="debtor-debt-amount">{{ fmt2(row.debt) }}</span> ₽</span>
     </div>
     {% else %}
     <p class="text-muted mb-0">{{ _("Должников не найдено.") }}</p>
@@ -39,6 +60,7 @@ document.addEventListener("DOMContentLoaded", function () {
   const selectAllBtn = document.getElementById("debtorPickerSelectAll");
   const clearBtn = document.getElementById("debtorPickerClear");
   const countEl = document.getElementById("debtorPickerCount");
+  const categoryCheckboxes = Array.from(document.querySelectorAll(".debtor-category-toggle"));
   if (!list) return;
 
   const rows = Array.from(list.querySelectorAll(".debtor-picker-row"));
@@ -48,21 +70,46 @@ document.addEventListener("DOMContentLoaded", function () {
     countEl.textContent = checkboxes.filter(function (cb) { return cb.checked; }).length;
   }
 
-  if (filter) {
-    filter.addEventListener("input", function () {
-      const q = filter.value.trim().toLowerCase();
-      rows.forEach(function (row) {
-        const hay = row.dataset.search || "";
-        row.style.display = (!q || hay.indexOf(q) !== -1) ? "" : "none";
-      });
-    });
+  function selectedCategories() {
+    return new Set(categoryCheckboxes.filter(function (cb) { return cb.checked; }).map(function (cb) { return cb.value; }));
   }
+
+  // Пересчитывает видимую сумму долга и видимость строки под текущий набор
+  // отмеченных категорий (см. debt_by_category/data-debt-breakdown) И под
+  // текст поиска — одновременно, без обращения к серверу: обе фильтрации
+  // должны выполняться совместно (должник может пройти по ФИО, но не по
+  // выбранным категориям долга, и наоборот).
+  function applyFilters() {
+    const q = filter ? filter.value.trim().toLowerCase() : "";
+    const categories = selectedCategories();
+    rows.forEach(function (row, i) {
+      const pairs = (row.dataset.debtBreakdown || "").split("|").filter(Boolean).map(function (pair) {
+        return pair.split("=");
+      });
+      let total = 0;
+      pairs.forEach(function (pair) {
+        if (categories.has(pair[0])) total += parseFloat(pair[1]) || 0;
+      });
+      const amountEl = row.querySelector(".debtor-debt-amount");
+      if (amountEl) amountEl.textContent = total.toFixed(2).replace(".", ",");
+
+      const matchesName = !q || (row.dataset.search || "").indexOf(q) !== -1;
+      const hasDebt = total > 0.004;  // защита от округления копеек
+      const visible = matchesName && hasDebt;
+      row.style.display = visible ? "" : "none";
+      if (!visible) checkboxes[i].checked = false;
+    });
+    updateCount();
+  }
+
+  if (filter) filter.addEventListener("input", applyFilters);
+  categoryCheckboxes.forEach(function (cb) { cb.addEventListener("change", applyFilters); });
 
   if (selectAllBtn) {
     selectAllBtn.addEventListener("click", function () {
-      rows.forEach(function (row) {
+      rows.forEach(function (row, i) {
         if (row.style.display === "none") return;
-        row.querySelector("input[type=checkbox]").checked = true;
+        checkboxes[i].checked = true;
       });
       updateCount();
     });
@@ -76,6 +123,6 @@ document.addEventListener("DOMContentLoaded", function () {
   }
 
   checkboxes.forEach(function (cb) { cb.addEventListener("change", updateCount); });
-  updateCount();
+  applyFilters();
 });
 </script>

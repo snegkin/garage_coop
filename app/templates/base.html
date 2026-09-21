@@ -1135,7 +1135,7 @@ document.addEventListener("DOMContentLoaded", function () { initSortableTables(d
 // Два необязательных дополнительных фильтра поверх текстового поиска —
 // нужны единицам страниц, без них ничего не подключается:
 // [data-active-only-for="<id>"] на чекбоксе — скрывает «шумные» строки
-//   (data-archived="1" или data-zero-penalty="1" на <tr>, тот же приём,
+//   (data-archived="1" или data-zero-noncore="1" на <tr>, тот же приём,
 //   что и в самостоятельном data-active-accounts-toggle ниже, но
 //   согласованный с пагинацией, а не поверх неё) при включённой галочке.
 //   Пример: чекбокс «Актуальные» на /finance/member-accounts.
@@ -1213,7 +1213,7 @@ function initFilterableTables(root) {
       var visibleRows = allRows.filter(function (row) {
         var matchesQuery = !q || row.getAttribute("data-filter-text").includes(q);
         var matchesSelect = !selectValue || row.getAttribute(selectFilterAttr) === selectValue;
-        var isNoise = excludeNoise && (row.getAttribute("data-archived") === "1" || row.getAttribute("data-zero-penalty") === "1");
+        var isNoise = excludeNoise && (row.getAttribute("data-archived") === "1" || row.getAttribute("data-zero-noncore") === "1");
         return matchesQuery && matchesSelect && !isNoise;
       });
 
@@ -1255,18 +1255,22 @@ document.addEventListener("DOMContentLoaded", function () { initFilterableTables
 // Чекбокс «Актуальные» у таблицы лицевых счетов (страницы гаража/человека,
 // см. data-active-accounts-toggle на самом чекбоксе — CSS-селектор его
 // строк) — скрывает архивные счета (data-archived="1", см.
-// MemberAccount.is_archived) и полностью погашенные пени (data-zero-penalty="1"
-// — вид взноса пеня и текущий баланс ровно 0, см. account_summary_rows/
-// persons.detail): исторический шум, который не нужен для повседневной
-// работы, но должен быть доступен по снятой галочке. Общий разметочный
-// приём для нескольких шаблонов, а не копия скрипта в каждом. Вынесено в
-// initActiveAccountsToggle(root) по той же причине, что и функции выше.
+// MemberAccount.is_archived) и счета видов взноса, не входящих в
+// CORE_FEE_TYPE_CODES (members.py: «членские», «целевые», «земельный
+// налог» — эти показываются всегда, даже с нулевым балансом), если их
+// баланс сейчас ровно 0 (data-zero-noncore="1" — пеня, «telecom_disputes»
+// и любые другие нестандартные виды, см. models.py: CORE_FEE_TYPE_CODES,
+// account_summary_rows/persons.detail): исторический шум, который не
+// нужен для повседневной работы, но должен быть доступен по снятой
+// галочке. Общий разметочный приём для нескольких шаблонов, а не копия
+// скрипта в каждом. Вынесено в initActiveAccountsToggle(root) по той же
+// причине, что и функции выше.
 function initActiveAccountsToggle(root) {
   root.querySelectorAll("[data-active-accounts-toggle]").forEach(function (checkbox) {
     var rows = root.querySelectorAll(checkbox.getAttribute("data-active-accounts-toggle"));
     function apply() {
       rows.forEach(function (row) {
-        var isNoise = row.getAttribute("data-archived") === "1" || row.getAttribute("data-zero-penalty") === "1";
+        var isNoise = row.getAttribute("data-archived") === "1" || row.getAttribute("data-zero-noncore") === "1";
         row.classList.toggle("d-none", checkbox.checked && isNoise);
       });
     }

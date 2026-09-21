@@ -266,3 +266,65 @@ def test_forum_reply_notifies_only_participants(app, db, client, monkeypatch):
     assert resp.status_code == 302
     assert len(fake_smtp.sent) == 1
     assert "ta@example.com" in fake_smtp.sent[0]["To"]
+
+
+# ---------------------------------------------------------------------------
+# Кнопка «Проверить уведомления» (cabinet.test_notification) — в отличие от
+# notify(), результат (успех/ошибка) должен дойти до самого пользователя, а
+# не только в лог.
+# ---------------------------------------------------------------------------
+
+def test_test_notification_button_sends_email(app, db, client, monkeypatch):
+    fake_smtp = _mock_smtp(monkeypatch)
+    _make_mailbox_settings(db)
+    person = make_person(db, full_name="Тестовый Получатель", email="tester@example.com")
+    make_user(db, "test_notify_user", "pass1234", role=RoleEnum.MEMBER, person=person)
+    db.commit()
+    login(client, "test_notify_user", "pass1234")
+
+    # канал по умолчанию — email (см. e379b7dc72bb), контакт заполнен — готов
+    resp = client.post("/cabinet/profile/notifications/test", follow_redirects=True)
+    assert resp.status_code == 200
+    assert len(fake_smtp.sent) == 1
+    assert "tester@example.com" in fake_smtp.sent[0]["To"]
+    assert "Тестовое уведомление отправлено" in resp.get_data(as_text=True)
+
+
+def test_test_notification_button_without_channel_selected(app, db, client):
+    person = make_person(db, full_name="Без Канала Человек")
+    make_user(db, "no_channel_user", "pass1234", role=RoleEnum.MEMBER, person=person)
+    db.commit()
+    user = db.query(User).filter_by(username="no_channel_user").one()
+    user.notify_channel = None  # явно отключаем дефолтный email
+    db.commit()
+    login(client, "no_channel_user", "pass1234")
+
+    resp = client.post("/cabinet/profile/notifications/test", follow_redirects=True)
+    assert resp.status_code == 200
+    assert "Сначала выберите канал" in resp.get_data(as_text=True)
+
+
+def test_test_notification_button_channel_not_ready(app, db, client):
+    """Канал по умолчанию email, но контакт не заполнен — понятная ошибка,
+    ничего не отправляется."""
+    person = make_person(db, full_name="Без Почты Человек")
+    make_user(db, "no_email_user", "pass1234", role=RoleEnum.MEMBER, person=person)
+    db.commit()
+    login(client, "no_email_user", "pass1234")
+
+    resp = client.post("/cabinet/profile/notifications/test", follow_redirects=True)
+    assert resp.status_code == 200
+    assert "укажите и сохраните соответствующий контакт" in resp.get_data(as_text=True)
+
+
+def test_test_notification_button_mailbox_not_configured(app, db, client):
+    """Канал готов (есть email у человека), но у кооператива вообще не
+    настроен почтовый ящик — отдельное сообщение, не путать с «нет контакта»."""
+    person = make_person(db, full_name="Почта Не Настроена", email="x@example.com")
+    make_user(db, "no_mailbox_user", "pass1234", role=RoleEnum.MEMBER, person=person)
+    db.commit()
+    login(client, "no_mailbox_user", "pass1234")
+
+    resp = client.post("/cabinet/profile/notifications/test", follow_redirects=True)
+    assert resp.status_code == 200
+    assert "Почтовый ящик кооператива ещё не настроен" in resp.get_data(as_text=True)

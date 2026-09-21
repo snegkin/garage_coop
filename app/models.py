@@ -1100,6 +1100,8 @@ class Person(Base):
         initials = ".".join(p[0] for p in parts[1:3]) + "." if len(parts) > 1 else ""
         return f"{surname} {initials}" if initials else surname
 
+    birth_date: Mapped[dt.date | None] = mapped_column(Date)
+
     # паспортные данные РФ
     passport_series: Mapped[str | None] = mapped_column(String(4))
     passport_number: Mapped[str | None] = mapped_column(String(6))

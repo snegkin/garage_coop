@@ -24,7 +24,10 @@
     <label class="form-label">{{ _("MAX") }}</label>
     <input class="form-control" name="max" value="{{ (person.max_messenger or '') if person else '' }}">
   </div>
-  <div class="col-md-6"></div>
+  <div class="col-md-6">
+    <label class="form-label">{{ _("Дата рождения") }}</label>
+    <input class="form-control" type="date" name="birth_date" value="{{ (person.birth_date or '') if person else '' }}">
+  </div>
   <div class="col-md-6">
     <label class="form-label">{{ _("Адрес регистрации (прописки)") }}</label>
     <input class="form-control" id="registration_address" name="registration_address" value="{{ (person.registration_address or '') if person else '' }}">

@@ -91,6 +91,8 @@ def _save_from_form(person, f):
     person.telegram = f.get("telegram") or None
     person.vk = f.get("vk") or None
     person.max_messenger = f.get("max") or None
+    birth_date = f.get("birth_date")
+    person.birth_date = dt.date.fromisoformat(birth_date) if birth_date else None
     person.passport_series = f.get("passport_series") or None
     person.passport_number = f.get("passport_number") or None
     issue_date = f.get("passport_issue_date")
@@ -161,6 +163,7 @@ _REVISION_FIELDS = [
     ("registration_address", "Адрес регистрации"),
     ("residence_address", "Адрес проживания"),
     ("phones", "Телефоны"),
+    ("birth_date", "Дата рождения"),
     ("passport_series", "Серия паспорта"),
     ("passport_number", "Номер паспорта"),
     ("passport_issue_date", "Дата выдачи"),
@@ -196,6 +199,7 @@ def _revision_diff_rows(revision, person):
             "registration_address": person.registration_address,
             "residence_address": person.residence_address,
             "phones": sorted(p.number for p in person.phones),
+            "birth_date": person.birth_date.isoformat() if person.birth_date else None,
             "passport_series": person.passport_series,
             "passport_number": person.passport_number,
             "passport_issue_date": person.passport_issue_date.isoformat() if person.passport_issue_date else None,
@@ -205,7 +209,7 @@ def _revision_diff_rows(revision, person):
     def fmt(key, value):
         if key == "phones":
             return ", ".join(value) if value else "—"
-        if key in ("passport_issue_date", "membership_start_date") and value:
+        if key in ("birth_date", "passport_issue_date", "membership_start_date") and value:
             return dt.date.fromisoformat(value).strftime("%d.%m.%Y")
         return value or "—"
 
@@ -771,6 +775,14 @@ def _apply_revision(revision):
         database.db_session.delete(phone)
     for number in snap.get("phones", []):
         database.db_session.add(Phone(person_id=person.id, number=number))
+    birth_date_str = snap.get("birth_date")
+    if birth_date_str:
+        try:
+            person.birth_date = dt.date.fromisoformat(birth_date_str)
+        except (ValueError, TypeError):
+            pass
+    else:
+        person.birth_date = None
     # паспорт
     person.passport_series = snap.get("passport_series")
     person.passport_number = snap.get("passport_number")

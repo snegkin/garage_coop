@@ -60,6 +60,7 @@ def profile():
             "registration_address": person.registration_address,
             "residence_address": person.residence_address,
             "phones": sorted([p.number for p in person.phones]),
+            "birth_date": person.birth_date.isoformat() if person.birth_date else None,
             "passport_series": person.passport_series,
             "passport_number": person.passport_number,
             "passport_issue_date": person.passport_issue_date.isoformat() if person.passport_issue_date else None,
@@ -73,6 +74,7 @@ def profile():
             "registration_address": f.get("registration_address") or None,
             "residence_address": f.get("residence_address") or None,
             "phones": sorted([p.strip() for p in f.get("phones", "").split(",") if p.strip()]),
+            "birth_date": f.get("birth_date") or None,
             "passport_series": f.get("passport_series") or None,
             "passport_number": f.get("passport_number") or None,
             "passport_issue_date": f.get("passport_issue_date") or None,
@@ -112,20 +114,14 @@ def profile():
     # Если есть pending — подставляем данные из ревизии в форму
     display_person = person
     if snap:
-        issue_date_str = snap.get("passport_issue_date")
-        issue_date = None
-        if issue_date_str:
+        def _parse_date(value):
+            if not value:
+                return None
             try:
-                issue_date = dt.date.fromisoformat(issue_date_str)
+                return dt.date.fromisoformat(value)
             except (ValueError, TypeError):
-                pass
-        membership_start_str = snap.get("membership_start_date")
-        membership_start = None
-        if membership_start_str:
-            try:
-                membership_start = dt.date.fromisoformat(membership_start_str)
-            except (ValueError, TypeError):
-                pass
+                return None
+
         display_person = type('Person', (), {
             'id': person.id,
             'full_name': person.full_name,
@@ -136,10 +132,11 @@ def profile():
             'registration_address': snap.get('registration_address'),
             'residence_address': snap.get('residence_address'),
             'phones': [Phone(id=-1, number=n) for n in snap.get('phones', [])],
+            'birth_date': _parse_date(snap.get('birth_date')),
             'passport_series': snap.get('passport_series'),
             'passport_number': snap.get('passport_number'),
-            'passport_issue_date': issue_date,
-            'membership_start_date': membership_start,
+            'passport_issue_date': _parse_date(snap.get('passport_issue_date')),
+            'membership_start_date': _parse_date(snap.get('membership_start_date')),
             'membership_end_date': person.membership_end_date,
             'comment': person.comment,
             'telegram_chat_id': person.telegram_chat_id,
@@ -189,6 +186,17 @@ def notification_settings():
             setattr(g.user, field, value)
         database.db_session.commit()
         flash(_("Настройки уведомлений сохранены."), "success")
+    return redirect(url_for("cabinet.profile"))
+
+
+@bp.route("/profile/notifications/test", methods=["POST"])
+@login_required
+def test_notification():
+    """Кнопка «Проверить уведомления» — реальная тестовая отправка по
+    текущему выбранному каналу (см. notifications.send_test_notification),
+    результат — flash, а не молчаливый лог, как у обычной notify()."""
+    ok, message = notifications.send_test_notification(g.user)
+    flash(message, "success" if ok else "danger")
     return redirect(url_for("cabinet.profile"))
 
 

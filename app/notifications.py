@@ -27,6 +27,7 @@ from flask import current_app
 
 from . import database
 from .auth import ROLE_LEVEL
+from .i18n import translate as _
 from .mail_client import MailError, send_message
 from .models import (
     BoardChatMessage, MailboxSettings, NotificationChannel, RoleEnum, TelegramSettings, WebPushSettings,
@@ -140,6 +141,63 @@ def notify(user: User | None, event: str, subject: str, body_text: str) -> None:
                     current_app.logger.exception(
                         "Не удалось отправить webpush-уведомление user_id=%s событие=%s", user.id, event,
                     )
+
+
+def send_test_notification(user: User) -> tuple[bool, str]:
+    """Тестовая отправка по кнопке «Проверить уведомления» (cabinet/profile.html) —
+    тем же путём, что и notify(), но по ЯВНОМУ действию пользователя, а не
+    событию сайта: без проверки notify_<event> (тестируем сам канал, а не
+    подписку на конкретное событие) и с пробросом результата вызывающему
+    коду (notify() ошибки только логирует и работает молча — тут наоборот,
+    ошибку нужно показать самому пользователю, зачем и звали кнопку).
+    Возвращает (успех, текст для flash)."""
+    if user is None or user.notify_channel is None:
+        return False, _("Сначала выберите канал уведомлений и сохраните настройки.")
+    if not channel_is_ready(user, user.notify_channel):
+        return False, _("Чтобы получать уведомления этим способом, сначала укажите и сохраните соответствующий контакт в профиле.")
+
+    subject = _("Тестовое уведомление")
+    body_text = _("Это тестовое уведомление от системы учёта кооператива — если оно дошло, значит канал настроен верно.")
+
+    try:
+        if user.notify_channel == NotificationChannel.EMAIL:
+            settings = database.db_session.query(MailboxSettings).first()
+            if settings is None:
+                return False, _("Почтовый ящик кооператива ещё не настроен — обратитесь в правление.")
+            send_message(settings, [user.person.email], subject, body_text)
+        elif user.notify_channel == NotificationChannel.TELEGRAM:
+            settings = database.db_session.query(TelegramSettings).first()
+            if settings is None or not telegram_bot.is_configured(settings):
+                return False, _("Telegram-бот кооператива ещё не настроен — обратитесь в правление.")
+            telegram_bot.send_message(settings, user.person.telegram_chat_id, f"{subject}\n\n{body_text}")
+        elif user.notify_channel == NotificationChannel.WEBPUSH:
+            settings = database.db_session.query(WebPushSettings).first()
+            if settings is None or not settings.public_key:
+                return False, _("Push-уведомления кооператива ещё не настроены — обратитесь в правление.")
+            subscriptions = database.db_session.query(WebPushSubscription).filter_by(user_id=user.id).all()
+            if not subscriptions:
+                return False, _("Нет ни одной подписки браузера на push-уведомления — нажмите «Подписаться на push-уведомления» ниже.")
+            sent = 0
+            for subscription in subscriptions:
+                try:
+                    webpush.send(settings, subscription, subject, body_text)
+                    sent += 1
+                except webpush.WebPushError as exc:
+                    if webpush.is_expired(exc):
+                        database.db_session.delete(subscription)
+                        database.db_session.commit()
+                    else:
+                        raise
+            if sent == 0:
+                return False, _("Не удалось отправить ни на одно из подписанных устройств — возможно, подписки устарели.")
+    except MailError as exc:
+        return False, _("Не удалось отправить письмо: {error}", error=str(exc))
+    except telegram_bot.TelegramError as exc:
+        return False, _("Не удалось отправить сообщение в Telegram: {error}", error=str(exc))
+    except webpush.WebPushError as exc:
+        return False, _("Не удалось отправить push-уведомление: {error}", error=str(exc))
+
+    return True, _("Тестовое уведомление отправлено — проверьте, что оно дошло.")
 
 
 def run_board_chat_digest() -> int:

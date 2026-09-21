@@ -62,6 +62,10 @@
           <input class="form-control" name="max" value="{{ person.max_messenger or '' }}">
         </div>
         <div class="col-md-6">
+          <label class="form-label">{{ _("Дата рождения") }}</label>
+          <input type="date" class="form-control" name="birth_date" value="{{ person.birth_date.strftime('%Y-%m-%d') if person.birth_date else '' }}">
+        </div>
+        <div class="col-md-6">
           <label class="form-label">{{ _("Адрес регистрации (прописки)") }}</label>
           <input class="form-control" id="registration_address" name="registration_address" value="{{ person.registration_address or '' }}">
         </div>
@@ -173,6 +177,13 @@
       </div>
       <button class="btn btn-primary mt-3">{{ _("Сохранить настройки уведомлений") }}</button>
     </form>
+
+    {% if g.user.notify_channel %}
+    <form method="post" action="{{ url_for('cabinet.test_notification') }}" class="mt-2">
+      <button class="btn btn-outline-secondary btn-sm">{{ _("Проверить уведомления") }}</button>
+      <span class="text-muted small ms-2">{{ _("Отправит тестовое сообщение по уже сохранённому способу доставки.") }}</span>
+    </form>
+    {% endif %}
   </div>
 
   <div class="col-md-5">

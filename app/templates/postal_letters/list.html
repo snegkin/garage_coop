@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Заказные письма") }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h3>{{ _("Заказные письма (Почта России)") }}</h3>
+  <a href="{{ url_for('postal_letters.new') }}" class="btn btn-primary">+ {{ _("Новые письма должникам") }}</a>
+</div>
+<p class="text-muted">
+  {{ _("Письма готовятся здесь, но отправляются вручную: скачайте пакет для писем в статусе «черновик», подпишите PDF в КриптоПро и загрузите пакет в личный кабинет otpravka.pochta.ru, затем отметьте письма как загруженные/доставленные по данным того же личного кабинета.") }}
+</p>
+
+<form method="get" class="mb-3">
+  <select name="status" class="form-select form-select-sm w-auto" onchange="this.form.submit()">
+    <option value="">{{ _("Все статусы") }}</option>
+    {% for s in statuses %}
+    <option value="{{ s.value }}" {{ "selected" if status_filter == s.value }}>{{ status_label(s) }}</option>
+    {% endfor %}
+  </select>
+</form>
+
+<form method="post" action="{{ url_for('postal_letters.export') }}">
+<table class="table table-bordered bg-body align-middle">
+  <thead>
+    <tr>
+      <th></th>
+      <th>{{ _("Получатель") }}</th>
+      <th>{{ _("Номер") }}</th>
+      <th>{{ _("Статус") }}</th>
+      <th>{{ _("ШПИ") }}</th>
+      <th>{{ _("Создано") }}</th>
+      <th class="no-sort"></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for d in dispatches %}
+    <tr>
+      <td>{% if d.status.value == "draft" %}<input type="checkbox" name="dispatch_id" value="{{ d.id }}">{% endif %}</td>
+      <td>{{ d.person.full_name }}</td>
+      <td>{{ d.reg_number }}</td>
+      <td>
+        <span class="badge {{ status_badge(d.status) }}">{{ status_label(d.status) }}</span>
+        {% if d.status.value == "failed" and d.comment %}<div class="text-muted small">{{ d.comment }}</div>{% endif %}
+      </td>
+      <td>{{ d.tracking_number or "—" }}</td>
+      <td>{{ fmt_date(d.created_at.date()) }}</td>
+      <td class="text-nowrap">
+        {% if d.document_id %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('cooperative.download_document', doc_id=d.document_id) }}">PDF</a>{% endif %}
+        {% if d.status.value == "exported" %}
+        <form method="post" action="{{ url_for('postal_letters.mark_sent', dispatch_id=d.id) }}" class="d-inline">
+          <button class="btn btn-sm btn-outline-success">{{ _("Загружено в ЛК") }}</button>
+        </form>
+        {% endif %}
+        {% if d.status.value in ("exported", "sent") %}
+        <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#deliveredModal{{ d.id }}">{{ _("Доставлено") }}</button>
+        <button type="button" class="btn btn-sm btn-outline-danger" data-bs-toggle="modal" data-bs-target="#failedModal{{ d.id }}">{{ _("Не доставлено") }}</button>
+        {% endif %}
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="7" class="text-muted">{{ _("Писем пока нет.") }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+<button class="btn btn-primary" {{ "disabled" if not dispatches }}>{{ _("Скачать пакет для отмеченных черновиков (.zip)") }}</button>
+</form>
+
+{% for d in dispatches %}
+{% if d.status.value in ("exported", "sent") %}
+<div class="modal fade" id="deliveredModal{{ d.id }}" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" action="{{ url_for('postal_letters.mark_delivered', dispatch_id=d.id) }}">
+        <div class="modal-header">
+          <h5 class="modal-title">{{ _("Отметить как доставленное") }}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <label class="form-label">{{ _("ШПИ (из личного кабинета Почты)") }}</label>
+          <input type="text" class="form-control" name="tracking_number" value="{{ d.tracking_number or '' }}">
+        </div>
+        <div class="modal-footer d-flex justify-content-end">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+          <button class="btn btn-primary">{{ _("Сохранить") }}</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+<div class="modal fade" id="failedModal{{ d.id }}" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" action="{{ url_for('postal_letters.mark_failed', dispatch_id=d.id) }}">
+        <div class="modal-header">
+          <h5 class="modal-title">{{ _("Отметить как неудачное") }}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <label class="form-label">{{ _("Комментарий") }}</label>
+          <textarea class="form-control" name="comment" rows="3">{{ d.comment or "" }}</textarea>
+        </div>
+        <div class="modal-footer d-flex justify-content-end">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+          <button class="btn btn-danger">{{ _("Сохранить") }}</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endfor %}
+{% endblock %}

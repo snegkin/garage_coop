@@ -67,6 +67,9 @@ def create_app(config_class=Config):
     # Иванович») — см. app/name_declension.py.
     app.jinja_env.globals["fio_genitive"] = name_declension.genitive
     app.jinja_env.globals["fio_dative"] = name_declension.dative
+    from . import postal_letters
+    app.jinja_env.globals["status_label"] = postal_letters.status_label
+    app.jinja_env.globals["status_badge"] = postal_letters.status_badge
     # Р/сч на печатной квитанции ПД-4 — без пробелов-разрядов, даже если в
     # реквизитах кооператива номер внесён с ними для читаемости человеком
     # (см. accounting.account_digits).
@@ -263,6 +266,7 @@ def create_app(config_class=Config):
     from .board_chat import bp as board_chat_bp
     from .revision_chat import bp as revision_chat_bp
     from .legal_docs import bp as legal_docs_bp
+    from .postal_letters import bp as postal_letters_bp
     from .annual_reports import bp as annual_reports_bp
 
     app.register_blueprint(main_bp)
@@ -296,6 +300,7 @@ def create_app(config_class=Config):
     app.register_blueprint(board_chat_bp)
     app.register_blueprint(revision_chat_bp)
     app.register_blueprint(legal_docs_bp)
+    app.register_blueprint(postal_letters_bp)
     app.register_blueprint(annual_reports_bp)
 
     return app

@@ -1653,7 +1653,16 @@ class Garage(Base):
     account: Mapped["PersonalAccount | None"] = relationship(back_populates="garage", uselist=False)
     charges: Mapped[list["Charge"]] = relationship(back_populates="garage", cascade="all, delete-orphan")
     payments: Mapped[list["Payment"]] = relationship(back_populates="garage", cascade="all, delete-orphan")
-    control_meter: Mapped["ControlMeter | None"] = relationship(back_populates="garages")
+    control_meter: Mapped["ControlMeter | None"] = relationship(
+        foreign_keys=[control_meter_id], back_populates="garages"
+    )
+    # Контрольные узлы, физически запитанные через щиток ЭТОГО гаража, а не
+    # через дерево ControlMeter (см. ControlMeter.parent_garage_id) — напр.
+    # общее освещение, подключённое не к вводу и не к другому узлу, а прямо
+    # к абонентскому счётчику конкретного гаража.
+    supplied_control_meters: Mapped[list["ControlMeter"]] = relationship(
+        foreign_keys="ControlMeter.parent_garage_id", back_populates="parent_garage"
+    )
 
 
 class GaragePhoto(Base):
@@ -1808,6 +1817,11 @@ class ElectricityReading(Base):
     reading_date: Mapped[dt.date] = mapped_column(Date, index=True)
     amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))  # автоматически: (показание - предыдущее) * тариф на дату
     tariff: Mapped[Decimal | None] = mapped_column(Numeric(10, 4))  # тариф ₽/кВт·ч, применённый при расчёте amount
+    # Сколько кВт·ч из дельты этого показания вычтено как потребление
+    # контрольных узлов, запитанных через щиток этого гаража (см.
+    # ControlMeter.parent_garage_id, control_meters.garage_supplied_nodes_delta)
+    # — сохраняется как есть на момент начисления, не пересчитывается позже.
+    control_meter_deduction: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
     comment: Mapped[str | None] = mapped_column(Text)
 
     meter: Mapped["ElectricityMeter"] = relationship(back_populates="readings")
@@ -1904,6 +1918,13 @@ class ControlMeter(Base):
     "ввод vs верхние узлы + гаражи без узла" считается отдельно, на чтение
     (см. control_meters.root_level_reconciliation).
 
+    parent_garage_id — альтернатива parent_id (взаимоисключающие, см.
+    ck_control_meter_single_parent): узел физически запитан не от вводного
+    ввода и не от другого узла, а через щиток конкретного гаража (напр.
+    общее освещение, подключённое к абонентскому счётчику одного из
+    гаражей) — см. control_meters.garage_supplied_nodes_delta /
+    reconcile_garage_supply, garages.add_electricity_reading.
+
     ondelete="RESTRICT" — как у wiki_page.parent_id: защита от случайного
     каскадного сноса поддерева на уровне БД; приложение уже не даёт удалить
     узел с детьми/гаражами явной проверкой в control_meters.delete().
@@ -1913,14 +1934,27 @@ class ControlMeter(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(255))
     parent_id: Mapped[int | None] = mapped_column(ForeignKey("control_meter.id", ondelete="RESTRICT"), index=True)
+    parent_garage_id: Mapped[int | None] = mapped_column(ForeignKey("garage.id", ondelete="RESTRICT"), index=True)
     comment: Mapped[str | None] = mapped_column(Text)
 
     parent: Mapped["ControlMeter | None"] = relationship(remote_side=[id], back_populates="children")
     children: Mapped[list["ControlMeter"]] = relationship(back_populates="parent", order_by="ControlMeter.name")
+    parent_garage: Mapped["Garage | None"] = relationship(
+        foreign_keys=[parent_garage_id], back_populates="supplied_control_meters"
+    )
     readings: Mapped[list["ControlMeterReading"]] = relationship(
         back_populates="control_meter", cascade="all, delete-orphan", order_by="ControlMeterReading.reading_date"
     )
-    garages: Mapped[list["Garage"]] = relationship(back_populates="control_meter")
+    garages: Mapped[list["Garage"]] = relationship(
+        foreign_keys="Garage.control_meter_id", back_populates="control_meter"
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "NOT (parent_id IS NOT NULL AND parent_garage_id IS NOT NULL)",
+            name="ck_control_meter_single_parent",
+        ),
+    )
 
 
 class ControlMeterReading(Base):

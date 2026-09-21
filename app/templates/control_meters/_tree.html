@@ -1,27 +1,36 @@
 {# Рекурсивный макрос дерева контрольных счётчиков — по образцу wiki/_tree.html
    (переиспользует те же CSS-классы .wiki-tree-* из base.html: чисто
    структурная вёрстка сворачиваемого дерева, ничем не завязанная на вики).
-   nodes            — список {"node": ControlMeter|None, "children": [...]}.
-                       node=None — синтетический корень «Ввод (общий
-                       счётчик)»: верхний узел дерева всегда физически есть
-                       вводной счётчик кооператива, показания которого
-                       вводятся на /power/ (MasterMeterReading) — это не
-                       отдельная сущность control_meter, поэтому у него нет
-                       edit/delete, только ссылка на /power/ и «добавить
-                       узел верхнего уровня» (= добавить ребёнка ввода).
-   current_node_id  — id текущего просматриваемого узла (подсвечивается), может быть None
-   ancestor_ids     — set id узлов, которые нужно раскрыть по умолчанию (путь к текущему узлу)
+   nodes            — список {"kind": "node"|"garage", "node": ControlMeter|Garage|None, "children": [...]}.
+                       kind="node", node=None — синтетический корень «Ввод
+                       (общий счётчик)»: верхний узел дерева всегда
+                       физически есть вводной счётчик кооператива, показания
+                       которого вводятся на /power/ (MasterMeterReading) —
+                       это не отдельная сущность control_meter, поэтому у
+                       него нет edit/delete, только ссылка на /power/ и
+                       «добавить узел верхнего уровня».
+                       kind="garage" — гараж, через щиток которого физически
+                       запитан хотя бы один дочерний узел (см.
+                       ControlMeter.parent_garage_id, control_meters.
+                       _gateway_garages) — не отдельная от «обычного»
+                       гаража-потребителя сущность, просто у него есть дети
+                       в ЭТОМ дереве; ссылка ведёт на garages.detail,
+                       сверка — через reconcile_garage_default.
+   current_node_id  — id текущего просматриваемого УЗЛА (подсвечивается), может быть None
+   ancestor_ids     — set (kind, id) — путь к текущему узлу, раскрывается по умолчанию
    reconcile_default — функция ControlMeter|None -> NodeReconciliation|None (сводный бейдж по узлу)
+   reconcile_garage_default — функция Garage -> NodeReconciliation|None (сводный бейдж по гаражу-точке подключения)
    depth            — текущая глубина (для уникальных id коллапсов и отступа) #}
-{% macro render_tree(nodes, current_node_id=None, ancestor_ids=None, reconcile_default=None, depth=0) %}
+{% macro render_tree(nodes, current_node_id=None, ancestor_ids=None, reconcile_default=None, reconcile_garage_default=None, depth=0) %}
 {% set ancestor_ids = ancestor_ids or [] %}
 <ul class="wiki-tree list-unstyled {{ 'mb-0' if depth > 0 else '' }}" {{ 'style="padding-left:1.1rem"' if depth > 0 }}>
   {% for entry in nodes %}
   {% set n = entry.node %}
-  {% set is_root = n is none %}
+  {% set is_garage = entry.kind == "garage" %}
+  {% set is_root = (not is_garage) and n is none %}
   {% set has_children = entry.children | length > 0 %}
-  {% set expanded = is_root or n.id in ancestor_ids or n.id == current_node_id %}
-  {% set dom_id = "cmnode-root" if is_root else "cmnode-" ~ n.id %}
+  {% set expanded = is_root or (entry.kind, n.id) in ancestor_ids or (not is_garage and n.id == current_node_id) %}
+  {% set dom_id = "cmnode-root" if is_root else ("cmgarage-" ~ n.id if is_garage else "cmnode-" ~ n.id) %}
   <li class="wiki-tree-item">
     <div class="d-flex align-items-center gap-1 flex-wrap">
       {% if has_children %}
@@ -37,6 +46,10 @@
       <a href="{{ url_for('power.view') }}" class="wiki-tree-link fw-semibold text-body" title="{{ _('Показания вносятся на странице «Счётчик»') }}">
         &#128268; {{ _("Ввод (общий счётчик)") }}
       </a>
+      {% elif is_garage %}
+      <a href="{{ url_for('garages.detail', garage_id=n.id) }}" class="wiki-tree-link text-muted" title="{{ _('Точка подключения — через абонентский счётчик этого гаража запитан контрольный узел') }}">
+        &#128268; {{ _("Гараж №{number}", number=n.number) }}
+      </a>
       {% else %}
       <a href="{{ url_for('control_meters.detail', node_id=n.id) }}"
          class="wiki-tree-link {{ 'fw-semibold text-body' if n.id == current_node_id else '' }}">
@@ -44,7 +57,19 @@
       </a>
       {% endif %}
 
-      {% if reconcile_default %}
+      {% if is_garage and reconcile_garage_default %}
+      {% set rec = reconcile_garage_default(n) %}
+      {% if rec is none or rec.loss is none %}
+      <span class="badge bg-secondary badge-sm" title="{{ _('недостаточно показаний для сверки') }}">{{ _("нет данных") }}</span>
+      {% elif rec.is_negative %}
+      <span class="badge bg-danger badge-sm" title="{{ _('показания уменьшились — проверьте даты/значения') }}">{{ _("аномалия") }}</span>
+      {% else %}
+      <span class="badge {{ 'bg-warning text-dark' if rec.is_partial else 'bg-info text-dark' }} badge-sm"
+            title="{{ _('чистое потребление абонента за вычетом запитанных узлов') }}{{ _(', расчёт по неполным данным') if rec.is_partial else '' }}">
+        {{ _("к начислению") }} {{ fmt2(rec.loss) }}{{ '*' if rec.is_partial }}
+      </span>
+      {% endif %}
+      {% elif (not is_garage) and reconcile_default %}
       {% set rec = reconcile_default(n) %}
       {% if rec is none %}
       <span class="badge bg-secondary badge-sm">{{ _("нет данных") }}</span>
@@ -63,8 +88,12 @@
       {% endif %}
 
       <span class="wiki-tree-actions ms-auto">
+        {% if is_garage %}
+        <a href="{{ url_for('control_meters.create', parent_garage_id=n.id) }}" class="btn btn-sm btn-link p-0 text-muted" title="{{ _('Добавить узел, запитанный через этот гараж') }}">&#10133;</a>
+        {% else %}
         <a href="{{ url_for('control_meters.create', parent_id=n.id if not is_root else none) }}" class="btn btn-sm btn-link p-0 text-muted" title="{{ _('Добавить дочерний узел') }}">&#10133;</a>
-        {% if not is_root %}
+        {% endif %}
+        {% if not is_root and not is_garage %}
         <a href="{{ url_for('control_meters.edit', node_id=n.id) }}" class="btn btn-sm btn-link p-0 text-muted" title="{{ _('Изменить') }}">&#9998;</a>
         <form method="post" action="{{ url_for('control_meters.delete', node_id=n.id) }}" class="d-inline"
               onsubmit="return confirm('{{ _("Удалить узел контрольного счётчика?") }}')">
@@ -76,7 +105,7 @@
 
     {% if has_children %}
     <div class="collapse {{ 'show' if expanded else '' }}" id="{{ dom_id }}">
-      {{ render_tree(entry.children, current_node_id, ancestor_ids, reconcile_default, depth + 1) }}
+      {{ render_tree(entry.children, current_node_id, ancestor_ids, reconcile_default, reconcile_garage_default, depth + 1) }}
     </div>
     {% endif %}
   </li>

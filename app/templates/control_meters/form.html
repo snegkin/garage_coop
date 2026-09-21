@@ -9,17 +9,46 @@
   </div>
 
   <div class="mb-3">
-    <label class="form-label">{{ _("Родительский узел") }}</label>
-    <select class="form-select" name="parent_id">
-      <option value="">{{ _("— нет (узел верхнего уровня, на вводе) —") }}</option>
-      {% for opt_node, depth in parent_options %}
-      <option value="{{ opt_node.id }}"
-        {{ 'selected' if (node and node.parent_id == opt_node.id) or (not node and preselected_parent_id == opt_node.id) }}>
-        {{ "— " * depth }}{{ opt_node.name }}
-      </option>
-      {% endfor %}
-    </select>
-    <div class="form-text">{{ _("Необязательно — без родителя узел подключён напрямую к вводу.") }}</div>
+    <label class="form-label d-block">{{ _("Родитель") }}</label>
+    <div class="btn-group mb-2" role="group">
+      <input type="radio" class="btn-check" name="parent_kind" id="parentKindRoot" value="root" autocomplete="off"
+             {{ 'checked' if (node and not node.parent_id and not node.parent_garage_id) or (not node and not preselected_parent_id and not preselected_parent_garage_id) }}>
+      <label class="btn btn-outline-secondary btn-sm" for="parentKindRoot">{{ _("Ввод") }}</label>
+
+      <input type="radio" class="btn-check" name="parent_kind" id="parentKindNode" value="node" autocomplete="off"
+             {{ 'checked' if (node and node.parent_id) or (not node and preselected_parent_id) }}>
+      <label class="btn btn-outline-secondary btn-sm" for="parentKindNode">{{ _("Узел дерева") }}</label>
+
+      <input type="radio" class="btn-check" name="parent_kind" id="parentKindGarage" value="garage" autocomplete="off"
+             {{ 'checked' if (node and node.parent_garage_id) or (not node and preselected_parent_garage_id) }}>
+      <label class="btn btn-outline-secondary btn-sm" for="parentKindGarage">{{ _("Гараж (абонентский счётчик)") }}</label>
+    </div>
+
+    <div id="parentNodeField" class="d-none">
+      <select class="form-select" name="parent_id">
+        <option value="">{{ _("— выберите узел —") }}</option>
+        {% for opt_node, depth in parent_options %}
+        <option value="{{ opt_node.id }}"
+          {{ 'selected' if (node and node.parent_id == opt_node.id) or (not node and preselected_parent_id == opt_node.id) }}>
+          {{ "— " * depth }}{{ opt_node.name }}
+        </option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div id="parentGarageField" class="d-none">
+      <select class="form-select" name="parent_garage_id" data-searchable>
+        <option value="">{{ _("— выберите гараж —") }}</option>
+        {% for g in all_garages %}
+        <option value="{{ g.id }}" {{ 'selected' if (node and node.parent_garage_id == g.id) or (not node and preselected_parent_garage_id == g.id) }}>
+          {{ _("Гараж №{number}", number=g.number) }}
+        </option>
+        {% endfor %}
+      </select>
+      <div class="form-text">{{ _("Узел физически запитан через щиток этого гаража, а не от ввода или другого узла — его дельта будет вычтена из начисления абоненту.") }}</div>
+    </div>
+
+    <div class="form-text">{{ _("Без родителя узел подключён напрямую к вводу.") }}</div>
   </div>
 
   <div class="mb-3">
@@ -32,4 +61,19 @@
     <a class="btn btn-outline-secondary" href="{{ url_for('control_meters.detail', node_id=node.id) if node else url_for('control_meters.list_tree') }}">{{ _("Отмена") }}</a>
   </div>
 </form>
+<script>
+(function () {
+  var nodeField = document.getElementById("parentNodeField");
+  var garageField = document.getElementById("parentGarageField");
+  function sync() {
+    var kind = document.querySelector('input[name="parent_kind"]:checked').value;
+    nodeField.classList.toggle("d-none", kind !== "node");
+    garageField.classList.toggle("d-none", kind !== "garage");
+  }
+  document.querySelectorAll('input[name="parent_kind"]').forEach(function (el) {
+    el.addEventListener("change", sync);
+  });
+  sync();
+})();
+</script>
 {% endblock %}

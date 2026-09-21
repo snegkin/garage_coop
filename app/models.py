@@ -2817,3 +2817,52 @@ class RevisionChatMessage(Base):
     created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.utcnow, index=True)
 
     author: Mapped["User"] = relationship()
+
+
+# ---------------------------------------------------------------------------
+# Заказные письма через Почту России (см. app/postal_letters.py) — задача
+# минимум БЕЗ прямой интеграции с API Почты (ни ИС ЭПС «Система-Система»,
+# ни REST API «Отправка» для неё не подошли, см. докстринг postal_letters.py):
+# система только готовит Excel-реестр (.xls) + PDF-письма для РУЧНОЙ
+# загрузки в личный кабинет otpravka.pochta.ru, дальнейшие статусы
+# (отправлено/доставлено/ШПИ) правление вносит вручную по данным того же
+# личного кабинета.
+# ---------------------------------------------------------------------------
+
+class PostalDispatchStatus(str, enum.Enum):
+    DRAFT = "draft"          # письмо сформировано, ещё не включено в экспорт
+    EXPORTED = "exported"    # включено в скачанный ZIP-пакет для otpravka.pochta.ru
+    SENT = "sent"            # правление вручную подтвердило загрузку в ЛК Почты
+    DELIVERED = "delivered"  # доставлено (по данным ЛК Почты, ШПИ проставлен вручную)
+    FAILED = "failed"        # Почта отклонила / доставка не удалась
+
+
+class PostalDispatch(Base):
+    """Одно заказное письмо (ЭЗП), отправляемое через otpravka.pochta.ru.
+
+    document_id — сгенерированная PDF-печатная форма письма (Document с
+    doc_type=LETTER), та же сущность, что и у остальных печатных форм
+    кооператива — чтобы письмо было видно и в общем списке документов.
+    reg_number — свой внутренний номер (LETTER_REG_NUMBER в реестре Почты,
+    не более 30 символов, см. temp/Инструкция.docx) — Почта не требует
+    реальной регистрации, годится произвольный уникальный номер.
+    """
+    __tablename__ = "postal_dispatch"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    person_id: Mapped[int] = mapped_column(ForeignKey("person.id", ondelete="CASCADE"), index=True)
+    document_id: Mapped[int | None] = mapped_column(ForeignKey("document.id", ondelete="SET NULL"), index=True)
+    reg_number: Mapped[str] = mapped_column(String(30), unique=True)
+    title: Mapped[str] = mapped_column(String(200))
+    status: Mapped[PostalDispatchStatus] = mapped_column(Enum(PostalDispatchStatus), default=PostalDispatchStatus.DRAFT, index=True)
+    tracking_number: Mapped[str | None] = mapped_column(String(20))  # ШПИ, вписывается вручную из ЛК Почты
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.utcnow)
+    exported_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
+    sent_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
+    delivered_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
+    comment: Mapped[str | None] = mapped_column(Text)  # причина FAILED и т.п.
+    created_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("user.id", ondelete="SET NULL"))
+
+    person: Mapped["Person"] = relationship()
+    document: Mapped["Document | None"] = relationship()
+    created_by: Mapped["User | None"] = relationship()

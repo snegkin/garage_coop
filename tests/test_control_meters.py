@@ -14,7 +14,10 @@ root_level_reconciliation (сверка с MasterMeterReading), права до�
 import datetime as dt
 from decimal import Decimal
 
-from app.control_meters import reconcile_node, reconcile_node_default, root_level_reconciliation
+from app.control_meters import (
+    reconcile_node, reconcile_node_default, root_level_reconciliation,
+    garage_supplied_nodes_delta, reconcile_garage_supply, _build_tree, _gateway_garages,
+)
 from app.models import (
     RoleEnum, ControlMeter, ControlMeterReading, ElectricityMeter, ElectricityReading,
     ElectricityTariff, MasterMeterReading, AuditLog, Charge, Expense,
@@ -461,3 +464,179 @@ def test_add_reading_and_attach_detach_write_audit_log(db, client):
 
     client.post(f"/control-meters/{node.id}/garages/{garage.id}/detach", follow_redirects=True)
     assert db.query(AuditLog).filter_by(action="garage.control_meter_detach").count() == 1
+
+
+# ---------------------------------------------------------------------------
+# Узел, запитанный через абонентский счётчик гаража (parent_garage_id)
+# ---------------------------------------------------------------------------
+
+def test_new_and_edit_forms_render(db, client):
+    """Smoke-тест на форму create/edit — теперь с radio parent_kind и
+    select-ом по гаражам (см. form.html)."""
+    _make_board(db)
+    node = _make_node(db, "Узел")
+    garage = make_garage(db, number="1")
+    other_node = _make_node(db, "Другой")
+    other_node.parent_garage_id = garage.id
+    db.commit()
+    login(client, "board1", "pass1234")
+
+    resp = client.get("/control-meters/new")
+    assert resp.status_code == 200
+    assert "Гараж №1" in resp.get_data(as_text=True)
+
+    resp = client.get(f"/control-meters/{other_node.id}/edit")
+    assert resp.status_code == 200
+    assert "checked" in resp.get_data(as_text=True)
+
+
+def test_create_node_with_garage_parent(db, client):
+    _make_board(db)
+    garage = make_garage(db, number="1")
+    db.commit()
+    login(client, "board1", "pass1234")
+
+    resp = client.post(
+        "/control-meters/new",
+        data={"name": "Общее освещение", "parent_kind": "garage", "parent_garage_id": str(garage.id), "comment": ""},
+        follow_redirects=True,
+    )
+    assert resp.status_code == 200
+    node = db.query(ControlMeter).filter_by(name="Общее освещение").one()
+    assert node.parent_id is None
+    assert node.parent_garage_id == garage.id
+
+
+def test_garage_supplied_nodes_delta_sums_and_flags_partial(db):
+    garage = make_garage(db, number="1")
+    node_a = _make_node(db, "Освещение А")
+    node_a.parent_garage_id = garage.id
+    node_b = _make_node(db, "Освещение Б")  # без единого показания — данных нет вовсе
+    node_b.parent_garage_id = garage.id
+    _add_node_reading(db, node_a, "100", dt.date(2026, 1, 1))
+    _add_node_reading(db, node_a, "130", dt.date(2026, 2, 1))  # дельта 30
+    db.commit()
+
+    total, is_partial = garage_supplied_nodes_delta(garage, dt.date(2026, 1, 1), dt.date(2026, 2, 1))
+    assert total == Decimal("30")  # node_b пропущен, а не считается за 0
+    assert is_partial is True
+
+
+def test_garage_supplied_nodes_delta_empty_when_none_attached(db):
+    garage = make_garage(db, number="1")
+    db.commit()
+    total, is_partial = garage_supplied_nodes_delta(garage, dt.date(2026, 1, 1), dt.date(2026, 2, 1))
+    assert total == Decimal("0")
+    assert is_partial is False
+
+
+def test_reconcile_garage_supply_nets_deltas(db):
+    garage = make_garage(db, number="1")
+    meter = _attach_garage_with_meter(db, garage)
+    _add_garage_reading(db, meter, "1000", dt.date(2026, 1, 1))
+    _add_garage_reading(db, meter, "1200", dt.date(2026, 2, 1))  # дельта 200 абонента
+
+    node = _make_node(db, "Освещение")
+    node.parent_garage_id = garage.id
+    _add_node_reading(db, node, "0", dt.date(2026, 1, 1))
+    _add_node_reading(db, node, "50", dt.date(2026, 2, 1))  # дельта 50 узла
+    db.commit()
+
+    rec = reconcile_garage_supply(garage, dt.date(2026, 1, 1), dt.date(2026, 2, 1))
+    assert rec.node_delta == Decimal("200")
+    assert rec.sum_children_delta == Decimal("50")
+    assert rec.loss == Decimal("150.00")  # чистое потребление абонента
+    assert rec.loss_per_consumer is None  # тут нечего делить поровну
+    assert rec.consumers[0].share_of_loss is None
+
+
+def test_control_meter_with_garage_parent_still_reconciles_its_own_children(db):
+    """reconcile_node не зависит от того, как узел подключён «наверх» —
+    узел с parent_garage_id по-прежнему корректно сверяется со своими
+    СОБСТВЕННЫМИ детьми (регрессия на пункт «дерево вычитает корректно»)."""
+    garage = make_garage(db, number="1")
+    node = _make_node(db, "Освещение")
+    node.parent_garage_id = garage.id
+    _add_node_reading(db, node, "0", dt.date(2026, 1, 1))
+    _add_node_reading(db, node, "100", dt.date(2026, 2, 1))
+
+    sub_garage = make_garage(db, number="2")
+    sub_garage.control_meter_id = node.id
+    sub_meter = _attach_garage_with_meter(db, sub_garage)
+    _add_garage_reading(db, sub_meter, "0", dt.date(2026, 1, 1))
+    _add_garage_reading(db, sub_meter, "90", dt.date(2026, 2, 1))
+    db.commit()
+
+    rec = reconcile_node(node, dt.date(2026, 1, 1), dt.date(2026, 2, 1))
+    assert rec.node_delta == Decimal("100")
+    assert rec.sum_children_delta == Decimal("90")
+    assert rec.loss == Decimal("10.00")
+
+
+def test_root_level_reconciliation_excludes_garage_supplied_nodes(db):
+    """Узел с parent_garage_id не должен попадать в top-level сверку «на
+    вводе» как обычный узел верхнего уровня — физически он подключён не к
+    вводу, а к щитку гаража."""
+    garage = make_garage(db, number="1")
+    node = _make_node(db, "Освещение")
+    node.parent_garage_id = garage.id
+    db.commit()
+
+    rec = root_level_reconciliation(dt.date(2026, 1, 1), dt.date(2026, 2, 1))
+    assert node not in [c.ref for c in rec.consumers]
+
+
+def test_build_tree_nests_gateway_garage_and_its_node(db):
+    garage = make_garage(db, number="1")
+    top = _make_node(db, "Верх")
+    garage.control_meter_id = top.id
+    node = _make_node(db, "Освещение")
+    node.parent_garage_id = garage.id
+    db.commit()
+
+    all_nodes = db.query(ControlMeter).all()
+    tree = _build_tree(all_nodes, _gateway_garages())
+
+    top_entry = next(e for e in tree if e["kind"] == "node" and e["node"].id == top.id)
+    garage_entry = next(e for e in top_entry["children"] if e["kind"] == "garage")
+    assert garage_entry["node"].id == garage.id
+    assert garage_entry["children"][0]["node"].id == node.id
+
+
+def test_list_and_detail_pages_render_with_gateway_garage(db, client):
+    """Smoke-тест на рендеринг /control-meters/ и /control-meters/<id> —
+    дерево теперь смешанное (узлы + гараж-точка подключения), см. _tree.html."""
+    _make_board(db)
+    top = _make_node(db, "Верх")
+    garage = make_garage(db, number="1")
+    garage.control_meter_id = top.id
+    node = _make_node(db, "Освещение")
+    node.parent_garage_id = garage.id
+    _add_node_reading(db, node, "0", dt.date(2026, 1, 1))
+    _add_node_reading(db, node, "10", dt.date(2026, 2, 1))
+    meter = _attach_garage_with_meter(db, garage)
+    _add_garage_reading(db, meter, "100", dt.date(2026, 1, 1))
+    _add_garage_reading(db, meter, "150", dt.date(2026, 2, 1))
+    db.commit()
+    login(client, "board1", "pass1234")
+
+    resp = client.get("/control-meters/")
+    assert resp.status_code == 200
+    assert "Гараж №1" in resp.get_data(as_text=True)
+
+    resp = client.get(f"/control-meters/{node.id}")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert "Гараж №1" in body
+    assert node.name in body
+
+
+def test_gateway_garages_returns_only_garages_with_supplied_nodes(db):
+    garage_with_node = make_garage(db, number="1")
+    make_garage(db, number="2")  # обычный гараж, ничего через него не запитано
+    node = _make_node(db, "Освещение")
+    node.parent_garage_id = garage_with_node.id
+    db.commit()
+
+    result = _gateway_garages()
+    assert [g.id for g in result] == [garage_with_node.id]

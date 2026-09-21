@@ -1,31 +1,40 @@
-{# Ожидает переменную `reconciliation` (control_meters.NodeReconciliation, не None). #}
+{# Ожидает переменную `reconciliation` (control_meters.NodeReconciliation, не None).
+   Если reconciliation.node — Garage (см. control_meters.reconcile_garage_supply),
+   подписи меняются: это не «потери в проводке», а чистое потребление
+   абонента за вычетом узлов, запитанных через его щиток. #}
+{% set is_garage_parent = reconciliation.node is not none and reconciliation.node.__tablename__ == "garage" %}
 <div class="row g-3 mb-3">
   <div class="col-auto">
     <div class="text-muted small">{{ _("Период") }}</div>
     <div>{{ fmt_date(reconciliation.date_from) }} &ndash; {{ fmt_date(reconciliation.date_to) }}</div>
   </div>
   <div class="col-auto">
-    <div class="text-muted small">{{ _("Дельта узла") }}</div>
+    <div class="text-muted small">{{ _("Дельта абонента") if is_garage_parent else _("Дельта узла") }}</div>
     <div>{{ fmt2(reconciliation.node_delta) if reconciliation.node_delta is not none else "—" }}</div>
   </div>
   <div class="col-auto">
-    <div class="text-muted small">{{ _("Сумма потребителей") }}</div>
+    <div class="text-muted small">{{ _("Сумма запитанных узлов") if is_garage_parent else _("Сумма потребителей") }}</div>
     <div>{{ fmt2(reconciliation.sum_children_delta) if reconciliation.sum_children_delta is not none else "—" }}</div>
   </div>
   <div class="col-auto">
-    <div class="text-muted small">{{ _("Потери") }}</div>
+    <div class="text-muted small">{{ _("К начислению абоненту") if is_garage_parent else _("Потери") }}</div>
     <div class="{{ 'text-danger fw-semibold' if reconciliation.is_negative else '' }}">
       {{ fmt2(reconciliation.loss) if reconciliation.loss is not none else "—" }}
     </div>
   </div>
+  {% if not is_garage_parent %}
   <div class="col-auto">
     <div class="text-muted small">{{ _("Поровну на потребителя") }}</div>
     <div>{{ fmt2(reconciliation.loss_per_consumer) if reconciliation.loss_per_consumer is not none else "—" }}</div>
   </div>
+  {% endif %}
 </div>
 
 {% if reconciliation.consumers_total == 0 %}
-<p class="text-muted small mb-0">{{ _("К узлу не подключено ни одного потребителя (гаража или дочернего узла).") }}</p>
+<p class="text-muted small mb-0">
+  {{ _("К этому абонентскому счётчику не подключено ни одного узла.") if is_garage_parent
+     else _("К узлу не подключено ни одного потребителя (гаража или дочернего узла).") }}
+</p>
 {% else %}
 {% if reconciliation.is_partial %}
 <p class="text-warning small">
@@ -35,7 +44,7 @@
 {% endif %}
 <div class="table-responsive">
   <table class="table table-sm bg-body mb-0">
-    <thead><tr><th>{{ _("Потребитель") }}</th><th>{{ _("Тип") }}</th><th>{{ _("Дельта за период") }}</th><th>{{ _("Доля потерь") }}</th></tr></thead>
+    <thead><tr><th>{{ _("Потребитель") }}</th><th>{{ _("Тип") }}</th><th>{{ _("Дельта за период") }}</th>{% if not is_garage_parent %}<th>{{ _("Доля потерь") }}</th>{% endif %}</tr></thead>
     <tbody>
       {% for c in reconciliation.consumers %}
       <tr>
@@ -54,7 +63,9 @@
           {{ fmt2(c.delta) }}
           {% endif %}
         </td>
+        {% if not is_garage_parent %}
         <td>{{ fmt2(c.share_of_loss) if c.share_of_loss is not none else "—" }}</td>
+        {% endif %}
       </tr>
       {% endfor %}
     </tbody>

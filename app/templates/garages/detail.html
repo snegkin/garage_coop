@@ -472,6 +472,15 @@
       {{ _("подключён напрямую к вводу") }}
       {% endif %}
     </p>
+    {% if garage.supplied_control_meters %}
+    <p class="text-muted small mb-2">
+      {{ _("Через этот гараж запитаны узлы:") }}
+      {% for cm in garage.supplied_control_meters %}
+      <a href="{{ url_for('control_meters.detail', node_id=cm.id) }}">{{ cm.name }}</a>{{ ", " if not loop.last }}
+      {% endfor %}
+      — {{ _("их потребление вычитается из показаний абонентского счётчика при начислении.") }}
+    </p>
+    {% endif %}
     {% endif %}
     {% if current_meter %}
     <table class="table table-bordered bg-body">
@@ -717,7 +726,12 @@
             {% if row.reading_date %}{{ fmt_date(row.reading_date) }}{% elif row.charge_amount is not none %}{{ row.sort_date.year }}{% else %}—{% endif %}
           </td>
           <td>{{ row.meter_number }}</td>
-          <td data-sort-value="{{ row.reading if row.reading is not none else '' }}">{{ fmt2(row.reading) if row.reading is not none else "—" }}</td>
+          <td data-sort-value="{{ row.reading if row.reading is not none else '' }}">
+            {{ fmt2(row.reading) if row.reading is not none else "—" }}
+            {% if row.deduction %}
+            <br><span class="text-muted small" title="{{ _('Вычтено при начислении — потребление узлов, запитанных через этот гараж') }}">&minus;{{ fmt2(row.deduction) }} {{ _("кВт·ч (общий узел)") }}</span>
+            {% endif %}
+          </td>
           <td data-sort-value="{{ row.tariff if row.tariff is not none else '' }}">{{ fmt2(row.tariff) if row.tariff is not none else "—" }}</td>
           <td data-sort-value="{{ row.charge_amount if row.charge_amount is not none else '' }}">
             {% if row.charge_amount is not none %}

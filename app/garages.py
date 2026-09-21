@@ -338,6 +338,7 @@ def detail(garage_id):
             "charge_paid": charge_paid_amount(charge_obj) if charge_obj else None,
             "payments": _charge_payments(charge_obj) if charge_obj else [],
             "meter_number": r.meter.meter_number,
+            "deduction": r.control_meter_deduction,
         })
     for c in charges:
         if c.reading_id is not None:
@@ -1003,13 +1004,35 @@ def add_electricity_reading(garage_id):
         ), "danger")
         return redirect(url_for("garages.detail", garage_id=garage_id, tab="account"))
 
+    # Локальный импорт — избегаем цикла garages<->control_meters (control_meters
+    # сам импортирует _current_meter из garages, см. app/control_meters.py).
+    from . import control_meters
+
     amount = None
+    deduction = None
     tariff = current_tariff(ElectricityTariffKind.MEMBER, reading_date)
     tariff_rate = tariff.rate if tariff is not None else None
+    comment = f.get("comment") or None
     if baseline is not None:
         delta = reading_value - baseline
-        if tariff is not None and delta > 0:
-            amount = (delta * tariff.rate).quantize(Decimal("0.01"))
+        date_from = previous.reading_date if previous else current.installed_date
+        deduction, is_partial = (
+            control_meters.garage_supplied_nodes_delta(garage, date_from, reading_date)
+            if date_from is not None else (Decimal("0"), False)
+        )
+        net_delta = delta - deduction
+        if tariff is not None and net_delta > 0:
+            amount = (net_delta * tariff.rate).quantize(Decimal("0.01"))
+        if deduction or is_partial:
+            deduction_note = _(
+                "За вычетом {deduction} кВт·ч по узлу(ам), запитанным через этот гараж.",
+                deduction=str(deduction.quantize(Decimal("0.01"))),
+            )
+            if is_partial:
+                deduction_note += " " + _(
+                    "Не все такие узлы имеют свежие показания — вычет может быть занижен."
+                )
+            comment = f"{comment}\n{deduction_note}" if comment else deduction_note
 
     reading = ElectricityReading(
         meter_id=current.id,
@@ -1017,7 +1040,8 @@ def add_electricity_reading(garage_id):
         reading_date=reading_date,
         amount=amount,
         tariff=tariff_rate,
-        comment=f.get("comment") or None,
+        control_meter_deduction=deduction if deduction else None,
+        comment=comment,
     )
     database.db_session.add(reading)
     database.db_session.flush()  # получить reading.id для связи с начислением
@@ -1101,14 +1125,25 @@ def edit_last_reading(garage_id):
         tariff = current_tariff(ElectricityTariffKind.MEMBER, last_reading.reading_date)
         tariff_rate = tariff.rate if tariff is not None else None
 
+    # Локальный импорт — избегаем цикла garages<->control_meters (control_meters
+    # сам импортирует _current_meter из garages, см. app/control_meters.py).
+    from . import control_meters
+
+    date_from = previous.reading_date if previous else current.installed_date
+    deduction = Decimal("0")
+    if baseline is not None and date_from is not None:
+        deduction, _is_partial = control_meters.garage_supplied_nodes_delta(garage, date_from, last_reading.reading_date)
+
     amount = None
     if baseline is not None and tariff_rate is not None:
         delta = new_value - baseline
-        if delta > 0:
-            amount = (delta * tariff_rate).quantize(Decimal("0.01"))
+        net_delta = delta - deduction
+        if net_delta > 0:
+            amount = (net_delta * tariff_rate).quantize(Decimal("0.01"))
 
     last_reading.reading = new_value
     last_reading.tariff = tariff_rate
+    last_reading.control_meter_deduction = deduction if deduction else None
     if f.get("comment") is not None:
         last_reading.comment = f.get("comment") or None
 

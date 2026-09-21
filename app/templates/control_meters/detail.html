@@ -7,15 +7,19 @@
 <div class="row">
   <div class="col-md-4 col-lg-3 mb-3">
     <div class="bg-body p-3 rounded border">
-      {{ cmtree.render_tree(tree, current_node_id=node.id, ancestor_ids=ancestor_ids, reconcile_default=reconcile_default) }}
+      {{ cmtree.render_tree(tree, current_node_id=node.id, ancestor_ids=ancestor_ids, reconcile_default=reconcile_default, reconcile_garage_default=reconcile_garage_default) }}
     </div>
   </div>
 
   <div class="col-md-8 col-lg-9">
     <nav class="small text-muted mb-2">
       <a href="{{ url_for('power.view') }}" class="text-muted">{{ _("Ввод") }}</a> /
-      {% for b in breadcrumbs %}
+      {% for kind, b in breadcrumbs %}
+      {% if kind == "garage" %}
+      <a href="{{ url_for('garages.detail', garage_id=b.id) }}" class="text-muted">{{ _("Гараж №{number}", number=b.number) }}</a> /
+      {% else %}
       <a href="{{ url_for('control_meters.detail', node_id=b.id) }}" class="text-muted">{{ b.name }}</a> /
+      {% endif %}
       {% endfor %}
       <span>{{ node.name }}</span>
     </nav>

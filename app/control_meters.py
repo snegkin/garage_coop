@@ -19,6 +19,14 @@ parent_id IS NULL — узел верхнего уровня, физически
 считается отдельно, на чтение, см. reconcile_node(node=None, ...) /
 root_level_reconciliation().
 
+Отдельный случай — узел физически запитан не от ввода и не от другого узла
+дерева, а через щиток конкретного гаража (ControlMeter.parent_garage_id,
+взаимоисключающий с parent_id): напр. общее освещение, подключённое к
+абонентскому счётчику одного из гаражей. Тогда показания абонента включают
+чужое потребление и должны быть уменьшены на дельту такого узла перед
+начислением — см. garage_supplied_nodes_delta/reconcile_garage_supply и
+garages.add_electricity_reading.
+
 Раздел целиком доступен только правлению (RoleEnum.BOARD) — внутренний
 технический учёт, по аналогии с /power/, а не с garages.py электричеством
 по гаражу, где показания вносит и владелец.
@@ -45,25 +53,61 @@ bp = Blueprint("control_meters", __name__, url_prefix="/control-meters")
 # без логики видимости: весь раздел и так BOARD-only.
 # ---------------------------------------------------------------------------
 
-def _build_tree(all_nodes):
-    """Строит дерево {"node": ControlMeter, "children": [...]} из плоского
-    списка, отсортировано по имени на каждом уровне."""
-    by_id = {n.id: {"node": n, "children": []} for n in all_nodes}
+def _build_tree(all_nodes, gateway_garages=()):
+    """Строит дерево {"kind": "node"|"garage", "node": ControlMeter|Garage,
+    "children": [...]} из плоского списка узлов.
+
+    gateway_garages — гаражи, через щиток которых физически запитан хотя бы
+    один узел (ControlMeter.parent_garage_id, см. _gateway_garages) —
+    встраиваются в дерево как точки подключения: сами занимают место среди
+    детей узла, к которому подключены как обычный потребитель
+    (garage.control_meter_id), а их «дочерние» узлы вкладываются уже под
+    них. Без этого параметра (по умолчанию) ведёт себя как раньше — чистое
+    дерево ControlMeter, используется _parent_options для выбора родителя
+    узла, которому гаражи ни к чему."""
+    by_id = {n.id: {"kind": "node", "node": n, "children": []} for n in all_nodes}
+    garage_entries = {g.id: {"kind": "garage", "node": g, "children": []} for g in gateway_garages}
     roots = []
     for n in all_nodes:
         entry = by_id[n.id]
         if n.parent_id is not None and n.parent_id in by_id:
             by_id[n.parent_id]["children"].append(entry)
+        elif n.parent_garage_id is not None and n.parent_garage_id in garage_entries:
+            garage_entries[n.parent_garage_id]["children"].append(entry)
         else:
             roots.append(entry)
 
+    for g in gateway_garages:
+        entry = garage_entries[g.id]
+        if g.control_meter_id is not None and g.control_meter_id in by_id:
+            by_id[g.control_meter_id]["children"].append(entry)
+        else:
+            roots.append(entry)
+
+    def sort_key(entry):
+        obj = entry["node"]
+        return obj.name.lower() if entry["kind"] == "node" else f"гараж №{obj.number}".lower()
+
     def sort_rec(items):
-        items.sort(key=lambda e: e["node"].name.lower())
+        items.sort(key=sort_key)
         for it in items:
             sort_rec(it["children"])
 
     sort_rec(roots)
     return roots
+
+
+def _gateway_garages():
+    """Гаражи, через щиток которых физически запитан хотя бы один
+    контрольный узел (ControlMeter.parent_garage_id) — обычно единицы на
+    весь кооператив (см. _build_tree)."""
+    return (
+        database.db_session.query(Garage)
+        .join(ControlMeter, ControlMeter.parent_garage_id == Garage.id)
+        .distinct()
+        .order_by(Garage.number)
+        .all()
+    )
 
 
 def _wrap_with_root(tree):
@@ -73,7 +117,7 @@ def _wrap_with_root(tree):
     _tree.html: node=None рендерится как «Ввод», со ссылкой на /power/), а
     не отдельная сущность ControlMeter, поэтому узлы верхнего уровня в
     дереве показываются как его дети, а не как несвязанный лес."""
-    return [{"node": None, "children": tree}]
+    return [{"kind": "node", "node": None, "children": tree}]
 
 
 def _descendant_ids(node):
@@ -188,7 +232,7 @@ class ConsumerReconciliation:
 
 @dataclass
 class NodeReconciliation:
-    node: ControlMeter | None  # None = виртуальный корень (ввод, см. MasterMeterReading)
+    node: ControlMeter | Garage | None  # None = виртуальный корень (ввод); Garage — см. reconcile_garage_supply
     date_from: dt.date
     date_to: dt.date
     node_delta: Decimal | None
@@ -205,12 +249,14 @@ class NodeReconciliation:
 def reconcile_node(node: ControlMeter | None, date_from: dt.date, date_to: dt.date) -> NodeReconciliation:
     """Сердце сверки. node=None — виртуальный корень (ввод): node_delta берём
     из MasterMeterReading, потребители — узлы верхнего уровня (parent_id IS
-    NULL) и гаражи без узла (control_meter_id IS NULL)."""
+    NULL и НЕ запитанные через гараж, см. parent_garage_id) и гаражи без
+    узла (control_meter_id IS NULL)."""
     if node is None:
         node_delta = _delta(_master_reading_as_of(date_from), _master_reading_as_of(date_to))
         child_nodes = (
             database.db_session.query(ControlMeter)
-            .filter(ControlMeter.parent_id.is_(None)).order_by(ControlMeter.name).all()
+            .filter(ControlMeter.parent_id.is_(None), ControlMeter.parent_garage_id.is_(None))
+            .order_by(ControlMeter.name).all()
         )
         child_garages = (
             database.db_session.query(Garage)
@@ -289,6 +335,95 @@ def root_level_reconciliation(date_from: dt.date, date_to: dt.date) -> NodeRecon
 
 
 # ---------------------------------------------------------------------------
+# Узлы, запитанные через абонентский счётчик гаража (ControlMeter.
+# parent_garage_id) — напр. общее освещение, подключённое не к вводу и не к
+# другому узлу дерева, а прямо к щитку конкретного гаража. Показания
+# абонентского счётчика такого гаража включают в себя чужое потребление —
+# при начислении (см. garages.add_electricity_reading) его нужно вычесть.
+# ---------------------------------------------------------------------------
+
+def garage_supplied_nodes_delta(garage: Garage, date_from: dt.date, date_to: dt.date) -> tuple[Decimal, bool]:
+    """Сумма дельт контрольных узлов, физически запитанных через щиток этого
+    гаража, за интервал. (0, False), если таких узлов нет.
+
+    is_partial=True — хотя бы у одного из узлов нет показания на одну из
+    границ интервала: его дельта НЕ входит в сумму (недобор, а не 0) —
+    вызывающий код обязан явно показать это как «вычтено не полностью»,
+    иначе начисление молча занижает то, что реально вычтено."""
+    nodes = garage.supplied_control_meters
+    if not nodes:
+        return Decimal("0"), False
+    total = Decimal("0")
+    is_partial = False
+    for node in nodes:
+        delta = _delta(_node_reading_as_of(node, date_from), _node_reading_as_of(node, date_to))
+        if delta is None:
+            is_partial = True
+            continue
+        total += delta
+    return total, is_partial
+
+
+def reconcile_garage_supply(garage: Garage, date_from: dt.date, date_to: dt.date) -> NodeReconciliation:
+    """Аналог reconcile_node, но «родитель» — абонентский счётчик гаража, а
+    не узел дерева: node_delta — дельта его показаний, потребители — узлы из
+    garage.supplied_control_meters. В отличие от reconcile_node, «loss» тут
+    не потери в проводке для разноски поровну, а чистое потребление самого
+    гаража (то, что реально уходит в его начисление, см.
+    garages.add_electricity_reading) — поэтому share_of_loss/
+    loss_per_consumer намеренно не проставляются: делить тут нечего, узел
+    либо целиком «съедает» свою измеренную дельту, либо остаток целиком
+    достаётся гаражу."""
+    node_delta = _garage_delta(garage, date_from, date_to)
+    child_nodes = garage.supplied_control_meters
+
+    consumers = [
+        ConsumerReconciliation(
+            kind="node", ref=child,
+            delta=_delta(_node_reading_as_of(child, date_from), _node_reading_as_of(child, date_to)),
+        )
+        for child in child_nodes
+    ]
+
+    consumers_total = len(consumers)
+    with_data = [c for c in consumers if c.delta is not None]
+    consumers_with_data = len(with_data)
+
+    sum_children_delta = sum((c.delta for c in with_data), Decimal("0")) if consumers_with_data else None
+
+    if node_delta is None or sum_children_delta is None:
+        loss = None
+    else:
+        loss = (node_delta - sum_children_delta).quantize(Decimal("0.01"))
+
+    is_partial = node_delta is None or consumers_with_data < consumers_total
+    is_negative = loss is not None and loss < 0
+
+    return NodeReconciliation(
+        node=garage, date_from=date_from, date_to=date_to, node_delta=node_delta,
+        consumers=consumers, consumers_with_data=consumers_with_data, consumers_total=consumers_total,
+        sum_children_delta=sum_children_delta, loss=loss, loss_per_consumer=None,
+        is_partial=is_partial, is_negative=is_negative,
+    )
+
+
+def reconcile_garage_supply_default(garage: Garage) -> NodeReconciliation | None:
+    """Сверка по двум последним показаниям абонентского счётчика гаража.
+    None, если счётчика нет или показаний меньше двух."""
+    meter = _current_meter(garage)
+    if meter is None:
+        return None
+    q = database.db_session.query(ElectricityReading).filter_by(meter_id=meter.id).order_by(
+        ElectricityReading.reading_date.desc(), ElectricityReading.id.desc()
+    )
+    dates = _last_two_dates(q)
+    if dates is None:
+        return None
+    date_from, date_to = dates
+    return reconcile_garage_supply(garage, date_from, date_to)
+
+
+# ---------------------------------------------------------------------------
 # CRUD дерева узлов
 # ---------------------------------------------------------------------------
 
@@ -296,12 +431,29 @@ def root_level_reconciliation(date_from: dt.date, date_to: dt.date) -> NodeRecon
 @roles_required(RoleEnum.BOARD)
 def list_tree():
     all_nodes = database.db_session.query(ControlMeter).all()
-    tree = _wrap_with_root(_build_tree(all_nodes))
+    tree = _wrap_with_root(_build_tree(all_nodes, _gateway_garages()))
     root_reconciliation = reconcile_node_default(None)
     return render_template(
         "control_meters/list.html", tree=tree,
-        root_reconciliation=root_reconciliation, reconcile_default=reconcile_node_default,
+        root_reconciliation=root_reconciliation,
+        reconcile_default=reconcile_node_default, reconcile_garage_default=reconcile_garage_supply_default,
     )
+
+
+def _parent_from_form(f):
+    """(parent_id, parent_garage_id) из формы create/edit — ровно одно из
+    двух заполнено, по значению radio parent_kind (см. form.html).
+
+    Без parent_kind в запросе (старые тесты, прямые POST) — обратная
+    совместимость: трактуем как раньше, просто parent_id."""
+    kind = f.get("parent_kind")
+    if kind is None:
+        return (int(f["parent_id"]) if f.get("parent_id") else None), None
+    if kind == "node":
+        return (int(f["parent_id"]) if f.get("parent_id") else None), None
+    if kind == "garage":
+        return None, (int(f["parent_garage_id"]) if f.get("parent_garage_id") else None)
+    return None, None
 
 
 @bp.route("/new", methods=["GET", "POST"])
@@ -309,8 +461,11 @@ def list_tree():
 def create():
     if request.method == "POST":
         f = request.form
-        parent_id = int(f["parent_id"]) if f.get("parent_id") else None
-        node = ControlMeter(name=f["name"], parent_id=parent_id, comment=f.get("comment") or None)
+        parent_id, parent_garage_id = _parent_from_form(f)
+        node = ControlMeter(
+            name=f["name"], parent_id=parent_id, parent_garage_id=parent_garage_id,
+            comment=f.get("comment") or None,
+        )
         database.db_session.add(node)
         database.db_session.flush()
         audit.record(
@@ -322,10 +477,12 @@ def create():
         return redirect(url_for("control_meters.detail", node_id=node.id))
 
     all_nodes = database.db_session.query(ControlMeter).all()
+    all_garages = database.db_session.query(Garage).order_by(Garage.number).all()
     preselected_parent_id = request.args.get("parent_id", type=int)
+    preselected_parent_garage_id = request.args.get("parent_garage_id", type=int)
     return render_template(
-        "control_meters/form.html", node=None, parent_options=_parent_options(all_nodes),
-        preselected_parent_id=preselected_parent_id,
+        "control_meters/form.html", node=None, parent_options=_parent_options(all_nodes), all_garages=all_garages,
+        preselected_parent_id=preselected_parent_id, preselected_parent_garage_id=preselected_parent_garage_id,
     )
 
 
@@ -338,18 +495,20 @@ def edit(node_id):
 
     if request.method == "POST":
         f = request.form
-        parent_id = int(f["parent_id"]) if f.get("parent_id") else None
+        parent_id, parent_garage_id = _parent_from_form(f)
         if parent_id is not None and parent_id in _descendant_ids(node):
             flash(_("Нельзя сделать родителем сам узел или его же потомка."), "danger")
             all_nodes = database.db_session.query(ControlMeter).all()
+            all_garages = database.db_session.query(Garage).order_by(Garage.number).all()
             return render_template(
                 "control_meters/form.html", node=node,
-                parent_options=_parent_options(all_nodes, exclude_ids=_descendant_ids(node)),
-                preselected_parent_id=None,
+                parent_options=_parent_options(all_nodes, exclude_ids=_descendant_ids(node)), all_garages=all_garages,
+                preselected_parent_id=None, preselected_parent_garage_id=None,
             )
 
         node.name = f["name"]
         node.parent_id = parent_id
+        node.parent_garage_id = parent_garage_id
         node.comment = f.get("comment") or None
         audit.record(
             "control_meter.edit", f"Изменён узел контрольного счётчика «{node.name}»",
@@ -360,10 +519,11 @@ def edit(node_id):
         return redirect(url_for("control_meters.detail", node_id=node.id))
 
     all_nodes = database.db_session.query(ControlMeter).all()
+    all_garages = database.db_session.query(Garage).order_by(Garage.number).all()
     return render_template(
         "control_meters/form.html", node=node,
-        parent_options=_parent_options(all_nodes, exclude_ids=_descendant_ids(node)),
-        preselected_parent_id=None,
+        parent_options=_parent_options(all_nodes, exclude_ids=_descendant_ids(node)), all_garages=all_garages,
+        preselected_parent_id=None, preselected_parent_garage_id=None,
     )
 
 
@@ -422,24 +582,36 @@ def detail(node_id):
         .all()
     )
 
+    # ("node", ControlMeter) | ("garage", Garage) — цепочка предков обычно
+    # идёт вверх по ControlMeter.parent, но может оборваться на гараже
+    # (parent_garage_id, см. модуль-докстринг) — дальше вверх для гаража
+    # пути в этой иерархии нет.
     ancestor_ids = set()
     breadcrumbs = []
-    cur = node.parent
-    while cur is not None:
-        ancestor_ids.add(cur.id)
-        breadcrumbs.append(cur)
-        cur = cur.parent
+    cur = node
+    while True:
+        if cur.parent_id is not None and cur.parent is not None:
+            cur = cur.parent
+            ancestor_ids.add(("node", cur.id))
+            breadcrumbs.append(("node", cur))
+        elif cur.parent_garage_id is not None and cur.parent_garage is not None:
+            ancestor_ids.add(("garage", cur.parent_garage.id))
+            breadcrumbs.append(("garage", cur.parent_garage))
+            break
+        else:
+            break
     breadcrumbs.reverse()
 
     all_nodes = database.db_session.query(ControlMeter).all()
-    tree = _wrap_with_root(_build_tree(all_nodes))
+    tree = _wrap_with_root(_build_tree(all_nodes, _gateway_garages()))
 
     return render_template(
         "control_meters/detail.html", node=node,
         readings_desc=readings_desc, readings_with_deltas=readings_with_deltas,
         reconciliation=reconciliation, attachable_garages=attachable_garages,
         ancestor_ids=ancestor_ids, breadcrumbs=breadcrumbs,
-        tree=tree, reconcile_default=reconcile_node_default, today=dt.date.today(),
+        tree=tree, reconcile_default=reconcile_node_default, reconcile_garage_default=reconcile_garage_supply_default,
+        today=dt.date.today(),
     )
 
 

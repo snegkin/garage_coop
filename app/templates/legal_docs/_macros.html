@@ -42,7 +42,7 @@
     <tbody>
       {% for row in years %}
       <tr>
-        <td>{{ row.year }}</td>
+        <td{% if loop.nextitem and loop.nextitem.year == row.year %} class="year-continues"{% endif %}>{% if not loop.previtem or loop.previtem.year != row.year %}{{ row.year }}{% endif %}</td>
         <td>{{ row.fee_type }}</td>
         <td class="num">{{ fmt2(row.charged) }}</td>
         <td class="num">{{ fmt2(row.paid) }}</td>

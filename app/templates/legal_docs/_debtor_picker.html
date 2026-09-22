@@ -1,14 +1,17 @@
 {# Ожидает переменные:
-   - debtors: список {person, debt, debt_by_category} из legal_docs.list_debtor_persons
+   - debtors: список {person, debt, debt_by_category, oldest_unpaid_year_by_category}
+     из legal_docs.list_debtor_persons
    - categories: список {key, label, default} из legal_docs.debt_categories() —
      чек-боксы "учитывать в подборке" (по умолчанию без электричества: за
      него кооператив не судится и не рассылает претензии, а отключает
      должника, см. app/power.py)
    - form_action (url для POST)
-   Мультивыбор должников с поиском — тот же JS-паттерн, что и у выбора
-   гаражей в finance/mass_charge.html, только по людям и с суммой долга
-   вместо собственника; сумма и видимость строк пересчитываются на
-   клиенте при переключении категорий долга (см. скрипт внизу). #}
+   Мультивыбор должников с поиском, сортировкой и фильтром по давности
+   непогашенных начислений (актуально из-за трёхлетнего срока исковой
+   давности) — тот же JS-паттерн, что и у выбора гаражей в
+   finance/mass_charge.html, только по людям; сумма, видимость и порядок
+   строк пересчитываются на клиенте при переключении категорий долга/
+   фильтра/сортировки (см. скрипт внизу), без обращения к серверу. #}
 <form method="post" action="{{ form_action }}">
   {% if categories %}
   <div class="mb-2">
@@ -22,8 +25,19 @@
     {% endfor %}
   </div>
   {% endif %}
-  <div class="d-flex gap-2 mb-2">
-    <input type="text" class="form-control form-control-sm" id="debtorPickerFilter" placeholder="{{ _('Поиск по ФИО…') }}">
+  <div class="d-flex gap-2 mb-2 flex-wrap">
+    <input type="text" class="form-control form-control-sm" style="max-width:220px" id="debtorPickerFilter" placeholder="{{ _('Поиск по ФИО…') }}">
+    <select class="form-select form-select-sm" style="max-width:240px" id="debtorPickerAgeFilter">
+      <option value="0">{{ _("Любая давность долга") }}</option>
+      <option value="1">{{ _("Непогашено 1+ год") }}</option>
+      <option value="2">{{ _("Непогашено 2+ года") }}</option>
+      <option value="3">{{ _("Непогашено 3+ года (риск исковой давности)") }}</option>
+    </select>
+    <select class="form-select form-select-sm" style="max-width:240px" id="debtorPickerSort">
+      <option value="name">{{ _("Сортировка: по ФИО") }}</option>
+      <option value="debt_desc">{{ _("Сортировка: сумма долга (сначала больше)") }}</option>
+      <option value="age_desc">{{ _("Сортировка: давность долга (сначала старее)") }}</option>
+    </select>
     <button type="button" class="btn btn-sm btn-primary text-nowrap" id="debtorPickerSelectAll">{{ _("Выбрать все") }}</button>
     <button type="button" class="btn btn-sm btn-primary text-nowrap" id="debtorPickerClear">{{ _("Снять все") }}</button>
   </div>
@@ -31,12 +45,16 @@
     {% for row in debtors %}
     <div class="form-check debtor-picker-row d-flex justify-content-between align-items-center"
          data-search="{{ row.person.full_name|lower }}"
-         data-debt-breakdown="{% for k, v in row.debt_by_category.items() %}{{ k }}={{ v }}{{ '|' if not loop.last }}{% endfor %}">
+         data-debt-breakdown="{% for k, v in row.debt_by_category.items() %}{{ k }}={{ v }}{{ '|' if not loop.last }}{% endfor %}"
+         data-oldest-unpaid-year="{% for k, v in row.oldest_unpaid_year_by_category.items() %}{{ k }}={{ v }}{{ '|' if not loop.last }}{% endfor %}">
       <span>
         <input class="form-check-input" type="checkbox" name="person_id" value="{{ row.person.id }}" id="debtorCheck{{ row.person.id }}">
         <label class="form-check-label" for="debtorCheck{{ row.person.id }}">{{ row.person.full_name }}</label>
       </span>
-      <span class="text-danger small"><span class="debtor-debt-amount">{{ fmt2(row.debt) }}</span> ₽</span>
+      <span class="text-danger small">
+        <span class="debtor-debt-amount">{{ fmt2(row.debt) }}</span> ₽
+        <span class="debtor-debt-age text-muted"></span>
+      </span>
     </div>
     {% else %}
     <p class="text-muted mb-0">{{ _("Должников не найдено.") }}</p>
@@ -57,6 +75,8 @@
 document.addEventListener("DOMContentLoaded", function () {
   const list = document.getElementById("debtorPickerList");
   const filter = document.getElementById("debtorPickerFilter");
+  const ageFilter = document.getElementById("debtorPickerAgeFilter");
+  const sortSelect = document.getElementById("debtorPickerSort");
   const selectAllBtn = document.getElementById("debtorPickerSelectAll");
   const clearBtn = document.getElementById("debtorPickerClear");
   const countEl = document.getElementById("debtorPickerCount");
@@ -65,6 +85,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
   const rows = Array.from(list.querySelectorAll(".debtor-picker-row"));
   const checkboxes = rows.map(function (row) { return row.querySelector("input[type=checkbox]"); });
+  const currentYear = new Date().getFullYear();
 
   function updateCount() {
     countEl.textContent = checkboxes.filter(function (cb) { return cb.checked; }).length;
@@ -74,36 +95,74 @@ document.addEventListener("DOMContentLoaded", function () {
     return new Set(categoryCheckboxes.filter(function (cb) { return cb.checked; }).map(function (cb) { return cb.value; }));
   }
 
-  // Пересчитывает видимую сумму долга и видимость строки под текущий набор
-  // отмеченных категорий (см. debt_by_category/data-debt-breakdown) И под
-  // текст поиска — одновременно, без обращения к серверу: обе фильтрации
-  // должны выполняться совместно (должник может пройти по ФИО, но не по
-  // выбранным категориям долга, и наоборот).
-  function applyFilters() {
+  // "fee:1=1234.56|electricity=200.00" -> {"fee:1": "1234.56", "electricity": "200.00"}
+  function parseMap(raw) {
+    const map = {};
+    (raw || "").split("|").filter(Boolean).forEach(function (pair) {
+      const parts = pair.split("=");
+      map[parts[0]] = parts[1];
+    });
+    return map;
+  }
+
+  // Пересчитывает видимую сумму долга, давность (самый старый непогашенный
+  // год) и видимость/порядок строк под текущий набор отмеченных категорий
+  // (см. debt_by_category/oldest_unpaid_year_by_category), текст поиска и
+  // фильтр по давности — всё одновременно, без обращения к серверу.
+  function applyFiltersAndSort() {
     const q = filter ? filter.value.trim().toLowerCase() : "";
     const categories = selectedCategories();
-    rows.forEach(function (row, i) {
-      const pairs = (row.dataset.debtBreakdown || "").split("|").filter(Boolean).map(function (pair) {
-        return pair.split("=");
-      });
+    const minAge = ageFilter ? (parseInt(ageFilter.value, 10) || 0) : 0;
+    const sortMode = sortSelect ? sortSelect.value : "name";
+
+    const computed = rows.map(function (row, i) {
+      const debtMap = parseMap(row.dataset.debtBreakdown);
       let total = 0;
-      pairs.forEach(function (pair) {
-        if (categories.has(pair[0])) total += parseFloat(pair[1]) || 0;
+      categories.forEach(function (key) {
+        if (debtMap[key] !== undefined) total += parseFloat(debtMap[key]) || 0;
       });
+
+      const yearMap = parseMap(row.dataset.oldestUnpaidYear);
+      let oldestYear = null;
+      categories.forEach(function (key) {
+        if (yearMap[key] !== undefined) {
+          const y = parseInt(yearMap[key], 10);
+          if (oldestYear === null || y < oldestYear) oldestYear = y;
+        }
+      });
+      const age = oldestYear === null ? -1 : (currentYear - oldestYear);
+
       const amountEl = row.querySelector(".debtor-debt-amount");
       if (amountEl) amountEl.textContent = total.toFixed(2).replace(".", ",");
+      const ageEl = row.querySelector(".debtor-debt-age");
+      if (ageEl) ageEl.textContent = oldestYear === null ? "" : "(с " + oldestYear + ")";
 
       const matchesName = !q || (row.dataset.search || "").indexOf(q) !== -1;
       const hasDebt = total > 0.004;  // защита от округления копеек
-      const visible = matchesName && hasDebt;
+      const matchesAge = minAge === 0 || age >= minAge;
+      const visible = matchesName && hasDebt && matchesAge;
       row.style.display = visible ? "" : "none";
       if (!visible) checkboxes[i].checked = false;
+
+      return { row: row, total: total, age: age, name: row.dataset.search || "" };
     });
+
+    if (sortMode === "debt_desc") {
+      computed.sort(function (a, b) { return b.total - a.total; });
+    } else if (sortMode === "age_desc") {
+      computed.sort(function (a, b) { return b.age - a.age; });
+    } else {
+      computed.sort(function (a, b) { return a.name < b.name ? -1 : (a.name > b.name ? 1 : 0); });
+    }
+    computed.forEach(function (item) { list.appendChild(item.row); });
+
     updateCount();
   }
 
-  if (filter) filter.addEventListener("input", applyFilters);
-  categoryCheckboxes.forEach(function (cb) { cb.addEventListener("change", applyFilters); });
+  if (filter) filter.addEventListener("input", applyFiltersAndSort);
+  if (ageFilter) ageFilter.addEventListener("change", applyFiltersAndSort);
+  if (sortSelect) sortSelect.addEventListener("change", applyFiltersAndSort);
+  categoryCheckboxes.forEach(function (cb) { cb.addEventListener("change", applyFiltersAndSort); });
 
   if (selectAllBtn) {
     selectAllBtn.addEventListener("click", function () {
@@ -123,6 +182,6 @@ document.addEventListener("DOMContentLoaded", function () {
   }
 
   checkboxes.forEach(function (cb) { cb.addEventListener("change", updateCount); });
-  applyFilters();
+  applyFiltersAndSort();
 });
 </script>

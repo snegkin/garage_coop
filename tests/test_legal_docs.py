@@ -7,6 +7,7 @@ import datetime as dt
 from decimal import Decimal
 
 from app.legal_docs import list_debtor_persons, resolve_court_section, suggest_state_duty
+from app.accounting import reallocate_member_charges
 from app.models import (
     Cooperative, RoleEnum, CourtSection, FeeType, MemberAccount, Charge, Payment,
     Garage, GarageOwnership, PersonalAccount, KeyRate,
@@ -71,6 +72,25 @@ def test_board_member_can_access_tool_pickers(db, client):
     for url in ("/legal-docs/debt-notice", "/legal-docs/state-duty", "/legal-docs/lawsuit"):
         resp = client.get(url)
         assert resp.status_code == 200
+
+
+def test_debtor_picker_has_sort_and_age_filter_controls(db, client):
+    """Пикер должников (общий для всех трёх инструментов и postal_letters)
+    отдаёт сортировку и фильтр по давности непогашенных начислений — вся
+    логика на клиенте (JS), здесь проверяем только наличие разметки."""
+    _make_coop(db)
+    person = make_person(db, full_name="Должников Долг Долгович")
+    garage = make_garage(db, number="16")
+    make_ownership(db, garage, person)
+    _make_debt(db, person, garage, amount="5000.00")
+    db.commit()
+    _board_login(db, client)
+
+    resp = client.get("/legal-docs/debt-notice")
+    body = resp.get_data(as_text=True)
+    assert 'id="debtorPickerAgeFilter"' in body
+    assert 'id="debtorPickerSort"' in body
+    assert "data-oldest-unpaid-year=" in body
 
 
 def test_board_member_cannot_access_court_sections(db, client):
@@ -149,6 +169,64 @@ def test_list_debtor_persons_excludes_person_without_debt(db, client):
 
     rows = list_debtor_persons()
     assert rows == []
+
+
+def test_list_debtor_persons_reports_oldest_unpaid_year(db, client):
+    """oldest_unpaid_year_by_category — для фильтра «непогашенные начисления
+    N+ лет» в пикере (см. _debtor_picker.html) — год самого старого
+    непогашенного начисления по каждой категории долга."""
+    _make_coop(db)
+    person = make_person(db, full_name="Старый Должников")
+    garage = make_garage(db, number="13")
+    make_ownership(db, garage, person)
+    account = _make_debt(db, person, garage, amount="1000.00")
+    charge = db.query(Charge).filter_by(account_id=account.id).one()
+    charge.year = 2020
+    db.commit()
+
+    rows = list_debtor_persons()
+    fee_key = f"fee:{account.fee_type_id}"
+    assert rows[0]["oldest_unpaid_year_by_category"][fee_key] == 2020
+
+
+def test_list_debtor_persons_ignores_charge_closed_by_fifo(db, client):
+    """Начисление 2018 года полностью закрыто платежом (FIFO) — самым
+    старым непогашенным остаётся более новое начисление 2024 года, а не
+    2018-й (иначе фильтр по давности вводил бы правление в заблуждение
+    насчёт риска пропустить срок исковой давности)."""
+    _make_coop(db)
+    person = make_person(db, full_name="Погасивший Старое")
+    garage = make_garage(db, number="14")
+    make_ownership(db, garage, person)
+    fee_type = FeeType(code="membership", name="Членский взнос")
+    db.add(fee_type)
+    db.flush()
+    account = MemberAccount(person_id=person.id, garage_id=garage.id, fee_type_id=fee_type.id, account_number="1400")
+    db.add(account)
+    db.flush()
+    db.add(Charge(account_id=account.id, year=2018, amount=Decimal("1000.00")))
+    db.add(Charge(account_id=account.id, year=2024, amount=Decimal("500.00")))
+    db.add(Payment(account_id=account.id, date=dt.date(2019, 1, 1), amount=Decimal("1000.00")))
+    db.commit()
+    reallocate_member_charges(account)
+    db.commit()
+
+    rows = list_debtor_persons()
+    fee_key = f"fee:{fee_type.id}"
+    assert rows[0]["oldest_unpaid_year_by_category"][fee_key] == 2024
+
+
+def test_list_debtor_persons_electricity_oldest_unpaid_year(db, client):
+    _make_coop(db)
+    person = make_person(db, full_name="Электро Старый Должников")
+    garage = make_garage(db, number="15")
+    make_ownership(db, garage, person)
+    db.add(PersonalAccount(garage_id=garage.id, account_number="1500"))
+    db.add(Charge(garage_id=garage.id, year=2019, amount=Decimal("300.00")))
+    db.commit()
+
+    rows = list_debtor_persons()
+    assert rows[0]["oldest_unpaid_year_by_category"]["electricity"] == 2019
 
 
 # ---------------------------------------------------------------------------

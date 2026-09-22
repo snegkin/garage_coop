@@ -32,7 +32,7 @@ from . import penalty
 from . import name_declension
 from .i18n import translate as _
 from .auth import roles_required
-from .accounting import balance, reallocate_member_charges
+from .accounting import balance, reallocate_member_charges, charge_paid_amount
 from .persons import build_statement
 from .models import (
     Person, Cooperative, CourtSection, RoleEnum, MemberAccount, PersonalAccount,
@@ -64,8 +64,25 @@ def list_debtor_persons() -> list[dict]:
     оно должно быть исключаемым из выбора отдельно от остальных видов
     долга. "debt" — сумма ВСЕХ категорий сразу (как и раньше, для сортировки
     и как безопасный дефолт там, где фильтр ещё не применяется).
+
+    oldest_unpaid_year_by_category — самый старый год начисления (Charge.year),
+    которое до сих пор не погашено полностью (charge.amount - charge_paid_amount(charge) > 0),
+    по каждой из тех же категорий — используется фильтром «непогашенные
+    начисления не менее N лет» в пикере (актуально из-за трёхлетнего срока
+    исковой давности — чем старее непогашенное начисление, тем горячее
+    вопрос успеть подать в суд). Категория отсутствует в словаре, если по
+    ней все начисления полностью погашены (текущий долг образовался только
+    из недавних, ещё не просроченных так сильно начислений — такое
+    возможно, если частичные оплаты по FIFO закрыли самые старые целиком).
     """
     debt_by_category: dict[int, dict[str, Decimal]] = {}
+    oldest_unpaid_year_by_category: dict[int, dict[str, int]] = {}
+
+    def _note_unpaid_years(person_id, key, charges):
+        for c in charges:
+            if c.amount - charge_paid_amount(c) > Decimal("0.004"):
+                years = oldest_unpaid_year_by_category.setdefault(person_id, {})
+                years[key] = min(years.get(key, c.year), c.year)
 
     member_accounts = (
         database.db_session.query(MemberAccount)
@@ -79,6 +96,7 @@ def list_debtor_persons() -> list[dict]:
             bucket = debt_by_category.setdefault(ma.person_id, {})
             key = f"fee:{ma.fee_type_id}"
             bucket[key] = bucket.get(key, Decimal("0")) - b
+            _note_unpaid_years(ma.person_id, key, ma.charges)
 
     ownerships = database.db_session.query(GarageOwnership).all()
     for o in ownerships:
@@ -92,6 +110,7 @@ def list_debtor_persons() -> list[dict]:
                 # пикер и печатная форма всё равно строятся по человеку.
                 bucket = debt_by_category.setdefault(o.person_id, {})
                 bucket["electricity"] = bucket.get("electricity", Decimal("0")) - b
+                _note_unpaid_years(o.person_id, "electricity", garage.charges)
 
     if not debt_by_category:
         return []
@@ -101,6 +120,7 @@ def list_debtor_persons() -> list[dict]:
         {
             "person": p, "debt_by_category": debt_by_category[p.id],
             "debt": sum(debt_by_category[p.id].values(), Decimal("0")),
+            "oldest_unpaid_year_by_category": oldest_unpaid_year_by_category.get(p.id, {}),
         }
         for p in persons
     ]

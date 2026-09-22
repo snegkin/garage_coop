@@ -23,6 +23,18 @@
       {% if person.residence_address or person.registration_address %}
       <p>{{ _("Адрес") }}: {{ person.residence_address or person.registration_address }}</p>
       {% endif %}
+      {% if person.passport_series %}
+      <p>{{ _("Паспорт") }}: {{ person.passport_series }} {{ person.passport_number or "" }}{% if person.passport_issue_date %}, {{ _("выдан") }} {{ fmt_date(person.passport_issue_date) }}{% endif %}</p>
+      {% endif %}
+      {% set contact_parts = [] %}
+      {% if person.phones %}{% set _discard = contact_parts.append(_("тел.") ~ " " ~ (person.phones|map(attribute="number")|join(", "))) %}{% endif %}
+      {% if person.email %}{% set _discard = contact_parts.append("email " ~ person.email) %}{% endif %}
+      {% if person.telegram %}{% set _discard = contact_parts.append("Telegram " ~ person.telegram) %}{% endif %}
+      {% if person.vk %}{% set _discard = contact_parts.append("VK " ~ person.vk) %}{% endif %}
+      {% if person.max_messenger %}{% set _discard = contact_parts.append("MAX " ~ person.max_messenger) %}{% endif %}
+      {% if contact_parts %}
+      <p>{{ _("Контакты") }}: {{ contact_parts|join("; ") }}</p>
+      {% endif %}
     </div>
   </div>
 

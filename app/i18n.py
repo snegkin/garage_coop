@@ -440,6 +440,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Адрес регистрации": "Registered address",
         "Паспорт": "Passport",
         "выдан": "issued",
+        "Контакты": "Contacts",
+        "тел.": "phone",
         "Человек «{name}» добавлен.": "Person “{name}” added.",
         "Человек не найден.": "Person not found.",
         "Доступ в систему": "System access",

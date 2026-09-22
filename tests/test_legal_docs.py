@@ -10,7 +10,7 @@ from app.legal_docs import list_debtor_persons, resolve_court_section, suggest_s
 from app.accounting import reallocate_member_charges
 from app.models import (
     Cooperative, RoleEnum, CourtSection, FeeType, MemberAccount, Charge, Payment,
-    Garage, GarageOwnership, PersonalAccount, KeyRate,
+    Garage, GarageOwnership, PersonalAccount, KeyRate, Phone,
 )
 
 from tests.conftest import make_person, make_garage, make_ownership, make_user, login
@@ -432,6 +432,50 @@ def test_debt_notice_yearly_breakdown_hides_repeated_year(db, client):
     # "2024" встречается только один раз как содержимое ячейки года —
     # вторая строка того же года ячейку не заполняет.
     assert body.count(">2024<") == 1
+
+
+def test_debt_notice_shows_passport_and_contacts_when_present(db, client):
+    """Паспортные данные и контакты (телефон, email, Telegram) — если
+    заполнены — печатаются в шапке уведомления, помогают идентифицировать
+    и связаться с должником."""
+    _make_coop(db)
+    _board_login(db, client)
+    person = make_person(
+        db, full_name="Контактов Контакт Контактович",
+        passport_series="4500", passport_number="123456", passport_issue_date=dt.date(2015, 3, 10),
+        email="debtor@example.com", telegram="@debtor",
+    )
+    db.add(Phone(person_id=person.id, number="+79991234567"))
+    garage = make_garage(db, number="27")
+    make_ownership(db, garage, person)
+    _make_debt(db, person, garage, amount="1000.00")
+    db.commit()
+
+    resp = client.post("/legal-docs/debt-notice", data={"person_id": [str(person.id)]})
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert "4500 123456" in body
+    assert "+79991234567" in body
+    assert "debtor@example.com" in body
+    assert "@debtor" in body
+
+
+def test_debt_notice_hides_passport_and_contacts_when_absent(db, client):
+    """Без паспорта и контактов — соответствующих строк в шапке нет."""
+    _make_coop(db)
+    _board_login(db, client)
+    person = make_person(db, full_name="Безданных Без Данных")
+    garage = make_garage(db, number="28")
+    make_ownership(db, garage, person)
+    _make_debt(db, person, garage, amount="1000.00")
+    db.commit()
+
+    resp = client.post("/legal-docs/debt-notice", data={"person_id": [str(person.id)]})
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    legal_doc = body.split('class="legal-print"')[1]
+    assert "Паспорт" not in legal_doc
+    assert "Контакты" not in legal_doc
 
 
 # ---------------------------------------------------------------------------

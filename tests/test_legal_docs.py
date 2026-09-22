@@ -284,6 +284,32 @@ def test_debt_notice_print_shows_debtor_and_amount(db, client):
     assert "7500,00" in body or "7 500,00" in body
 
 
+def test_debt_notice_handles_account_without_garage(db, client):
+    """MemberAccount.garage_id может быть NULL для вида взноса с
+    per_garage=False (счёт один на человека, не привязан к гаражу) — раньше
+    падало на member_accounts.sort(key=lambda ma: ma.garage.number)."""
+    _make_coop(db)
+    _board_login(db, client)
+    person = make_person(db, full_name="Безгаражнов Без Гаражович")
+    garage = make_garage(db, number="24")
+    make_ownership(db, garage, person)
+    _make_debt(db, person, garage, amount="1000.00")
+
+    common_fee_type = FeeType(code="common_fee", name="Общий взнос", per_garage=False)
+    db.add(common_fee_type)
+    db.flush()
+    common_account = MemberAccount(
+        person_id=person.id, garage_id=None, fee_type_id=common_fee_type.id, account_number="1002",
+    )
+    db.add(common_account)
+    db.flush()
+    db.add(Charge(account_id=common_account.id, year=2024, amount=Decimal("500.00")))
+    db.commit()
+
+    resp = client.post("/legal-docs/debt-notice", data={"person_id": [str(person.id)]})
+    assert resp.status_code == 200
+
+
 def test_debt_notice_requires_at_least_one_person(db, client):
     _make_coop(db)
     _board_login(db, client)

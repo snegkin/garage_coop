@@ -322,7 +322,7 @@ def build_statement(person, categories: set[str] | None = None) -> dict:
     # насовсем — в отличие от detail(), тут нет чекбокса «Актуальные»,
     # который мог бы раскрыть счёт обратно.
     member_accounts = [ma for ma in member_accounts if not ma.fee_type.is_penalty or ma.charges]
-    member_accounts.sort(key=lambda ma: (ma.garage.number, ma.fee_type.name))
+    member_accounts.sort(key=lambda ma: (ma.garage.number if ma.garage else "", ma.fee_type.name))
 
     owned_garage_ids = [
         o.garage_id for o in
@@ -342,9 +342,10 @@ def build_statement(person, categories: set[str] | None = None) -> dict:
     for ma in member_accounts:
         if not ma.fee_type.is_penalty and categories is not None and f"fee:{ma.fee_type_id}" not in categories:
             continue
+        label = f"{ma.fee_type.name}, {_('гараж')} №{ma.garage.number}" if ma.garage else ma.fee_type.name
         row = _statement_row(
             ma.account_number, url_for("finance.member_account_detail", account_id=ma.id),
-            f"{ma.fee_type.name}, {_('гараж')} №{ma.garage.number}", ma.charges, ma.payments,
+            label, ma.charges, ma.payments,
         )
         (penalty_rows if ma.fee_type.is_penalty else rows).append(row)
     if categories is None or "electricity" in categories:

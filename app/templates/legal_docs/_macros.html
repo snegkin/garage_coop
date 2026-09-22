@@ -38,11 +38,12 @@
 
   {% if years %}
   <table class="print-table">
-    <thead><tr><th>{{ _("Год") }}</th><th class="num">{{ _("Начислено") }}</th><th class="num">{{ _("Оплачено") }}</th></tr></thead>
+    <thead><tr><th>{{ _("Год") }}</th><th>{{ _("Тип платежа") }}</th><th class="num">{{ _("Начислено") }}</th><th class="num">{{ _("Оплачено") }}</th></tr></thead>
     <tbody>
       {% for row in years %}
       <tr>
         <td>{{ row.year }}</td>
+        <td>{{ row.fee_type }}</td>
         <td class="num">{{ fmt2(row.charged) }}</td>
         <td class="num">{{ fmt2(row.paid) }}</td>
       </tr>
@@ -50,7 +51,7 @@
     </tbody>
     <tfoot>
       <tr>
-        <td>{{ _("Итого") }}{% if summary.penalty_rows %} ({{ _("без пени") }}){% endif %}</td>
+        <td colspan="2">{{ _("Итого") }}{% if summary.penalty_rows %} ({{ _("без пени") }}){% endif %}</td>
         <td class="num">{{ fmt2(years|sum(attribute="charged")) }}</td>
         <td class="num">{{ fmt2(years|sum(attribute="paid")) }}</td>
       </tr>

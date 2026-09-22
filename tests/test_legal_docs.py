@@ -404,6 +404,36 @@ def test_debt_notice_yearly_breakdown_shows_fee_type_and_skips_empty_rows(db, cl
     assert "Целевой взнос" not in body
 
 
+def test_debt_notice_yearly_breakdown_hides_repeated_year(db, client):
+    """Год, за который есть начисления по нескольким видам взноса,
+    печатается только в первой из строк — у неё же скрывается нижняя
+    граница ячейки (class="year-continues"), а не повторяется в каждой
+    строке этого года."""
+    _make_coop(db)
+    _board_login(db, client)
+    person = make_person(db, full_name="Повторов Год Годович")
+    garage = make_garage(db, number="26")
+    make_ownership(db, garage, person)
+    _make_debt(db, person, garage, amount="2000.00", fee_code="membership")
+
+    target_fee_type = FeeType(code="target", name="Целевой взнос")
+    db.add(target_fee_type)
+    db.flush()
+    target_account = MemberAccount(person_id=person.id, garage_id=garage.id, fee_type_id=target_fee_type.id, account_number="1004")
+    db.add(target_account)
+    db.flush()
+    db.add(Charge(account_id=target_account.id, year=2024, amount=Decimal("1500.00")))
+    db.commit()
+
+    resp = client.post("/legal-docs/debt-notice", data={"person_id": [str(person.id)]})
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert 'class="year-continues"' in body
+    # "2024" встречается только один раз как содержимое ячейки года —
+    # вторая строка того же года ячейку не заполняет.
+    assert body.count(">2024<") == 1
+
+
 # ---------------------------------------------------------------------------
 # 2. Оплата госпошлины
 # ---------------------------------------------------------------------------

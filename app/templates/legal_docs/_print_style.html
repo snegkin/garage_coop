@@ -54,6 +54,12 @@
 .legal-print .print-table th { background: #eee; text-align: left; font-weight: bold; }
 .legal-print .print-table td.num, .legal-print .print-table th.num { text-align: right; }
 .legal-print .print-table tfoot td { font-weight: bold; }
+/* Ячейка года, повторяющегося в следующей строке (см. debt_notice_doc в
+   _macros.html) — год печатается только в первой строке группы, а нижняя
+   граница ячейки скрывается, чтобы визуально объединить строки одного
+   года без буквального rowspan (который усложнил бы подсчёт итоговой
+   строки по years|sum). */
+.legal-print .print-table td.year-continues { border-bottom-color: transparent; }
 
 .legal-print .print-signatures { margin-top: 12mm; }
 /* Прижатие подписей/места под печать к правому краю через width+margin-left:auto —

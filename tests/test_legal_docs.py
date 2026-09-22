@@ -374,6 +374,36 @@ def test_debt_notice_shows_yearly_breakdown_not_lifetime_sum(db, client):
     assert "7000,00" in body  # 5000 (2024) + 3000 (2023) - 1000 (оплачено) = 7000 к погашению
 
 
+def test_debt_notice_yearly_breakdown_shows_fee_type_and_skips_empty_rows(db, client):
+    """Столбец «Тип платежа» разбивает годовую сводку по видам взноса, а
+    счета без начислений и платежей (нечего показать) в таблицу не
+    попадают."""
+    _make_coop(db)
+    _board_login(db, client)
+    person = make_person(db, full_name="Взносов Взнос Взносович")
+    garage = make_garage(db, number="25")
+    make_ownership(db, garage, person)
+    _make_debt(db, person, garage, amount="2000.00", fee_code="membership")
+
+    target_fee_type = FeeType(code="target", name="Целевой взнос")
+    db.add(target_fee_type)
+    db.flush()
+    # Счёт целевого взноса открыт, но по нему ни начислений, ни платежей —
+    # такая строка (год+тип) в разбивке появляться не должна.
+    empty_account = MemberAccount(person_id=person.id, garage_id=garage.id, fee_type_id=target_fee_type.id, account_number="1003")
+    db.add(empty_account)
+    db.commit()
+
+    # Без явных category срабатывают default-категории (CORE_FEE_TYPE_CODES) —
+    # membership и target входят в них обе.
+    resp = client.post("/legal-docs/debt-notice", data={"person_id": [str(person.id)]})
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert "Тип платежа" in body
+    assert "Членский взнос" in body
+    assert "Целевой взнос" not in body
+
+
 # ---------------------------------------------------------------------------
 # 2. Оплата госпошлины
 # ---------------------------------------------------------------------------

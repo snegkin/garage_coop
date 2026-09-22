@@ -607,16 +607,22 @@ def person_court_section_assign(person_id):
 
 def build_yearly_debt_breakdown(person: Person, categories: set[str]) -> list[dict]:
     """
-    Разбивка ОСНОВНОГО долга (без пени) по годам — сколько начислено и
-    сколько оплачено в КАЖДОМ году отдельно, а не суммирование каждого
-    лицевого счёта за всё время его существования сразу (как раньше
-    показывало уведомление о задолженности). Должнику так понятнее:
-    видно, что накопилось в прошлом году, а что — в этом, а не одну
+    Разбивка ОСНОВНОГО долга (без пени) по годам и видам взноса — сколько
+    начислено и сколько оплачено в КАЖДОМ году отдельно по КАЖДОМУ виду
+    взноса, а не суммирование каждого лицевого счёта за всё время его
+    существования сразу (как раньше показывало уведомление о
+    задолженности). Должнику так понятнее: видно, что накопилось в
+    прошлом году, а что — в этом, и за какой именно взнос, а не одну
     непрозрачную сумму за произвольный срок. Оплата относится к тому
     году, когда она СДЕЛАНА (Payment.date), а не к году начисления,
     которое она гасит (порядок разнесения FIFO может закрывать старые
     начисления новым платежом — см. accounting.reallocate_garage_charges) —
     это соответствует тому, как сам должник помнит свои платежи.
+
+    Строки без начислений и платежей (charged=paid=0) в результат не
+    попадают — незначащий год/вид взноса (напр. год, когда по данному
+    счёту не было ни начисления, ни оплаты) только загромождал бы
+    печатную форму.
 
     Пеня — санкция другой природы (не долг за взнос/услугу, а начисление
     за просрочку), в разбивку не входит и здесь не считается: её итог
@@ -650,25 +656,27 @@ def build_yearly_debt_breakdown(person: Person, categories: set[str]) -> list[di
             .all()
         )
 
-    by_year: dict[int, dict[str, Decimal]] = {}
+    by_year_type: dict[tuple[int, str], dict[str, Decimal]] = {}
 
-    def _row(year: int) -> dict:
-        return by_year.setdefault(year, {"charged": Decimal("0"), "paid": Decimal("0")})
+    def _row(year: int, fee_type_name: str) -> dict:
+        return by_year_type.setdefault((year, fee_type_name), {"charged": Decimal("0"), "paid": Decimal("0")})
 
     for ma in member_accounts:
         for c in ma.charges:
-            _row(c.year)["charged"] += c.amount
+            _row(c.year, ma.fee_type.name)["charged"] += c.amount
         for p in ma.payments:
-            _row(p.date.year)["paid"] += p.amount
+            _row(p.date.year, ma.fee_type.name)["paid"] += p.amount
+    electricity_name = _("Электричество")
     for pa in personal_accounts:
         for c in pa.garage.charges:
-            _row(c.year)["charged"] += c.amount
+            _row(c.year, electricity_name)["charged"] += c.amount
         for p in pa.garage.payments:
-            _row(p.date.year)["paid"] += p.amount
+            _row(p.date.year, electricity_name)["paid"] += p.amount
 
     return [
-        {"year": year, "charged": v["charged"], "paid": v["paid"], "balance": v["paid"] - v["charged"]}
-        for year, v in sorted(by_year.items())
+        {"year": year, "fee_type": fee_type_name, "charged": v["charged"], "paid": v["paid"], "balance": v["paid"] - v["charged"]}
+        for (year, fee_type_name), v in sorted(by_year_type.items())
+        if v["charged"] or v["paid"]
     ]
 
 

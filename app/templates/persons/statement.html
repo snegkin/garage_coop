@@ -8,7 +8,7 @@
   </h3>
   <div class="d-flex gap-2">
     <button class="btn btn-primary" onclick="window.print()">{{ _("Печать") }}</button>
-    <a class="btn btn-outline-secondary" href="{{ url_for('persons.detail', person_id=person.id) }}">{{ _("Назад") }}</a>
+    <a data-back-link data-back-label="&larr; {{ _('Назад') }}" class="btn btn-outline-secondary" href="{{ url_for('persons.detail', person_id=person.id) }}">{{ _("Назад") }}</a>
   </div>
 </div>
 

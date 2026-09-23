@@ -14,7 +14,7 @@
       {% endif %}
     </div>
   </div>
-  <a class="btn btn-outline-secondary" href="{{ url_for('governance.view') }}">{{ _("← Все созывы") }}</a>
+  <a data-back-link data-back-label="&larr; {{ _('Назад') }}" class="btn btn-outline-secondary" href="{{ url_for('governance.view') }}">{{ _("← Все созывы") }}</a>
 </div>
 
 {% if is_chairman() %}

@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ _("История: {name}", name=recorder.name) }}{% endblock %}
 {% block content %}
-<a href="{{ url_for('surveillance.view') }}" class="d-inline-block mb-3">&larr; {{ _("Ко всем регистраторам") }}</a>
+<a data-back-link data-back-label="&larr; {{ _('Назад') }}" href="{{ url_for('surveillance.view') }}" class="d-inline-block mb-3">&larr; {{ _("Ко всем регистраторам") }}</a>
 
 <h3 class="mb-3">{{ _("{name} — история", name=recorder.name) }}</h3>
 

@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ topic.title }}{% endblock %}
 {% block content %}
+<a href="{{ url_for('forum.list_topics') }}" class="d-inline-block mb-3" data-back-link data-back-label="&larr; {{ _('Назад') }}">&larr; {{ _("Ко всем темам") }}</a>
 <div class="d-flex justify-content-between align-items-start gap-2 mb-3">
   <h3 class="mb-0">
     {{ topic.title }}

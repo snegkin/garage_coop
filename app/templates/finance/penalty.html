@@ -21,6 +21,56 @@
 
     <div class="card bg-body mb-3">
       <div class="card-body">
+        <h5 class="card-title">{{ _("Амнистия пени") }}</h5>
+        <p class="text-muted small">{{ _("Со срока оплаты взносов выбранного года по дату конца амнистии пеня не начисляется ни по каким долгам, уже начисленная за эти дни — списывается. После амнистии пеня считается заново: первые 30 дней — 1/300, дальше 1/150.") }}</p>
+        {% if amnesties %}
+        <table class="table table-sm mb-3">
+          <thead><tr><th>{{ _("Год") }}</th><th>{{ _("Период") }}</th><th>{{ _("Комментарий") }}</th>{% if can_manage_amnesty %}<th></th>{% endif %}</tr></thead>
+          <tbody>
+            {% for row in amnesties %}
+            <tr>
+              <td>{{ row.amnesty.year }}</td>
+              <td>{% if row.start %}{{ fmt_date(row.start) }}{% else %}?{% endif %} — {{ fmt_date(row.amnesty.end_date) }}</td>
+              <td>{{ row.amnesty.comment or "" }}</td>
+              {% if can_manage_amnesty %}
+              <td>
+                <form method="post" action="{{ url_for('penalty.delete_amnesty', amnesty_id=row.amnesty.id) }}" onsubmit="return confirm('{{ _("Удалить амнистию? Списанная по ней пеня будет начислена обратно.") }}')">
+                  <button class="btn btn-sm btn-outline-danger btn-icon-square" title="{{ _('Удалить') }}">×</button>
+                </form>
+              </td>
+              {% endif %}
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% endif %}
+        {% if can_manage_amnesty %}
+        <form method="post" action="{{ url_for('penalty.save_amnesty') }}" class="row g-2 align-items-end">
+          <div class="col-3">
+            <label class="form-label">{{ _("Год") }}</label>
+            <input class="form-control form-control-sm" type="number" name="year" min="2000" max="2100" value="{{ today.year }}" required>
+          </div>
+          <div class="col-4">
+            <label class="form-label">{{ _("Конец амнистии") }}</label>
+            <input class="form-control form-control-sm" type="date" name="end_date" required>
+          </div>
+          <div class="col-5">
+            <label class="form-label">{{ _("Основание") }}</label>
+            <input class="form-control form-control-sm" name="comment" placeholder="{{ _('Решение общего собрания...') }}">
+          </div>
+          <div class="col-12">
+            <button class="btn btn-sm btn-primary">{{ _("Сохранить амнистию") }}</button>
+            <span class="text-muted small ms-2">{{ _("Для уже заведённого года — изменит дату конца.") }}</span>
+          </div>
+        </form>
+        {% elif not amnesties %}
+        <p class="text-muted small mb-0">{{ _("Амнистий нет.") }}</p>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="card bg-body mb-3">
+      <div class="card-body">
         <h6 class="card-title">{{ _("Загрузить с cbr.ru") }}</h6>
         <form method="post" action="{{ url_for('penalty.fetch_key_rate') }}" class="row g-2 align-items-end" data-ajax>
           <div class="col-5">

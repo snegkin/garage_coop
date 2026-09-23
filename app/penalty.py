@@ -25,13 +25,14 @@ import urllib.error
 import urllib.request
 import xml.etree.ElementTree as ET
 
-from flask import Blueprint, render_template, request, redirect, url_for, flash
+from flask import Blueprint, abort, render_template, request, redirect, url_for, flash
 
 from . import database
 from . import audit
 from .i18n import translate as _, parse_decimal
 from .auth import roles_required
-from .models import Charge, Cooperative, FeeType, KeyRate, MemberAccount, RoleEnum
+from .models import Charge, Cooperative, FeeType, KeyRate, MemberAccount, Payment, PenaltyAmnesty, RoleEnum
+from .permissions import is_privileged
 from .accounting import dues_due_date, penalty_sibling_account, reallocate_member_charges
 
 bp = Blueprint("penalty", __name__, url_prefix="/finance/penalty")
@@ -187,9 +188,61 @@ def _rate_on(dates: list[dt.date], rates: list[Decimal], as_of: dt.date) -> Deci
     return rates[idx] if idx >= 0 else None
 
 
+AmnestyPeriods = list[tuple[dt.date, dt.date]]
+
+
+def load_amnesty_periods(coop: Cooperative | None) -> AmnestyPeriods:
+    """
+    Периоды амнистии пени (см. models.PenaltyAmnesty) как [(начало, конец)]:
+    начало — крайний срок оплаты взносов года амнистии (сам этот день ещё
+    не просрочка, амнистия действует со следующего), конец — end_date
+    включительно. Отсортировано по началу. Пусто, если срок оплаты не
+    настроен — тогда и начала амнистии не определить.
+    """
+    periods = []
+    for amnesty in database.db_session.query(PenaltyAmnesty).all():
+        start = dues_due_date(coop, amnesty.year)
+        if start is not None and amnesty.end_date > start:
+            periods.append((start, amnesty.end_date))
+    periods.sort()
+    return periods
+
+
+def _iter_penalty_days(
+    charge: Charge, due: dt.date, start: dt.date, target_date: dt.date,
+    key_dates: list[dt.date], key_rates: list[Decimal], amnesties: AmnestyPeriods,
+):
+    """
+    Общий посуточный проход для compute_charge_penalty и
+    compute_charge_penalty_breakdown — по дням start..target_date, по
+    которым пеня реально набегает: (день, непогашенный остаток, ставка ЦБ,
+    знаменатель, пеня за день). Пропускает дни без долга, без ставки и
+    попавшие в амнистию. Знаменатель (300 первые 30 дней, 150 дальше)
+    отсчитывается от срока оплаты, а если после него была амнистия — от
+    конца последней такой амнистии (просрочка после неё «начинается заново»).
+    """
+    allocations = sorted(
+        ((a.payment.date, a.amount) for a in charge.allocations), key=lambda x: x[0]
+    )
+    one_day = dt.timedelta(days=1)
+    d = start
+    while d <= target_date:
+        if not any(a_start < d <= a_end for a_start, a_end in amnesties):
+            paid = sum((amt for pdate, amt in allocations if pdate <= d), Decimal("0"))
+            unpaid = charge.amount - paid
+            if unpaid > 0:
+                rate = _rate_on(key_dates, key_rates, d)
+                if rate is not None:
+                    anchor = max([due] + [a_end for _, a_end in amnesties if due < a_end < d])
+                    divisor = Decimal(300) if (d - anchor).days <= 30 else Decimal(150)
+                    yield d, unpaid, rate, divisor, unpaid * (rate / Decimal("100")) / divisor
+        d += one_day
+
+
 def compute_charge_penalty(
     charge: Charge, coop: Cooperative, target_date: dt.date,
     key_dates: list[dt.date], key_rates: list[Decimal],
+    amnesties: AmnestyPeriods | None = None,
 ) -> tuple[Decimal, dt.date | None]:
     """
     Считает пеню по одному начислению за новые дни просрочки (с прошлого
@@ -197,10 +250,13 @@ def compute_charge_penalty(
     target_date включительно. Возвращает (сумма, дата_по_которую_учтено) —
     вторая координата None, если срок оплаты не настроен или считать нечего
     (начисление ещё не просрочено / уже полностью учтено ранее).
+    amnesties — см. load_amnesty_periods (None — загрузить из БД).
     """
     due = dues_due_date(coop, charge.year)
     if due is None:
         return Decimal("0"), None
+    if amnesties is None:
+        amnesties = load_amnesty_periods(coop)
 
     start = due + dt.timedelta(days=1)
     if charge.penalty_calculated_through is not None and charge.penalty_calculated_through >= start:
@@ -208,30 +264,17 @@ def compute_charge_penalty(
     if start > target_date:
         return Decimal("0"), None
 
-    allocations = sorted(
-        ((a.payment.date, a.amount) for a in charge.allocations), key=lambda x: x[0]
+    total = sum(
+        (day[4] for day in _iter_penalty_days(charge, due, start, target_date, key_dates, key_rates, amnesties)),
+        Decimal("0"),
     )
-
-    total = Decimal("0")
-    d = start
-    one_day = dt.timedelta(days=1)
-    while d <= target_date:
-        paid = sum((amt for pdate, amt in allocations if pdate <= d), Decimal("0"))
-        unpaid = charge.amount - paid
-        if unpaid > 0:
-            rate = _rate_on(key_dates, key_rates, d)
-            if rate is not None:
-                day_index = (d - due).days
-                divisor = Decimal(300) if day_index <= 30 else Decimal(150)
-                total += unpaid * (rate / Decimal("100")) / divisor
-        d += one_day
-
     return total.quantize(Decimal("0.01")), target_date
 
 
 def compute_charge_penalty_breakdown(
     charge: Charge, coop: Cooperative, target_date: dt.date,
     key_dates: list[dt.date], key_rates: list[Decimal],
+    amnesties: AmnestyPeriods | None = None,
 ) -> list[dict]:
     """
     Тот же день-за-днём проход, что и compute_charge_penalty, но вместо
@@ -242,7 +285,9 @@ def compute_charge_penalty_breakdown(
     знаменатель (300 или 150), сумма пени за период. Дни с одинаковым
     (остаток, ставка, знаменатель) схлопываются в одну строку; смена
     любого из них (частичный платёж изменил остаток, ставка ЦБ изменилась,
-    наступил 31-й день просрочки) начинает новую строку.
+    наступил 31-й день просрочки) начинает новую строку. Дни амнистии в
+    раскладку не попадают вовсе — строки до и после неё всегда отдельные
+    (разрыв по датам).
 
     В отличие от compute_charge_penalty — считает ВСЕГДА с самого первого
     дня просрочки по target_date включительно, не учитывает
@@ -254,39 +299,30 @@ def compute_charge_penalty_breakdown(
     due = dues_due_date(coop, charge.year)
     if due is None:
         return []
+    if amnesties is None:
+        amnesties = load_amnesty_periods(coop)
     start = due + dt.timedelta(days=1)
     if start > target_date:
         return []
 
-    allocations = sorted(
-        ((a.payment.date, a.amount) for a in charge.allocations), key=lambda x: x[0]
-    )
-
     periods: list[dict] = []
     current: dict | None = None
-    d = start
     one_day = dt.timedelta(days=1)
-    while d <= target_date:
-        paid = sum((amt for pdate, amt in allocations if pdate <= d), Decimal("0"))
-        unpaid = charge.amount - paid
-        if unpaid > 0:
-            rate = _rate_on(key_dates, key_rates, d)
-            if rate is not None:
-                day_index = (d - due).days
-                divisor = Decimal(300) if day_index <= 30 else Decimal(150)
-                day_amount = unpaid * (rate / Decimal("100")) / divisor
-                if current is not None and current["unpaid"] == unpaid and current["rate"] == rate and current["divisor"] == divisor:
-                    current["end"] = d
-                    current["days"] += 1
-                    current["amount"] += day_amount
-                else:
-                    if current is not None:
-                        periods.append(current)
-                    current = {
-                        "start": d, "end": d, "days": 1,
-                        "unpaid": unpaid, "rate": rate, "divisor": divisor, "amount": day_amount,
-                    }
-        d += one_day
+    for d, unpaid, rate, divisor, day_amount in _iter_penalty_days(
+        charge, due, start, target_date, key_dates, key_rates, amnesties,
+    ):
+        if (current is not None and current["end"] + one_day == d and current["unpaid"] == unpaid
+                and current["rate"] == rate and current["divisor"] == divisor):
+            current["end"] = d
+            current["days"] += 1
+            current["amount"] += day_amount
+        else:
+            if current is not None:
+                periods.append(current)
+            current = {
+                "start": d, "end": d, "days": 1,
+                "unpaid": unpaid, "rate": rate, "divisor": divisor, "amount": day_amount,
+            }
     if current is not None:
         periods.append(current)
 
@@ -323,6 +359,7 @@ def accrue_penalties(target_date: dt.date | None = None) -> dict:
         return {"error": "no_key_rate"}
     key_dates = [r.effective_date for r in key_rows]
     key_rates = [r.rate_percent for r in key_rows]
+    amnesties = load_amnesty_periods(coop)
 
     charges = (
         database.db_session.query(Charge)
@@ -339,7 +376,7 @@ def accrue_penalties(target_date: dt.date | None = None) -> dict:
 
     for charge in charges:
         account = charge.account
-        amount, through = compute_charge_penalty(charge, coop, target_date, key_dates, key_rates)
+        amount, through = compute_charge_penalty(charge, coop, target_date, key_dates, key_rates, amnesties)
         if through is None:
             continue
         charge.penalty_calculated_through = through
@@ -373,6 +410,96 @@ def accrue_penalties(target_date: dt.date | None = None) -> dict:
     }
 
 
+def reconcile_amnesty_write_offs(today: dt.date | None = None) -> dict:
+    """
+    Приводит списания пени по амнистии (Payment.amnesty_for_charge_id) в
+    соответствие с текущим набором амнистий — вызывается после каждого
+    добавления/изменения/удаления PenaltyAmnesty. По каждому обычному
+    начислению, по которому уже начислялась пеня (penalty_calculated_through),
+    сумма к списанию = пеня без амнистий минус пеня с амнистиями за тот же
+    отрезок (due, penalty_calculated_through] — т.е. ровно то, что cron
+    начислил за дни амнистии, плюс разница от «перезапуска» 1/300 после
+    неё; не больше фактически начисленной по этому начислению пени (её
+    могли удалить вручную). Если уже списанное отличается от нужного —
+    прежние списания по этому начислению удаляются и заводится одно новое
+    (поэтому удаление/сокращение амнистии возвращает пеню обратно).
+    Идемпотентна. Не коммитит сама.
+
+    Если пеня уже была оплачена, списание оставит на счёте пени переплату —
+    это осознанно: по амнистии член кооператива эту пеню не должен.
+    """
+    today = today or dt.date.today()
+    coop = database.db_session.query(Cooperative).first()
+    amnesties = load_amnesty_periods(coop)
+    key_rows = database.db_session.query(KeyRate).order_by(KeyRate.effective_date).all()
+    key_dates = [r.effective_date for r in key_rows]
+    key_rates = [r.rate_percent for r in key_rows]
+
+    existing: dict[int, list[Payment]] = {}
+    for payment in database.db_session.query(Payment).filter(Payment.amnesty_for_charge_id.isnot(None)):
+        existing.setdefault(payment.amnesty_for_charge_id, []).append(payment)
+
+    accrued: dict[int, Decimal] = {}
+    for penalty_charge in database.db_session.query(Charge).filter(Charge.penalty_for_charge_id.isnot(None)):
+        accrued[penalty_charge.penalty_for_charge_id] = accrued.get(penalty_charge.penalty_for_charge_id, Decimal("0")) + penalty_charge.amount
+
+    charges = (
+        database.db_session.query(Charge)
+        .join(MemberAccount, Charge.account_id == MemberAccount.id)
+        .join(FeeType, MemberAccount.fee_type_id == FeeType.id)
+        .filter(FeeType.is_penalty.is_(False))
+        .filter((Charge.penalty_calculated_through.isnot(None)) | (Charge.id.in_(list(existing))))
+        .all()
+    )
+
+    written_off = Decimal("0")
+    restored = Decimal("0")
+    skipped_rows = []          # (person_name, account_number, charge_year) — нет счёта пени
+    accounts_to_reallocate: dict[int, MemberAccount] = {}
+
+    for charge in charges:
+        due = dues_due_date(coop, charge.year)
+        through = charge.penalty_calculated_through
+        target = Decimal("0")
+        if due is not None and through is not None and through > due and any(
+            a_end > due and a_start < through for a_start, a_end in amnesties
+        ):
+            start = due + dt.timedelta(days=1)
+            full = sum((day[4] for day in _iter_penalty_days(charge, due, start, through, key_dates, key_rates, [])), Decimal("0"))
+            corrected = sum((day[4] for day in _iter_penalty_days(charge, due, start, through, key_dates, key_rates, amnesties)), Decimal("0"))
+            target = full.quantize(Decimal("0.01")) - corrected.quantize(Decimal("0.01"))
+            target = max(Decimal("0"), min(target, accrued.get(charge.id, Decimal("0"))))
+
+        old_payments = existing.get(charge.id, [])
+        old_sum = sum((p.amount for p in old_payments), Decimal("0"))
+        if old_sum == target:
+            continue
+
+        sibling = penalty_sibling_account(charge.account)
+        if target > 0 and sibling is None:
+            skipped_rows.append((charge.account.person.full_name, charge.account.account_number, charge.year))
+            continue
+        for payment in old_payments:
+            accounts_to_reallocate[payment.account.id] = payment.account
+            database.db_session.delete(payment)
+        if target > 0:
+            database.db_session.add(Payment(
+                account_id=sibling.id, date=today, amount=target, amnesty_for_charge_id=charge.id,
+                comment=f"Списание пени за дни амнистии по начислению №{charge.id} за {charge.year} г.",
+            ))
+            accounts_to_reallocate[sibling.id] = sibling
+        if target > old_sum:
+            written_off += target - old_sum
+        else:
+            restored += old_sum - target
+
+    database.db_session.flush()
+    for account in accounts_to_reallocate.values():
+        reallocate_member_charges(account)
+
+    return {"written_off": written_off, "restored": restored, "skipped_rows": skipped_rows}
+
+
 # ---------------------------------------------------------------------------
 # Роуты
 # ---------------------------------------------------------------------------
@@ -390,10 +517,16 @@ def view():
     latest_rate = database.db_session.query(KeyRate).order_by(KeyRate.effective_date.desc()).first()
     suggested_from_date = (latest_rate.effective_date + dt.timedelta(days=1)) if latest_rate else dt.date(2020, 1, 1)
 
+    amnesties = [
+        {"amnesty": a, "start": dues_due_date(coop, a.year) if coop else None}
+        for a in database.db_session.query(PenaltyAmnesty).order_by(PenaltyAmnesty.year.desc()).all()
+    ]
+
     return render_template(
         "finance/penalty.html",
         coop=coop, due_date_this_year=due_date_this_year, rates=rates,
         today=dt.date.today(), suggested_from_date=suggested_from_date,
+        amnesties=amnesties, can_manage_amnesty=is_privileged(),
     )
 
 
@@ -455,4 +588,88 @@ def delete_key_rate(rate_id):
         database.db_session.delete(row)
         database.db_session.commit()
         flash(_("Запись ставки удалена."), "success")
+    return redirect(url_for("penalty.view"))
+
+
+# ---------------------------------------------------------------------------
+# Амнистия пени по годам (см. models.PenaltyAmnesty). Сохранение/удаление
+# сразу пересчитывает списания уже начисленной пени
+# (reconcile_amnesty_write_offs) — поэтому, как и «Списать пеню», только
+# председатель и бухгалтер (is_privileged()), не любой член правления.
+# ---------------------------------------------------------------------------
+
+def _flash_amnesty_result(result: dict) -> None:
+    if result["written_off"]:
+        flash(_("Списано ранее начисленной пени: {amount}.", amount=f"{result['written_off']:.2f}"), "info")
+    if result["restored"]:
+        flash(_("Восстановлено ранее списанной по амнистии пени: {amount}.", amount=f"{result['restored']:.2f}"), "info")
+    if result["skipped_rows"]:
+        flash(_("Не найден счёт пени для списания по {n} начислениям.", n=len(result["skipped_rows"])), "warning")
+
+
+@bp.route("/amnesty", methods=["POST"])
+@roles_required(RoleEnum.BOARD)
+def save_amnesty():
+    if not is_privileged():
+        abort(403)
+    f = request.form
+    try:
+        year = int(f["year"])
+        end_date = dt.date.fromisoformat(f["end_date"])
+    except (KeyError, ValueError):
+        flash(_("Некорректный год или дата."), "danger")
+        return redirect(url_for("penalty.view"))
+
+    coop = database.db_session.query(Cooperative).first()
+    start = dues_due_date(coop, year) if coop else None
+    if start is None:
+        flash(_("Сначала задайте срок оплаты взносов в реквизитах — с него начинается амнистия."), "danger")
+        return redirect(url_for("penalty.view"))
+    if end_date <= start:
+        flash(_("Дата конца амнистии должна быть позже срока оплаты взносов за {year} г. ({date}).",
+                year=year, date=start.strftime("%d.%m.%Y")), "danger")
+        return redirect(url_for("penalty.view"))
+
+    amnesty = database.db_session.query(PenaltyAmnesty).filter_by(year=year).first()
+    if amnesty is None:
+        amnesty = PenaltyAmnesty(year=year)
+        database.db_session.add(amnesty)
+    amnesty.end_date = end_date
+    amnesty.comment = (f.get("comment") or "").strip() or None
+    database.db_session.flush()
+
+    result = reconcile_amnesty_write_offs()
+    audit.record(
+        "penalty_amnesty.save",
+        f"Амнистия пени за {year} г.: с {audit.format_date(start)} по {audit.format_date(end_date)}"
+        + (f", списано {audit.format_amount(result['written_off'])}" if result["written_off"] else "")
+        + (f", восстановлено {audit.format_amount(result['restored'])}" if result["restored"] else ""),
+    )
+    database.db_session.commit()
+    flash(_("Амнистия пени за {year} г. сохранена.", year=year), "success")
+    _flash_amnesty_result(result)
+    return redirect(url_for("penalty.view"))
+
+
+@bp.route("/amnesty/<int:amnesty_id>/delete", methods=["POST"])
+@roles_required(RoleEnum.BOARD)
+def delete_amnesty(amnesty_id):
+    if not is_privileged():
+        abort(403)
+    amnesty = database.db_session.get(PenaltyAmnesty, amnesty_id)
+    if amnesty is None:
+        abort(404)
+    year = amnesty.year
+    database.db_session.delete(amnesty)
+    database.db_session.flush()
+
+    result = reconcile_amnesty_write_offs()
+    audit.record(
+        "penalty_amnesty.delete",
+        f"Удалена амнистия пени за {year} г."
+        + (f", восстановлено {audit.format_amount(result['restored'])}" if result["restored"] else ""),
+    )
+    database.db_session.commit()
+    flash(_("Амнистия пени за {year} г. удалена.", year=year), "success")
+    _flash_amnesty_result(result)
     return redirect(url_for("penalty.view"))

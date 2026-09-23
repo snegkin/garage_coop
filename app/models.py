@@ -2012,6 +2012,26 @@ class KeyRate(Base):
     is_manual: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
+class PenaltyAmnesty(Base):
+    """
+    Амнистия пени за год: с крайнего срока оплаты взносов этого года по
+    уставу (Cooperative.dues_due_day/month — начало амнистии отдельно не
+    хранится, см. accounting.dues_due_date) по end_date включительно пеня
+    не начисляется ни по каким долгам, в том числе прошлых лет (мораторий
+    по времени, не по году начисления). После end_date пеня начинает
+    считаться заново: первые 30 дней — 1/300, дальше 1/150, как будто срок
+    оплаты перенесли на end_date. Уже начисленная за эти дни пеня
+    списывается компенсирующим платежом (Payment.amnesty_for_charge_id) —
+    см. penalty.reconcile_amnesty_write_offs().
+    """
+    __tablename__ = "penalty_amnesty"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    year: Mapped[int] = mapped_column(Integer, unique=True, index=True)
+    end_date: Mapped[dt.date] = mapped_column(Date)
+    comment: Mapped[str | None] = mapped_column(Text)
+
+
 class LandTaxYear(Base):
     """
     Кадастровая стоимость земли кооператива (за вычетом приватизированных
@@ -2176,12 +2196,18 @@ class Payment(Base):
     # бы для владельца счёта-источника. См. finance.cancel_transfer,
     # которая по этой ссылке удаляет обе половины зачёта разом.
     offset_charge_id: Mapped[int | None] = mapped_column(ForeignKey("charge.id", ondelete="SET NULL"), index=True)
+    # Только для списания пени по амнистии (см. PenaltyAmnesty) — id
+    # обычного начисления, пеня по которому за дни амнистии списана этим
+    # платежом. По этой связи penalty.reconcile_amnesty_write_offs() знает,
+    # сколько уже списано, и не задваивает при повторном сохранении амнистии.
+    amnesty_for_charge_id: Mapped[int | None] = mapped_column(ForeignKey("charge.id", ondelete="SET NULL"), index=True)
 
     garage: Mapped["Garage | None"] = relationship(back_populates="payments")
     account: Mapped["MemberAccount | None"] = relationship(back_populates="payments")
     payer: Mapped["Person | None"] = relationship(foreign_keys=[payer_person_id])
     related_person: Mapped["Person | None"] = relationship(foreign_keys=[related_person_id])
     offset_charge: Mapped["Charge | None"] = relationship(foreign_keys=[offset_charge_id])
+    amnesty_for_charge: Mapped["Charge | None"] = relationship(foreign_keys=[amnesty_for_charge_id])
     allocations: Mapped[list["ChargeAllocation"]] = relationship(
         back_populates="payment", cascade="all, delete-orphan"
     )

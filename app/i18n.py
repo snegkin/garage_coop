@@ -1227,6 +1227,27 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Загружено записей ключевой ставки: {n}.": "Key rate records loaded: {n}.",
         "Ставка на {date} сохранена вручную.": "Rate for {date} saved manually.",
         "Запись ставки удалена.": "Rate entry deleted.",
+        "Амнистия пени": "Penalty amnesty",
+        "Со срока оплаты взносов выбранного года по дату конца амнистии пеня не начисляется ни по каким долгам, уже начисленная за эти дни — списывается. После амнистии пеня считается заново: первые 30 дней — 1/300, дальше 1/150.":
+            "From the dues deadline of the selected year until the amnesty end date no penalty accrues on any debt; penalty already accrued for those days is written off. After the amnesty the penalty starts over: 1/300 for the first 30 days, 1/150 after that.",
+        "Период": "Period",
+        "Конец амнистии": "Amnesty end",
+        "Основание": "Grounds",
+        "Решение общего собрания...": "General meeting decision...",
+        "Сохранить амнистию": "Save amnesty",
+        "Для уже заведённого года — изменит дату конца.": "For an existing year this changes the end date.",
+        "Амнистий нет.": "No amnesties.",
+        "Удалить амнистию? Списанная по ней пеня будет начислена обратно.": "Delete the amnesty? Penalty written off under it will be charged back.",
+        "Некорректный год или дата.": "Invalid year or date.",
+        "Сначала задайте срок оплаты взносов в реквизитах — с него начинается амнистия.":
+            "Set the dues deadline in the legal details first — the amnesty starts from it.",
+        "Дата конца амнистии должна быть позже срока оплаты взносов за {year} г. ({date}).":
+            "The amnesty end date must be after the dues deadline for {year} ({date}).",
+        "Амнистия пени за {year} г. сохранена.": "Penalty amnesty for {year} saved.",
+        "Амнистия пени за {year} г. удалена.": "Penalty amnesty for {year} deleted.",
+        "Списано ранее начисленной пени: {amount}.": "Previously accrued penalty written off: {amount}.",
+        "Восстановлено ранее списанной по амнистии пени: {amount}.": "Penalty previously written off under amnesty restored: {amount}.",
+        "Не найден счёт пени для списания по {n} начислениям.": "No penalty account found to write off for {n} charges.",
         "Не задан срок оплаты взносов — укажите день и месяц в реквизитах кооператива.":
             "The dues payment deadline is not set — specify the day and month in the cooperative's legal details.",
         "Нет ни одной записи ключевой ставки ЦБ РФ — загрузите с cbr.ru или внесите вручную.":

@@ -233,10 +233,11 @@ def compute_claim_totals(person: Person, coop: Cooperative, target_date: dt.date
         .filter(FeeType.is_penalty.is_(False), MemberAccount.person_id == person.id, MemberAccount.fee_type_id.in_(fee_type_ids))
         .all()
     ) if fee_type_ids else []
+    amnesties = penalty.load_amnesty_periods(coop)
     penalty_entries = []
     penalty_total = Decimal("0")
     for charge in charges:
-        periods = penalty.compute_charge_penalty_breakdown(charge, coop, target_date, key_dates, key_rates)
+        periods = penalty.compute_charge_penalty_breakdown(charge, coop, target_date, key_dates, key_rates, amnesties)
         if not periods:
             continue
         subtotal = sum((p["amount"] for p in periods), Decimal("0"))

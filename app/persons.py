@@ -427,10 +427,11 @@ def penalty_calculation(person_id):
         .all()
     )
 
+    amnesties = penalty.load_amnesty_periods(coop)
     entries = []
     grand_total = Decimal("0")
     for charge in charges:
-        periods = penalty.compute_charge_penalty_breakdown(charge, coop, target_date, key_dates, key_rates)
+        periods = penalty.compute_charge_penalty_breakdown(charge, coop, target_date, key_dates, key_rates, amnesties)
         if not periods:
             continue
         subtotal = sum((p["amount"] for p in periods), Decimal("0"))

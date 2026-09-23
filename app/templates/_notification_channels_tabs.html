@@ -1,0 +1,14 @@
+{# Общая шапка страниц настроек каналов уведомлений (СМС, Telegram) —
+   вкладками, а не двумя отдельными пунктами меню. Каждая вкладка — свой
+   адрес (/sms/, /telegram/), чтобы их POST-роуты с redirect обратно на
+   свою страницу и AJAX-подмена #mainContent работали без изменений.
+   Ожидает active_channel = "sms" | "telegram". #}
+<h3 class="mb-3">{{ _("Каналы уведомлений") }}</h3>
+<ul class="nav nav-tabs mb-3">
+  <li class="nav-item">
+    <a class="nav-link {{ 'active' if active_channel == 'sms' }}" href="{{ url_for('sms_settings.view') }}">{{ _("СМС") }}</a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link {{ 'active' if active_channel == 'telegram' }}" href="{{ url_for('telegram_settings.view') }}">{{ _("Telegram") }}</a>
+  </li>
+</ul>

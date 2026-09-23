@@ -60,18 +60,27 @@ def test_plain_member_cannot_access_any_tool(db, client):
     db.commit()
     login(client, "member1", "pass1234")
 
-    for url in ("/legal-docs/debt-notice", "/legal-docs/state-duty", "/legal-docs/lawsuit"):
+    for url in ("/legal-docs/debtors", "/legal-docs/debt-notice", "/legal-docs/state-duty", "/legal-docs/lawsuit"):
         resp = client.get(url)
         assert resp.status_code == 302
         assert "/auth/login" not in resp.headers["Location"]  # залогинен, просто нет прав
+        assert "/legal-docs/debtors" not in resp.headers["Location"]
 
 
 def test_board_member_can_access_tool_pickers(db, client):
+    """Все инструменты — на одной странице «Должники»; прежние отдельные
+    страницы-пикеры остались редиректами на неё."""
     _make_coop(db)
     _board_login(db, client)
-    for url in ("/legal-docs/debt-notice", "/legal-docs/state-duty", "/legal-docs/lawsuit"):
+    resp = client.get("/legal-docs/debtors")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    for action in ("/legal-docs/debt-notice", "/postal-letters/new", "/legal-docs/state-duty/review", "/legal-docs/lawsuit/draft"):
+        assert f'formaction="{action}"' in body
+    for url in ("/legal-docs/debt-notice", "/legal-docs/state-duty", "/legal-docs/lawsuit", "/postal-letters/new"):
         resp = client.get(url)
-        assert resp.status_code == 200
+        assert resp.status_code == 302
+        assert resp.headers["Location"].endswith("/legal-docs/debtors")
 
 
 def test_debtor_picker_has_sort_and_age_filter_controls(db, client):
@@ -86,7 +95,7 @@ def test_debtor_picker_has_sort_and_age_filter_controls(db, client):
     db.commit()
     _board_login(db, client)
 
-    resp = client.get("/legal-docs/debt-notice")
+    resp = client.get("/legal-docs/debtors")
     body = resp.get_data(as_text=True)
     assert 'id="debtorPickerAgeFilter"' in body
     assert 'id="debtorPickerSort"' in body

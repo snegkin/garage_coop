@@ -5,14 +5,15 @@
      чек-боксы "учитывать в подборке" (по умолчанию без электричества: за
      него кооператив не судится и не рассылает претензии, а отключает
      должника, см. app/power.py)
-   - form_action (url для POST)
+   Кнопки всех инструментов — внизу формы, каждая со своим formaction
+   (см. legal_docs.debtors).
    Мультивыбор должников с поиском, сортировкой и фильтром по давности
    непогашенных начислений (актуально из-за трёхлетнего срока исковой
    давности) — тот же JS-паттерн, что и у выбора гаражей в
    finance/mass_charge.html, только по людям; сумма, видимость и порядок
    строк пересчитываются на клиенте при переключении категорий долга/
    фильтра/сортировки (см. скрипт внизу), без обращения к серверу. #}
-<form method="post" action="{{ form_action }}">
+<form method="post" action="{{ url_for('legal_docs.debt_notice') }}">
   {% if categories %}
   <div class="mb-2">
     <div class="fw-semibold small mb-1">{{ _("Учитывать в подборке:") }}</div>
@@ -61,14 +62,24 @@
     {% endfor %}
   </div>
   <p class="text-muted small mb-3 mt-1"><span id="debtorPickerCount">0</span> {{ _("должников выбрано") }}</p>
-  {% if show_proceeding_type_choice %}
-  <div class="form-check mb-3">
-    <input class="form-check-input" type="checkbox" name="proceeding_type" id="pickerProceedingWrit" value="writ">
-    <label class="form-check-label" for="pickerProceedingWrit">{{ _("Приказное производство (без заседания, госпошлина 50%)") }}</label>
-    <div class="form-text">{{ _("Доступно по требованиям о взыскании обязательных платежей и взносов с членов кооператива (абз. 10 ст. 122 ГПК РФ). Если не отмечено — обычное исковое заявление (очный процесс, госпошлина в полном размере). Выбор один на весь пакет — вид документа и текст зависят от него.") }}</div>
+  <div class="border rounded p-3 bg-body">
+    <div class="fw-semibold small mb-2">{{ _("Сформировать для выбранных:") }}</div>
+    <div class="d-flex flex-wrap gap-2 mb-3">
+      <button class="btn btn-primary" formaction="{{ url_for('legal_docs.debt_notice') }}" {{ "disabled" if not debtors }}
+              title="{{ _('Письмо-претензия с разбивкой долга по годам — на печать или в PDF') }}">{{ _("Уведомление о задолженности") }}</button>
+      <button class="btn btn-outline-primary" formaction="{{ url_for('postal_letters.new') }}" {{ "disabled" if not debtors }}
+              title="{{ _('То же уведомление как заказное письмо (ЭЗП) для выгрузки в otpravka.pochta.ru') }}">{{ _("Заказные письма") }}</button>
+      <button class="btn btn-outline-primary" formaction="{{ url_for('legal_docs.state_duty_review') }}" {{ "disabled" if not debtors }}
+              title="{{ _('Справочная сумма госпошлины и реквизиты судебного участка, с возможностью правки') }}">{{ _("Оплата госпошлины") }}</button>
+      <button class="btn btn-outline-primary" formaction="{{ url_for('legal_docs.lawsuit_draft') }}" {{ "disabled" if not debtors }}
+              title="{{ _('Редактируемый черновик: долг + пеня + судебные расходы') }}">{{ _("Исковое заявление") }}</button>
+    </div>
+    <div class="form-check mb-0">
+      <input class="form-check-input" type="checkbox" name="proceeding_type" id="pickerProceedingWrit" value="writ">
+      <label class="form-check-label" for="pickerProceedingWrit">{{ _("Приказное производство (без заседания, госпошлина 50%)") }}</label>
+      <div class="form-text">{{ _("Только для искового заявления. Доступно по требованиям о взыскании обязательных платежей и взносов с членов кооператива (абз. 10 ст. 122 ГПК РФ). Если не отмечено — обычное исковое заявление (очный процесс, госпошлина в полном размере). Выбор один на весь пакет — вид документа и текст зависят от него.") }}</div>
+    </div>
   </div>
-  {% endif %}
-  <button class="btn btn-primary" {{ "disabled" if not debtors }}>{{ _("Сформировать документы") }}</button>
 </form>
 
 <script>

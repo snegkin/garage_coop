@@ -22,7 +22,7 @@
       {% endfor %}
       <button class="btn btn-outline-success">{{ _("Госпошлина уплачена — начислить должникам") }}</button>
     </form>
-    <a class="btn btn-outline-secondary" href="{{ url_for('legal_docs.state_duty') }}">{{ _("Назад к выбору") }}</a>
+    <a class="btn btn-outline-secondary" href="{{ url_for('legal_docs.debtors') }}">{{ _("Назад к выбору") }}</a>
   </div>
 </div>
 {% include "legal_docs/_print_style.html" %}

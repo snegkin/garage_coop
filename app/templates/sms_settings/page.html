@@ -1,8 +1,9 @@
 {% extends "base.html" %}
 {% block title %}{{ _("Настройки СМС") }}{% endblock %}
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
-  <h3 class="mb-0">{{ _("Настройки СМС") }}</h3>
+{% set active_channel = "sms" %}
+{% include "_notification_channels_tabs.html" %}
+<div class="d-flex justify-content-end mb-2">
   <button class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#smsSettingsModal">{{ _("Настройки") }}</button>
 </div>
 <p class="text-muted">{{ _("Используется для подтверждения номера телефона при самостоятельной регистрации и для восстановления пароля по телефону.") }}</p>

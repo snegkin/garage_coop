@@ -818,7 +818,7 @@ def approve_revision(person_id, revision_id):
         abort(404)
     if revision.status != PersonDataRevisionStatus.PENDING:
         flash(_("Эта ревизия уже обработана."), "warning")
-        return redirect(url_for("persons.list_persons"))
+        return redirect(url_for("persons.detail", person_id=person.id))
 
     _apply_revision(revision)
     revision.status = PersonDataRevisionStatus.APPROVED
@@ -830,7 +830,7 @@ def approve_revision(person_id, revision_id):
     )
     database.db_session.commit()
     flash(_("Изменения для «{name}» одобрены и применены.", name=person.full_name), "success")
-    return redirect(url_for("persons.list_persons"))
+    return redirect(url_for("persons.detail", person_id=person.id))
 
 
 @bp.route("/persons/<int:person_id>/revisions/reject/<int:revision_id>", methods=["POST"])
@@ -844,11 +844,11 @@ def reject_revision(person_id, revision_id):
         abort(404)
     if revision.status != PersonDataRevisionStatus.PENDING:
         flash(_("Эта ревизия уже обработана."), "warning")
-        return redirect(url_for("persons.list_persons"))
+        return redirect(url_for("persons.detail", person_id=person.id))
 
     revision.status = PersonDataRevisionStatus.REJECTED
     revision.reviewed_at = dt.datetime.utcnow()
     revision.reviewer_user_id = g.user.id
     database.db_session.commit()
     flash(_("Изменения для «{name}» отклонены.", name=person.full_name), "info")
-    return redirect(url_for("persons.list_persons"))
+    return redirect(url_for("persons.detail", person_id=person.id))

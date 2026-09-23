@@ -53,7 +53,7 @@ from . import audit
 from .i18n import translate as _
 from .auth import roles_required
 from .persons import build_statement
-from .legal_docs import list_debtor_persons, build_yearly_debt_breakdown, debt_categories, parse_selected_categories
+from .legal_docs import build_yearly_debt_breakdown, parse_selected_categories
 from .models import Person, Cooperative, RoleEnum, Document, DocumentType, PostalDispatch, PostalDispatchStatus
 
 bp = Blueprint("postal_letters", __name__, url_prefix="/postal-letters")
@@ -205,12 +205,11 @@ def list_view():
 @roles_required(RoleEnum.BOARD)
 def new():
     if request.method == "GET":
-        debtors = list_debtor_persons()
-        return render_template("postal_letters/new.html", debtors=debtors, categories=debt_categories())
+        return redirect(url_for("legal_docs.debtors"))  # выбор должников — общая страница
 
     persons = _selected_persons_or_redirect()
     if persons is None:
-        return redirect(url_for("postal_letters.new"))
+        return redirect(url_for("legal_docs.debtors"))
 
     selected = parse_selected_categories(request.form)
     coop, chairman = _coop_and_chairman()
@@ -220,7 +219,7 @@ def new():
         pdf_bytes = _render_debt_notice_pdf(person, coop, chairman, today, selected)
         if pdf_bytes is None:
             database.db_session.rollback()
-            return redirect(url_for("postal_letters.new"))
+            return redirect(url_for("legal_docs.debtors"))
 
         title = _("Уведомление о задолженности — {name}", name=person.full_name)
         dispatch = PostalDispatch(

@@ -681,16 +681,31 @@ def build_yearly_debt_breakdown(person: Person, categories: set[str]) -> list[di
     ]
 
 
+# ---------------------------------------------------------------------------
+# Единая страница выбора должников — один мультивыбор (_debtor_picker.html)
+# и кнопки всех инструментов под ним (уведомление, заказное письмо,
+# госпошлина, иск — каждая через свой formaction). Раньше у каждого
+# инструмента была своя страница с тем же самым пикером; их GET-адреса
+# остались редиректами сюда, POST-обработчики не изменились.
+# ---------------------------------------------------------------------------
+
+@bp.route("/debtors")
+@roles_required(RoleEnum.BOARD)
+def debtors():
+    return render_template(
+        "legal_docs/debtors.html", debtors=list_debtor_persons(), categories=debt_categories(),
+    )
+
+
 @bp.route("/debt-notice", methods=["GET", "POST"])
 @roles_required(RoleEnum.BOARD)
 def debt_notice():
     if request.method == "GET":
-        debtors = list_debtor_persons()
-        return render_template("legal_docs/debt_notice_picker.html", debtors=debtors, categories=debt_categories())
+        return redirect(url_for("legal_docs.debtors"))
 
     persons = _selected_persons_or_redirect()
     if persons is None:
-        return redirect(url_for("legal_docs.debt_notice"))
+        return redirect(url_for("legal_docs.debtors"))
 
     selected = parse_selected_categories(request.form)
     coop, chairman = _coop_and_chairman()
@@ -718,8 +733,7 @@ def debt_notice():
 @bp.route("/state-duty")
 @roles_required(RoleEnum.BOARD)
 def state_duty():
-    debtors = list_debtor_persons()
-    return render_template("legal_docs/state_duty_picker.html", debtors=debtors, categories=debt_categories())
+    return redirect(url_for("legal_docs.debtors"))
 
 
 @bp.route("/state-duty/review", methods=["POST"])
@@ -727,7 +741,7 @@ def state_duty():
 def state_duty_review():
     persons = _selected_persons_or_redirect()
     if persons is None:
-        return redirect(url_for("legal_docs.state_duty"))
+        return redirect(url_for("legal_docs.debtors"))
 
     selected = parse_selected_categories(request.form)
     coop, _chairman = _coop_and_chairman()
@@ -749,7 +763,7 @@ def state_duty_print():
     person_ids = [int(x) for x in request.form.getlist("person_id")]
     if not person_ids:
         flash(_("Выберите хотя бы одного должника."), "danger")
-        return redirect(url_for("legal_docs.state_duty"))
+        return redirect(url_for("legal_docs.debtors"))
 
     coop, _chairman = _coop_and_chairman()
     persons = database.db_session.query(Person).filter(Person.id.in_(person_ids)).order_by(Person.full_name).all()
@@ -802,7 +816,7 @@ def state_duty_charge():
     fee_type = database.db_session.query(FeeType).filter_by(code="telecom_disputes").first()
     if fee_type is None:
         flash(_("Вид взноса «Телекоммуникационные услуги и споры» не найден — обратитесь к разработчику."), "danger")
-        return redirect(url_for("legal_docs.state_duty"))
+        return redirect(url_for("legal_docs.debtors"))
 
     charged = 0
     for person_id_raw in person_ids:
@@ -839,7 +853,7 @@ def state_duty_charge():
         flash(_("Госпошлина начислена на {n} счёт(ов).", n=charged), "success")
     else:
         flash(_("Нечего начислять — суммы не указаны, либо у должников не найден личный счёт."), "warning")
-    return redirect(url_for("legal_docs.state_duty"))
+    return redirect(url_for("legal_docs.debtors"))
 
 
 # ---------------------------------------------------------------------------
@@ -849,8 +863,7 @@ def state_duty_charge():
 @bp.route("/lawsuit")
 @roles_required(RoleEnum.BOARD)
 def lawsuit():
-    debtors = list_debtor_persons()
-    return render_template("legal_docs/lawsuit_picker.html", debtors=debtors, categories=debt_categories())
+    return redirect(url_for("legal_docs.debtors"))
 
 
 @bp.route("/lawsuit/draft", methods=["POST"])
@@ -858,7 +871,7 @@ def lawsuit():
 def lawsuit_draft():
     persons = _selected_persons_or_redirect()
     if persons is None:
-        return redirect(url_for("legal_docs.lawsuit"))
+        return redirect(url_for("legal_docs.debtors"))
 
     selected = parse_selected_categories(request.form)
     proceeding_type = "writ" if request.form.get("proceeding_type") == "writ" else "claim"
@@ -885,7 +898,7 @@ def lawsuit_print():
     person_ids = [int(x) for x in request.form.getlist("person_id")]
     if not person_ids:
         flash(_("Выберите хотя бы одного должника."), "danger")
-        return redirect(url_for("legal_docs.lawsuit"))
+        return redirect(url_for("legal_docs.debtors"))
 
     selected = parse_selected_categories(request.form)
     proceeding_type = "writ" if request.form.get("proceeding_type") == "writ" else "claim"

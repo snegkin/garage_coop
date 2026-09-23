@@ -243,10 +243,10 @@
     </div>
     {% if rev.status.value == 'pending' %}
     <div class="mt-2">
-      <form method="post" action="{{ url_for('persons.approve_revision', person_id=person.id, revision_id=rev.id) }}" class="d-inline">
+      <form method="post" action="{{ url_for('persons.approve_revision', person_id=person.id, revision_id=rev.id) }}" class="d-inline" data-ajax>
         <button class="btn btn-sm btn-success">{{ _("Одобрить") }}</button>
       </form>
-      <form method="post" action="{{ url_for('persons.reject_revision', person_id=person.id, revision_id=rev.id) }}" class="d-inline ms-2">
+      <form method="post" action="{{ url_for('persons.reject_revision', person_id=person.id, revision_id=rev.id) }}" class="d-inline ms-2" data-ajax>
         <button class="btn btn-sm btn-outline-danger">{{ _("Отклонить") }}</button>
       </form>
     </div>

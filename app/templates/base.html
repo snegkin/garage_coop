@@ -100,16 +100,13 @@
             {% endif %}
             <li><hr class="dropdown-divider"></li>
             <li><h6 class="dropdown-header">{{ _("Делопроизводство") }}</h6></li>
-            <li><a class="dropdown-item" href="{{ url_for('legal_docs.debt_notice') }}">{{ _("Уведомление о задолженности") }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('legal_docs.debtors') }}">{{ _("Должники: уведомления, госпошлина, иски") }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('postal_letters.list_view') }}">{{ _("Заказные письма (Почта России)") }}</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('legal_docs.state_duty') }}">{{ _("Оплата госпошлины") }}</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('legal_docs.lawsuit') }}">{{ _("Исковое заявление") }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('legal_docs.court_sections_list') }}">{{ _("Судебные участки") }}</a></li>
             <li><hr class="dropdown-divider"></li>
             <li><h6 class="dropdown-header">{{ _("Коммуникации") }}</h6></li>
             <li><a class="dropdown-item d-flex justify-content-between align-items-center" href="{{ url_for('mailbox.inbox') }}">{{ _("Почта") }}{% if mailbox_unread_count > 0 %}<span class="badge bg-primary rounded-pill">{{ mailbox_unread_count }}</span>{% endif %}</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('sms_settings.view') }}">{{ _("СМС") }}</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('telegram_settings.view') }}">{{ _("Telegram") }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('sms_settings.view') }}">{{ _("СМС и Telegram") }}</a></li>
             {% endif %}
 
             {% if is_chairman() %}

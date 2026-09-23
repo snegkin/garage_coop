@@ -82,9 +82,10 @@ def test_plain_member_cannot_access(db, client):
 def test_board_member_can_access(db, client):
     _make_coop(db)
     _board_login(db, client)
-    for url in ("/postal-letters/", "/postal-letters/new"):
-        resp = client.get(url)
-        assert resp.status_code == 200
+    assert client.get("/postal-letters/").status_code == 200
+    resp = client.get("/postal-letters/new")  # выбор должников — общая страница «Должники»
+    assert resp.status_code == 302
+    assert resp.headers["Location"].endswith("/legal-docs/debtors")
 
 
 # ---------------------------------------------------------------------------

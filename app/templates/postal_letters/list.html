@@ -3,7 +3,7 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h3>{{ _("Заказные письма (Почта России)") }}</h3>
-  <a href="{{ url_for('postal_letters.new') }}" class="btn btn-primary">+ {{ _("Новые письма должникам") }}</a>
+  <a href="{{ url_for('legal_docs.debtors') }}" class="btn btn-primary">+ {{ _("Новые письма должникам") }}</a>
 </div>
 <p class="text-muted">
   {{ _("Письма готовятся здесь, но отправляются вручную: скачайте пакет для писем в статусе «черновик», подпишите PDF в КриптоПро и загрузите пакет в личный кабинет otpravka.pochta.ru, затем отметьте письма как загруженные/доставленные по данным того же личного кабинета.") }}
@@ -46,7 +46,7 @@
       <td class="text-nowrap">
         {% if d.document_id %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('cooperative.download_document', doc_id=d.document_id) }}">PDF</a>{% endif %}
         {% if d.status.value == "exported" %}
-        <form method="post" action="{{ url_for('postal_letters.mark_sent', dispatch_id=d.id) }}" class="d-inline">
+        <form method="post" action="{{ url_for('postal_letters.mark_sent', dispatch_id=d.id) }}" class="d-inline" data-ajax>
           <button class="btn btn-sm btn-outline-success">{{ _("Загружено в ЛК") }}</button>
         </form>
         {% endif %}

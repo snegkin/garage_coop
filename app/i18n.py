@@ -2061,6 +2061,22 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Приказное производство (без заседания, госпошлина 50%)": "Writ proceeding (no hearing, 50% state duty)",
         "Доступно по требованиям о взыскании обязательных платежей и взносов с членов кооператива (абз. 10 ст. 122 ГПК РФ). Если не отмечено — обычное исковое заявление (очный процесс, госпошлина в полном размере). Выбор один на весь пакет — вид документа и текст зависят от него.":
             "Available for claims to recover mandatory payments and dues from cooperative members (para. 10, Art. 122 of the Code of Civil Procedure). If unchecked — a regular statement of claim (full trial, full state duty). One choice for the whole batch — it changes the document type and text, not just a number.",
+        "Только для искового заявления. Доступно по требованиям о взыскании обязательных платежей и взносов с членов кооператива (абз. 10 ст. 122 ГПК РФ). Если не отмечено — обычное исковое заявление (очный процесс, госпошлина в полном размере). Выбор один на весь пакет — вид документа и текст зависят от него.":
+            "Statement of claim only. Available for claims to recover mandatory payments and dues from cooperative members (para. 10, Art. 122 of the Code of Civil Procedure). If unchecked — a regular statement of claim (full trial, full state duty). One choice for the whole batch — it changes the document type and text, not just a number.",
+        # legal_docs.debtors — единая страница выбора должников для всех инструментов
+        "Должники": "Debtors",
+        "Должники: уведомления, госпошлина, иски": "Debtors: notices, state duty, lawsuits",
+        "Журнал заказных писем": "Registered letters log",
+        "Выберите должников один раз и сформируйте нужные документы кнопками внизу — на каждого выбранного человека отдельный документ.":
+            "Select debtors once and generate the documents you need with the buttons below — a separate document for each selected person.",
+        "Сформировать для выбранных:": "Generate for selected:",
+        "Заказные письма": "Registered letters",
+        "Письмо-претензия с разбивкой долга по годам — на печать или в PDF": "Claim letter with a yearly debt breakdown — to print or PDF",
+        "То же уведомление как заказное письмо (ЭЗП) для выгрузки в otpravka.pochta.ru": "The same notice as a registered e-letter for upload to otpravka.pochta.ru",
+        "Справочная сумма госпошлины и реквизиты судебного участка, с возможностью правки": "Suggested state duty and court details, editable",
+        "Редактируемый черновик: долг + пеня + судебные расходы": "Editable draft: debt + penalty + legal costs",
+        "Каналы уведомлений": "Notification channels",
+        "СМС и Telegram": "SMS and Telegram",
         "Приказное производство — без судебного заседания, госпошлина 50% от обычной ставки.":
             "Writ proceeding — no court hearing, state duty is 50% of the regular rate.",
         "Шапка (суд, {party}) и заголовок «{title}» формируются автоматически по данным карточек и печатаются отдельно — здесь редактируется только основной текст ниже.":

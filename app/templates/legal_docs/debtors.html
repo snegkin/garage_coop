@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Должники") }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <h3 class="mb-0">{{ _("Должники") }}</h3>
+  <div class="d-flex gap-2">
+    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('postal_letters.list_view') }}">{{ _("Журнал заказных писем") }}</a>
+    {% if is_chairman() %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('legal_docs.court_sections_list') }}">{{ _("Судебные участки") }}</a>{% endif %}
+  </div>
+</div>
+<p class="text-muted">{{ _("Выберите должников один раз и сформируйте нужные документы кнопками внизу — на каждого выбранного человека отдельный документ.") }}</p>
+{% include "legal_docs/_debtor_picker.html" %}
+{% endblock %}

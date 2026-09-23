@@ -8,7 +8,7 @@
   </div>
   <div>
     <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#editCounterpartyModal">{{ _("Изменить") }}</button>
-    <a class="btn btn-primary" href="{{ url_for('counterparties.list_counterparties') }}">{{ _("← Все контрагенты") }}</a>
+    <a data-back-link data-back-label="&larr; {{ _('Назад') }}" class="btn btn-primary" href="{{ url_for('counterparties.list_counterparties') }}">{{ _("← Все контрагенты") }}</a>
   </div>
 </div>
 

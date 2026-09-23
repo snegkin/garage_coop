@@ -2,7 +2,7 @@
 {% block title %}{{ detail.subject }}{% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
-  <a href="{{ url_for('mailbox.inbox', folder=folder) }}" class="d-inline-block">&larr; {{ _("Ко всем письмам") }}</a>
+  <a data-back-link data-back-label="&larr; {{ _('Назад') }}" href="{{ url_for('mailbox.inbox', folder=folder) }}" class="d-inline-block">&larr; {{ _("Ко всем письмам") }}</a>
   <div class="d-flex gap-2">
     <a class="btn btn-sm btn-outline-primary" href="{{ url_for('mailbox.compose', reply_to=detail.uid, folder=folder) }}">{{ _("Ответить") }}</a>
     <a class="btn btn-sm btn-outline-primary" href="{{ url_for('mailbox.compose', forward=detail.uid, folder=folder) }}">{{ _("Переслать") }}</a>

@@ -23,7 +23,7 @@
     {% if vote.status.value == 'draft' and is_chairman() %}
     <a class="btn btn-outline-primary btn-sm" href="{{ url_for('voting.edit', vote_id=vote.id) }}">{{ _("Изменить") }}</a>
     {% endif %}
-    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('voting.list_votes') }}">{{ _("← ко всем голосованиям") }}</a>
+    <a data-back-link data-back-label="&larr; {{ _('Назад') }}" class="btn btn-outline-secondary btn-sm" href="{{ url_for('voting.list_votes') }}">{{ _("← ко всем голосованиям") }}</a>
   </div>
 </div>
 

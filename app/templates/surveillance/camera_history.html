@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ _("История: {label}", label=camera.label) }}{% endblock %}
 {% block content %}
-<a href="{{ url_for('surveillance.view') }}" class="d-inline-block mb-3">&larr; {{ _("Ко всем регистраторам") }}</a>
+<a data-back-link data-back-label="&larr; {{ _('Назад') }}" href="{{ url_for('surveillance.view') }}" class="d-inline-block mb-3">&larr; {{ _("Ко всем регистраторам") }}</a>
 
 <div class="d-flex justify-content-between align-items-center mb-3">
   <div>

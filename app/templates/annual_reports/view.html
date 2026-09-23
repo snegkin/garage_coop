@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ _("Годовой отчёт за {year} год", year=report.year) }}{% endblock %}
 {% block content %}
+<a href="{{ url_for('annual_reports.list_reports') }}" class="d-inline-block mb-3" data-back-link data-back-label="&larr; {{ _('Назад') }}">&larr; {{ _("Ко всем отчётам") }}</a>
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h3 class="mb-0">{{ _("Годовой отчёт за {year} год", year=report.year) }}</h3>
   {% if is_chairman() %}

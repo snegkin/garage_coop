@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ item.title }}{% endblock %}
 {% block content %}
-<a href="{{ url_for('auth.login') }}" class="d-inline-block mb-3">&larr; {{ _("Ко всем новостям") }}</a>
+<a href="{{ url_for('main.index') }}" class="d-inline-block mb-3" data-back-link data-back-label="&larr; {{ _('Назад') }}">&larr; {{ _("Ко всем новостям") }}</a>
 
 <div class="card bg-body" style="max-width:800px">
   <div class="card-body">

@@ -13,7 +13,7 @@ from .auth import login_required, roles_required, is_safe_next_url
 from .permissions import is_board, is_chairman, sync_user_role
 from .models import (
     Person, Phone, User, RoleEnum, MemberAccount, PersonDataRevision, PersonDataRevisionStatus,
-    GarageOwnership, PersonalAccount, Cooperative, Charge, FeeType, KeyRate, CourtSection,
+    GarageOwnership, GarageContact, PersonalAccount, Cooperative, Charge, FeeType, KeyRate, CourtSection,
 )
 from sqlalchemy.orm import joinedload
 from .accounting import balance
@@ -259,9 +259,21 @@ def detail(person_id):
     if is_chairman():
         revision_rows = {rev.id: _revision_diff_rows(rev, person) for rev in person.revisions}
         court_sections = database.db_session.query(CourtSection).order_by(CourtSection.name).all()
+    # Гаражи человека — блок ссылок «Гаражи» на карточке (собственник и
+    # лицо для связи), обратная сторона ссылок на людей в карточке гаража.
+    ownerships = sorted(
+        database.db_session.query(GarageOwnership).filter_by(person_id=person.id).all(),
+        key=lambda o: o.garage.number,
+    )
+    owned_ids = {o.garage_id for o in ownerships}
+    contact_links = sorted(
+        (c for c in database.db_session.query(GarageContact).filter_by(person_id=person.id).all()
+         if c.garage_id not in owned_ids),
+        key=lambda c: c.garage.number,
+    )
     return render_template(
         "persons/detail.html", person=person, account=account, member_accounts=member_accounts,
-        has_unpaid_penalty=has_unpaid_penalty,
+        has_unpaid_penalty=has_unpaid_penalty, ownerships=ownerships, contact_links=contact_links,
         revision_rows=revision_rows, court_sections=court_sections, today=dt.date.today(),
     )
 

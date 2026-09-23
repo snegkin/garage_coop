@@ -2,7 +2,7 @@
 {% extends "base.html" %}
 {% block title %}{{ node.name }}{% endblock %}
 {% block content %}
-<a href="{{ url_for('control_meters.list_tree') }}" class="d-inline-block mb-3">&larr; {{ _("Ко всем узлам") }}</a>
+<a data-back-link data-back-label="&larr; {{ _('Назад') }}" href="{{ url_for('control_meters.list_tree') }}" class="d-inline-block mb-3">&larr; {{ _("Ко всем узлам") }}</a>
 
 <div class="row">
   <div class="col-md-4 col-lg-3 mb-3">

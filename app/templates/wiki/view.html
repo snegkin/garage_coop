@@ -2,7 +2,7 @@
 {% extends "base.html" %}
 {% block title %}{{ page.title }}{% endblock %}
 {% block content %}
-<a href="{{ url_for('wiki.list_pages') }}" class="d-inline-block mb-3">&larr; {{ _("Ко всем страницам") }}</a>
+<a data-back-link data-back-label="&larr; {{ _('Назад') }}" href="{{ url_for('wiki.list_pages') }}" class="d-inline-block mb-3">&larr; {{ _("Ко всем страницам") }}</a>
 
 <div class="bg-body p-3 rounded border mb-3">
   {{ wikitree.render_tree(tree, current_page_id=page.id, path_ids=path_ids, show_actions=is_board()) }}

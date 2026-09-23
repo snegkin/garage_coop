@@ -17,7 +17,7 @@
     {% if proposal.status.value == 'pending' and is_chairman() %}
     <a class="btn btn-outline-primary btn-sm" href="{{ url_for('proposals.edit', proposal_id=proposal.id) }}">{{ _("Изменить") }}</a>
     {% endif %}
-    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('proposals.list_proposals') }}">{{ _("← ко всем предложениям") }}</a>
+    <a data-back-link data-back-label="&larr; {{ _('Назад') }}" class="btn btn-outline-secondary btn-sm" href="{{ url_for('proposals.list_proposals') }}">{{ _("← ко всем предложениям") }}</a>
   </div>
 </div>
 

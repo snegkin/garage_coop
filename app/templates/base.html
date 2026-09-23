@@ -1490,6 +1490,7 @@ function submitFormAjax(form, opts) {
       initActiveAccountsToggle(mainContent);
       initSearchableSelects(mainContent);
       initUtcDatetimes(mainContent);
+      initBackLinks(mainContent);
       runContentScripts(mainContent);
       window.scrollTo(0, scrollY);
     })
@@ -1511,6 +1512,80 @@ document.addEventListener("submit", function (e) {
   e.preventDefault();
 
   submitFormAjax(form);
+});
+</script>
+<script>
+// «Назад» туда, откуда на страницу реально пришли, а не в жёстко
+// прописанный раздел: ссылки с атрибутом data-back-link получают адрес
+// предыдущей страницы (document.referrer своего же сайта), запомненный в
+// sessionStorage по pathname текущей — так он переживает и перезагрузку
+// после обычного POST→redirect (там referrer уже сама эта страница), и
+// AJAX-подмену #mainContent (см. submitFormAjax — там initBackLinks
+// вызывается заново). Исходный href ссылки — запасной вариант, если
+// пришли по прямой ссылке/закладке. Если адрес возврата ведёт не туда,
+// куда href по умолчанию, текст ссылки меняется на data-back-label
+// («← Назад»), чтобы надпись вида «Ко всем контрагентам» не врала.
+//
+// Не перезаписываем запомненный адрес, когда:
+//   - переход был по самой ссылке «Назад» (иначе A → B → «Назад» на B
+//     вернул бы на A, а «Назад» на A — снова на B, по кругу);
+//   - навигация кнопками браузера (back_forward) или перезагрузка;
+//   - referrer — та же страница (другая вкладка ?tab=… того же pathname);
+//   - referrer подходит под data-back-inherit (регулярное выражение по
+//     pathname, напр. соседний гараж из «← Гараж №N →»): тогда
+//     наследуем адрес возврата той страницы, а не её саму.
+function initBackLinks(root) {
+  var links = root.querySelectorAll("a[data-back-link]");
+  if (!links.length) return;
+  var storageKey = "backLink:" + window.location.pathname;
+  var target = null;
+  try { target = window.sessionStorage.getItem(storageKey); } catch (e) { return; }
+  links.forEach(function (a) {
+    if (!a.dataset.backFallback) a.dataset.backFallback = a.getAttribute("href");
+    if (!target) return;
+    var targetUrl = new URL(target, window.location.href);
+    var fallbackUrl = new URL(a.dataset.backFallback, window.location.href);
+    a.setAttribute("href", target);
+    if (targetUrl.pathname !== fallbackUrl.pathname && a.dataset.backLabel) {
+      a.textContent = a.dataset.backLabel;
+    }
+  });
+}
+
+function rememberBackTarget() {
+  var storage;
+  try { storage = window.sessionStorage; } catch (e) { return; }
+  var storageKey = "backLink:" + window.location.pathname;
+  var viaBackLink = storage.getItem("backLinkNavigation") === "1";
+  storage.removeItem("backLinkNavigation");
+  if (viaBackLink) return;
+  var nav = performance.getEntriesByType ? performance.getEntriesByType("navigation")[0] : null;
+  if (nav && (nav.type === "back_forward" || nav.type === "reload")) return;
+  if (!document.referrer) return;
+  var ref;
+  try { ref = new URL(document.referrer); } catch (e) { return; }
+  if (ref.origin !== window.location.origin || ref.pathname === window.location.pathname) return;
+  var inheritFrom = null;
+  document.querySelectorAll("a[data-back-link][data-back-inherit]").forEach(function (a) {
+    if (new RegExp(a.dataset.backInherit).test(ref.pathname)) inheritFrom = ref.pathname;
+  });
+  if (inheritFrom) {
+    var inherited = storage.getItem("backLink:" + inheritFrom);
+    if (inherited) storage.setItem(storageKey, inherited);
+    return;
+  }
+  storage.setItem(storageKey, ref.pathname + ref.search + ref.hash);
+}
+
+document.addEventListener("click", function (e) {
+  var a = e.target.closest ? e.target.closest("a[data-back-link]") : null;
+  if (!a) return;
+  try { window.sessionStorage.setItem("backLinkNavigation", "1"); } catch (err) { /* приватный режим */ }
+});
+
+document.addEventListener("DOMContentLoaded", function () {
+  rememberBackTarget();
+  initBackLinks(document);
 });
 </script>
 <script>

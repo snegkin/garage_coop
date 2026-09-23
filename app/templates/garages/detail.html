@@ -2,6 +2,7 @@
 {% block title %}{{ page_title }}{% endblock %}
 {% block content %}
 {% set _active_tab = request.args.get('tab', 'info') %}
+<a href="{{ url_for('garages.list_garages') if is_board() else url_for('cabinet.garages') }}" class="d-inline-block mb-3" data-back-link data-back-label="&larr; {{ _('Назад') }}" data-back-inherit="^/garages/\d+$">&larr; {{ _("Ко всем гаражам") if is_board() else _("К моим гаражам") }}</a>
 
 {# Навигация: предыдущий / следующий гараж — только для правления: рядовой
    собственник видит эту страницу лишь для своих гаражей, а переход по
@@ -81,7 +82,7 @@
       <tbody>
         {% for o in garage.ownerships %}
         <tr>
-          <td>{% if is_board() %}<a href="{{ url_for('persons.detail', person_id=o.person.id) }}">{{ o.person.full_name }}</a>{% else %}{{ o.person.full_name }}{% endif %}</td>
+          <td>{% if is_board() or o.person.id == g.user.person_id %}<a href="{{ url_for('persons.detail', person_id=o.person.id) }}">{{ o.person.full_name }}</a>{% else %}{{ o.person.full_name }}{% endif %}</td>
           <td data-sort-value="{{ o.share }}">{{ fmt2(o.share) }}</td>
           {% if is_board() %}
           <td>
@@ -207,7 +208,7 @@
       <tbody>
         {% for c in garage.contacts %}
         <tr>
-          <td>{% if is_board() %}<a href="{{ url_for('persons.detail', person_id=c.person.id) }}">{{ c.person.full_name }}</a>{% else %}{{ c.person.full_name }}{% endif %}</td>
+          <td>{% if is_board() or c.person.id == g.user.person_id %}<a href="{{ url_for('persons.detail', person_id=c.person.id) }}">{{ c.person.full_name }}</a>{% else %}{{ c.person.full_name }}{% endif %}</td>
           <td>{{ c.relation or "—" }}</td>
           {% if is_board() %}
           <td>

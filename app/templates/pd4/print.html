@@ -12,9 +12,7 @@
       {% endfor %}
       <button type="submit" class="btn btn-outline-primary">{{ _("Скачать PDF") }}</button>
     </form>
-    {% if is_board() %}
-    <a class="btn btn-outline-secondary" href="{{ url_for('pd4.select') }}">{{ _("Назад к выбору") }}</a>
-    {% endif %}
+    <a class="btn btn-outline-secondary" href="{{ url_for('pd4.select') if is_board() else url_for('cabinet.garages') }}" data-back-link data-back-label="&larr; {{ _('Назад') }}">{{ _("Назад к выбору") if is_board() else _("Назад") }}</a>
   </div>
 </div>
 

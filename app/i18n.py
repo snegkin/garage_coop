@@ -2076,6 +2076,17 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Справочная сумма госпошлины и реквизиты судебного участка, с возможностью правки": "Suggested state duty and court details, editable",
         "Редактируемый черновик: долг + пеня + судебные расходы": "Editable draft: debt + penalty + legal costs",
         "Каналы уведомлений": "Notification channels",
+        # ссылки «Назад» (data-back-link, см. base.html: initBackLinks) и блок гаражей в карточке человека
+        "Ко всем темам": "Back to topics",
+        "Ко всем отчётам": "Back to reports",
+        "Ко всем людям": "Back to people",
+        "В профиль": "To profile",
+        "Ко всем гаражам": "Back to garages",
+        "К моим гаражам": "Back to my garages",
+        "Собственник, доля": "Owner, share",
+        "Лицо для связи": "Contact person",
+        "лицо для связи": "contact person",
+        "Гаражей нет.": "No garages.",
         "СМС и Telegram": "SMS and Telegram",
         "Приказное производство — без судебного заседания, госпошлина 50% от обычной ставки.":
             "Writ proceeding — no court hearing, state duty is 50% of the regular rate.",

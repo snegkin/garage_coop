@@ -3,12 +3,18 @@
 
 Каждый тест получает чистую БД (временный файл SQLite, накатанный через
 Alembic, как в реальном приложении — не Base.metadata.create_all(), чтобы
-тесты ловили и ошибки в самих миграциях). CSRF в тестовом конфиге выключен
+тесты ловили и ошибки в самих миграциях). Сами миграции прогоняются ОДИН
+раз за сессию в шаблонную БД (_migrated_db_template), каждому тесту
+достаётся копия файла — раньше все ~70 миграций (с batch_alter_table —
+пересозданием таблиц в SQLite) накатывались заново на каждый тест, это
+~10 с на тест. create_app() на копии всё равно вызывает run_migrations(),
+но на БД, уже стоящей на head, это no-op. CSRF в тестовом конфиге выключен
 (WTF_CSRF_ENABLED=False) — специально для проверки самой CSRF-защиты есть
 отдельный конфиг в tests/test_security.py, здесь она бы только мешала
 писать тесты на бизнес-логику.
 """
 import os
+import shutil
 import tempfile
 
 import pytest
@@ -17,6 +23,7 @@ from werkzeug.security import generate_password_hash
 from app import create_app
 from config import Config
 from app import database
+from app.database import run_migrations
 from app.models import Person, User, RoleEnum, Garage, GarageOwnership
 
 
@@ -27,9 +34,17 @@ class TestConfig(Config):
     SECRET_KEY = "test-secret-key"
 
 
+@pytest.fixture(scope="session")
+def _migrated_db_template(tmp_path_factory):
+    path = tmp_path_factory.mktemp("db_template") / "template.db"
+    run_migrations(f"sqlite:///{path}")
+    return path
+
+
 @pytest.fixture()
-def app():
+def app(_migrated_db_template):
     db_fd, db_path = tempfile.mkstemp(suffix=".db")
+    shutil.copyfile(_migrated_db_template, db_path)
     upload_dir = tempfile.mkdtemp()
 
     class _Config(TestConfig):

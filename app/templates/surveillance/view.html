@@ -45,9 +45,13 @@
       <div class="col-sm-6 col-md-4 col-lg-3">
         <div class="card h-100">
           {% if camera.last_snapshot_at %}
-          <img src="{{ url_for('surveillance.snapshot', camera_id=camera.id) }}?t={{ camera.last_snapshot_at.timestamp()|int }}"
-               class="card-img-top js-dvr-frame js-lightbox" data-camera-id="{{ camera.id }}" alt="{{ camera.label }}"
-               style="aspect-ratio:4/3; object-fit:cover; background:#000; cursor:zoom-in;">
+          {# Клик — история кадров этой камеры, как у склеенного кадра регистратора
+             выше (не лайтбокс по последним снимкам всех камер сразу). #}
+          <a href="{{ url_for('surveillance.camera_history', camera_id=camera.id) }}" title="{{ _('Открыть историю') }}">
+            <img src="{{ url_for('surveillance.snapshot', camera_id=camera.id) }}?t={{ camera.last_snapshot_at.timestamp()|int }}"
+                 class="card-img-top js-dvr-frame" data-camera-id="{{ camera.id }}" alt="{{ camera.label }}"
+                 style="aspect-ratio:4/3; object-fit:cover; background:#000; cursor:pointer;">
+          </a>
           {% else %}
           <div class="card-img-top d-flex align-items-center justify-content-center text-white-50 small"
                style="aspect-ratio:4/3; background:#222;">{{ _("Кадр пока не получен") }}</div>

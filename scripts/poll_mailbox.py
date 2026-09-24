@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Подсчёт непрочитанных писем в почте правления — для запуска по cron (см.
-scripts/poll_mailbox.sh и README.md, раздел «Автоматизация»).
+scripts/poll_mailbox.sh и docs/deployment.md, раздел «Автоматизация»).
 
 Сама логика — в app/mailbox.py:refresh_unread_counts (та же схема, что и у
 app/notifications.py:run_board_chat_digest + scripts/board_chat_digest.py):

@@ -4,7 +4,7 @@
 FeeType.per_garage=False) реальную стоимость платного SMS с кодом для
 восстановления пароля (см. app/auth.py:forgot_password, предупреждение о
 цене на странице восстановления пароля) — для запуска по cron (см.
-scripts/reconcile_sms_charges.sh и README.md, раздел «Автоматизация»).
+scripts/reconcile_sms_charges.sh и docs/deployment.md, раздел «Автоматизация»).
 
 Сама отправка (app/sms/__init__.py:_LoggingSmsClient.send) стоимость не
 знает — SMS Aero отдаёт её не сразу, а некоторое время спустя, через

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Опрос устройств Sonoff POWCT через облако eWeLink — для запуска по cron раз
-в минуту (см. scripts/poll_ewelink.sh и README.md, раздел «Автоматизация»).
+в минуту (см. scripts/poll_ewelink.sh и docs/deployment.md, раздел «Автоматизация»).
 
 По аналогии с scripts/update_key_rate.py (ставка ЦБ РФ): отдельный скрипт,
 а не фоновый поток внутри веб-процесса — не тянет за собой планировщик

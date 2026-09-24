@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Опрос Telegram-бота через getUpdates (long polling) — для запуска по cron
-раз в минуту (см. scripts/poll_telegram.sh и README.md, раздел
+раз в минуту (см. scripts/poll_telegram.sh и docs/deployment.md, раздел
 «Автоматизация»). По аналогии с scripts/poll_ewelink.py — отдельный
 скрипт, не фоновый поток внутри веб-процесса.
 

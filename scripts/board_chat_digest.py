@@ -2,7 +2,7 @@
 """
 Уведомление членам правления о непрочитанных сообщениях в чате правления —
 для запуска по cron КАЖДЫЕ 5 МИНУТ (см. scripts/board_chat_digest.sh и
-README.md, раздел «Автоматизация»).
+docs/deployment.md, раздел «Автоматизация»).
 
 Сама логика — в app/notifications.py:run_board_chat_digest (тот же приём,
 что и у app/penalty.py:accrue_penalties + scripts/accrue_penalty.py):

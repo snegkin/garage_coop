@@ -32,7 +32,7 @@ cron её уже удалил, просто отвалится ссылка в �
     cd /path/to/project && python3 scripts/cleanup_orphan_attachments.py
 
 Обычно — через scripts/cleanup_orphan_attachments.sh (лог, venv, flock) по
-cron, см. README.md, раздел «Автоматизация».
+cron, см. docs/deployment.md, раздел «Автоматизация».
 """
 import datetime as dt
 import os

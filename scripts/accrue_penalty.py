@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Автоматическое начисление пени по просроченным взносам/налогу — для запуска
-по cron РАЗ В МЕСЯЦ (см. scripts/accrue_penalty.sh и README.md, раздел
+по cron РАЗ В МЕСЯЦ (см. scripts/accrue_penalty.sh и docs/deployment.md, раздел
 «Автоматизация»).
 
 Раньше accrue_penalties() вызывалась тихо на каждом открытии дашборда или

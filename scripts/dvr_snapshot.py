@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Снятие превью-кадра с каждой камеры видеонаблюдения — для запуска по cron
-раз в минуту (см. scripts/dvr_snapshot.sh и README.md, раздел
+раз в минуту (см. scripts/dvr_snapshot.sh и docs/deployment.md, раздел
 «Автоматизация»).
 
 По аналогии с scripts/poll_ewelink.py: отдельный скрипт, не фоновый поток

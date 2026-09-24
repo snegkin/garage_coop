@@ -1819,8 +1819,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Сначала укажите токен и имя бота.": "First fill in the token and bot username.",
         "Подключение работает: бот @{username}.": "Connection works: bot @{username}.",
         "Не удалось подключиться: {error}": "Could not connect: {error}",
-        "Отдельно нужен cron-скрипт scripts/poll_telegram.sh (см. README, раздел «Автоматизация») — он получает от Telegram сообщения /start для привязки аккаунтов и без него привязка не заработает, даже если бот настроен здесь.":
-            "You also need the cron script scripts/poll_telegram.sh (see README, «Automation» section) — it receives /start messages from Telegram for account linking, without it linking won't work even if the bot is configured here.",
+        "Отдельно нужен cron-скрипт scripts/poll_telegram.sh (см. docs/deployment.md, раздел «Автоматизация») — он получает от Telegram сообщения /start для привязки аккаунтов и без него привязка не заработает, даже если бот настроен здесь.":
+            "You also need the cron script scripts/poll_telegram.sh (see docs/deployment.md, «Automation» section) — it receives /start messages from Telegram for account linking, without it linking won't work even if the bot is configured here.",
 
         # cooperative/view.html
         "площадь кооператива - площадь приватизированных участков": "cooperative area minus privatized plots",

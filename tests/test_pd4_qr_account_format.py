@@ -113,3 +113,27 @@ def test_electricity_slip_print_page_shows_checking_account_without_spaces(db, c
     body = resp.get_data(as_text=True)
     assert "40703810777030002079" in body
     assert "40703 810 7 7703 0002079" not in body
+
+
+def test_print_page_has_save_qr_button_bound_to_slip_qr(db, client):
+    """«Сохранить QR» (оплата с того же телефона: картинку — в приложение
+    банка «Оплата по QR из галереи») — на каждую платёжку, со ссылкой на
+    QR именно этой платёжки. Сама перерисовка/скачивание — JS в
+    pd4/print.html, проверено вручную в браузере (декодированный PNG
+    совпадает с QR на бланке)."""
+    _make_coop(db)
+    _make_bank_account_with_spaces(db)
+    person = make_person(db, full_name="Сохранов Сохран Сохранович")
+    garage = make_garage(db, number="503")
+    make_ownership(db, garage, person)
+    db.add(PersonalAccount(garage_id=garage.id, account_number="50301"))
+    db.add(Charge(garage_id=garage.id, year=2026, amount=Decimal("700.00")))
+    make_user(db, "qrowner3", "pass12345", role=RoleEnum.MEMBER, person=person)
+    db.commit()
+    login(client, "qrowner3", "pass12345")
+
+    body = client.get(f"/pd4/print?garage_id={garage.id}").get_data(as_text=True)
+    assert 'class="btn btn-sm btn-outline-primary js-save-qr"' in body
+    assert 'data-qr-img="pd4Qr1"' in body
+    assert 'id="pd4Qr1"' in body
+    assert 'data-filename="qr_50301.png"' in body

@@ -32,6 +32,7 @@
 .pd4-table .text-center { text-align: center; }
 .pd4-table .line { border-bottom: 1px solid black; display: inline-block; }
 .pd4-table .header-label { font-size: 9px; text-align: center; display: block; margin-top: 2px; }
+.pd4-qr-bar { max-width: 700px; }
 
 @media print {
   .no-print, nav, footer { display: none !important; }
@@ -60,10 +61,21 @@
 </style>
 
 {% for account, amount, qr_data_uri, kind, ref_id in slips %}
+<div class="pd4-qr-bar no-print d-flex flex-wrap align-items-center justify-content-between gap-2 mx-auto mt-3">
+  <span class="small">
+    <strong>{{ account.fee_type.name }}{% if account.garage %}, {{ _("гараж") }} №{{ account.garage.number }}{% endif %}</strong>
+    · {{ _("л/с") }} {{ account.account_number }} · {{ fmt2(amount) }} {{ _("руб") }}.
+  </span>
+  <button type="button" class="btn btn-sm btn-outline-primary js-save-qr"
+          data-qr-img="pd4Qr{{ loop.index }}"
+          data-filename="qr_{{ account.account_number }}.png"
+          data-caption="{{ _('л/с') }} {{ account.account_number }} · {{ fmt2(amount) }} {{ _('руб') }}."
+          data-share-title="{{ coop.short_name or coop.full_name }} — {{ account.fee_type.name }}">{{ _("Сохранить QR") }}</button>
+</div>
 <table class="pd4-table pd4-slip">
     <!-- ИЗВЕЩЕНИЕ -->
     <tr>
-        <td rowspan="6" class="vertical-text">{{ _("ИЗВЕЩЕНИЕ") }}<br><br><br><br><img src="{{ qr_data_uri }}" width="120" height="120" alt="QR-код"><br><br><br><br>{{ _("Кассир") }}</td>
+        <td rowspan="6" class="vertical-text">{{ _("ИЗВЕЩЕНИЕ") }}<br><br><br><br><img src="{{ qr_data_uri }}" width="120" height="120" alt="QR-код" id="pd4Qr{{ loop.index }}"><br><br><br><br>{{ _("Кассир") }}</td>
         <td colspan="2"><strong>{{ bank_account.bank_name if bank_account else "" }}</strong><br><span class="header-label">{{ _("наименование банка получателя платежа") }}</span></td>
         <td style="width: 150px;">{{ _("БИК") }}: <strong>{{ bank_account.bik if bank_account else "" }}</strong></td>
     </tr>
@@ -130,4 +142,60 @@
     </tr>
 </table>
 {% endfor %}
+
+<p class="text-muted small no-print mx-auto mt-3 pd4-qr-bar">{{ _("Оплата с этого же телефона: «Сохранить QR» → в приложении банка «Оплата по QR-коду» → выбрать картинку из галереи (в меню «Поделиться» можно сразу выбрать приложение банка или «Сохранить изображение»). Реквизиты и сумма подставятся сами.") }}</p>
+
+<script>
+// «Сохранить QR» — тот же QR, что на бланке (ГОСТ Р 56042), но крупно
+// (на бланке он 120 px — мелковат для распознавания из галереи) и с
+// подписью под ним: перерисовывается на canvas без сглаживания, чтобы
+// модули не размывались. На телефоне — системное «Поделиться» (Web Share
+// API с файлом: сохранить в галерею или сразу открыть в приложении банка),
+// иначе — обычное скачивание PNG.
+document.addEventListener("click", function (e) {
+  var btn = e.target.closest ? e.target.closest(".js-save-qr") : null;
+  if (!btn) return;
+  var img = document.getElementById(btn.dataset.qrImg);
+  if (!img) return;
+
+  // Целый множитель (а не «растянуть до 600 px»): при дробном масштабе
+  // модули QR выходят разной ширины — распознаётся хуже.
+  var scale = Math.max(1, Math.floor(600 / (img.naturalWidth || 120)));
+  var size = (img.naturalWidth || 120) * scale, margin = 40, captionHeight = 60;
+  var canvas = document.createElement("canvas");
+  canvas.width = size + margin * 2;
+  canvas.height = size + margin * 2 + captionHeight;
+  var ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(img, margin, margin, size, size);
+  ctx.fillStyle = "#000";
+  ctx.font = "28px Arial, sans-serif";
+  ctx.textAlign = "center";
+  ctx.fillText(btn.dataset.caption || "", canvas.width / 2, size + margin * 2 + 20);
+
+  canvas.toBlob(function (blob) {
+    if (!blob) return;
+    var filename = btn.dataset.filename || "qr.png";
+    var isTouch = window.matchMedia && window.matchMedia("(pointer: coarse)").matches;
+    var file = null;
+    try { file = new File([blob], filename, { type: "image/png" }); } catch (err) { /* старый браузер без File() */ }
+    if (isTouch && file && navigator.canShare && navigator.canShare({ files: [file] })) {
+      navigator.share({ files: [file], title: btn.dataset.shareTitle || filename }).catch(function () {
+        /* пользователь закрыл меню «Поделиться» — ничего не делаем */
+      });
+      return;
+    }
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+  }, "image/png");
+});
+</script>
 {% endblock %}

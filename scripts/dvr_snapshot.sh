@@ -6,7 +6,7 @@
 #
 # Логи копятся в instance/logs/dvr_snapshot.log — растёт быстро при запуске
 # раз в минуту, стоит добавить в logrotate (см. пример для poll_ewelink.log
-# в README.md, «Автоматизация»).
+# в docs/deployment.md, «Автоматизация»).
 
 set -eu
 

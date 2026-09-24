@@ -5,7 +5,7 @@
 (в одном прогоне, по прямой просьбе — не отдельным cron-джобом) баланс
 личного кабинета контрагентов с настроенным API (см.
 app/counterparty_api/, пока только SMS Aero) — для запуска по cron в
-рабочие дни (см. scripts/sync_bank_accounts.sh и README.md, раздел
+рабочие дни (см. scripts/sync_bank_accounts.sh и docs/deployment.md, раздел
 «Автоматизация»).
 
 По аналогии с scripts/update_key_rate.py: отдельный скрипт, а не фоновый

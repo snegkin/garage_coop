@@ -2502,7 +2502,7 @@ class PowerPhaseReading(Base):
     Все поля — уже разобранные/масштабированные значения из params ответа
     eWeLink (см. app.ewelink.client.parse_phase_snapshot), не сырой JSON —
     имена и масштаб полей подтверждены живым тестом на оборудовании
-    заказчика (см. README.md), поэтому больше не нужно хранить raw_params
+    заказчика (см. docs/features/garages.md), поэтому больше не нужно хранить raw_params
     целиком про запас на случай, если разбор окажется неверным.
     """
     __tablename__ = "power_phase_reading"

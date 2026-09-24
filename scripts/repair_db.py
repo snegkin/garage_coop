@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Проверка и самолечение БД при старте веб-процесса — для запуска перед ним
-(см. scripts/repair_db.sh и README.md, раздел «Автоматизация», systemd
+(см. scripts/repair_db.sh и docs/deployment.md, раздел «Автоматизация», systemd
 ExecStartPre=).
 
 Мотивация: SQLite в режиме WAL (см. app/database.py) переживает падение

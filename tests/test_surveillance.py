@@ -755,3 +755,20 @@ def test_combined_history_frame_rejects_path_traversal_filename(app, db, client,
     for bad_name in ("..%2F..%2Fetc%2Fpasswd", "20260905_120000.jpg.exe", "not-a-timestamp.jpg"):
         resp = client.get(f"/surveillance/recorders/{recorder.id}/combined/history/{bad_name}")
         assert resp.status_code == 404, bad_name
+
+
+def test_camera_frame_click_opens_camera_history_not_lightbox(app, db, client):
+    """Кадр камеры в общей сетке — ссылка на историю этой камеры (как у
+    склеенного кадра регистратора), а не лайтбокс по последним снимкам
+    всех камер."""
+    recorder = make_recorder(db)
+    camera = make_camera(db, recorder, last_snapshot_at=dt.datetime(2026, 9, 24, 10, 0, 0))
+    db.commit()
+
+    body = client.get("/surveillance/").get_data(as_text=True)
+    history_url = f"/surveillance/cameras/{camera.id}/history"
+    frame_start = body.index(f'data-camera-id="{camera.id}"')
+    frame_tag_start = body.rindex("<img", 0, frame_start)
+    link_start = body.rindex("<a ", 0, frame_tag_start)
+    assert f'href="{history_url}"' in body[link_start:frame_tag_start]
+    assert "js-lightbox" not in body[frame_tag_start:body.index(">", frame_start)]

@@ -2087,6 +2087,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Лицо для связи": "Contact person",
         "лицо для связи": "contact person",
         "Гаражей нет.": "No garages.",
+        # pd4/print.html — «Сохранить QR»
+        "Сохранить QR": "Save QR",
+        "Оплата с этого же телефона: «Сохранить QR» → в приложении банка «Оплата по QR-коду» → выбрать картинку из галереи (в меню «Поделиться» можно сразу выбрать приложение банка или «Сохранить изображение»). Реквизиты и сумма подставятся сами.":
+            "Paying from this same phone: “Save QR” → in your banking app choose “Pay by QR code” → pick the image from the gallery (in the Share menu you can pick the banking app directly or “Save image”). Payment details and amount are filled in automatically.",
         "СМС и Telegram": "SMS and Telegram",
         "Приказное производство — без судебного заседания, госпошлина 50% от обычной ставки.":
             "Writ proceeding — no court hearing, state duty is 50% of the regular rate.",

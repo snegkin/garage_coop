@@ -741,6 +741,10 @@ def _debtor_items() -> list[ChargeRegistryItem]:
     items = []
     for personal_account in database.db_session.query(PersonalAccount).all():
         garage = personal_account.garage
+        if garage is None:
+            # Счёт от гаража, удалённого в обход приложения (garage_id без
+            # ondelete) — ни начислений, ни собственников у него нет.
+            continue
         bal = _balance(garage)
         if bal >= 0:
             continue
@@ -755,11 +759,16 @@ def _debtor_items() -> list[ChargeRegistryItem]:
         bal = _balance(member_account)
         if bal >= 0:
             continue
+        # garage — None у счетов видов взноса без привязки к гаражу
+        # (FeeType.per_garage=False, см. MemberAccount.garage_id)
+        purpose = member_account.fee_type.name
+        if member_account.garage is not None:
+            purpose += f", гараж №{member_account.garage.number}"
         items.append(ChargeRegistryItem(
             account_number=member_account.account_number,
             payer_name=member_account.person.full_name,
             amount=-bal,
-            purpose=f"{member_account.fee_type.name}, гараж №{member_account.garage.number}",
+            purpose=purpose,
         ))
     return items
 

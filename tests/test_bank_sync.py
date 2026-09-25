@@ -1020,6 +1020,42 @@ def test_debtor_items_includes_negative_balance_member_account(app, db):
     assert matching[0].amount == Decimal("300.00")
 
 
+def test_debtor_items_tolerates_accounts_without_garage(app, db):
+    """Регрессия: страница реестра начислений падала с AttributeError.
+    1) PersonalAccount, чей гараж удалён в обход приложения (garage_id без
+       ondelete, в рабочей БД такой нашёлся) — пропускается;
+    2) MemberAccount вида взноса без привязки к гаражу (garage_id=NULL —
+       штатный случай, FeeType.per_garage=False) — попадает в реестр,
+       в назначении только вид взноса."""
+    import sqlite3
+
+    person = make_person(db)
+    fee_type = FeeType(code="20", name="Вступительный взнос", per_garage=False)
+    db.add(fee_type)
+    db.flush()
+    account = MemberAccount(person_id=person.id, garage_id=None, fee_type_id=fee_type.id, account_number="30011")
+    db.add(account)
+    db.flush()
+    db.add(Charge(account_id=account.id, year=2026, amount=Decimal("150.00")))
+    db.commit()
+
+    db_path = app.config["SQLALCHEMY_DATABASE_URI"].removeprefix("sqlite:///")
+    raw = sqlite3.connect(db_path)
+    raw.execute("PRAGMA foreign_keys=OFF")
+    raw.execute(
+        "INSERT INTO personal_account (garage_id, account_number, opened_date) VALUES (9999, '99990', '2026-08-28')"
+    )
+    raw.commit()
+    raw.close()
+
+    with app.app_context():
+        items = bank_sync._debtor_items()
+    assert not [i for i in items if i.account_number == "99990"]
+    matching = [i for i in items if i.account_number == "30011"]
+    assert len(matching) == 1
+    assert matching[0].purpose == "Вступительный взнос"
+
+
 # ---------------------------------------------------------------------------
 # Реестр платежей — разнесение записи на найденный лицевой счёт
 # ---------------------------------------------------------------------------

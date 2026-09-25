@@ -5,46 +5,12 @@
 # гранулярность нативно, отдельный планировщик внутри приложения не нужен):
 #   * * * * * /path/to/project/scripts/poll_ewelink.sh
 #
-# Логи копятся в instance/logs/poll_ewelink.log — сама папка logs/ будет
+# Логи копятся в <INSTANCE_DIR>/logs/poll_ewelink.log — сама папка logs/ будет
 # создана при первом запуске, если её ещё нет. Лог-файл при опросе раз в
 # минуту растёт быстро — см. docs/deployment.md, раздел «Автоматизация», про logrotate.
 
 set -eu
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-cd "$PROJECT_DIR"
+. "$(dirname "$0")/_common.sh"
 
-# .env НЕ подхватывается python-dotenv (см. .env.example) — приложение читает
-# os.environ напрямую. Веб-процесс обычно получает SECRET_KEY/
-# BANK_API_ENCRYPTION_KEY через окружение сервиса (systemd EnvironmentFile=
-# и т.п.), а этот скрипт из-под cron — нет, поэтому подгружаем .env сами:
-# без совпадающего ключа расшифровка сохранённых токенов eWeLink здесь не
-# сойдётся с тем, чем они были зашифрованы в веб-процессе.
-if [ -f "$PROJECT_DIR/.env" ]; then
-    set -a
-    . "$PROJECT_DIR/.env"
-    set +a
-fi
-
-LOG_DIR="$PROJECT_DIR/instance/logs"
-LOG_FILE="$LOG_DIR/poll_ewelink.log"
-LOCK_FILE="$PROJECT_DIR/instance/poll_ewelink.lock"
-mkdir -p "$LOG_DIR"
-
-if [ -x "$PROJECT_DIR/.venv/bin/python3" ]; then
-    PYTHON="$PROJECT_DIR/.venv/bin/python3"
-elif [ -x "$PROJECT_DIR/venv/bin/python3" ]; then
-    PYTHON="$PROJECT_DIR/venv/bin/python3"
-else
-    PYTHON="$(command -v python3)"
-fi
-
-# flock -n (неблокирующий): если предыдущий запуск ещё не завершился к
-# началу следующей минуты (например, eWeLink подвис на таймауте) — новый
-# запуск просто пропускается, а не встаёт в очередь и не накапливается.
-if command -v flock >/dev/null 2>&1; then
-    exec flock -n "$LOCK_FILE" "$PYTHON" "$SCRIPT_DIR/poll_ewelink.py" >> "$LOG_FILE" 2>&1
-else
-    exec "$PYTHON" "$SCRIPT_DIR/poll_ewelink.py" >> "$LOG_FILE" 2>&1
-fi
+run_locked poll_ewelink

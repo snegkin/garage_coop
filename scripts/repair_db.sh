@@ -15,36 +15,13 @@
 # отдавать 500-е, а решение (восстановить из бэкапа или разбираться руками)
 # должен принять человек, не cron/systemd.
 #
-# Логи копятся в instance/logs/repair_db.log.
+# Логи копятся в <INSTANCE_DIR>/logs/repair_db.log.
 
 set -eu
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-cd "$PROJECT_DIR"
-
-# .env НЕ подхватывается python-dotenv — приложение читает os.environ
-# напрямую (см. .env.example). Без этого блока при переопределённом
-# DATABASE_PATH скрипт проверял бы не ту БД (тот же приём, что и в
-# backup_db.sh/restore_db.sh).
-if [ -f "$PROJECT_DIR/.env" ]; then
-    set -a
-    . "$PROJECT_DIR/.env"
-    set +a
-fi
-
-LOG_DIR="$PROJECT_DIR/instance/logs"
-LOG_FILE="$LOG_DIR/repair_db.log"
-mkdir -p "$LOG_DIR"
-
-if [ -x "$PROJECT_DIR/.venv/bin/python3" ]; then
-    PYTHON="$PROJECT_DIR/.venv/bin/python3"
-elif [ -x "$PROJECT_DIR/venv/bin/python3" ]; then
-    PYTHON="$PROJECT_DIR/venv/bin/python3"
-else
-    PYTHON="$(command -v python3)"
-fi
+. "$(dirname "$0")/_common.sh"
 
 # Без flock: рассчитан на запуск как ExecStartPre одного экземпляра
-# сервиса, не на cron — параллельного запуска этим же механизмом не бывает.
-exec "$PYTHON" "$SCRIPT_DIR/repair_db.py" >> "$LOG_FILE" 2>&1
+# сервиса, не на cron — параллельного запуска этим же механизмом не бывает,
+# а общая блокировка cron-скриптов (COOP_CRON_LOCK) задерживала бы старт сайта.
+exec "$PYTHON" "$SCRIPT_DIR/repair_db.py" >> "$LOG_DIR/repair_db.log" 2>&1

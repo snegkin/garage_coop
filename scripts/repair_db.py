@@ -41,8 +41,13 @@ import os
 import sqlite3
 import sys
 
-PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DB_PATH = os.environ.get("DATABASE_PATH", os.path.join(PROJECT_DIR, "instance", "coop.db"))
+# Пути — по тем же правилам, что и config.py (INSTANCE_DIR, DATABASE_URL),
+# см. scripts/_paths.py; каталог скрипта в sys.path явно — скрипт
+# запускают и как `python3 scripts/…`, и загружают по пути (тесты).
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _paths import PROJECT_DIR, db_path  # noqa: E402
+
+DB_PATH = db_path()
 
 
 def _integrity_check(con: sqlite3.Connection) -> tuple[bool, list[str]]:

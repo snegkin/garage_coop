@@ -27,9 +27,14 @@ import os
 import sqlite3
 import sys
 
-PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DB_PATH = os.environ.get("DATABASE_PATH", os.path.join(PROJECT_DIR, "instance", "coop.db"))
-BACKUP_DIR = os.environ.get("BACKUP_DIR", os.path.join(PROJECT_DIR, "instance", "backups"))
+# Пути — по тем же правилам, что и config.py (INSTANCE_DIR, DATABASE_URL),
+# см. scripts/_paths.py; каталог скрипта в sys.path явно — скрипт
+# запускают и как `python3 scripts/…`, и загружают по пути (тесты).
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _paths import backup_dir, db_path  # noqa: E402
+
+DB_PATH = db_path()
+BACKUP_DIR = backup_dir()
 KEEP_BACKUPS = int(os.environ.get("KEEP_BACKUPS", "30"))
 
 

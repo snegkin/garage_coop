@@ -1139,7 +1139,9 @@ document.addEventListener("DOMContentLoaded", function () { initSortableTables(d
 // [data-select-filter-for="<id>"] на <select> (плюс его же атрибут
 //   data-select-filter-attr — имя data-атрибута на <tr> для сравнения) —
 //   показывает только строки, где этот атрибут равен выбранному значению
-//   селекта (пустое значение селекта — показать все).
+//   селекта (пустое значение селекта — показать все). Селектов у таблицы
+//   может быть несколько (например, «год» и «статус» в реестре платежей) —
+//   строка видна, только если подходит под все сразу.
 // Вынесено в initFilterableTables(root) по той же причине, что и
 // initSortableTables выше — нужно уметь заново подключить фильтр/пейджер
 // к таблице, пришедшей через AJAX-подмену #mainContent.
@@ -1155,8 +1157,7 @@ function initFilterableTables(root) {
     var pagerLinks = pager ? pager.querySelector("ul") : null;
     var noResults = root.querySelector('[data-no-results-for="' + id + '"]');
     var activeOnlyCheckbox = root.querySelector('[data-active-only-for="' + id + '"]');
-    var selectFilter = root.querySelector('[data-select-filter-for="' + id + '"]');
-    var selectFilterAttr = selectFilter ? selectFilter.getAttribute("data-select-filter-attr") : null;
+    var selectFilters = Array.from(root.querySelectorAll('[data-select-filter-for="' + id + '"]'));
     if (!table.querySelector("tbody tr[data-filter-text]")) return;
     var currentPage = 1;
 
@@ -1205,11 +1206,12 @@ function initFilterableTables(root) {
     function update() {
       var allRows = rows();
       var q = input ? input.value.trim().toLowerCase() : "";
-      var selectValue = selectFilter ? selectFilter.value : "";
       var excludeNoise = activeOnlyCheckbox ? activeOnlyCheckbox.checked : false;
       var visibleRows = allRows.filter(function (row) {
         var matchesQuery = !q || row.getAttribute("data-filter-text").includes(q);
-        var matchesSelect = !selectValue || row.getAttribute(selectFilterAttr) === selectValue;
+        var matchesSelect = selectFilters.every(function (select) {
+          return !select.value || row.getAttribute(select.getAttribute("data-select-filter-attr")) === select.value;
+        });
         var isNoise = excludeNoise && (row.getAttribute("data-archived") === "1" || row.getAttribute("data-zero-noncore") === "1");
         return matchesQuery && matchesSelect && !isNoise;
       });
@@ -1240,9 +1242,12 @@ function initFilterableTables(root) {
     if (activeOnlyCheckbox) {
       activeOnlyCheckbox.addEventListener("change", function () { currentPage = 1; update(); });
     }
-    if (selectFilter) {
-      selectFilter.addEventListener("change", function () { currentPage = 1; update(); });
-    }
+    selectFilters.forEach(function (select) {
+      // "input" — его же шлёт восстановление фильтров после AJAX-подмены
+      // #mainContent (см. filterState ниже); пользовательский выбор в
+      // селекте тоже его порождает.
+      select.addEventListener("input", function () { currentPage = 1; update(); });
+    });
     table.addEventListener("table:sorted", function () { currentPage = 1; update(); });
     update();
   });

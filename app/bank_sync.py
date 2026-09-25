@@ -619,6 +619,42 @@ def allocate_statement_line(account_id, line_id):
     return respond(True, _("Платёж разнесён."), account_number=resolved_number)
 
 
+@bp.route("/statement/<int:line_id>/unallocate", methods=["POST"])
+@roles_required(RoleEnum.CHAIRMAN)
+def unallocate_statement_line(account_id, line_id):
+    """
+    Отмена разнесения строки выписки — на случай, если платёж ушёл не на
+    тот лицевой счёт (см. _unallocate_payment). Форма отправляется общим
+    AJAX-обработчиком confirm()-форм (base.html), который подменяет
+    #mainContent только если редирект вернул на тот же адрес — поэтому
+    возвращаем с тем же периодом date_from/date_to, что был на странице.
+    """
+    account = _get_account(account_id)
+    line = database.db_session.get(BankStatementLine, line_id)
+    if line is None or line.bank_account_id != account.id:
+        abort(404)
+    back = redirect(url_for(
+        "bank_sync.statement", account_id=account.id,
+        date_from=request.form.get("date_from") or None, date_to=request.form.get("date_to") or None,
+    ))
+    payment = line.matched_payment
+    if payment is None:
+        flash(_("Эта операция не разнесена."), "warning")
+        return back
+
+    member_account = payment.account
+    target_label = _unallocate_payment(payment)
+    audit.record(
+        "bank_api.statement_line_unallocate", entity_type="bank_account", entity_id=account.id,
+        summary=f"Отменено разнесение операции выписки ({audit.format_amount(line.amount)} "
+                f"от {audit.format_date(line.operation_date)}) на {target_label}",
+    )
+    database.db_session.commit()
+    _notify_unallocated(member_account, line.amount, line.operation_date)
+    flash(_("Разнесение отменено — операцию можно разнести заново."), "success")
+    return back
+
+
 @bp.route("/statement/allocate-all", methods=["POST"])
 @roles_required(RoleEnum.CHAIRMAN)
 def allocate_all_statement_lines(account_id):
@@ -1239,6 +1275,48 @@ def _allocate_payment_to_account(
     return payment, resolved_account_number
 
 
+def _unallocate_payment(payment: Payment) -> str:
+    """Обратное к _allocate_payment_to_account: удаляет платёж, созданный
+    разнесением строки выписки/записи реестра, и пересчитывает FIFO-зачёт
+    на его счёте/гараже. Ссылка matched_payment_id у строки выписки или
+    записи реестра обнуляется сама (ondelete="SET NULL", как и при удалении
+    платежа с карточки счёта, см. finance.delete_member_payment) — строка
+    возвращается в «не разнесён» и её можно разнести заново. Сопоставление
+    реестр ↔ выписка (matched_statement_id/matched_registry_id) не трогаем:
+    это факт о банковских данных, а не о разнесении.
+
+    Возвращает описание получателя платежа для аудита. Уведомление члену
+    кооператива шлёт вызывающий код ПОСЛЕ commit — при разнесении ему
+    сообщили «Платёж зачтён на ваш счёт», без парного сообщения деньги
+    просто пропали бы из его кабинета без объяснения."""
+    if payment.account_id is not None:
+        member_account = payment.account
+        target_label = f"счёт {member_account.account_number} ({member_account.person.short_name})"
+        database.db_session.delete(payment)
+        database.db_session.flush()
+        reallocate_member_charges(member_account)
+    else:
+        garage = payment.garage
+        target_label = f"гараж №{garage.number}"
+        database.db_session.delete(payment)
+        database.db_session.flush()
+        reallocate_garage_charges(garage)
+    return target_label
+
+
+def _notify_unallocated(member_account: MemberAccount | None, amount: Decimal, date: dt.date) -> None:
+    """member_account — None для платежа на гараж (там и при разнесении
+    никого не уведомляли, см. _allocate_payment_to_account)."""
+    if member_account is None:
+        return
+    notifications.notify(
+        notifications.user_for_person(member_account.person_id), "payment",
+        "Зачёт платежа отменён",
+        f"Зачёт платежа {audit.format_amount(amount)} ₽ от {audit.format_date(date)} "
+        f"на счёт {member_account.account_number} отменён правлением кооператива.",
+    )
+
+
 def _match_registry_and_statement(account_id: int) -> tuple[int, int]:
     """
     Сопоставляет записи реестра платежей и банковской выписки для данного счёта.
@@ -1513,6 +1591,36 @@ def allocate_payment_registry_entry(account_id, entry_id):
     )
     database.db_session.commit()
     return respond(True, _("Платёж разнесён."), account_number=resolved_number)
+
+
+@bp.route("/registry/payments/<int:entry_id>/unallocate", methods=["POST"])
+@roles_required(RoleEnum.CHAIRMAN)
+def unallocate_payment_registry_entry(account_id, entry_id):
+    """То же, что unallocate_statement_line, но для записи реестра платежей."""
+    account = _get_account(account_id)
+    entry = database.db_session.get(PaymentRegistryEntry, entry_id)
+    if entry is None or entry.bank_account_id != account.id:
+        abort(404)
+    back = redirect(url_for(
+        "bank_sync.payment_registry", account_id=account.id,
+        date_from=request.form.get("date_from") or None, date_to=request.form.get("date_to") or None,
+    ))
+    payment = entry.matched_payment
+    if payment is None:
+        flash(_("Эта запись не разнесена."), "warning")
+        return back
+
+    member_account = payment.account
+    target_label = _unallocate_payment(payment)
+    audit.record(
+        "bank_api.payment_registry_unallocate", entity_type="bank_account", entity_id=account.id,
+        summary=f"Отменено разнесение записи реестра платежей ({audit.format_amount(entry.amount)} "
+                f"от {audit.format_date(entry.operation_date)}) на {target_label}",
+    )
+    database.db_session.commit()
+    _notify_unallocated(member_account, entry.amount, entry.operation_date)
+    flash(_("Разнесение отменено — запись можно разнести заново."), "success")
+    return back
 
 
 @bp.route("/registry/payments/allocate-all", methods=["POST"])

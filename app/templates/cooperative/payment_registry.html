@@ -41,8 +41,19 @@
 </p>
 {% endif %}
 
-<div class="mb-3">
-  <input class="form-control" data-table-filter-for="registryTable" placeholder="{{ _('Поиск по счёту, плательщику, назначению...') }}">
+<div class="d-flex gap-2 mb-3 flex-wrap">
+  <input class="form-control flex-grow-1 w-auto" id="registryFilterText" data-table-filter-for="registryTable" placeholder="{{ _('Поиск по счёту, плательщику, назначению...') }}">
+  <select class="form-select w-auto" id="registryFilterYear" data-select-filter-for="registryTable" data-select-filter-attr="data-year" aria-label="{{ _('Год') }}">
+    <option value="">{{ _("Все годы") }}</option>
+    {% for year in entries|map(attribute="operation_date.year")|unique|sort(reverse=true) %}
+    <option value="{{ year }}">{{ year }}</option>
+    {% endfor %}
+  </select>
+  <select class="form-select w-auto" id="registryFilterStatus" data-select-filter-for="registryTable" data-select-filter-attr="data-status" aria-label="{{ _('Статус') }}">
+    <option value="">{{ _("Все статусы") }}</option>
+    <option value="allocated">{{ _("разнесён") }}</option>
+    <option value="pending">{{ _("не разнесён") }}</option>
+  </select>
 </div>
 
 <table class="table table-bordered bg-body sortable" id="registryTable" data-page-size="20">
@@ -61,7 +72,7 @@
   </thead>
   <tbody>
     {% for entry in entries %}
-    <tr id="registry-entry-{{ entry.id }}" data-filter-text="{{ (fmt_date(entry.operation_date) ~ ' ' ~ (entry.account_number or '') ~ ' ' ~ (entry.payer_name or '') ~ ' ' ~ fmt2(entry.amount) ~ ' ' ~ (entry.payment_purpose or '') ~ ' ' ~ (_('разнесён') if entry.matched_payment_id else _('не разнесён')))|lower }}">
+    <tr id="registry-entry-{{ entry.id }}" data-year="{{ entry.operation_date.year }}" data-status="{{ 'allocated' if entry.matched_payment_id else 'pending' }}" data-filter-text="{{ (fmt_date(entry.operation_date) ~ ' ' ~ (entry.account_number or '') ~ ' ' ~ (entry.payer_name or '') ~ ' ' ~ fmt2(entry.amount) ~ ' ' ~ (entry.payment_purpose or '') ~ ' ' ~ (_('разнесён') if entry.matched_payment_id else _('не разнесён')))|lower }}">
       <td data-sort-value="{{ entry.operation_date.isoformat() }}">{{ fmt_date(entry.operation_date) }}</td>
       <td class="text-end js-account-number">{{ entry.account_number or "—" }}</td>
       <td>{{ entry.payer_name or "—" }}</td>
@@ -92,6 +103,13 @@
       </td>
       {% if is_chairman() %}
       <td class="js-allocate-cell">
+        {# Форма отмены есть и у ещё не разнесённых записей (скрыта) — JS ниже
+           показывает её сразу после AJAX-разнесения, без перезагрузки. #}
+        <form method="post" action="{{ url_for('bank_sync.unallocate_payment_registry_entry', account_id=account.id, entry_id=entry.id) }}" class="js-unallocate-form{{ '' if entry.matched_payment_id else ' d-none' }}" onsubmit="return confirm('{{ _('Отменить разнесение? Платёж будет удалён с лицевого счёта, запись можно будет разнести заново.') }}')">
+          <input type="hidden" name="date_from" value="{{ date_from.isoformat() if date_from else '' }}">
+          <input type="hidden" name="date_to" value="{{ date_to.isoformat() if date_to else '' }}">
+          <button class="btn btn-sm btn-outline-danger">{{ _("Отменить разнесение") }}</button>
+        </form>
         {% if not entry.matched_payment_id %}
         <form method="post" action="{{ url_for('bank_sync.allocate_payment_registry_entry', account_id=account.id, entry_id=entry.id) }}" class="js-allocate-form d-flex flex-column gap-1">
           <div class="d-flex gap-1">
@@ -146,10 +164,15 @@
             if (data.account_number) {
               row.querySelector(".js-account-number").textContent = data.account_number;
             }
-            row.querySelector(".js-allocate-cell").innerHTML = "";
+            form.remove();
+            row.querySelector(".js-unallocate-form").classList.remove("d-none");
             // держим data-filter-text в актуальном состоянии, чтобы поиск по статусу не показывал устаревшее значение
             var filterText = row.getAttribute("data-filter-text") || "";
             row.setAttribute("data-filter-text", filterText.replace("{{ _('не разнесён') }}", "{{ _('разнесён') }}"));
+            // строку не прячем сразу даже при фильтре «не разнесён» — она
+            // исчезнет при следующей смене фильтра, а сейчас пользователь
+            // видит результат своего действия
+            row.setAttribute("data-status", "allocated");
           } else {
             errorBox.textContent = data.message;
             errorBox.classList.remove("d-none");

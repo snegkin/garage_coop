@@ -102,6 +102,15 @@
       </td>
       {% if is_chairman() %}
       <td class="js-allocate-cell">
+        {% if line.direction == "credit" and (line.matched_payment_id or not is_aggregate_registry_payment(line.payment_purpose)) %}
+        {# Форма отмены есть и у ещё не разнесённых строк (скрыта) — JS ниже
+           показывает её сразу после AJAX-разнесения, без перезагрузки. #}
+        <form method="post" action="{{ url_for('bank_sync.unallocate_statement_line', account_id=account.id, line_id=line.id) }}" class="js-unallocate-form{{ '' if line.matched_payment_id else ' d-none' }}" onsubmit="return confirm('{{ _('Отменить разнесение? Платёж будет удалён с лицевого счёта, операцию можно будет разнести заново.') }}')">
+          <input type="hidden" name="date_from" value="{{ request.args.get('date_from', '') }}">
+          <input type="hidden" name="date_to" value="{{ request.args.get('date_to', '') }}">
+          <button class="btn btn-sm btn-outline-danger">{{ _("Отменить разнесение") }}</button>
+        </form>
+        {% endif %}
         {% if line.direction == "credit" and not line.matched_payment_id and not is_aggregate_registry_payment(line.payment_purpose) %}
         <form method="post" action="{{ url_for('bank_sync.allocate_statement_line', account_id=account.id, line_id=line.id) }}" class="js-allocate-form d-flex flex-column gap-1">
           <div class="d-flex gap-1">
@@ -157,7 +166,8 @@
             if (data.account_number) {
               row.querySelector(".js-account-number").textContent = data.account_number;
             }
-            row.querySelector(".js-allocate-cell").innerHTML = "";
+            form.remove();
+            row.querySelector(".js-unallocate-form").classList.remove("d-none");
             // держим data-filter-text в актуальном состоянии, чтобы поиск по статусу не показывал устаревшее значение
             var filterText = row.getAttribute("data-filter-text") || "";
             row.setAttribute("data-filter-text", filterText.replace("{{ _('не разнесён') }}", "{{ _('разнесён') }}"));

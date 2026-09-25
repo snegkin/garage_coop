@@ -624,6 +624,74 @@ def test_allocate_statement_line_manually(app, db, client):
     assert balance(member_account) == Decimal("0.00")
 
 
+def _allocated_statement_line(db, username):
+    person = make_person(db)
+    garage = make_garage(db)
+    fee_type = FeeType(code="10", name="Членский взнос")
+    db.add(fee_type)
+    db.flush()
+    member_account = MemberAccount(
+        person_id=person.id, garage_id=garage.id, fee_type_id=fee_type.id, account_number="60077",
+    )
+    db.add(member_account)
+    db.flush()
+    db.add(Charge(account_id=member_account.id, year=2026, amount=Decimal("500.00")))
+    payment = Payment(account_id=member_account.id, date=dt.date(2026, 8, 20), amount=Decimal("500.00"))
+    db.add(payment)
+    db.flush()
+    bank_account = make_bank_account(db)
+    line = BankStatementLine(
+        bank_account_id=bank_account.id, external_uid="op-undo", operation_date=dt.date(2026, 8, 20),
+        direction="credit", amount=Decimal("500.00"), account_number="60077", matched_payment_id=payment.id,
+    )
+    db.add(line)
+    make_user(db, username, "pass12345", role=RoleEnum.CHAIRMAN)
+    db.commit()
+    return bank_account, line, payment, member_account
+
+
+def test_unallocate_statement_line(app, db, client):
+    bank_account, line, payment, member_account = _allocated_statement_line(db, "chair_undo1")
+    login(client, "chair_undo1", "pass12345")
+
+    resp = client.post(
+        f"/cooperative/bank-accounts/{bank_account.id}/statement/{line.id}/unallocate",
+        data={"date_from": "2026-08-01", "date_to": "2026-08-31"},
+    )
+    assert resp.status_code == 302
+    # возвращаем на тот же период — иначе AJAX-обработчик confirm()-форм
+    # ушёл бы полной навигацией и потерял фильтры страницы
+    assert "date_from=2026-08-01" in resp.headers["Location"]
+    assert "date_to=2026-08-31" in resp.headers["Location"]
+    db.expire_all()
+    assert database.db_session.get(BankStatementLine, line.id).matched_payment_id is None
+    assert database.db_session.get(Payment, payment.id) is None
+    assert balance(member_account) == Decimal("-500.00")  # долг вернулся
+    log = db.query(AuditLog).filter_by(action="bank_api.statement_line_unallocate").one()
+    assert "60077" in log.summary
+
+    # после отмены строку можно разнести заново
+    resp = client.post(
+        f"/cooperative/bank-accounts/{bank_account.id}/statement/{line.id}/allocate",
+        data={"account_number": "60077"},
+    )
+    db.expire_all()
+    assert database.db_session.get(BankStatementLine, line.id).matched_payment_id is not None
+    assert balance(member_account) == Decimal("0.00")
+
+
+def test_unallocate_statement_line_requires_chairman(app, db, client):
+    bank_account, line, payment, _member_account = _allocated_statement_line(db, "chair_undo2")
+    make_user(db, "board_undo", "pass12345", role=RoleEnum.BOARD)
+    db.commit()
+    login(client, "board_undo", "pass12345")
+
+    resp = client.post(f"/cooperative/bank-accounts/{bank_account.id}/statement/{line.id}/unallocate")
+    assert resp.status_code in (302, 403)
+    db.expire_all()
+    assert database.db_session.get(BankStatementLine, line.id).matched_payment_id == payment.id
+
+
 def test_allocate_statement_line_empty_field_falls_back_to_purpose_text(app, db, client):
     """Регрессия: номер счёта явно указан в тексте назначения платежа
     («ЛСИ:10180»), но line.account_number в БД пуст (например, строка
@@ -1184,6 +1252,82 @@ def test_allocate_all_payment_registry_entries_respects_date_filter(app, db, cli
 
     assert database.db_session.get(PaymentRegistryEntry, entry_in_window.id).matched_payment_id is not None
     assert database.db_session.get(PaymentRegistryEntry, entry_out_of_window.id).matched_payment_id is None
+
+
+def test_payment_registry_page_has_year_and_status_filters(app, db, client):
+    """JS-фильтры по году и статусу (см. data-select-filter-for в base.html):
+    в селекте года — только годы, за которые есть записи, по убыванию;
+    строки помечены data-year/data-status для сравнения."""
+    bank_account = make_bank_account(db, provider=BankApiProvider.SBERBANK)
+    db.add_all([
+        PaymentRegistryEntry(
+            bank_account_id=bank_account.id, external_id="y-1", account_number="1",
+            amount=Decimal("100.00"), operation_date=dt.date(2025, 3, 1),
+        ),
+        PaymentRegistryEntry(
+            bank_account_id=bank_account.id, external_id="y-2", account_number="2",
+            amount=Decimal("200.00"), operation_date=dt.date(2026, 8, 1),
+        ),
+    ])
+    make_user(db, "chair10", "pass12345", role=RoleEnum.CHAIRMAN)
+    db.commit()
+    login(client, "chair10", "pass12345")
+
+    html = client.get(f"/cooperative/bank-accounts/{bank_account.id}/registry/payments").get_data(as_text=True)
+    assert 'data-select-filter-attr="data-year"' in html
+    assert 'data-select-filter-attr="data-status"' in html
+    assert html.index('<option value="2026">') < html.index('<option value="2025">')
+    assert 'data-year="2025" data-status="pending"' in html
+    assert 'data-year="2026" data-status="pending"' in html
+
+
+def test_unallocate_payment_registry_entry_keeps_statement_match(app, db, client):
+    """Отмена разнесения записи реестра удаляет только платёж —
+    сопоставление реестр ↔ выписка остаётся (это факт о банковских данных)."""
+    person = make_person(db)
+    garage = make_garage(db)
+    fee_type = FeeType(code="10", name="Членский взнос")
+    db.add(fee_type)
+    db.flush()
+    member_account = MemberAccount(
+        person_id=person.id, garage_id=garage.id, fee_type_id=fee_type.id, account_number="20055",
+    )
+    db.add(member_account)
+    db.flush()
+    db.add(Charge(account_id=member_account.id, year=2026, amount=Decimal("400.00")))
+    payment = Payment(account_id=member_account.id, date=dt.date(2026, 8, 10), amount=Decimal("400.00"))
+    db.add(payment)
+    db.flush()
+    bank_account = make_bank_account(db, provider=BankApiProvider.SBERBANK)
+    line = BankStatementLine(
+        bank_account_id=bank_account.id, external_uid="reg-undo", operation_date=dt.date(2026, 8, 10),
+        direction="credit", amount=Decimal("400.00"),
+    )
+    db.add(line)
+    db.flush()
+    entry = PaymentRegistryEntry(
+        bank_account_id=bank_account.id, external_id="reg-undo", account_number="20055",
+        amount=Decimal("400.00"), operation_date=dt.date(2026, 8, 10),
+        matched_payment_id=payment.id, matched_statement_id=line.id,
+    )
+    db.add(entry)
+    make_user(db, "chair_undo3", "pass12345", role=RoleEnum.CHAIRMAN)
+    db.commit()
+    login(client, "chair_undo3", "pass12345")
+
+    resp = client.post(f"/cooperative/bank-accounts/{bank_account.id}/registry/payments/{entry.id}/unallocate")
+    assert resp.status_code == 302
+    assert "date_from" not in resp.headers["Location"]
+    db.expire_all()
+    updated_entry = database.db_session.get(PaymentRegistryEntry, entry.id)
+    assert updated_entry.matched_payment_id is None
+    assert updated_entry.matched_statement_id == line.id
+    assert database.db_session.get(Payment, payment.id) is None
+    assert balance(member_account) == Decimal("-400.00")  # долг вернулся
+    assert db.query(AuditLog).filter_by(action="bank_api.payment_registry_unallocate").count() == 1
+
+    html = client.get(f"/cooperative/bank-accounts/{bank_account.id}/registry/payments").get_data(as_text=True)
+    assert 'data-year="2026" data-status="pending"' in html
 
 
 def test_charge_registry_batch_status_choices():

@@ -3,6 +3,12 @@ import warnings
 from datetime import timedelta
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# Каталог данных экземпляра сайта (БД, загрузки, кадры камер, сертификаты
+# банка, логи/блокировки cron-скриптов — см. scripts/_common.sh). Отдельная
+# переменная — чтобы с одного checkout'а кода можно было запускать несколько
+# кооперативов, у каждого свой INSTANCE_DIR в своём .env (docs/deployment.md,
+# «Несколько кооперативов на одном сервере»).
+INSTANCE_DIR = os.environ.get("INSTANCE_DIR") or os.path.join(BASE_DIR, "instance")
 
 _INSECURE_DEFAULT_SECRET = "измени-меня-в-проде"
 
@@ -46,7 +52,7 @@ class Config:
     # (в отличие от UPLOAD_FOLDER, где лежат документы кооператива и есть
     # /documents/<id>/download): приватный ключ клиентского сертификата не
     # должен быть доступен по HTTP ни при каких правах пользователя.
-    BANK_CERTS_FOLDER = os.environ.get("BANK_CERTS_FOLDER") or os.path.join(BASE_DIR, "instance", "bank_certs")
+    BANK_CERTS_FOLDER = os.environ.get("BANK_CERTS_FOLDER") or os.path.join(INSTANCE_DIR, "bank_certs")
 
     # Путь к файлу с доверенными корневыми сертификатами (CA bundle) для
     # проверки TLS-сертификата сервера банка. Сайты и API Сбербанка
@@ -91,16 +97,16 @@ class Config:
         )
 
     SQLALCHEMY_DATABASE_URI = os.environ.get(
-        "DATABASE_URL", f"sqlite:///{os.path.join(BASE_DIR, 'instance', 'coop.db')}"
+        "DATABASE_URL", f"sqlite:///{os.path.join(INSTANCE_DIR, 'coop.db')}"
     )
-    UPLOAD_FOLDER = os.path.join(BASE_DIR, "instance", "uploads")
+    UPLOAD_FOLDER = os.environ.get("UPLOAD_FOLDER") or os.path.join(INSTANCE_DIR, "uploads")
 
     # Превью-кадры с камер видеонаблюдения (см. app/surveillance.py,
     # scripts/dvr_snapshot.py) — instance/dvr/<recorder_id>/snapshots/
     # camera_<camera_id>.jpg, пишутся cron-скриптом раз в минуту. Отдаются
     # приложением через отдельный роут (surveillance.snapshot), не как
     # статика — тот же принцип, что и у UPLOAD_FOLDER.
-    DVR_SNAPSHOT_FOLDER = os.environ.get("DVR_SNAPSHOT_FOLDER") or os.path.join(BASE_DIR, "instance", "dvr")
+    DVR_SNAPSHOT_FOLDER = os.environ.get("DVR_SNAPSHOT_FOLDER") or os.path.join(INSTANCE_DIR, "dvr")
 
     # Ограничение размера входящего запроса (загрузка файлов и т.д.) —
     # без этого анонимный/залогиненный пользователь может положить сервер

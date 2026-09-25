@@ -990,6 +990,15 @@ def add_electricity_reading(garage_id):
     f = request.form
     reading_value = parse_decimal(f["reading"])
     reading_date = dt.date.today()
+    # Правление может внести показания задним числом (сняли вовремя, а
+    # внесли позже) — тариф, вычет по узлам и год начисления ниже и так
+    # считаются от reading_date. Собственник — только на сегодня.
+    if is_board() and f.get("reading_date"):
+        try:
+            reading_date = dt.date.fromisoformat(f["reading_date"])
+        except ValueError:
+            flash(_("Некорректная дата снятия показаний."), "danger")
+            return redirect(url_for("garages.detail", garage_id=garage_id, tab="account"))
 
     # предыдущее показание этого счётчика (по дате) — или начальные показания счётчика, если это первая запись
     previous = (
@@ -999,6 +1008,20 @@ def add_electricity_reading(garage_id):
         .first()
     )
     baseline = previous.reading if previous else current.initial_reading
+
+    # Только ПОСЛЕ последнего показания: вставка в середину истории
+    # потребовала бы пересчитать следующее показание и его (возможно, уже
+    # оплаченное) начисление — такого пересчёта здесь нет.
+    earliest = previous.reading_date if previous else current.installed_date
+    if reading_date > dt.date.today():
+        flash(_("Дата снятия показаний не может быть в будущем."), "danger")
+        return redirect(url_for("garages.detail", garage_id=garage_id, tab="account"))
+    if earliest is not None and reading_date < earliest:
+        flash(_(
+            "Дата снятия показаний не может быть раньше {date} — даты предыдущего показания (или установки счётчика).",
+            date=audit.format_date(earliest),
+        ), "danger")
+        return redirect(url_for("garages.detail", garage_id=garage_id, tab="account"))
     if baseline is not None and reading_value <= baseline:
         flash(_(
             "Показания не могут быть меньше предыдущих ({baseline}). Если счётчик был заменён, сначала внесите новый прибор учёта.",
@@ -1065,6 +1088,7 @@ def add_electricity_reading(garage_id):
     audit.record(
         "electricity_reading.add",
         f"Внесены показания счётчика гаража №{garage.number}: {reading_value}"
+        + (f" (задним числом, на {audit.format_date(reading_date)})" if reading_date != dt.date.today() else "")
         + (f", начислено {audit.format_amount(amount)}" if amount is not None else ""),
         entity_type="garage", entity_id=garage.id,
     )

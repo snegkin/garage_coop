@@ -9,6 +9,7 @@ from .i18n import translate as _, parse_decimal, parse_optional_decimal as _pars
 from .auth import roles_required
 from .models import (
     Counterparty, CounterpartyApiProvider, CounterpartyApiCredential, Expense, CounterpartyPayment, ReconciliationAct,
+    BALANCE_SYNC_INTERVAL_CHOICES,
     BankAccount, BankStatementLine, Document, DocumentType, RoleEnum,
 )
 from .accounting import (
@@ -93,6 +94,16 @@ def _parse_api_provider(value: str | None) -> CounterpartyApiProvider:
         return CounterpartyApiProvider.NONE
 
 
+def _parse_balance_sync_interval(value: str | None) -> int:
+    """Тот же принцип, что _parse_api_provider: значение вне
+    BALANCE_SYNC_INTERVAL_CHOICES — ежедневно (значение по умолчанию)."""
+    try:
+        days = int(value or "")
+    except ValueError:
+        return 1
+    return days if days in BALANCE_SYNC_INTERVAL_CHOICES else 1
+
+
 @bp.route("/")
 @roles_required(RoleEnum.BOARD)
 def list_counterparties():
@@ -117,6 +128,7 @@ def create():
         opening_balance=_parse_decimal(f.get("opening_balance")),
         opening_balance_date=dt.date.fromisoformat(f["opening_balance_date"]) if f.get("opening_balance_date") else None,
         api_provider=_parse_api_provider(f.get("api_provider")),
+        balance_sync_interval_days=_parse_balance_sync_interval(f.get("balance_sync_interval_days")),
     )
     database.db_session.add(counterparty)
     database.db_session.flush()
@@ -146,6 +158,7 @@ def edit(counterparty_id):
     opening_date = f.get("opening_balance_date")
     counterparty.opening_balance_date = dt.date.fromisoformat(opening_date) if opening_date else None
     counterparty.api_provider = _parse_api_provider(f.get("api_provider"))
+    counterparty.balance_sync_interval_days = _parse_balance_sync_interval(f.get("balance_sync_interval_days"))
     audit.record("counterparty.edit", f"Изменены данные контрагента: {counterparty.name}", entity_type="counterparty", entity_id=counterparty.id)
     database.db_session.commit()
     flash(_("Данные контрагента обновлены."), "success")

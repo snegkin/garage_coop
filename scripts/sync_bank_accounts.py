@@ -36,7 +36,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app import create_app, database
 from app.models import BankAccount, Counterparty, CounterpartyApiProvider
 from app.bank_sync import sync_account_balance, sync_account_statement
-from app.counterparty_sync import sync_counterparty_balance
+from app.counterparty_sync import balance_sync_due, sync_counterparty_balance
 
 STATEMENT_SYNC_DAYS = 7
 
@@ -115,6 +115,11 @@ def _sync_counterparties() -> bool:
 
     had_errors = False
     for counterparty in counterparties:
+        if not balance_sync_due(counterparty):
+            # Интервал обновления (balance_sync_interval_days) ещё не
+            # прошёл — молча, как и ненастроенные: иначе лог каждого
+            # прогона состоял бы из строк «пропущено».
+            continue
         status, message = sync_counterparty_balance(counterparty)
         if status == "unsupported":
             # Провайдер выбран, но не настроен (например, не заполнены

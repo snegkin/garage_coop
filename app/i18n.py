@@ -1732,6 +1732,14 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
 
         # counterparty API integration (personal-cabinet balance, separate from the settlement balance)
         "API для баланса личного кабинета": "API for personal-cabinet balance",
+        "Обновлять баланс личного кабинета автоматически": "Update the personal-cabinet balance automatically",
+        "раз в сутки": "daily",
+        "раз в 2 дня": "every 2 days",
+        "раз в 3 дня": "every 3 days",
+        "раз в неделю": "weekly",
+        "раз в месяц": "monthly",
+        "Только для контрагентов с API. Реже — меньше записей в журнале аудита; кнопка «Обновить баланс» на карточке работает всегда.":
+            "Only for counterparties with an API. Less often means fewer audit log entries; the “Update balance” button on the card always works.",
         "Не используется": "Not used",
         "Логин/пароль или API-ключ вводятся отдельно, кнопкой «Настроить API» на карточке контрагента после сохранения.":
             "The login/password or API key are entered separately, via the «Configure API» button on the vendor's page after saving.",

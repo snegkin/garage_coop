@@ -53,6 +53,16 @@
   <div class="form-text">{{ _("Логин/пароль или API-ключ вводятся отдельно, кнопкой «Настроить API» на карточке контрагента после сохранения.") }}</div>
 </div>
 <div class="mb-3">
+  <label class="form-label">{{ _("Обновлять баланс личного кабинета автоматически") }}</label>
+  {% set interval = c.balance_sync_interval_days if c else 1 %}
+  <select class="form-select" name="balance_sync_interval_days">
+    {% for days, label in [(1, _("раз в сутки")), (2, _("раз в 2 дня")), (3, _("раз в 3 дня")), (7, _("раз в неделю")), (30, _("раз в месяц"))] %}
+    <option value="{{ days }}" {{ "selected" if interval == days }}>{{ label }}</option>
+    {% endfor %}
+  </select>
+  <div class="form-text">{{ _("Только для контрагентов с API. Реже — меньше записей в журнале аудита; кнопка «Обновить баланс» на карточке работает всегда.") }}</div>
+</div>
+<div class="mb-3">
   <label class="form-label">{{ _("Комментарий") }}</label>
   <textarea class="form-control" name="comment">{{ (c.comment or '') if c else '' }}</textarea>
 </div>

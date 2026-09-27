@@ -448,6 +448,12 @@ class CounterpartyApiProvider(str, enum.Enum):
     TNS_ENERGO_BUSINESS = "tns_energo_business"
 
 
+# Допустимые значения Counterparty.balance_sync_interval_days: раз в сутки,
+# в 2 дня, в 3 дня, в неделю, в месяц (30 дней). Подписи — в
+# counterparties/_fields.html.
+BALANCE_SYNC_INTERVAL_CHOICES = (1, 2, 3, 7, 30)
+
+
 class Counterparty(Base):
     """Контрагент: организация или ИП, с которым кооператив расплачивается."""
     __tablename__ = "counterparty"
@@ -483,6 +489,11 @@ class Counterparty(Base):
     external_balance: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
     external_balance_updated_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
     external_balance_error: Mapped[str | None] = mapped_column(Text)
+    # Как часто cron (scripts/sync_bank_accounts.py) обновляет этот баланс,
+    # в днях — см. BALANCE_SYNC_INTERVAL_CHOICES. У SMS Aero и т.п. баланс
+    # меняется почти каждый день, и ежедневный синк давал запись в журнале
+    # аудита на каждый день. Кнопка «Обновить баланс» на карточке — всегда.
+    balance_sync_interval_days: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
 
     expenses: Mapped[list["Expense"]] = relationship(back_populates="counterparty")
     payments: Mapped[list["CounterpartyPayment"]] = relationship(back_populates="counterparty")

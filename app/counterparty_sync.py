@@ -21,6 +21,21 @@ from .counterparty_api.base import CounterpartyApiError
 bp = Blueprint("counterparty_sync", __name__, url_prefix="/counterparties/<int:counterparty_id>")
 
 
+def balance_sync_due(counterparty: Counterparty, today: dt.date | None = None) -> bool:
+    """Пора ли cron'у обновлять баланс (см. balance_sync_interval_days):
+    прошло ли с последнего УСПЕШНОГО обновления не меньше интервала — в
+    календарных днях, а не часах: cron запускается в одно и то же время, и
+    вчерашний синк в 7:00:05 при сравнении с сегодняшними 7:00:01 по часам
+    не дотягивал бы до суток. После ошибки external_balance_updated_at не
+    меняется — следующий прогон cron повторит попытку, не дожидаясь
+    интервала. Кнопку «Обновить баланс» интервал не ограничивает."""
+    if counterparty.external_balance_updated_at is None:
+        return True
+    today = today or dt.datetime.utcnow().date()  # updated_at хранится в UTC
+    days_since = (today - counterparty.external_balance_updated_at.date()).days
+    return days_since >= (counterparty.balance_sync_interval_days or 1)
+
+
 def sync_counterparty_balance(counterparty: Counterparty) -> tuple[str, str]:
     """
     Возвращает (status, message): status — "unsupported" (для этого

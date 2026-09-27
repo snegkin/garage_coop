@@ -16,14 +16,14 @@
    таблицы всегда начинаются на одной линии. */
 .power-top-grid {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: minmax(0, 1fr);
   grid-template-areas: "h1" "b1" "t1" "h2" "b2" "t2";
   column-gap: 1.5rem;
   row-gap: .75rem;
 }
 @media (min-width: 768px) {
   .power-top-grid {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     grid-template-areas: "h1 h2" "b1 b2" "t1 t2";
   }
 }

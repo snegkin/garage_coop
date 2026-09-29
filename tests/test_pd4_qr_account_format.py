@@ -116,9 +116,10 @@ def test_electricity_slip_print_page_shows_checking_account_without_spaces(db, c
 
 
 def test_print_page_has_save_qr_button_bound_to_slip_qr(db, client):
-    """«Сохранить QR» (оплата с того же телефона: картинку — в приложение
+    """«Оплатить» (оплата с того же телефона: картинку QR — в приложение
     банка «Оплата по QR из галереи») — на каждую платёжку, со ссылкой на
-    QR именно этой платёжки. Сама перерисовка/скачивание — JS в
+    QR именно этой платёжки. Только на телефоне (CSS по pointer: coarse):
+    там же скрыта «Печать»; на компьютере плашки с кнопкой не видны. Сама перерисовка/скачивание — JS в
     pd4/print.html, проверено вручную в браузере (декодированный PNG
     совпадает с QR на бланке)."""
     _make_coop(db)
@@ -128,12 +129,21 @@ def test_print_page_has_save_qr_button_bound_to_slip_qr(db, client):
     make_ownership(db, garage, person)
     db.add(PersonalAccount(garage_id=garage.id, account_number="50301"))
     db.add(Charge(garage_id=garage.id, year=2026, amount=Decimal("700.00")))
+    second_garage = make_garage(db, number="504")
+    make_ownership(db, second_garage, person)
+    db.add(PersonalAccount(garage_id=second_garage.id, account_number="50401"))
+    db.add(Charge(garage_id=second_garage.id, year=2026, amount=Decimal("300.00")))
     make_user(db, "qrowner3", "pass12345", role=RoleEnum.MEMBER, person=person)
     db.commit()
     login(client, "qrowner3", "pass12345")
 
-    body = client.get(f"/pd4/print?garage_id={garage.id}").get_data(as_text=True)
-    assert 'class="btn btn-sm btn-outline-primary js-save-qr"' in body
-    assert 'data-qr-img="pd4Qr1"' in body
-    assert 'id="pd4Qr1"' in body
+    body = client.get("/pd4/print").get_data(as_text=True)  # все свои долги — обе платёжки
+    assert "Сохранить QR" not in body
+    assert body.count(">Оплатить</button>") == 2  # по одной на каждую из двух платёжек
+    assert 'class="btn btn-primary js-save-qr"' in body
+    assert 'class="btn btn-primary pd4-print-btn"' in body
+    assert ".pd4-qr-bar { display: none !important; }" in body  # на компьютере плашек нет
+    # кнопка платёжки ссылается на её собственный QR, а не на соседний
+    assert 'data-qr-img="pd4Qr1"' in body and 'data-qr-img="pd4Qr2"' in body
+    assert 'id="pd4Qr1"' in body and 'id="pd4Qr2"' in body
     assert 'data-filename="qr_50301.png"' in body

@@ -1743,6 +1743,52 @@ def test_charge_registry_electricity_includes_bank_fee_like_pd4(app, db):
     assert "комиссия" not in items["10070"].purpose
 
 
+def test_charge_registry_staleness_reminder(app, db, client):
+    """Напоминание перезалить реестр: пока реестр ни разу не формировали —
+    молчим; сразу после формирования — актуален; изменилась сумма у счёта —
+    предупреждение на странице реестра и на дашборде председателя (не у
+    рядового члена правления)."""
+    person = make_person(db)
+    garage = make_garage(db)
+    fee_type = FeeType(code="membership", name="Членский взнос")
+    db.add(fee_type)
+    db.flush()
+    member_account = MemberAccount(person_id=person.id, garage_id=garage.id, fee_type_id=fee_type.id, account_number="10110")
+    db.add(member_account)
+    bank_account = make_bank_account(db, provider=BankApiProvider.SBERBANK)
+    make_user(db, "chair_stale", "pass12345", role=RoleEnum.CHAIRMAN)
+    make_user(db, "board_stale", "pass12345", role=RoleEnum.BOARD)
+    db.commit()
+    login(client, "chair_stale", "pass12345")
+    page = f"/cooperative/bank-accounts/{bank_account.id}/registry/charges"
+
+    # фикстура db уже внутри контекста приложения — без вложенного app_context,
+    # его завершение закрыло бы сессию и отвязало bank_account
+    assert bank_sync.charge_registry_staleness(bank_account) is None  # реестром не пользуются
+    assert "устарел" not in client.get("/dashboard").get_data(as_text=True)
+
+    _generate_charge_registry(client, db, bank_account)
+    assert bank_sync.charge_registry_staleness(bank_account)["changed"] == 0
+    assert "устарел" not in client.get(page).get_data(as_text=True)
+
+    db.add(Charge(account_id=member_account.id, year=2026, amount=Decimal("1710.00")))  # ввели начисление
+    db.commit()
+    assert bank_sync.charge_registry_staleness(bank_account)["changed"] == 1
+    assert "изменилась сумма у лицевых счетов: 1" in client.get(page).get_data(as_text=True)
+    dashboard = client.get("/dashboard").get_data(as_text=True)
+    assert "Реестр начислений" in dashboard and "устарел" in dashboard
+    assert f"/cooperative/bank-accounts/{bank_account.id}/registry/charges" in dashboard
+
+    client.get("/auth/logout")
+    login(client, "board_stale", "pass12345")
+    assert "устарел" not in client.get("/dashboard").get_data(as_text=True)
+
+    client.get("/auth/logout")
+    login(client, "chair_stale", "pass12345")
+    _generate_charge_registry(client, db, bank_account)  # перезалили — снова актуален
+    assert "устарел" not in client.get("/dashboard").get_data(as_text=True)
+
+
 def test_charge_registry_requires_cooperative_inn(app, db, client):
     person = make_person(db)
     garage = make_garage(db)

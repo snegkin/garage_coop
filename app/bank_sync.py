@@ -18,6 +18,7 @@ from decimal import Decimal
 from cryptography.hazmat.primitives.serialization import pkcs12, Encoding, PrivateFormat, NoEncryption
 from flask import Blueprint, render_template, request, redirect, url_for, flash, abort, current_app, Response, g
 from sqlalchemy import func
+from sqlalchemy.orm import selectinload
 
 from . import database, audit
 from . import notifications
@@ -26,7 +27,7 @@ from .auth import roles_required
 from .models import (
     RoleEnum, BankAccount, BankApiCredential, BankApiProvider, BankStatementLine,
     PaymentRegistryEntry, BankRegistryFormat, ChargeRegistryFile, Cooperative,
-    MemberAccount, PersonalAccount, Payment, Person, GarageOwnership, GarageContact, CORE_FEE_TYPE_CODES,
+    MemberAccount, PersonalAccount, Payment, Person, Garage, GarageOwnership, GarageContact, CORE_FEE_TYPE_CODES,
 )
 from .accounting import balance as _balance, bank_fee_multiplier, reallocate_garage_charges, reallocate_member_charges
 from .bank_api import get_client, crypto, build_registry_format
@@ -766,7 +767,20 @@ def _charge_registry_items() -> list[ChargeRegistryItem]:
         percent = f"{coop.bank_fee_percent.quantize(Decimal('0.01'))}".replace(".", ",")
         fee_note = f" ({percent}% - комиссия банка)"
     items = []
-    for personal_account in database.db_session.query(PersonalAccount).all():
+    # Начисления/платежи/владельцы — пакетами (selectinload), а не по
+    # запросу на каждый счёт: ~400 счетов давали ~1900 запросов и 2+ секунды,
+    # а список собирается и на странице реестра, и для напоминания об
+    # устаревшем реестре на дашборде председателя (charge_registry_staleness).
+    personal_accounts = database.db_session.query(PersonalAccount).options(
+        selectinload(PersonalAccount.garage).selectinload(Garage.charges),
+        selectinload(PersonalAccount.garage).selectinload(Garage.payments),
+        selectinload(PersonalAccount.garage).selectinload(Garage.ownerships).selectinload(GarageOwnership.person),
+    ).all()
+    member_accounts = database.db_session.query(MemberAccount).filter_by(is_archived=False).options(
+        selectinload(MemberAccount.charges), selectinload(MemberAccount.payments),
+        selectinload(MemberAccount.person), selectinload(MemberAccount.garage), selectinload(MemberAccount.fee_type),
+    ).all()
+    for personal_account in personal_accounts:
         garage = personal_account.garage
         if garage is None:
             # Счёт от гаража, удалённого в обход приложения (garage_id без
@@ -780,7 +794,7 @@ def _charge_registry_items() -> list[ChargeRegistryItem]:
             amount=(debt * fee_multiplier).quantize(Decimal("0.01")),
             purpose=f"Электричество, гараж №{garage.number}{fee_note}",
         ))
-    for member_account in database.db_session.query(MemberAccount).filter_by(is_archived=False).all():
+    for member_account in member_accounts:
         # garage — None у счетов видов взноса без привязки к гаражу
         # (FeeType.per_garage=False, см. MemberAccount.garage_id)
         amount = max(-_balance(member_account), Decimal("0"))
@@ -796,6 +810,51 @@ def _charge_registry_items() -> list[ChargeRegistryItem]:
             purpose=purpose,
         ))
     return sorted(items, key=lambda item: item.account_number)
+
+
+def charge_registry_staleness(account: BankAccount, items: list[ChargeRegistryItem] | None = None) -> dict | None:
+    """Устарел ли последний сформированный реестр начислений этого счёта —
+    для напоминания председателю перезалить его в СберБизнес Онлайн (на
+    странице реестра и на дашборде). Пока реестр не перезалит, приложение
+    банка показывает плательщику сумму из старого реестра (или пустое поле
+    при 0.00), а не из QR на квитанции — см. докстринг ChargeRegistryFile.
+
+    None — реестр по этому счёту ещё ни разу не формировали (им не
+    пользуются, напоминать не о чем). Иначе {"last": ChargeRegistryFile,
+    "changed": N} — у скольких лицевых счетов строка в файле, сформированном
+    сейчас, отличается от последнего сохранённого (изменилась сумма,
+    плательщик, счёт появился/пропал); 0 — реестр актуален. Сравнение
+    построчно по номеру лицевого счёта в том же формате, что и сам файл
+    (разделитель/кодировка/позиция поля — из настроек формата счёта).
+    items — уже собранные _charge_registry_items(), чтобы не собирать
+    дважды (они одни на все счета)."""
+    last = (
+        database.db_session.query(ChargeRegistryFile)
+        .filter_by(bank_account_id=account.id)
+        .order_by(ChargeRegistryFile.created_at.desc(), ChargeRegistryFile.id.desc())
+        .first()
+    )
+    if last is None:
+        return None
+    fmt = build_registry_format(account)
+    if items is None:
+        items = _charge_registry_items()
+    current = registry_file.build_charge_registry_file(items, fmt)
+    if current == last.content:
+        return {"last": last, "changed": 0}
+    key_index = fmt.charge_columns.index("account_number") if "account_number" in fmt.charge_columns else 0
+
+    def lines_by_account(content: bytes) -> dict[str, str]:
+        result = {}
+        for line in content.decode(fmt.encoding, errors="replace").splitlines():
+            if line.strip():
+                parts = line.split(fmt.delimiter)
+                result[parts[key_index] if key_index < len(parts) else line] = line
+        return result
+
+    before, now = lines_by_account(last.content), lines_by_account(current)
+    changed = sum(1 for number in before.keys() | now.keys() if before.get(number) != now.get(number))
+    return {"last": last, "changed": changed}
 
 
 @bp.route("/registry/charges")
@@ -823,6 +882,7 @@ def charge_registry(account_id):
     )
     return render_template(
         "cooperative/charge_registry.html", account=account, items=items, files=files,
+        staleness=charge_registry_staleness(account, items),
         debtors_count=sum(1 for i in items if i.amount > 0),
         pending_total=sum((i.amount for i in items), Decimal("0")),
         file_columns=[labels.get(key, key) for key in fmt.charge_columns],

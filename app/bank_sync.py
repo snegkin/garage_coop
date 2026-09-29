@@ -16,7 +16,7 @@ import uuid
 from decimal import Decimal
 
 from cryptography.hazmat.primitives.serialization import pkcs12, Encoding, PrivateFormat, NoEncryption
-from flask import Blueprint, render_template, request, redirect, url_for, flash, abort, current_app, Response
+from flask import Blueprint, render_template, request, redirect, url_for, flash, abort, current_app, Response, g
 
 from . import database, audit
 from . import notifications
@@ -24,8 +24,8 @@ from .i18n import translate as _
 from .auth import roles_required
 from .models import (
     RoleEnum, BankAccount, BankApiCredential, BankApiProvider, BankStatementLine,
-    ChargeRegistryBatch, ChargeRegistryStatus, PaymentRegistryEntry, BankRegistryFormat,
-    MemberAccount, PersonalAccount, Payment, Person, GarageOwnership, GarageContact,
+    PaymentRegistryEntry, BankRegistryFormat, ChargeRegistryFile,
+    MemberAccount, PersonalAccount, Payment, Person, GarageOwnership, GarageContact, CORE_FEE_TYPE_CODES,
 )
 from .accounting import balance as _balance, reallocate_garage_charges, reallocate_member_charges
 from .bank_api import get_client, crypto, build_registry_format
@@ -730,14 +730,27 @@ def allocate_all_statement_lines(account_id):
 
 
 # ---------------------------------------------------------------------------
-# Реестр начислений — текущая задолженность членов/гаражей, отправляемая
-# в банк, чтобы плательщик мог увидеть и оплатить её в приложении банка.
+# Реестр начислений — все действующие лицевые счета с текущей суммой к
+# оплате, файлом для загрузки в СберБизнес Онлайн: плательщик видит свой
+# лицевой счёт в приложении банка и платит по нему.
 # ---------------------------------------------------------------------------
 
-def _debtor_items() -> list[ChargeRegistryItem]:
-    """Все лицевые счета (гаражные и членские) с отрицательным балансом —
-    см. accounting.balance(). Не фильтрует по тому, отправлялся ли этот долг
-    в реестр раньше (см. context.md — известное ограничение)."""
+def _charge_registry_items() -> list[ChargeRegistryItem]:
+    """Все ДЕЙСТВУЮЩИЕ лицевые счета (гаражные и членские), отсортированные
+    по номеру. Сумма — текущий долг (см. accounting.balance()), у счетов
+    без долга или с переплатой — 0: такие строки тоже нужны, иначе лицевой
+    счёт без долга не виден в приложении банка и заплатить по нему вперёд
+    нельзя. Нулевые строки — только у основных взносов (CORE_FEE_TYPE_CODES:
+    членский, целевой, земельный налог) и электричества; пеня и прочие виды
+    (напр. «Телекоммуникационные услуги») — только при долге: платить по
+    ним вперёд незачем, а в приложении банка они были бы лишними счетами
+    (тот же принцип, что у чекбокса «Актуальные» на странице счетов).
+    Плательщик — «Фамилия И.О.» (Person.short_name), не полное ФИО.
+
+    Архивные MemberAccount (is_archived) не попадают совсем: их номер
+    переходит новому счёту следующего собственника (см. докстринг
+    MemberAccount), и строка архивного счёта задвоила бы номер в файле, а
+    новому собственнику показала бы долг прежнего."""
     items = []
     for personal_account in database.db_session.query(PersonalAccount).all():
         garage = personal_account.garage
@@ -745,160 +758,131 @@ def _debtor_items() -> list[ChargeRegistryItem]:
             # Счёт от гаража, удалённого в обход приложения (garage_id без
             # ondelete) — ни начислений, ни собственников у него нет.
             continue
-        bal = _balance(garage)
-        if bal >= 0:
-            continue
-        owners = ", ".join(o.person.full_name for o in garage.ownerships) or f"гараж №{garage.number}"
+        owners = ", ".join(o.person.short_name for o in garage.ownerships) or f"гараж №{garage.number}"
         items.append(ChargeRegistryItem(
             account_number=personal_account.account_number,
             payer_name=owners,
-            amount=-bal,
+            amount=max(-_balance(garage), Decimal("0")),
             purpose=f"Электричество, гараж №{garage.number}",
         ))
-    for member_account in database.db_session.query(MemberAccount).all():
-        bal = _balance(member_account)
-        if bal >= 0:
-            continue
+    for member_account in database.db_session.query(MemberAccount).filter_by(is_archived=False).all():
         # garage — None у счетов видов взноса без привязки к гаражу
         # (FeeType.per_garage=False, см. MemberAccount.garage_id)
+        amount = max(-_balance(member_account), Decimal("0"))
+        if not amount and member_account.fee_type.code not in CORE_FEE_TYPE_CODES:
+            continue
         purpose = member_account.fee_type.name
         if member_account.garage is not None:
             purpose += f", гараж №{member_account.garage.number}"
         items.append(ChargeRegistryItem(
             account_number=member_account.account_number,
-            payer_name=member_account.person.full_name,
-            amount=-bal,
+            payer_name=member_account.person.short_name,
+            amount=amount,
             purpose=purpose,
         ))
-    return items
+    return sorted(items, key=lambda item: item.account_number)
 
 
 @bp.route("/registry/charges")
 @roles_required(RoleEnum.BOARD)
 def charge_registry(account_id):
+    """
+    Реестр начислений — только файл: API Сбера для обычной организации
+    реестр начислений не принимает (методы /v1/debt-registries — только в
+    интеграции для холдингов, см. app/bank_api/sberbank.py), поэтому
+    председатель формирует CP1251-файл здесь и загружает его в СберБизнес
+    Онлайн вручную. Сформированные файлы хранятся (ChargeRegistryFile) —
+    таблица с ними, ниже — предпросмотр строк, которые попадут в новый файл
+    (все действующие лицевые счета, включая нулевые, см.
+    _charge_registry_items).
+    """
     account = _get_account(account_id)
-    batches = (
-        database.db_session.query(ChargeRegistryBatch)
+    items = _charge_registry_items()
+    fmt = build_registry_format(account)
+    labels = {key: label for key, label, _required in registry_file.CHARGE_FIELD_CATALOG}
+    files = (
+        database.db_session.query(ChargeRegistryFile)
         .filter_by(bank_account_id=account.id)
-        .order_by(ChargeRegistryBatch.created_at.desc())
+        .order_by(ChargeRegistryFile.created_at.desc(), ChargeRegistryFile.id.desc())
         .all()
     )
-    pending = _debtor_items()
     return render_template(
-        "cooperative/charge_registry.html", account=account, batches=batches,
-        pending_count=len(pending), pending_total=sum((i.amount for i in pending), Decimal("0")),
+        "cooperative/charge_registry.html", account=account, items=items, files=files,
+        debtors_count=sum(1 for i in items if i.amount > 0),
+        pending_total=sum((i.amount for i in items), Decimal("0")),
+        file_columns=[labels.get(key, key) for key in fmt.charge_columns],
+        file_delimiter=fmt.delimiter,
     )
 
 
-@bp.route("/registry/charges/download")
+@bp.route("/registry/charges/generate", methods=["POST"])
 @roles_required(RoleEnum.BOARD)
-def download_charge_registry_file(account_id):
-    """
-    Тот же файл, что уходит в банк кнопкой «Отправить реестр в банк» (см.
-    send_charge_registry ниже), но для скачивания — на случай, если
-    автоматическая отправка через API недоступна для конкретного
-    подключения (см. комментарий в app/bank_api/sberbank.py: реестр
-    начислений — файловый канал СберБизнес Онлайн, а не гарантированно
-    REST). Председатель может загрузить его вручную через веб-интерфейс
-    банка. **Кодировка файла — Windows-1251 (cp1251)**, не UTF-8 — это
-    формат, который принимает СберБизнес Онлайн для реестров начислений
-    (см. app/bank_api/registry_file.py).
-    """
+def generate_charge_registry(account_id):
+    """Формирует файл реестра начислений из текущего состояния лицевых
+    счетов и сохраняет его (с содержимым — см. ChargeRegistryFile).
+    **Кодировка — Windows-1251 (cp1251)**, порядок полей — настраиваемый
+    формат счёта (см. app/bank_api/registry_file.py)."""
     account = _get_account(account_id)
-    items = _debtor_items()
-    content = registry_file.build_charge_registry_file(items, build_registry_format(account))
-    filename = f"charges_{account.checking_account}_{dt.date.today().isoformat()}.txt"
+    items = _charge_registry_items()
+    if not items:
+        flash(_("Действующих лицевых счетов нет — реестр пуст."), "warning")
+        return redirect(url_for("bank_sync.charge_registry", account_id=account.id))
+    now = dt.datetime.now()
+    registry = ChargeRegistryFile(
+        bank_account_id=account.id,
+        created_by_user_id=g.user.id if g.get("user") else None,
+        filename=f"charges_{account.checking_account}_{now:%Y-%m-%d_%H%M}.txt",
+        content=registry_file.build_charge_registry_file(items, build_registry_format(account)),
+        rows_count=len(items),
+        debtors_count=sum(1 for i in items if i.amount > 0),
+        total_amount=sum((i.amount for i in items), Decimal("0")),
+    )
+    database.db_session.add(registry)
+    database.db_session.flush()
+    audit.record(
+        "bank_api.charge_registry_generate", entity_type="bank_account", entity_id=account.id,
+        summary=f"Сформирован реестр начислений {registry.filename}: {registry.rows_count} лицевых счетов, "
+                f"из них с долгом {registry.debtors_count} на {audit.format_amount(registry.total_amount)}",
+    )
+    database.db_session.commit()
+    flash(_("Реестр сформирован — скачайте его в таблице ниже и загрузите в СберБизнес Онлайн."), "success")
+    return redirect(url_for("bank_sync.charge_registry", account_id=account.id))
+
+
+def _get_charge_registry_file(account: BankAccount, file_id: int) -> ChargeRegistryFile:
+    registry = database.db_session.get(ChargeRegistryFile, file_id)
+    if registry is None or registry.bank_account_id != account.id:
+        abort(404)
+    return registry
+
+
+@bp.route("/registry/charges/<int:file_id>/download")
+@roles_required(RoleEnum.BOARD)
+def download_charge_registry_file(account_id, file_id):
+    """Ровно тот файл, что был сформирован (content), — не пересборка по
+    текущим долгам."""
+    registry = _get_charge_registry_file(_get_account(account_id), file_id)
     return Response(
-        content,
+        registry.content,
         headers={
             "Content-Type": "text/plain; charset=windows-1251",
-            "Content-Disposition": f"attachment; filename={filename}",
+            "Content-Disposition": f"attachment; filename={registry.filename}",
         },
     )
 
 
-@bp.route("/registry/charges/send", methods=["POST"])
+@bp.route("/registry/charges/<int:file_id>/delete", methods=["POST"])
 @roles_required(RoleEnum.CHAIRMAN)
-def send_charge_registry(account_id):
+def delete_charge_registry_file(account_id, file_id):
     account = _get_account(account_id)
-    client = get_client(account)
-    if client is None:
-        flash(_("Для этого счёта не настроен или не поддерживается реестр начислений."), "warning")
-        return redirect(url_for("finance.bank_accounts"))
-
-    period = (request.form.get("period") or "").strip()
-    if not period:
-        flash(_("Укажите период реестра."), "danger")
-        return redirect(url_for("bank_sync.charge_registry", account_id=account.id))
-
-    items = _debtor_items()
-    if not items:
-        flash(_("Нет непогашенной задолженности для отправки."), "warning")
-        return redirect(url_for("bank_sync.charge_registry", account_id=account.id))
-
-    batch = ChargeRegistryBatch(
-        bank_account_id=account.id, period=period,
-        charges_count=len(items), total_amount=sum((i.amount for i in items), Decimal("0")),
-    )
-    database.db_session.add(batch)
-    database.db_session.flush()
-
-    cred = _get_or_create_credential(account)
-    try:
-        result = client.send_charge_registry(items, period)
-    except BankApiError as e:
-        _persist_rotated_refresh_token(cred, client)
-        batch.status = ChargeRegistryStatus.ERROR
-        batch.bank_comment = str(e)
-        cred.last_error = str(e)
-        database.db_session.commit()
-        flash(_("Не удалось отправить реестр начислений: {error}").format(error=str(e)), "danger")
-        return redirect(url_for("bank_sync.charge_registry", account_id=account.id))
-
-    batch.external_id = result.external_id
-    batch.status = ChargeRegistryStatus.SENT
-    batch.bank_comment = result.bank_comment
-    batch.sent_at = dt.datetime.utcnow()
-    cred.last_error = None
-    _persist_rotated_refresh_token(cred, client)
+    registry = _get_charge_registry_file(account, file_id)
     audit.record(
-        "bank_api.charge_registry_send", entity_type="bank_account", entity_id=account.id,
-        summary=f"Отправлен реестр начислений за «{period}»: {batch.charges_count} начислений "
-                f"на {audit.format_amount(batch.total_amount)}",
+        "bank_api.charge_registry_delete", entity_type="bank_account", entity_id=account.id,
+        summary=f"Удалён сформированный реестр начислений {registry.filename}",
     )
+    database.db_session.delete(registry)
     database.db_session.commit()
-    flash(_("Реестр начислений отправлен в банк."), "success")
-    return redirect(url_for("bank_sync.charge_registry", account_id=account.id))
-
-
-@bp.route("/registry/charges/<int:batch_id>/refresh", methods=["POST"])
-@roles_required(RoleEnum.CHAIRMAN)
-def refresh_charge_registry(account_id, batch_id):
-    account = _get_account(account_id)
-    batch = database.db_session.get(ChargeRegistryBatch, batch_id)
-    if batch is None or batch.bank_account_id != account.id:
-        abort(404)
-    client = get_client(account)
-    if client is None or not batch.external_id:
-        flash(_("Невозможно обновить статус этого реестра."), "warning")
-        return redirect(url_for("bank_sync.charge_registry", account_id=account.id))
-
-    try:
-        result = client.get_charge_registry_status(batch.external_id)
-    except BankApiError as e:
-        cred = _get_or_create_credential(account)
-        _persist_rotated_refresh_token(cred, client)
-        cred.last_error = str(e)
-        database.db_session.commit()
-        flash(_("Не удалось обновить статус: {error}").format(error=str(e)), "danger")
-        return redirect(url_for("bank_sync.charge_registry", account_id=account.id))
-
-    status_map = {s.value: s for s in ChargeRegistryStatus}
-    batch.status = status_map.get(result.status.lower(), batch.status)
-    batch.bank_comment = result.bank_comment
-    _persist_rotated_refresh_token(_get_or_create_credential(account), client)
-    database.db_session.commit()
-    flash(_("Статус реестра обновлён."), "success")
+    flash(_("Реестр удалён."), "success")
     return redirect(url_for("bank_sync.charge_registry", account_id=account.id))
 
 

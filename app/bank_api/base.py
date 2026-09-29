@@ -37,20 +37,13 @@ class StatementLine:
 
 @dataclasses.dataclass
 class ChargeRegistryItem:
-    """Одно начисление для отправки в реестр начислений."""
+    """Одна строка файла реестра начислений (см. registry_file.build_charge_registry_file)."""
     account_number: str  # лицевой счёт плательщика (MemberAccount/PersonalAccount.account_number)
     payer_name: str
     amount: Decimal
     purpose: str
     document_number: str | None = None
     service_code: str | None = None  # код услуги/периода — см. registry_file.RegistryFormat.service_code
-
-
-@dataclasses.dataclass
-class ChargeRegistryResult:
-    external_id: str
-    status: str
-    bank_comment: str | None = None
 
 
 @dataclasses.dataclass
@@ -80,11 +73,3 @@ class BankApiClient(abc.ABC):
     @abc.abstractmethod
     def get_statement(self, date_from: dt.date, date_to: dt.date) -> list[StatementLine]:
         """Операции (зачисления и списания) за период, включительно с обеих сторон."""
-
-    @abc.abstractmethod
-    def send_charge_registry(self, items: list[ChargeRegistryItem], period: str) -> ChargeRegistryResult:
-        """Отправляет реестр начислений в банк, возвращает присвоенный банком external_id и статус приёма."""
-
-    @abc.abstractmethod
-    def get_charge_registry_status(self, external_id: str) -> ChargeRegistryResult:
-        """Текущий статус ранее отправленного реестра начислений."""

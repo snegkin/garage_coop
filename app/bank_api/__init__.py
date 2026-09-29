@@ -92,6 +92,5 @@ def get_client(bank_account: BankAccount) -> BankApiClient | None:
             token_url=current_app.config.get("SBERBANK_API_TOKEN_URL"),
             client_cert=client_cert,
             ca_bundle=current_app.config.get("SBERBANK_API_CA_BUNDLE"),
-            registry_format=build_registry_format(bank_account),
         )
     return None

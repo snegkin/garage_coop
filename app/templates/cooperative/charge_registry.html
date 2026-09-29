@@ -6,63 +6,89 @@
   {{ _("Реестр начислений") }} — {{ account.bank_name }} {{ account.checking_account }}
 </h3>
 <p class="text-muted">
-  {{ _("Реестр — это текущая непогашенная задолженность по всем лицевым счетам (взносы, налоги, электричество), отправленная в банк: плательщики видят её и могут оплатить в приложении банка по своему лицевому счёту.") }}
+  {{ _("Все действующие лицевые счета (взносы, налоги, электричество) с текущей суммой к оплате — файлом для загрузки в СберБизнес Онлайн: после загрузки плательщик находит свой лицевой счёт в приложении банка и платит по нему. Счета без долга идут с нулевой суммой — по ним можно платить вперёд.") }}
+</p>
+<p class="text-muted small">
+  {{ _("Автоматической отправки нет: API Сбербанка принимает реестр начислений только в интеграции для холдингов. Сформируйте файл, скачайте его и загрузите в СберБизнес Онлайн вручную.") }}
 </p>
 
-<p>{{ _("Сейчас в долгах") }}: <strong>{{ pending_count }}</strong> {{ _("лицевых счетов на сумму") }} <strong>{{ fmt2(pending_total) }} ₽</strong></p>
-
-{% if is_chairman() %}
-<form method="post" action="{{ url_for('bank_sync.send_charge_registry', account_id=account.id) }}" class="d-flex align-items-end gap-2 mb-2 flex-wrap" data-ajax>
-  <div>
-    <label class="form-label mb-0">{{ _("Период") }}</label>
-    <input class="form-control" name="period" placeholder="{{ _("например, август 2026") }}" required>
-  </div>
-  <button class="btn btn-primary" {{ "disabled" if pending_count == 0 }}>{{ _("Отправить реестр в банк") }}</button>
-</form>
-{% endif %}
-<p class="mb-4">
-  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('bank_sync.download_charge_registry_file', account_id=account.id) }}">{{ _("Скачать файл реестра (CP1251)") }}</a>
-  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('bank_sync.registry_format_settings', account_id=account.id) }}">{{ _("Настроить формат файла") }}</a>
-  <span class="text-muted small">{{ _("на случай, если автоматическая отправка через API недоступна — файл можно загрузить в СберБизнес Онлайн вручную") }}</span>
+<div class="d-flex flex-wrap gap-2 mb-2">
+  <form method="post" action="{{ url_for('bank_sync.generate_charge_registry', account_id=account.id) }}" data-ajax>
+    <button class="btn btn-primary" {{ "disabled" if not items }}>{{ _("Сформировать реестр") }}</button>
+  </form>
+  <a class="btn btn-outline-secondary" href="{{ url_for('bank_sync.registry_format_settings', account_id=account.id) }}">{{ _("Настроить формат файла") }}</a>
+</div>
+<p class="text-muted small mb-4">
+  {{ _("Поля в строке файла") }} ({{ _("разделитель") }} «{{ file_delimiter }}»): {{ file_columns|join(", ") }}
 </p>
 
-<table class="table table-bordered bg-body sortable">
+<h5>{{ _("Сформированные реестры") }}</h5>
+<table class="table table-bordered bg-body sortable mb-4">
   <thead>
     <tr>
-      <th>{{ _("Отправлен") }}</th>
-      <th>{{ _("Период") }}</th>
-      <th>{{ _("Начислений") }}</th>
-      <th>{{ _("Сумма") }}</th>
-      <th>{{ _("Статус") }}</th>
-      <th>{{ _("Комментарий банка") }}</th>
-      {% if is_chairman() %}<th class="no-sort"></th>{% endif %}
+      <th>{{ _("Сформирован") }}</th>
+      <th>{{ _("Кем") }}</th>
+      <th class="text-end">{{ _("Лицевых счетов") }}</th>
+      <th class="text-end">{{ _("из них с долгом") }}</th>
+      <th class="text-end">{{ _("Сумма к оплате") }}</th>
+      <th class="no-sort"></th>
     </tr>
   </thead>
   <tbody>
-    {% for batch in batches %}
+    {% for f in files %}
     <tr>
-      <td data-sort-value="{{ batch.sent_at.isoformat() if batch.sent_at else '' }}">{{ fmt_date(batch.sent_at) if batch.sent_at else "—" }}</td>
-      <td>{{ batch.period }}</td>
-      <td>{{ batch.charges_count }}</td>
-      <td data-sort-value="{{ batch.total_amount }}">{{ fmt2(batch.total_amount) }} ₽</td>
-      <td>
-        {% set status_classes = {"draft": "bg-secondary", "sent": "bg-info", "accepted": "bg-success", "rejected": "bg-danger", "error": "bg-danger"} %}
-        <span class="badge {{ status_classes.get(batch.status.value, "bg-secondary") }}">{{ batch.status.value }}</span>
-      </td>
-      <td>{{ batch.bank_comment or "—" }}</td>
-      {% if is_chairman() %}
-      <td>
-        {% if batch.external_id %}
-        <form method="post" action="{{ url_for('bank_sync.refresh_charge_registry', account_id=account.id, batch_id=batch.id) }}" data-ajax>
-          <button class="btn btn-sm btn-outline-secondary">{{ _("Обновить статус") }}</button>
+      <td data-sort-value="{{ f.created_at.isoformat() }}"><span data-utc-datetime="{{ f.created_at.isoformat() }}Z">{{ fmt_date(f.created_at) }} {{ f.created_at.strftime("%H:%M") }}</span></td>
+      <td>{{ f.created_by.username if f.created_by else "—" }}</td>
+      <td class="text-end">{{ f.rows_count }}</td>
+      <td class="text-end">{{ f.debtors_count }}</td>
+      <td class="text-end" data-sort-value="{{ f.total_amount }}">{{ fmt2(f.total_amount) }} ₽</td>
+      <td class="text-nowrap">
+        <a class="btn btn-sm btn-outline-primary" href="{{ url_for('bank_sync.download_charge_registry_file', account_id=account.id, file_id=f.id) }}">{{ _("Скачать") }}</a>
+        {% if is_chairman() %}
+        <form method="post" action="{{ url_for('bank_sync.delete_charge_registry_file', account_id=account.id, file_id=f.id) }}" class="d-inline" onsubmit="return confirm('{{ _('Удалить сформированный реестр?') }}')">
+          <button class="btn btn-sm btn-outline-danger">{{ _("Удалить") }}</button>
         </form>
         {% endif %}
       </td>
-      {% endif %}
     </tr>
     {% else %}
-    <tr><td colspan="7" class="text-muted">{{ _("Реестры ещё не отправлялись.") }}</td></tr>
+    <tr><td colspan="6" class="text-muted">{{ _("Реестры ещё не формировались.") }}</td></tr>
     {% endfor %}
   </tbody>
 </table>
+
+<h5>{{ _("Что попадёт в новый реестр") }}</h5>
+<p>
+  {{ _("Лицевых счетов в файле") }}: <strong>{{ items|length }}</strong>,
+  {{ _("из них с долгом") }}: <strong>{{ debtors_count }}</strong> {{ _("на сумму") }} <strong>{{ fmt2(pending_total) }} ₽</strong>
+</p>
+<div class="mb-3">
+  <input class="form-control" id="chargeRegistryPreviewFilter" data-table-filter-for="chargeRegistryPreview" placeholder="{{ _('Поиск по счёту, ФИО, назначению...') }}">
+</div>
+<table class="table table-bordered bg-body sortable" id="chargeRegistryPreview" data-page-size="50">
+  <thead>
+    <tr>
+      <th class="text-end">{{ _("Лицевой счёт") }}</th>
+      <th>{{ _("ФИО плательщика") }}</th>
+      <th>{{ _("Назначение платежа") }}</th>
+      <th class="text-end">{{ _("Сумма к оплате") }}</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for item in items %}
+    <tr data-filter-text="{{ (item.account_number ~ ' ' ~ item.payer_name ~ ' ' ~ item.purpose)|lower }}">
+      <td class="text-end">{{ item.account_number }}</td>
+      <td>{{ item.payer_name }}</td>
+      <td>{{ item.purpose }}</td>
+      <td class="text-end{{ ' text-muted' if not item.amount }}" data-sort-value="{{ item.amount }}">{{ fmt2(item.amount) }} ₽</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="4" class="text-muted">{{ _("Действующих лицевых счетов нет — реестр пуст.") }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+<p class="text-muted d-none" data-no-results-for="chargeRegistryPreview">{{ _("Ничего не найдено.") }}</p>
+<nav class="d-none" data-pager-for="chargeRegistryPreview">
+  <ul class="pagination pagination-sm mb-0"></ul>
+</nav>
 {% endblock %}

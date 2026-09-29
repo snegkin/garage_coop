@@ -11,7 +11,7 @@ import json
 from decimal import Decimal
 
 from sqlalchemy import (
-    String, Integer, BigInteger, Numeric, Date, DateTime, Boolean, Text,
+    String, Integer, BigInteger, Numeric, Date, DateTime, Boolean, Text, LargeBinary,
     ForeignKey, Enum, UniqueConstraint, CheckConstraint, Index, MetaData, text, event
 )
 from sqlalchemy.orm import (
@@ -298,44 +298,37 @@ class BankStatementLine(Base):
     )
 
 
-class ChargeRegistryStatus(str, enum.Enum):
-    DRAFT = "draft"
-    SENT = "sent"
-    ACCEPTED = "accepted"
-    REJECTED = "rejected"
-    ERROR = "error"
-
-
-class ChargeRegistryBatch(Base):
+class ChargeRegistryFile(Base):
     """
-    Пакет начислений, отправленный в банк реестром начислений — банк
-    показывает его плательщикам (по номеру лицевого счёта — см.
-    MemberAccount.account_number / PersonalAccount.account_number), они
-    могут оплатить прямо в приложении банка. Статус — то, что вернул банк
-    по external_id (присваивается банком при отправке).
+    Сформированный файл реестра начислений (см. app/bank_sync.py:
+    _charge_registry_items/generate_charge_registry) — председатель скачивает
+    его и загружает в СберБизнес Онлайн вручную: API Сбера для обычной
+    организации реестр начислений не принимает. Хранится само содержимое
+    (content, CP1251, ~25 КБ на 400 строк), а не пересобирается при
+    скачивании — чтобы и через месяц можно было достать ровно тот файл,
+    что ушёл в банк, хотя долги с тех пор изменились.
     """
-    __tablename__ = "charge_registry_batch"
+    __tablename__ = "charge_registry_file"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     bank_account_id: Mapped[int] = mapped_column(ForeignKey("bank_account.id", ondelete="CASCADE"), index=True)
-    period: Mapped[str] = mapped_column(String(20))  # произвольная метка периода, напр. "2026" или "август 2026"
-    external_id: Mapped[str | None] = mapped_column(String(64))
-    status: Mapped[ChargeRegistryStatus] = mapped_column(
-        Enum(ChargeRegistryStatus), default=ChargeRegistryStatus.DRAFT
-    )
-    charges_count: Mapped[int] = mapped_column(Integer, default=0)
-    total_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
-    bank_comment: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.utcnow)
-    sent_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
+    created_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("user.id", ondelete="SET NULL"))
+    filename: Mapped[str] = mapped_column(String(120))
+    content: Mapped[bytes] = mapped_column(LargeBinary)
+    rows_count: Mapped[int] = mapped_column(Integer)
+    debtors_count: Mapped[int] = mapped_column(Integer)
+    total_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
 
     bank_account: Mapped["BankAccount"] = relationship()
+    created_by: Mapped["User | None"] = relationship()
 
 
 class PaymentRegistryEntry(Base):
     """
     Одна запись из реестра платежей, полученного из банка — платёж,
-    сделанный по начислению из ChargeRegistryBatch, с номером лицевого
+    сделанный по начислению из реестра начислений (файл, см.
+    app/bank_sync.py: download_charge_registry_file), с номером лицевого
     счёта плательщика. matched_payment_id заполняется, когда запись
     разнесена в учёте кооператива вручную (см. app/bank_sync.py:
     allocate_payment_registry_entry — создаётся Payment и вызывается

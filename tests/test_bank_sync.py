@@ -19,13 +19,13 @@ from app import database
 from app import bank_sync
 from app.bank_api import crypto, get_client
 from app.bank_api.base import (
-    BankApiError, BalanceInfo, StatementLine, ChargeRegistryResult, PaymentRegistryItem,
+    BankApiError, BalanceInfo, StatementLine, PaymentRegistryItem,
 )
 from app.bank_api.sberbank import _parse_transaction
 from app.accounting import balance
 from app.models import (
     RoleEnum, BankAccount, BankApiProvider, BankApiCredential, BankStatementLine,
-    ChargeRegistryBatch, ChargeRegistryStatus, PaymentRegistryEntry,
+    PaymentRegistryEntry, ChargeRegistryFile,
     MemberAccount, FeeType, Charge, Payment, GarageContact, PersonalAccount, AuditLog,
 )
 
@@ -997,10 +997,10 @@ def test_sync_statement_auto_allocates_by_name_when_no_account_number(app, db, c
 
 
 # ---------------------------------------------------------------------------
-# Реестр начислений — собирает должников
+# Реестр начислений — все действующие лицевые счета, включая нулевые
 # ---------------------------------------------------------------------------
 
-def test_debtor_items_includes_negative_balance_member_account(app, db):
+def test_charge_registry_items_includes_negative_balance_member_account(app, db):
     person = make_person(db)
     garage = make_garage(db)
     fee_type = FeeType(code="10", name="Членский взнос")
@@ -1014,13 +1014,13 @@ def test_debtor_items_includes_negative_balance_member_account(app, db):
     assert balance(account) == Decimal("-300.00")
 
     with app.app_context():
-        items = bank_sync._debtor_items()
+        items = bank_sync._charge_registry_items()
     matching = [i for i in items if i.account_number == "10099"]
     assert len(matching) == 1
     assert matching[0].amount == Decimal("300.00")
 
 
-def test_debtor_items_tolerates_accounts_without_garage(app, db):
+def test_charge_registry_items_tolerates_accounts_without_garage(app, db):
     """Регрессия: страница реестра начислений падала с AttributeError.
     1) PersonalAccount, чей гараж удалён в обход приложения (garage_id без
        ondelete, в рабочей БД такой нашёлся) — пропускается;
@@ -1049,11 +1049,56 @@ def test_debtor_items_tolerates_accounts_without_garage(app, db):
     raw.close()
 
     with app.app_context():
-        items = bank_sync._debtor_items()
+        items = bank_sync._charge_registry_items()
     assert not [i for i in items if i.account_number == "99990"]
     matching = [i for i in items if i.account_number == "30011"]
     assert len(matching) == 1
     assert matching[0].purpose == "Вступительный взнос"
+
+
+def test_charge_registry_items_include_zero_and_skip_archived(app, db):
+    """Счета основных взносов без долга и с переплатой — в реестре с нулевой
+    суммой (чтобы по ним можно было платить вперёд), пеня — только при
+    долге; архивный счёт, чей номер перешёл новому собственнику, — не
+    попадает совсем (иначе номер задвоился бы)."""
+    old_owner = make_person(db, full_name="Прежний Собственник")
+    new_owner = make_person(db, full_name="Новый Собственник")
+    payer = make_person(db, full_name="Аккуратный Плательщик")
+    garage = make_garage(db, number="5")
+    fee_type = FeeType(code="membership", name="Членский взнос")
+    penalty_type = FeeType(code="membership_penalty", name="Пеня по членскому взносу")
+    db.add_all([fee_type, penalty_type])
+    db.flush()
+    archived = MemberAccount(
+        person_id=old_owner.id, garage_id=garage.id, fee_type_id=fee_type.id,
+        account_number="10050", is_archived=True,
+    )
+    fresh = MemberAccount(person_id=new_owner.id, garage_id=garage.id, fee_type_id=fee_type.id, account_number="10050")
+    overpaid = MemberAccount(person_id=payer.id, garage_id=garage.id, fee_type_id=fee_type.id, account_number="10051")
+    penalty_zero = MemberAccount(person_id=payer.id, garage_id=garage.id, fee_type_id=penalty_type.id, account_number="40051")
+    penalty_debt = MemberAccount(person_id=new_owner.id, garage_id=garage.id, fee_type_id=penalty_type.id, account_number="40050")
+    db.add_all([archived, fresh, overpaid, penalty_zero, penalty_debt])
+    db.flush()
+    db.add(Charge(account_id=penalty_debt.id, year=2026, amount=Decimal("12.34")))
+    db.add(Charge(account_id=archived.id, year=2025, amount=Decimal("900.00")))  # долг прежнего собственника
+    db.add(Payment(account_id=overpaid.id, date=dt.date(2026, 1, 10), amount=Decimal("500.00")))
+    db.add(PersonalAccount(garage_id=garage.id, account_number="90050"))
+    db.commit()
+
+    with app.app_context():
+        items = bank_sync._charge_registry_items()
+    by_number = {}
+    for item in items:
+        by_number.setdefault(item.account_number, []).append(item)
+
+    assert [i.payer_name for i in by_number["10050"]] == ["Новый С."]  # «Фамилия И.О.»
+    assert by_number["10050"][0].amount == Decimal("0")
+    assert by_number["10051"][0].amount == Decimal("0")  # переплата — не отрицательная сумма
+    assert by_number["90050"][0].amount == Decimal("0")  # гаражный счёт без начислений
+    assert [i.account_number for i in items] == sorted(i.account_number for i in items)
+    # пеня и прочие не основные виды — только при долге, вперёд по ним не платят
+    assert "40051" not in by_number
+    assert by_number["40050"][0].amount == Decimal("12.34")
 
 
 # ---------------------------------------------------------------------------
@@ -1366,13 +1411,6 @@ def test_unallocate_payment_registry_entry_keeps_statement_match(app, db, client
     assert 'data-year="2026" data-status="pending"' in html
 
 
-def test_charge_registry_batch_status_choices():
-    """Проверка того, что модель статусов реестра не разошлась с шаблоном
-    (charge_registry.html: status_classes ожидает конкретные значения)."""
-    values = {s.value for s in ChargeRegistryStatus}
-    assert values == {"draft", "sent", "accepted", "rejected", "error"}
-
-
 # ---------------------------------------------------------------------------
 # Файловый формат реестров (CP1251) — см. app/bank_api/registry_file.py
 # Формат по умолчанию — РЕАЛЬНЫЙ формат СберБизнес Онлайн, полученный от
@@ -1490,6 +1528,13 @@ def test_registry_format_is_configurable():
 # Скачивание/загрузка файла реестра через роуты (без обращения к банку)
 # ---------------------------------------------------------------------------
 
+def _generate_charge_registry(client, db, bank_account):
+    """Сформировать реестр и вернуть сохранённую запись (ChargeRegistryFile)."""
+    resp = client.post(f"/cooperative/bank-accounts/{bank_account.id}/registry/charges/generate")
+    assert resp.status_code == 302
+    return db.query(ChargeRegistryFile).filter_by(bank_account_id=bank_account.id).order_by(ChargeRegistryFile.id.desc()).first()
+
+
 def test_download_charge_registry_file_is_cp1251(app, db, client):
     person = make_person(db)
     garage = make_garage(db)
@@ -1507,12 +1552,88 @@ def test_download_charge_registry_file_is_cp1251(app, db, client):
     db.commit()
     login(client, "chair8", "pass12345")
 
-    resp = client.get(f"/cooperative/bank-accounts/{bank_account.id}/registry/charges/download")
+    registry = _generate_charge_registry(client, db, bank_account)
+    assert registry.rows_count == 1 and registry.debtors_count == 1
+    assert registry.total_amount == Decimal("500.00")
+    assert registry.created_by is not None
+    assert db.query(AuditLog).filter_by(action="bank_api.charge_registry_generate").count() == 1
+
+    resp = client.get(f"/cooperative/bank-accounts/{bank_account.id}/registry/charges/{registry.id}/download")
     assert resp.status_code == 200
     assert "windows-1251" in resp.headers["Content-Type"].lower()
+    assert registry.filename in resp.headers["Content-Disposition"]
     text = resp.data.decode("cp1251")
     assert "30011" in text
     assert "0625" in text  # код услуги/периода по умолчанию
+
+
+def test_charge_registry_file_is_a_snapshot_and_can_be_deleted(app, db, client):
+    """Скачивается ровно то, что было сформировано, — не пересборка по
+    текущим долгам; удалить сформированный реестр может только председатель."""
+    person = make_person(db)
+    garage = make_garage(db)
+    fee_type = FeeType(code="membership", name="Членский взнос")
+    db.add(fee_type)
+    db.flush()
+    member_account = MemberAccount(person_id=person.id, garage_id=garage.id, fee_type_id=fee_type.id, account_number="10070")
+    db.add(member_account)
+    db.flush()
+    db.add(Charge(account_id=member_account.id, year=2026, amount=Decimal("700.00")))
+    bank_account = make_bank_account(db, provider=BankApiProvider.SBERBANK)
+    make_user(db, "board_snap", "pass12345", role=RoleEnum.BOARD)
+    make_user(db, "chair_snap", "pass12345", role=RoleEnum.CHAIRMAN)
+    db.commit()
+    login(client, "board_snap", "pass12345")
+
+    registry = _generate_charge_registry(client, db, bank_account)
+    db.add(Payment(account_id=member_account.id, date=dt.date(2026, 9, 1), amount=Decimal("700.00")))
+    db.commit()
+    url = f"/cooperative/bank-accounts/{bank_account.id}/registry/charges/{registry.id}"
+    assert client.get(url + "/download").data.decode("cp1251").rstrip().endswith("700.00")
+
+    client.post(url + "/delete")  # правление — не может
+    db.expire_all()
+    assert db.get(ChargeRegistryFile, registry.id) is not None
+
+    client.get("/auth/logout")
+    login(client, "chair_snap", "pass12345")
+    assert client.post(url + "/delete").status_code == 302
+    db.expire_all()
+    assert db.get(ChargeRegistryFile, registry.id) is None
+    assert db.query(AuditLog).filter_by(action="bank_api.charge_registry_delete").count() == 1
+
+
+def test_charge_registry_page_is_file_only(app, db, client):
+    """Реестр начислений — только файл: страница показывает строки будущего
+    файла (лицевой счёт, ФИО, сумма долга), без отправки через API — её у
+    Сбербанка для обычной организации нет (см. app/bank_api/sberbank.py)."""
+    person = make_person(db, full_name="Петров Пётр Петрович")
+    garage = make_garage(db, number="12")
+    fee_type = FeeType(code="10", name="Членский взнос")
+    db.add(fee_type)
+    db.flush()
+    member_account = MemberAccount(
+        person_id=person.id, garage_id=garage.id, fee_type_id=fee_type.id, account_number="10120",
+    )
+    db.add(member_account)
+    db.flush()
+    db.add(Charge(account_id=member_account.id, year=2026, amount=Decimal("1710.00")))
+    db.add(PersonalAccount(garage_id=garage.id, account_number="90120"))
+    bank_account = make_bank_account(db, provider=BankApiProvider.SBERBANK)
+    make_user(db, "chair_reg", "pass12345", role=RoleEnum.CHAIRMAN)
+    db.commit()
+    login(client, "chair_reg", "pass12345")
+
+    html = client.get(f"/cooperative/bank-accounts/{bank_account.id}/registry/charges").get_data(as_text=True)
+    assert "10120" in html
+    assert "Петров П.П." in html
+    assert "Членский взнос, гараж №12" in html
+    assert "1710,00" in html or "1710.00" in html
+    assert "90120" in html  # гаражный л/с без долга — тоже строка файла
+    assert "registry/charges/generate" in html
+    assert "registry/charges/send" not in html
+
+    assert client.post(f"/cooperative/bank-accounts/{bank_account.id}/registry/charges/send").status_code in (404, 405)
 
 
 def test_upload_payment_registry_file_allocates_via_upsert(app, db, client):
@@ -1589,8 +1710,8 @@ def test_save_and_use_custom_charge_registry_format(app, db, client):
     )
     assert resp.status_code == 302
 
-    resp = client.get(f"/cooperative/bank-accounts/{bank_account.id}/registry/charges/download")
-    text = resp.data.decode("cp1251")
+    registry = _generate_charge_registry(client, db, bank_account)
+    text = registry.content.decode("cp1251")
     assert "|" in text
     assert "300,00" in text  # запятая, как настроено
     assert "50033" in text

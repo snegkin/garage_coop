@@ -314,7 +314,13 @@ class ChargeRegistryFile(Base):
     bank_account_id: Mapped[int] = mapped_column(ForeignKey("bank_account.id", ondelete="CASCADE"), index=True)
     created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.utcnow)
     created_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("user.id", ondelete="SET NULL"))
+    # Имя по требованию банка: ИНН_расчётный-счёт_номер-в-месяце_дд.мм.гггг.TXT
+    # (см. app/bank_sync.py: generate_charge_registry). Номер в месяце —
+    # отдельным полем, а не числом файлов за месяц: после удаления реестра
+    # из середины месяца подсчёт выдал бы номер, который уже занят.
     filename: Mapped[str] = mapped_column(String(120))
+    file_date: Mapped[dt.date | None] = mapped_column(Date)
+    month_seq: Mapped[int | None] = mapped_column(Integer)
     content: Mapped[bytes] = mapped_column(LargeBinary)
     rows_count: Mapped[int] = mapped_column(Integer)
     debtors_count: Mapped[int] = mapped_column(Integer)

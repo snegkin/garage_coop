@@ -17,6 +17,7 @@ from decimal import Decimal
 
 from cryptography.hazmat.primitives.serialization import pkcs12, Encoding, PrivateFormat, NoEncryption
 from flask import Blueprint, render_template, request, redirect, url_for, flash, abort, current_app, Response, g
+from sqlalchemy import func
 
 from . import database, audit
 from . import notifications
@@ -24,7 +25,7 @@ from .i18n import translate as _
 from .auth import roles_required
 from .models import (
     RoleEnum, BankAccount, BankApiCredential, BankApiProvider, BankStatementLine,
-    PaymentRegistryEntry, BankRegistryFormat, ChargeRegistryFile,
+    PaymentRegistryEntry, BankRegistryFormat, ChargeRegistryFile, Cooperative,
     MemberAccount, PersonalAccount, Payment, Person, GarageOwnership, GarageContact, CORE_FEE_TYPE_CODES,
 )
 from .accounting import balance as _balance, reallocate_garage_charges, reallocate_member_charges
@@ -827,11 +828,19 @@ def generate_charge_registry(account_id):
     if not items:
         flash(_("Действующих лицевых счетов нет — реестр пуст."), "warning")
         return redirect(url_for("bank_sync.charge_registry", account_id=account.id))
-    now = dt.datetime.now()
+    coop = database.db_session.query(Cooperative).first()
+    inn = re.sub(r"\D", "", coop.inn or "") if coop else ""
+    if not inn:
+        flash(_("Не задан ИНН кооператива — он нужен для имени файла реестра. Заполните реквизиты кооператива."), "danger")
+        return redirect(url_for("bank_sync.charge_registry", account_id=account.id))
+    today = dt.date.today()
+    month_seq = _next_charge_registry_month_seq(account, today)
     registry = ChargeRegistryFile(
         bank_account_id=account.id,
         created_by_user_id=g.user.id if g.get("user") else None,
-        filename=f"charges_{account.checking_account}_{now:%Y-%m-%d_%H%M}.txt",
+        filename=_charge_registry_filename(inn, account.checking_account, month_seq, today),
+        file_date=today,
+        month_seq=month_seq,
         content=registry_file.build_charge_registry_file(items, build_registry_format(account)),
         rows_count=len(items),
         debtors_count=sum(1 for i in items if i.amount > 0),
@@ -847,6 +856,35 @@ def generate_charge_registry(account_id):
     database.db_session.commit()
     flash(_("Реестр сформирован — скачайте его в таблице ниже и загрузите в СберБизнес Онлайн."), "success")
     return redirect(url_for("bank_sync.charge_registry", account_id=account.id))
+
+
+def _charge_registry_filename(inn: str, checking_account: str, month_seq: int, day: dt.date) -> str:
+    """Имя файла по требованию банка:
+    ИНН_расчётный-счёт_порядковый-номер-в-месяце_дд.мм.гггг.TXT —
+    расчётный счёт только цифрами (в справочнике он хранится с пробелами
+    для читаемости: «40703 810 7 7703 0002079»)."""
+    account_digits = re.sub(r"\D", "", checking_account)
+    return f"{inn}_{account_digits}_{month_seq}_{day:%d.%m.%Y}.TXT"
+
+
+def _next_charge_registry_month_seq(account: BankAccount, day: dt.date) -> int:
+    """Следующий номер файла в месяце day по этому счёту — максимальный из
+    сохранённых за месяц + 1, а не их количество + 1: после удаления реестра
+    из середины месяца подсчёт выдал бы уже занятый номер. Удаление
+    последнего реестра месяца освобождает его номер — это нужно, чтобы
+    лишний, не загруженный в банк файл не оставлял дыру в нумерации."""
+    month_start = day.replace(day=1)
+    next_month = (month_start + dt.timedelta(days=32)).replace(day=1)
+    last = (
+        database.db_session.query(func.max(ChargeRegistryFile.month_seq))
+        .filter(
+            ChargeRegistryFile.bank_account_id == account.id,
+            ChargeRegistryFile.file_date >= month_start,
+            ChargeRegistryFile.file_date < next_month,
+        )
+        .scalar()
+    )
+    return (last or 0) + 1
 
 
 def _get_charge_registry_file(account: BankAccount, file_id: int) -> ChargeRegistryFile:

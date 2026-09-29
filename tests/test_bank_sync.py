@@ -1142,6 +1142,70 @@ def test_allocate_payment_registry_entry_creates_payment(app, db, client):
     assert balance(member_account) == Decimal("0.00")  # разнесено через reallocate_member_charges
 
 
+def test_allocate_payment_registry_entry_electricity_uses_credited_amount(app, db, client):
+    """Электричество выставляется к оплате с надбавкой на комиссию банка
+    (реестр начислений, ПД-4) — разносится сумма ЗАЧИСЛЕНИЯ, иначе гаражу
+    зачлась бы переплата на размер надбавки. Взносы — полной суммой, как и
+    раньше (комиссия — расход кооператива, не недоплата члена)."""
+    person = make_person(db)
+    garage = make_garage(db, number="7")
+    fee_type = FeeType(code="membership", name="Членский взнос")
+    db.add(fee_type)
+    db.flush()
+    member_account = MemberAccount(person_id=person.id, garage_id=garage.id, fee_type_id=fee_type.id, account_number="10070")
+    db.add(member_account)
+    db.add(PersonalAccount(garage_id=garage.id, account_number="90070"))
+    db.flush()
+    db.add(Charge(garage_id=garage.id, year=2026, amount=Decimal("1000.00")))
+    db.add(Charge(account_id=member_account.id, year=2026, amount=Decimal("500.00")))
+    bank_account = make_bank_account(db, provider=BankApiProvider.SBERBANK)
+    electricity_entry = PaymentRegistryEntry(
+        bank_account_id=bank_account.id, external_id="el-1", account_number="90070",
+        amount=Decimal("1016.00"), credited_amount=Decimal("999.74"), fee_amount=Decimal("16.26"),
+        operation_date=dt.date(2026, 9, 20),
+    )
+    dues_entry = PaymentRegistryEntry(
+        bank_account_id=bank_account.id, external_id="dues-1", account_number="10070",
+        amount=Decimal("500.00"), credited_amount=Decimal("492.00"), fee_amount=Decimal("8.00"),
+        operation_date=dt.date(2026, 9, 20),
+    )
+    db.add_all([electricity_entry, dues_entry])
+    make_user(db, "chair_fee", "pass12345", role=RoleEnum.CHAIRMAN)
+    db.commit()
+    login(client, "chair_fee", "pass12345")
+
+    base = f"/cooperative/bank-accounts/{bank_account.id}/registry/payments"
+    client.post(f"{base}/{electricity_entry.id}/allocate")
+    client.post(f"{base}/{dues_entry.id}/allocate")
+    db.expire_all()
+
+    el_payment = db.get(Payment, db.get(PaymentRegistryEntry, electricity_entry.id).matched_payment_id)
+    assert el_payment.garage_id == garage.id
+    assert el_payment.amount == Decimal("999.74")
+    assert balance(garage) == Decimal("-0.26")  # не переплата +16 ₽
+    dues_payment = db.get(Payment, db.get(PaymentRegistryEntry, dues_entry.id).matched_payment_id)
+    assert dues_payment.amount == Decimal("500.00")
+    assert balance(member_account) == Decimal("0.00")
+
+
+def test_allocate_all_payment_registry_entries_electricity_uses_credited_amount(app, db, client):
+    garage = make_garage(db, number="9")
+    db.add(PersonalAccount(garage_id=garage.id, account_number="90090"))
+    db.add(Charge(garage_id=garage.id, year=2026, amount=Decimal("100.00")))
+    bank_account = make_bank_account(db, provider=BankApiProvider.SBERBANK)
+    db.add(PaymentRegistryEntry(
+        bank_account_id=bank_account.id, external_id="el-2", account_number="90090",
+        amount=Decimal("101.60"), credited_amount=Decimal("99.97"), operation_date=dt.date(2026, 9, 20),
+    ))
+    make_user(db, "chair_fee2", "pass12345", role=RoleEnum.CHAIRMAN)
+    db.commit()
+    login(client, "chair_fee2", "pass12345")
+
+    client.post(f"/cooperative/bank-accounts/{bank_account.id}/registry/payments/allocate-all")
+    db.expire_all()
+    assert db.query(Payment).filter_by(garage_id=garage.id).one().amount == Decimal("99.97")
+
+
 def test_allocate_payment_registry_entry_manual_override(app, db, client):
     """Ручное поле ввода номера счёта (см. payment_registry.html) — то же
     переопределение, что и на странице выписки: если в записи реестра
@@ -1607,10 +1671,10 @@ def test_charge_registry_file_is_a_snapshot_and_can_be_deleted(app, db, client):
     assert db.query(AuditLog).filter_by(action="bank_api.charge_registry_delete").count() == 1
 
 
-def test_charge_registry_filename_and_month_numbering(app, db, client):
-    """Имя по требованию банка: ИНН_расчётный-счёт_номер-в-месяце_дд.мм.гггг.TXT.
-    Номер — максимальный за месяц + 1: удаление реестра из середины месяца
-    не приводит к повтору номера, удаление последнего — освобождает его."""
+def test_charge_registry_filename_and_daily_numbering(app, db, client):
+    """Имя по требованию банка: ИНН_расчётный-счёт_номер-за-день_дд.мм.гггг.TXT.
+    Номер — максимальный за день + 1: удаление реестра из середины дня не
+    приводит к повтору номера, удаление последнего — освобождает его."""
     person = make_person(db)
     garage = make_garage(db)
     fee_type = FeeType(code="membership", name="Членский взнос")
@@ -1630,21 +1694,25 @@ def test_charge_registry_filename_and_month_numbering(app, db, client):
     second = _generate_charge_registry(client, db, bank_account)
     third = _generate_charge_registry(client, db, bank_account)
     assert first.filename == f"7610037501_40703810777030002079_1_{day}.TXT"
-    assert [second.month_seq, third.month_seq] == [2, 3]
+    assert [second.day_seq, third.day_seq] == [2, 3]
     assert third.filename in client.get(f"{base}/{third.id}/download").headers["Content-Disposition"]
 
     client.post(f"{base}/{second.id}/delete")  # из середины — номер 2 не переиспользуется
-    assert _generate_charge_registry(client, db, bank_account).month_seq == 4
+    assert _generate_charge_registry(client, db, bank_account).day_seq == 4
 
-    last = db.query(ChargeRegistryFile).filter_by(month_seq=4).one()
+    last = db.query(ChargeRegistryFile).filter_by(day_seq=4).one()
     client.post(f"{base}/{last.id}/delete")  # последний — номер освобождается
-    assert _generate_charge_registry(client, db, bank_account).month_seq == 4
+    assert _generate_charge_registry(client, db, bank_account).day_seq == 4
 
-    # предыдущий месяц не влияет на нумерацию текущего
-    first.file_date = dt.date.today().replace(day=1) - dt.timedelta(days=1)
-    first.month_seq = 9
+    # реестр за другой день (даже того же месяца) на нумерацию сегодняшних не влияет
+    first.file_date = dt.date.today() - dt.timedelta(days=1)
+    first.day_seq = 9
     db.commit()
-    assert _generate_charge_registry(client, db, bank_account).month_seq == 5
+    assert _generate_charge_registry(client, db, bank_account).day_seq == 5
+    for registry in db.query(ChargeRegistryFile).filter_by(file_date=dt.date.today()).all():
+        registry.file_date = dt.date.today() - dt.timedelta(days=1)
+    db.commit()
+    assert _generate_charge_registry(client, db, bank_account).day_seq == 1
 
 
 def test_charge_registry_electricity_includes_bank_fee_like_pd4(app, db):

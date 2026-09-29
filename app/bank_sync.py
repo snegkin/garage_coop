@@ -848,13 +848,13 @@ def generate_charge_registry(account_id):
         flash(_("Не задан ИНН кооператива — он нужен для имени файла реестра. Заполните реквизиты кооператива."), "danger")
         return redirect(url_for("bank_sync.charge_registry", account_id=account.id))
     today = dt.date.today()
-    month_seq = _next_charge_registry_month_seq(account, today)
+    day_seq = _next_charge_registry_day_seq(account, today)
     registry = ChargeRegistryFile(
         bank_account_id=account.id,
         created_by_user_id=g.user.id if g.get("user") else None,
-        filename=_charge_registry_filename(inn, account.checking_account, month_seq, today),
+        filename=_charge_registry_filename(inn, account.checking_account, day_seq, today),
         file_date=today,
-        month_seq=month_seq,
+        day_seq=day_seq,
         content=registry_file.build_charge_registry_file(items, build_registry_format(account)),
         rows_count=len(items),
         debtors_count=sum(1 for i in items if i.amount > 0),
@@ -872,29 +872,26 @@ def generate_charge_registry(account_id):
     return redirect(url_for("bank_sync.charge_registry", account_id=account.id))
 
 
-def _charge_registry_filename(inn: str, checking_account: str, month_seq: int, day: dt.date) -> str:
+def _charge_registry_filename(inn: str, checking_account: str, day_seq: int, day: dt.date) -> str:
     """Имя файла по требованию банка:
-    ИНН_расчётный-счёт_порядковый-номер-в-месяце_дд.мм.гггг.TXT —
+    ИНН_расчётный-счёт_порядковый-номер-за-день_дд.мм.гггг.TXT —
     расчётный счёт только цифрами (в справочнике он хранится с пробелами
     для читаемости: «40703 810 7 7703 0002079»)."""
     account_digits = re.sub(r"\D", "", checking_account)
-    return f"{inn}_{account_digits}_{month_seq}_{day:%d.%m.%Y}.TXT"
+    return f"{inn}_{account_digits}_{day_seq}_{day:%d.%m.%Y}.TXT"
 
 
-def _next_charge_registry_month_seq(account: BankAccount, day: dt.date) -> int:
-    """Следующий номер файла в месяце day по этому счёту — максимальный из
-    сохранённых за месяц + 1, а не их количество + 1: после удаления реестра
-    из середины месяца подсчёт выдал бы уже занятый номер. Удаление
-    последнего реестра месяца освобождает его номер — это нужно, чтобы
+def _next_charge_registry_day_seq(account: BankAccount, day: dt.date) -> int:
+    """Следующий номер файла за день day по этому счёту — максимальный из
+    сохранённых за этот день + 1, а не их количество + 1: после удаления
+    реестра из середины дня подсчёт выдал бы уже занятый номер. Удаление
+    последнего реестра дня освобождает его номер — это нужно, чтобы
     лишний, не загруженный в банк файл не оставлял дыру в нумерации."""
-    month_start = day.replace(day=1)
-    next_month = (month_start + dt.timedelta(days=32)).replace(day=1)
     last = (
-        database.db_session.query(func.max(ChargeRegistryFile.month_seq))
+        database.db_session.query(func.max(ChargeRegistryFile.day_seq))
         .filter(
             ChargeRegistryFile.bank_account_id == account.id,
-            ChargeRegistryFile.file_date >= month_start,
-            ChargeRegistryFile.file_date < next_month,
+            ChargeRegistryFile.file_date == day,
         )
         .scalar()
     )
@@ -1260,7 +1257,7 @@ def _resolve_account_by_name(payer_name: str | None, purpose: str | None):
 def _allocate_payment_to_account(
     date: dt.date, amount: Decimal, comment: str,
     account_number: str | None = None, payer_name: str | None = None, purpose: str | None = None,
-    strict_account_number: bool = False,
+    strict_account_number: bool = False, garage_amount: Decimal | None = None,
 ) -> tuple[Payment | None, str | None]:
     """Общая точка для «нашли лицевой счёт — завести Payment на полную
     сумму и разнести по FIFO» — используется и для реестра платежей
@@ -1289,7 +1286,14 @@ def _allocate_payment_to_account(
     Разносится ПОЛНАЯ сумма, поступившая по банку (amount) — не за вычетом
     комиссии банка, если банк её удерживает: комиссия — расход кооператива,
     а не недоплата члена (тот же принцип, что у PaymentRegistryEntry.amount
-    vs .credited_amount/.fee_amount)."""
+    vs .credited_amount/.fee_amount).
+
+    Исключение — garage_amount: сумма для гаражного счёта (электричество),
+    если она своя. Реестр платежей передаёт сюда сумму ЗАЧИСЛЕНИЯ (за
+    вычетом комиссии банка): к оплате за электричество выставляется долг
+    уже с надбавкой на комиссию (реестр начислений и ПД-4, см.
+    accounting.bank_fee_multiplier), и полная сумма дала бы гаражу
+    переплату на размер этой надбавки."""
     kind, target = (None, None)
     resolved_account_number = account_number
     if account_number:
@@ -1301,6 +1305,8 @@ def _allocate_payment_to_account(
     if kind is None:
         return None, None
 
+    if kind == "garage" and garage_amount is not None:
+        amount = garage_amount
     payment = (
         Payment(account_id=target.id, date=date, amount=amount, comment=comment) if kind == "member"
         else Payment(garage_id=target.id, date=date, amount=amount, comment=comment)
@@ -1618,7 +1624,7 @@ def allocate_payment_registry_entry(account_id, entry_id):
     payment, resolved_number = _allocate_payment_to_account(
         entry.operation_date, entry.amount, comment,
         account_number=account_number, payer_name=entry.payer_name, purpose=entry.payment_purpose,
-        strict_account_number=strict,
+        strict_account_number=strict, garage_amount=entry.credited_amount,
     )
     if payment is None:
         if strict:
@@ -1701,6 +1707,7 @@ def allocate_all_payment_registry_entries(account_id):
         payment, resolved_number = _allocate_payment_to_account(
             entry.operation_date, entry.amount, comment,
             account_number=entry.account_number, payer_name=entry.payer_name, purpose=entry.payment_purpose,
+            garage_amount=entry.credited_amount,
         )
         if payment is not None:
             entry.matched_payment_id = payment.id

@@ -78,7 +78,11 @@
         {% for t, end_date in supplier_tariffs %}
         <tr>
           <td data-sort-value="{{ t.effective_date }}">{{ fmt_date(t.effective_date) }}</td>
-          <td>{{ fmt_date(end_date) if end_date else _("действует сейчас") }}</td>
+          <td>
+            {{ fmt_date(end_date) if end_date else "—" }}
+            {% if supplier_tariff and t.id == supplier_tariff.id %}<span class="badge text-bg-success ms-1">{{ _("действует сейчас") }}</span>
+            {% elif t.effective_date > today %}<span class="badge text-bg-info ms-1">{{ _("ещё не вступил в силу") }}</span>{% endif %}
+          </td>
           <td data-sort-value="{{ t.rate }}">{{ fmt2(t.rate) }} ₽</td>
           <td>{{ t.comment or "—" }}</td>
           <td class="no-sort">
@@ -119,7 +123,11 @@
         {% for t, end_date in member_tariffs %}
         <tr>
           <td data-sort-value="{{ t.effective_date }}">{{ fmt_date(t.effective_date) }}</td>
-          <td>{{ fmt_date(end_date) if end_date else _("действует сейчас") }}</td>
+          <td>
+            {{ fmt_date(end_date) if end_date else "—" }}
+            {% if member_tariff and t.id == member_tariff.id %}<span class="badge text-bg-success ms-1">{{ _("действует сейчас") }}</span>
+            {% elif t.effective_date > today %}<span class="badge text-bg-info ms-1">{{ _("ещё не вступил в силу") }}</span>{% endif %}
+          </td>
           <td data-sort-value="{{ t.rate }}">{{ fmt2(t.rate) }} ₽</td>
           <td>{{ t.comment or "—" }}</td>
           <td class="no-sort">

@@ -9,12 +9,13 @@ from .auth import login_required
 from .permissions import is_board
 from .models import (
     Garage, Person, GeneralMeeting, AnnualReport, MemberAccount, Charge, Payment, AuditLog, ChargeAllocation,
-    PowerPhaseDevice, MailboxSettings,
+    PowerPhaseDevice, MailboxSettings, BankAccount, ChargeRegistryFile,
 )
 from .accounting import cooperative_balance
 from .permissions import is_chairman
 from .setup_wizard import wizard_status
 from . import mail_client
+from . import bank_sync
 from .mail_client import MailError, DEFAULT_FOLDER
 
 bp = Blueprint("main", __name__)
@@ -190,6 +191,24 @@ def dashboard():
 
     setup_status = wizard_status() if is_chairman() else None
 
+    # Напоминание председателю перезалить реестр начислений в СберБизнес
+    # Онлайн — по счетам, где реестр уже формировали и он устарел (см.
+    # bank_sync.charge_registry_staleness). Список строк реестра один на все
+    # счета — собираем один раз и только если есть что сравнивать.
+    stale_registries = []
+    if is_chairman():
+        accounts_with_registry = (
+            database.db_session.query(BankAccount)
+            .filter(BankAccount.id.in_(database.db_session.query(ChargeRegistryFile.bank_account_id)))
+            .all()
+        )
+        if accounts_with_registry:
+            registry_items = bank_sync._charge_registry_items()
+            for bank_account in accounts_with_registry:
+                staleness = bank_sync.charge_registry_staleness(bank_account, registry_items)
+                if staleness and staleness["changed"]:
+                    stale_registries.append((bank_account, staleness))
+
     # Для виджета мониторинга электроэнергии на панели — только список
     # устройств (id/label), сами данные графика подтягивает JS с
     # electricity_monitor.history_data (см. dashboard.html), чтобы не
@@ -203,4 +222,5 @@ def dashboard():
     return render_template(
         "dashboard.html", stats=stats, recent_activity=recent_activity, setup_status=setup_status,
         electricity_devices=electricity_devices, mail_preview=_mail_preview(),
+        stale_registries=stale_registries,
     )

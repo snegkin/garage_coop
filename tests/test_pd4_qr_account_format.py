@@ -147,3 +147,26 @@ def test_print_page_has_save_qr_button_bound_to_slip_qr(db, client):
     assert 'data-qr-img="pd4Qr1"' in body and 'data-qr-img="pd4Qr2"' in body
     assert 'id="pd4Qr1"' in body and 'id="pd4Qr2"' in body
     assert 'data-filename="qr_50301.png"' in body
+    # сумма для буфера обмена: целые рубли — без копеек и разделителя
+    assert 'data-amount="700"' in body and 'data-amount="300"' in body
+    assert "js-amount-copied" in body
+
+
+def test_print_page_copies_amount_with_kopecks_comma_separated(db, client):
+    """Сумма с копейками (электричество с комиссией банка 1,6%: 700 × 1,016 =
+    711,20) — для буфера обмена через запятую, как её ждёт поле суммы в
+    приложении банка на русской раскладке."""
+    coop = _make_coop(db)
+    coop.bank_fee_percent = Decimal("1.6")
+    _make_bank_account_with_spaces(db)
+    person = make_person(db, full_name="Копейкин Копейка Копейкович")
+    garage = make_garage(db, number="505")
+    make_ownership(db, garage, person)
+    db.add(PersonalAccount(garage_id=garage.id, account_number="50501"))
+    db.add(Charge(garage_id=garage.id, year=2026, amount=Decimal("700.00")))
+    make_user(db, "qrowner5", "pass12345", role=RoleEnum.MEMBER, person=person)
+    db.commit()
+    login(client, "qrowner5", "pass12345")
+
+    body = client.get(f"/pd4/print?garage_id={garage.id}").get_data(as_text=True)
+    assert 'data-amount="711,20"' in body

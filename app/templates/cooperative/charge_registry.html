@@ -12,6 +12,11 @@
   {{ _("Автоматической отправки нет: API Сбербанка принимает реестр начислений только в интеграции для холдингов. Сформируйте файл, скачайте его и загрузите в СберБизнес Онлайн вручную.") }}
 </p>
 
+{% if staleness and staleness.changed %}
+<div class="alert alert-warning">
+  {{ _("Реестр от {date} устарел: с тех пор изменилась сумма у лицевых счетов: {n}. Пока новый реестр не загружен в СберБизнес Онлайн, приложение банка показывает плательщикам старые суммы (при 0,00 — пустое поле). Сформируйте реестр и загрузите его.", date=fmt_date(staleness.last.created_at), n=staleness.changed) }}
+</div>
+{% endif %}
 <div class="d-flex flex-wrap gap-2 mb-2">
   <form method="post" action="{{ url_for('bank_sync.generate_charge_registry', account_id=account.id) }}" data-ajax>
     <button class="btn btn-primary" {{ "disabled" if not items }}>{{ _("Сформировать реестр") }}</button>

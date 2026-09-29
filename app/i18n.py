@@ -2114,8 +2114,15 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "лицо для связи": "contact person",
         "Гаражей нет.": "No garages.",
         # pd4/print.html — «Оплатить» (сохранить/поделиться QR)
-        "Оплата с этого же телефона: «Оплатить» → в приложении банка «Оплата по QR-коду» → выбрать картинку из галереи (в меню «Поделиться» можно сразу выбрать приложение банка или «Сохранить изображение»). Реквизиты и сумма подставятся сами.":
-            "Paying from this same phone: “Pay” → in your banking app choose “Pay by QR code” → pick the image from the gallery (in the Share menu you can pick the banking app directly or “Save image”). Payment details and amount are filled in automatically.",
+        "Оплата с этого же телефона: «Оплатить» → в приложении банка «Оплата по QR-коду» → выбрать картинку из галереи (в меню «Поделиться» можно сразу выбрать приложение банка или «Сохранить изображение»). Реквизиты подставятся сами; сумма к оплате при нажатии «Оплатить» копируется — если банк её не подставил, вставьте в поле суммы.":
+            "Paying from this same phone: “Pay” → in your banking app choose “Pay by QR code” → pick the image from the gallery (in the Share menu you can pick the banking app directly or “Save image”). Payment details are filled in automatically; the amount due is copied when you tap “Pay” — if the bank doesn't fill it in, paste it into the amount field.",
+        "Сумма {amount} руб. скопирована — если в приложении банка поле суммы пустое, вставьте её.":
+            "Amount {amount} RUB copied — if the amount field in the banking app is empty, paste it.",
+        "Реестр от {date} устарел: с тех пор изменилась сумма у лицевых счетов: {n}. Пока новый реестр не загружен в СберБизнес Онлайн, приложение банка показывает плательщикам старые суммы (при 0,00 — пустое поле). Сформируйте реестр и загрузите его.":
+            "The registry of {date} is out of date: personal accounts whose amount has changed since then: {n}. Until a new registry is uploaded to SberBusiness Online, the banking app shows payers the old amounts (an empty field for 0.00). Generate the registry and upload it.",
+        "Реестр начислений ({account}) устарел: с {date} изменилась сумма у лицевых счетов: {n} — плательщики видят в приложении банка старые суммы.":
+            "The charge registry ({account}) is out of date: personal accounts whose amount has changed since {date}: {n} — payers see old amounts in the banking app.",
+        "К реестру": "To the registry",
         "СМС и Telegram": "SMS and Telegram",
         "Приказное производство — без судебного заседания, госпошлина 50% от обычной ставки.":
             "Writ proceeding — no court hearing, state duty is 50% of the regular rate.",

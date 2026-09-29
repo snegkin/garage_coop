@@ -80,7 +80,13 @@
           data-qr-img="pd4Qr{{ loop.index }}"
           data-filename="qr_{{ account.account_number }}.png"
           data-caption="{{ _('л/с') }} {{ account.account_number }} · {{ fmt2(amount) }} {{ _('руб') }}."
-          data-share-title="{{ coop.short_name or coop.full_name }} — {{ account.fee_type.name }}">{{ _("Оплатить") }}</button>
+          data-share-title="{{ coop.short_name or coop.full_name }} — {{ account.fee_type.name }}"
+          {# Для буфера обмена: целые рубли — без копеек и разделителя, иначе через
+             запятую — чтобы поле суммы в приложении банка точно приняло вставку. #}
+          data-amount="{{ '%d'|format(amount) if amount == amount|int else ('%.2f'|format(amount))|replace('.', ',') }}">{{ _("Оплатить") }}</button>
+  <div class="w-100 small text-success d-none js-amount-copied">
+    {{ _("Сумма {amount} руб. скопирована — если в приложении банка поле суммы пустое, вставьте её.", amount=fmt2(amount)) }}
+  </div>
 </div>
 <table class="pd4-table pd4-slip">
     <!-- ИЗВЕЩЕНИЕ -->
@@ -153,7 +159,7 @@
 </table>
 {% endfor %}
 
-<p class="text-muted small no-print mx-auto mt-3 pd4-qr-bar">{{ _("Оплата с этого же телефона: «Оплатить» → в приложении банка «Оплата по QR-коду» → выбрать картинку из галереи (в меню «Поделиться» можно сразу выбрать приложение банка или «Сохранить изображение»). Реквизиты и сумма подставятся сами.") }}</p>
+<p class="text-muted small no-print mx-auto mt-3 pd4-qr-bar">{{ _("Оплата с этого же телефона: «Оплатить» → в приложении банка «Оплата по QR-коду» → выбрать картинку из галереи (в меню «Поделиться» можно сразу выбрать приложение банка или «Сохранить изображение»). Реквизиты подставятся сами; сумма к оплате при нажатии «Оплатить» копируется — если банк её не подставил, вставьте в поле суммы.") }}</p>
 
 <script>
 // «Оплатить» — тот же QR, что на бланке (ГОСТ Р 56042), но крупно
@@ -167,6 +173,18 @@ document.addEventListener("click", function (e) {
   if (!btn) return;
   var img = document.getElementById(btn.dataset.qrImg);
   if (!img) return;
+
+  // Сумму — в буфер обмена сразу, синхронно в обработчике нажатия (браузер
+  // разрешает запись только в ответ на действие пользователя): приложение
+  // банка берёт сумму не из QR, а из загруженного в банк реестра
+  // начислений — если реестр ещё не перезалит (или в нём 0,00), поле суммы
+  // пустое или со старой суммой, и её проще вставить, чем набирать.
+  if (btn.dataset.amount && navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(btn.dataset.amount).then(function () {
+      var note = btn.parentElement.querySelector(".js-amount-copied");
+      if (note) note.classList.remove("d-none");
+    }, function () { /* нет доступа к буферу — просто без подсказки */ });
+  }
 
   // Целый множитель (а не «растянуть до 600 px»): при дробном масштабе
   // модули QR выходят разной ширины — распознаётся хуже.

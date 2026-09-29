@@ -9,6 +9,12 @@
   <a class="btn btn-primary btn-sm" href="{{ url_for('setup_wizard.index') }}">{{ _("Открыть мастер настройки") }}</a>
 </div>
 {% endif %}
+{% for bank_account, staleness in stale_registries %}
+<div class="alert alert-warning d-flex justify-content-between align-items-center gap-3">
+  <div>{{ _("Реестр начислений ({account}) устарел: с {date} изменилась сумма у лицевых счетов: {n} — плательщики видят в приложении банка старые суммы.", account=bank_account.checking_account, date=fmt_date(staleness.last.created_at), n=staleness.changed) }}</div>
+  <a class="btn btn-primary btn-sm text-nowrap" href="{{ url_for('bank_sync.charge_registry', account_id=bank_account.id) }}">{{ _("К реестру") }}</a>
+</div>
+{% endfor %}
 <div class="row g-3 mb-3">
   {% if stats.coop_balance is defined %}
   <div class="col-md-3">

@@ -25,7 +25,7 @@ from app.bank_api.sberbank import _parse_transaction
 from app.accounting import balance
 from app.models import (
     RoleEnum, BankAccount, BankApiProvider, BankApiCredential, BankStatementLine,
-    PaymentRegistryEntry, ChargeRegistryFile,
+    PaymentRegistryEntry, ChargeRegistryFile, Cooperative,
     MemberAccount, FeeType, Charge, Payment, GarageContact, PersonalAccount, AuditLog,
 )
 
@@ -1529,7 +1529,11 @@ def test_registry_format_is_configurable():
 # ---------------------------------------------------------------------------
 
 def _generate_charge_registry(client, db, bank_account):
-    """Сформировать реестр и вернуть сохранённую запись (ChargeRegistryFile)."""
+    """Сформировать реестр и вернуть сохранённую запись (ChargeRegistryFile).
+    ИНН кооператива нужен для имени файла — заводим, если его ещё нет."""
+    if db.query(Cooperative).first() is None:
+        db.add(Cooperative(full_name="ГСК Тест", inn="7610037501", kpp="761001001", ogrn="1027600000000"))
+        db.commit()
     resp = client.post(f"/cooperative/bank-accounts/{bank_account.id}/registry/charges/generate")
     assert resp.status_code == 302
     return db.query(ChargeRegistryFile).filter_by(bank_account_id=bank_account.id).order_by(ChargeRegistryFile.id.desc()).first()
@@ -1601,6 +1605,63 @@ def test_charge_registry_file_is_a_snapshot_and_can_be_deleted(app, db, client):
     db.expire_all()
     assert db.get(ChargeRegistryFile, registry.id) is None
     assert db.query(AuditLog).filter_by(action="bank_api.charge_registry_delete").count() == 1
+
+
+def test_charge_registry_filename_and_month_numbering(app, db, client):
+    """Имя по требованию банка: ИНН_расчётный-счёт_номер-в-месяце_дд.мм.гггг.TXT.
+    Номер — максимальный за месяц + 1: удаление реестра из середины месяца
+    не приводит к повтору номера, удаление последнего — освобождает его."""
+    person = make_person(db)
+    garage = make_garage(db)
+    fee_type = FeeType(code="membership", name="Членский взнос")
+    db.add(fee_type)
+    db.flush()
+    db.add(MemberAccount(person_id=person.id, garage_id=garage.id, fee_type_id=fee_type.id, account_number="10080"))
+    # как в справочнике — с пробелами; в имени файла должны остаться только цифры
+    bank_account = BankAccount(bank_name="Сбербанк", checking_account="40703 810 7 7703 0002079", api_provider=BankApiProvider.SBERBANK)
+    db.add(bank_account)
+    make_user(db, "chair_names", "pass12345", role=RoleEnum.CHAIRMAN)
+    db.commit()
+    login(client, "chair_names", "pass12345")
+    day = dt.date.today().strftime("%d.%m.%Y")
+    base = f"/cooperative/bank-accounts/{bank_account.id}/registry/charges"
+
+    first = _generate_charge_registry(client, db, bank_account)
+    second = _generate_charge_registry(client, db, bank_account)
+    third = _generate_charge_registry(client, db, bank_account)
+    assert first.filename == f"7610037501_40703810777030002079_1_{day}.TXT"
+    assert [second.month_seq, third.month_seq] == [2, 3]
+    assert third.filename in client.get(f"{base}/{third.id}/download").headers["Content-Disposition"]
+
+    client.post(f"{base}/{second.id}/delete")  # из середины — номер 2 не переиспользуется
+    assert _generate_charge_registry(client, db, bank_account).month_seq == 4
+
+    last = db.query(ChargeRegistryFile).filter_by(month_seq=4).one()
+    client.post(f"{base}/{last.id}/delete")  # последний — номер освобождается
+    assert _generate_charge_registry(client, db, bank_account).month_seq == 4
+
+    # предыдущий месяц не влияет на нумерацию текущего
+    first.file_date = dt.date.today().replace(day=1) - dt.timedelta(days=1)
+    first.month_seq = 9
+    db.commit()
+    assert _generate_charge_registry(client, db, bank_account).month_seq == 5
+
+
+def test_charge_registry_requires_cooperative_inn(app, db, client):
+    person = make_person(db)
+    garage = make_garage(db)
+    fee_type = FeeType(code="membership", name="Членский взнос")
+    db.add(fee_type)
+    db.flush()
+    db.add(MemberAccount(person_id=person.id, garage_id=garage.id, fee_type_id=fee_type.id, account_number="10090"))
+    bank_account = make_bank_account(db, provider=BankApiProvider.SBERBANK)
+    make_user(db, "chair_noinn", "pass12345", role=RoleEnum.CHAIRMAN)
+    db.commit()
+    login(client, "chair_noinn", "pass12345")
+
+    resp = client.post(f"/cooperative/bank-accounts/{bank_account.id}/registry/charges/generate", follow_redirects=True)
+    assert "ИНН кооператива" in resp.get_data(as_text=True)
+    assert db.query(ChargeRegistryFile).count() == 0
 
 
 def test_charge_registry_page_is_file_only(app, db, client):

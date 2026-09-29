@@ -27,6 +27,7 @@
   <thead>
     <tr>
       <th>{{ _("Сформирован") }}</th>
+      <th>{{ _("Файл") }}</th>
       <th>{{ _("Кем") }}</th>
       <th class="text-end">{{ _("Лицевых счетов") }}</th>
       <th class="text-end">{{ _("из них с долгом") }}</th>
@@ -38,6 +39,7 @@
     {% for f in files %}
     <tr>
       <td data-sort-value="{{ f.created_at.isoformat() }}"><span data-utc-datetime="{{ f.created_at.isoformat() }}Z">{{ fmt_date(f.created_at) }} {{ f.created_at.strftime("%H:%M") }}</span></td>
+      <td class="text-break">{{ f.filename }}</td>
       <td>{{ f.created_by.username if f.created_by else "—" }}</td>
       <td class="text-end">{{ f.rows_count }}</td>
       <td class="text-end">{{ f.debtors_count }}</td>
@@ -52,7 +54,7 @@
       </td>
     </tr>
     {% else %}
-    <tr><td colspan="6" class="text-muted">{{ _("Реестры ещё не формировались.") }}</td></tr>
+    <tr><td colspan="7" class="text-muted">{{ _("Реестры ещё не формировались.") }}</td></tr>
     {% endfor %}
   </tbody>
 </table>

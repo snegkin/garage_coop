@@ -28,7 +28,7 @@ from .models import (
     PaymentRegistryEntry, BankRegistryFormat, ChargeRegistryFile, Cooperative,
     MemberAccount, PersonalAccount, Payment, Person, GarageOwnership, GarageContact, CORE_FEE_TYPE_CODES,
 )
-from .accounting import balance as _balance, reallocate_garage_charges, reallocate_member_charges
+from .accounting import balance as _balance, bank_fee_multiplier, reallocate_garage_charges, reallocate_member_charges
 from .bank_api import get_client, crypto, build_registry_format
 from .bank_api.base import BankApiError, ChargeRegistryItem
 from .bank_api import registry_file
@@ -751,7 +751,20 @@ def _charge_registry_items() -> list[ChargeRegistryItem]:
     Архивные MemberAccount (is_archived) не попадают совсем: их номер
     переходит новому счёту следующего собственника (см. докстринг
     MemberAccount), и строка архивного счёта задвоила бы номер в файле, а
-    новому собственнику показала бы долг прежнего."""
+    новому собственнику показала бы долг прежнего.
+
+    Электричество — как в ПД-4 (pd4.py): долг за него считается по факту
+    потребления, без комиссии банка, поэтому к оплате — долг × (1 + % банка)
+    (accounting.bank_fee_multiplier), с той же пометкой в назначении; иначе
+    после удержания банком комиссии на счёт кооператива поступит меньше
+    долга. У взносов комиссия уже в самом начислении (compute_land_tax) —
+    их сумма не меняется."""
+    coop = database.db_session.query(Cooperative).first()
+    fee_multiplier = bank_fee_multiplier(coop) if coop else Decimal("1")
+    fee_note = ""
+    if coop and coop.bank_fee_percent:
+        percent = f"{coop.bank_fee_percent.quantize(Decimal('0.01'))}".replace(".", ",")
+        fee_note = f" ({percent}% - комиссия банка)"
     items = []
     for personal_account in database.db_session.query(PersonalAccount).all():
         garage = personal_account.garage
@@ -760,11 +773,12 @@ def _charge_registry_items() -> list[ChargeRegistryItem]:
             # ondelete) — ни начислений, ни собственников у него нет.
             continue
         owners = ", ".join(o.person.short_name for o in garage.ownerships) or f"гараж №{garage.number}"
+        debt = max(-_balance(garage), Decimal("0"))
         items.append(ChargeRegistryItem(
             account_number=personal_account.account_number,
             payer_name=owners,
-            amount=max(-_balance(garage), Decimal("0")),
-            purpose=f"Электричество, гараж №{garage.number}",
+            amount=(debt * fee_multiplier).quantize(Decimal("0.01")),
+            purpose=f"Электричество, гараж №{garage.number}{fee_note}",
         ))
     for member_account in database.db_session.query(MemberAccount).filter_by(is_archived=False).all():
         # garage — None у счетов видов взноса без привязки к гаражу

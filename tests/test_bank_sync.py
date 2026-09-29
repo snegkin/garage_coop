@@ -1647,6 +1647,34 @@ def test_charge_registry_filename_and_month_numbering(app, db, client):
     assert _generate_charge_registry(client, db, bank_account).month_seq == 5
 
 
+def test_charge_registry_electricity_includes_bank_fee_like_pd4(app, db):
+    """Электричество — как в ПД-4: к оплате долг × (1 + % банка) и пометка о
+    комиссии в назначении; у взносов комиссия уже в начислении — не меняется."""
+    db.add(Cooperative(full_name="ГСК Тест", inn="7610037501", kpp="1", ogrn="1", bank_fee_percent=Decimal("1.6")))
+    person = make_person(db)
+    garage = make_garage(db, number="7")
+    idle_garage = make_garage(db, number="8")
+    fee_type = FeeType(code="membership", name="Членский взнос")
+    db.add(fee_type)
+    db.flush()
+    member_account = MemberAccount(person_id=person.id, garage_id=garage.id, fee_type_id=fee_type.id, account_number="10070")
+    db.add(member_account)
+    db.flush()
+    db.add(Charge(account_id=member_account.id, year=2026, amount=Decimal("1000.00")))
+    db.add(Charge(garage_id=garage.id, year=2026, amount=Decimal("1000.00")))
+    db.add(PersonalAccount(garage_id=garage.id, account_number="90070"))
+    db.add(PersonalAccount(garage_id=idle_garage.id, account_number="90080"))
+    db.commit()
+
+    with app.app_context():
+        items = {i.account_number: i for i in bank_sync._charge_registry_items()}
+    assert items["90070"].amount == Decimal("1016.00")
+    assert items["90070"].purpose == "Электричество, гараж №7 (1,60% - комиссия банка)"
+    assert items["90080"].amount == Decimal("0.00")
+    assert items["10070"].amount == Decimal("1000.00")
+    assert "комиссия" not in items["10070"].purpose
+
+
 def test_charge_registry_requires_cooperative_inn(app, db, client):
     person = make_person(db)
     garage = make_garage(db)

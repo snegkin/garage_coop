@@ -509,6 +509,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Администрирование": "Administration",
         "По": "Until",
         "действует сейчас": "in effect now",
+        "ещё не вступил в силу": "not yet in effect",
         "общего пользования": "common area",
         "первая запись": "first entry",
         "нет тарифа на этот месяц": "no tariff for this month",

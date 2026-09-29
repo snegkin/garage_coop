@@ -100,6 +100,7 @@ def view():
         counterparties=counterparties,
         supplier_balance=supplier_balance,
         referenceable_statement_lines=available_statement_lines(),
+        today=today,
     )
 
 

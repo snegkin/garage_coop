@@ -152,11 +152,27 @@ def print_slips():
     return render_template("pd4/print.html", slips=slips, coop=coop, bank_account=bank_account)
 
 
+def _can_pay_electricity(garage: Garage) -> bool:
+    """Собственник гаража ИЛИ лицо для связи по нему (GarageContact —
+    супруга/доверенное лицо): кабинет (cabinet.garages) показывает кнопку
+    «Оплатить» за электричество обоим, так что и платёжку они получают
+    одинаково. Роль тут не участвует — правление без такой связи с гаражом
+    чужие электрические платёжки не печатает (см. _print_electricity_slip)."""
+    person_id = g.user.person_id
+    if person_id is None:
+        return False
+    return (
+        person_id in {o.person_id for o in garage.ownerships}
+        or person_id in {c.person_id for c in garage.contacts}
+    )
+
+
 def _print_electricity_slip(garage_id: int):
     """
     Платёжка по лицевому счёту на электричество конкретного гаража —
     доступна ТОЛЬКО текущему собственнику этого гаража (полностью или
-    частично), независимо от роли. Правление не имеет административного
+    частично) или лицу для связи по нему (см. _can_pay_electricity),
+    независимо от роли. Правление не имеет административного
     доступа к печати электрических платёжек чужих гаражей — оно печатает
     только взносы (см. select()); если сам член правления владеет гаражом,
     он попадает сюда как обычный собственник, а не по признаку роли.
@@ -164,8 +180,7 @@ def _print_electricity_slip(garage_id: int):
     garage = database.db_session.get(Garage, garage_id)
     if garage is None:
         abort(404)
-    owner_ids = {o.person_id for o in garage.ownerships}
-    if g.user.person_id is None or g.user.person_id not in owner_ids:
+    if not _can_pay_electricity(garage):
         abort(403)
 
     if garage.account is None:
@@ -295,8 +310,7 @@ def print_pdf():
                     abort(403)
             for gid in electricity_garage_ids:
                 garage = database.db_session.get(Garage, gid)
-                owner_ids = {o.person_id for o in garage.ownerships} if garage else set()
-                if g.user.person_id not in owner_ids:
+                if garage is None or not _can_pay_electricity(garage):
                     abort(403)
     else:
         # GET — авто-печать всех своих задолженностей (для рядовых), оба вида сразу

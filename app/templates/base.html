@@ -982,6 +982,15 @@ tr.table-info-subtle { --bs-table-bg: var(--bs-info-bg-subtle); --bs-table-borde
   .chat-widget-bubble { width: 2.75rem; height: 2.75rem; font-size: 1.2rem; right: .75rem; bottom: .75rem; }
   .chat-widget-bubble--left { left: .75rem; }
 }
+/* На компьютере — без прокрутки внутри блока: у длинной таблицы её
+   полоса оказывалась внизу таблицы, за экраном, и до кнопок в правых
+   колонках приходилось сначала доматывать страницу вниз. Широкая
+   таблица здесь расширяет страницу — горизонтальная полоса браузера
+   всегда видна внизу окна. Только у обёрток от initResponsiveTables
+   (.table-responsive-auto), явные .table-responsive в шаблонах — как были. */
+@media (min-width: 992px) {
+  #mainContent .table-responsive-auto { overflow-x: visible; }
+}
 @media print {
   .table-responsive { overflow: visible !important; }
 }
@@ -1142,7 +1151,9 @@ document.addEventListener("DOMContentLoaded", function () { initSortableTables(d
 
 // Любая таблица .table в контенте — в обёртку .table-responsive: на
 // телефоне широкая таблица прокручивается сама по себе, а не растягивает
-// страницу шире шапки (раньше в обёртке были 2 таблицы из ~90). Одним
+// страницу шире шапки (раньше в обёртке были 2 таблицы из ~90); на
+// компьютере прокрутка внутри блока отключена (см. .table-responsive-auto
+// в <style>). Одним
 // приёмом здесь, а не правкой каждого шаблона; .no-responsive на таблице —
 // отказаться. Выпадающие меню «Действия» в ячейках иначе обрезались бы
 // краем прокручиваемого блока — Popper для них переводим в strategy:
@@ -1152,7 +1163,7 @@ function initResponsiveTables(root) {
   root.querySelectorAll("table.table:not(.no-responsive)").forEach(function (table) {
     if (!table.closest("#mainContent") || table.closest(".table-responsive")) return;
     var wrapper = document.createElement("div");
-    wrapper.className = "table-responsive";
+    wrapper.className = "table-responsive table-responsive-auto";
     table.parentNode.insertBefore(wrapper, table);
     wrapper.appendChild(table);
     table.querySelectorAll('[data-bs-toggle="dropdown"]:not([data-bs-popper-config])').forEach(function (toggle) {

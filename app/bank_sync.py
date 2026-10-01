@@ -13,7 +13,7 @@ import json
 import os
 import re
 import uuid
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from cryptography.hazmat.primitives.serialization import pkcs12, Encoding, PrivateFormat, NoEncryption
 from flask import Blueprint, render_template, request, redirect, url_for, flash, abort, current_app, Response, g
@@ -820,10 +820,15 @@ def charge_registry_staleness(account: BankAccount, items: list[ChargeRegistryIt
 
     None — реестр по этому счёту ещё ни разу не формировали (им не
     пользуются, напоминать не о чем). Иначе {"last": ChargeRegistryFile,
-    "changed": N} — у скольких лицевых счетов строка в файле, сформированном
-    сейчас, отличается от последнего сохранённого (изменилась сумма,
-    плательщик, счёт появился/пропал); 0 — реестр актуален. Сравнение
-    построчно по номеру лицевого счёта в том же формате, что и сам файл
+    "changed": N, "changes": [...]} — у скольких лицевых счетов строка в
+    файле, сформированном сейчас, отличается от последнего сохранённого
+    (изменилась сумма, плательщик, счёт появился/пропал); 0 — реестр
+    актуален. changes — сами отличия для таблицы на странице реестра
+    (по одному dict на счёт: account_number, payer_name, before/after —
+    сумма в старом/новом файле или None, если строки там нет, и
+    other_fields — названия прочих изменившихся полей), чтобы было видно,
+    ЧТО именно устарело, а не только сколько. Сравнение построчно по
+    номеру лицевого счёта в том же формате, что и сам файл
     (разделитель/кодировка/позиция поля — из настроек формата счёта).
     items — уже собранные _charge_registry_items(), чтобы не собирать
     дважды (они одни на все счета)."""
@@ -840,20 +845,46 @@ def charge_registry_staleness(account: BankAccount, items: list[ChargeRegistryIt
         items = _charge_registry_items()
     current = registry_file.build_charge_registry_file(items, fmt)
     if current == last.content:
-        return {"last": last, "changed": 0}
-    key_index = fmt.charge_columns.index("account_number") if "account_number" in fmt.charge_columns else 0
+        return {"last": last, "changed": 0, "changes": []}
+    columns = fmt.charge_columns
+    key = "account_number" if "account_number" in columns else columns[0]
 
-    def lines_by_account(content: bytes) -> dict[str, str]:
+    def rows_by_account(content: bytes) -> dict[str, dict[str, str]]:
         result = {}
         for line in content.decode(fmt.encoding, errors="replace").splitlines():
             if line.strip():
-                parts = line.split(fmt.delimiter)
-                result[parts[key_index] if key_index < len(parts) else line] = line
+                row = dict(zip(columns, line.split(fmt.delimiter)))
+                result[row.get(key, line)] = row
         return result
 
-    before, now = lines_by_account(last.content), lines_by_account(current)
-    changed = sum(1 for number in before.keys() | now.keys() if before.get(number) != now.get(number))
-    return {"last": last, "changed": changed}
+    def amount(row: dict | None) -> Decimal | None:
+        if row is None or not row.get("amount"):
+            return None
+        try:
+            return Decimal(row["amount"].replace(fmt.charge_decimal_separator, "."))
+        except InvalidOperation:
+            return None
+
+    before, now = rows_by_account(last.content), rows_by_account(current)
+    changes = []
+    for number in sorted(before.keys() | now.keys()):
+        old_row, new_row = before.get(number), now.get(number)
+        if old_row == new_row:
+            continue
+        other_fields = [
+            column for column in columns
+            if column not in (key, "amount") and old_row and new_row and old_row.get(column) != new_row.get(column)
+        ]
+        changes.append({
+            "account_number": number,
+            "payer_name": (new_row or old_row).get("payer_name", ""),
+            "before": amount(old_row) if old_row else None,
+            "after": amount(new_row) if new_row else None,
+            "in_before": old_row is not None,
+            "in_after": new_row is not None,
+            "other_fields": other_fields,
+        })
+    return {"last": last, "changed": len(changes), "changes": changes}
 
 
 @bp.route("/registry/charges")
@@ -885,6 +916,7 @@ def charge_registry(account_id):
         debtors_count=sum(1 for i in items if i.amount > 0),
         pending_total=sum((i.amount for i in items), Decimal("0")),
         file_columns=[labels.get(key, key) for key in fmt.charge_columns],
+        column_labels=labels,
         file_delimiter=fmt.delimiter,
     )
 

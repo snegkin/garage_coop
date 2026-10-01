@@ -15,6 +15,30 @@
 {% if staleness and staleness.changed %}
 <div class="alert alert-warning">
   {{ _("Реестр от {date} устарел: с тех пор изменилась сумма у лицевых счетов: {n}. Пока новый реестр не загружен в СберБизнес Онлайн, приложение банка показывает плательщикам старые суммы (при 0,00 — пустое поле). Сформируйте реестр и загрузите его.", date=fmt_date(staleness.last.created_at), n=staleness.changed) }}
+  <details class="mt-2">
+    <summary>{{ _("Что изменилось по сравнению с реестром {name}", name=staleness.last.filename) }}</summary>
+    <table class="table table-sm bg-body mt-2 mb-0">
+      <thead><tr>
+        <th>{{ _("Лицевой счёт") }}</th><th>{{ _("Плательщик") }}</th>
+        <th class="text-end">{{ _("Было") }}</th><th class="text-end">{{ _("Стало") }}</th><th></th>
+      </tr></thead>
+      <tbody>
+        {% for c in staleness.changes %}
+        <tr>
+          <td>{{ c.account_number }}</td>
+          <td>{{ c.payer_name }}</td>
+          <td class="text-end">{{ (fmt2(c.before) ~ " ₽") if c.before is not none else "—" }}</td>
+          <td class="text-end {{ 'fw-semibold' if c.before != c.after }}">{{ (fmt2(c.after) ~ " ₽") if c.after is not none else "—" }}</td>
+          <td class="text-muted small">
+            {% if not c.in_before %}{{ _("новый счёт в реестре") }}
+            {% elif not c.in_after %}{{ _("счёт убран из реестра") }}
+            {% elif c.other_fields %}{{ _("изменилось") }}: {{ c.other_fields|map("extract", column_labels)|join(", ") }}{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </details>
 </div>
 {% endif %}
 <div class="d-flex flex-wrap gap-2 mb-2">

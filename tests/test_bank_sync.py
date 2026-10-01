@@ -1789,6 +1789,40 @@ def test_charge_registry_staleness_reminder(app, db, client):
     assert "устарел" not in client.get("/dashboard").get_data(as_text=True)
 
 
+def test_charge_registry_staleness_lists_changes(app, db, client):
+    """На странице реестра видно, ЧТО устарело: по каждому изменившемуся
+    счёту — сумма в последнем файле и сейчас; новый счёт — «было: —»."""
+    person = make_person(db, full_name="Иванов Иван Иванович")
+    garage = make_garage(db)
+    fee_type = FeeType(code="membership", name="Членский взнос")
+    db.add(fee_type)
+    db.flush()
+    member_account = MemberAccount(person_id=person.id, garage_id=garage.id, fee_type_id=fee_type.id, account_number="10120")
+    db.add(member_account)
+    db.flush()
+    db.add(Charge(account_id=member_account.id, year=2026, amount=Decimal("500.00")))
+    bank_account = make_bank_account(db, provider=BankApiProvider.SBERBANK)
+    make_user(db, "chair_diff", "pass12345", role=RoleEnum.CHAIRMAN)
+    db.commit()
+    login(client, "chair_diff", "pass12345")
+    _generate_charge_registry(client, db, bank_account)
+
+    db.add(Charge(account_id=member_account.id, year=2026, amount=Decimal("250.00")))
+    db.add(PersonalAccount(garage_id=garage.id, account_number="90120"))
+    db.commit()
+
+    staleness = bank_sync.charge_registry_staleness(bank_account)
+    by_number = {c["account_number"]: c for c in staleness["changes"]}
+    assert staleness["changed"] == 2
+    assert by_number["10120"]["before"] == Decimal("500.00") and by_number["10120"]["after"] == Decimal("750.00")
+    assert not by_number["90120"]["in_before"] and by_number["90120"]["after"] == Decimal("0.00")
+
+    page = client.get(f"/cooperative/bank-accounts/{bank_account.id}/registry/charges").get_data(as_text=True)
+    assert "Что изменилось по сравнению с реестром" in page
+    assert "500,00 ₽" in page and "750,00 ₽" in page
+    assert "новый счёт в реестре" in page
+
+
 def test_charge_registry_requires_cooperative_inn(app, db, client):
     person = make_person(db)
     garage = make_garage(db)

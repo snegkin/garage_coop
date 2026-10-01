@@ -153,8 +153,8 @@ def test_print_page_has_save_qr_button_bound_to_slip_qr(db, client):
 
 
 def test_print_page_copies_amount_with_kopecks_comma_separated(db, client):
-    """Сумма с копейками (электричество с комиссией банка 1,6%: 700 × 1,016 =
-    711,20) — для буфера обмена через запятую, как её ждёт поле суммы в
+    """Сумма с копейками (электричество с комиссией банка 1,6%: 700 / (1 − 0,016) =
+    711,38) — для буфера обмена через запятую, как её ждёт поле суммы в
     приложении банка на русской раскладке."""
     coop = _make_coop(db)
     coop.bank_fee_percent = Decimal("1.6")
@@ -169,4 +169,4 @@ def test_print_page_copies_amount_with_kopecks_comma_separated(db, client):
     login(client, "qrowner5", "pass12345")
 
     body = client.get(f"/pd4/print?garage_id={garage.id}").get_data(as_text=True)
-    assert 'data-amount="711,20"' in body
+    assert 'data-amount="711,38"' in body

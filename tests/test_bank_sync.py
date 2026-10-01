@@ -1716,7 +1716,7 @@ def test_charge_registry_filename_and_daily_numbering(app, db, client):
 
 
 def test_charge_registry_electricity_includes_bank_fee_like_pd4(app, db):
-    """Электричество — как в ПД-4: к оплате долг × (1 + % банка) и пометка о
+    """Электричество — как в ПД-4: к оплате долг / (1 − % банка) и пометка о
     комиссии в назначении; у взносов комиссия уже в начислении — не меняется."""
     db.add(Cooperative(full_name="ГСК Тест", inn="7610037501", kpp="1", ogrn="1", bank_fee_percent=Decimal("1.6")))
     person = make_person(db)
@@ -1736,7 +1736,7 @@ def test_charge_registry_electricity_includes_bank_fee_like_pd4(app, db):
 
     with app.app_context():
         items = {i.account_number: i for i in bank_sync._charge_registry_items()}
-    assert items["90070"].amount == Decimal("1016.00")
+    assert items["90070"].amount == Decimal("1016.26")
     assert items["90070"].purpose == "Электричество, гараж №7 (1,60% - комиссия банка)"
     assert items["90080"].amount == Decimal("0.00")
     assert items["10070"].amount == Decimal("1000.00")

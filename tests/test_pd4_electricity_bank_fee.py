@@ -2,7 +2,7 @@
 Комиссия банка (Cooperative.bank_fee_percent) добавляется к сумме
 QR-кода/квитанции ПД-4 на оплату ЭЛЕКТРОЭНЕРГИИ (app/pd4.py:
 _build_mixed_slips) — сам долг за электричество считается по факту
-потребления, без комиссии (см. accounting.bank_fee_multiplier), комиссия
+потребления, без комиссии (см. accounting.amount_with_bank_fee), комиссия
 добавляется только в сумму К ОПЛАТЕ именно этим переводом, чтобы после
 удержания банком своей доли на счёт кооператива поступил полный долг.
 
@@ -12,7 +12,7 @@ _build_mixed_slips) — сам долг за электричество счит
 """
 from decimal import Decimal
 
-from app.accounting import bank_fee_multiplier
+from app.accounting import amount_with_bank_fee, bank_fee_multiplier
 from app.models import (
     Cooperative, RoleEnum, Garage, GarageOwnership, PersonalAccount, Charge,
     MemberAccount, FeeType, PD4Document,
@@ -51,6 +51,31 @@ def test_bank_fee_multiplier_unset_percent(db):
 
 
 # ---------------------------------------------------------------------------
+# accounting.amount_with_bank_fee — банк берёт % от ОПЛАЧЕННОЙ суммы
+# ---------------------------------------------------------------------------
+
+def test_amount_with_bank_fee_matches_sberbank_registry(db):
+    """Реальная строка реестра платежей Сбербанка: оплачено 1432,56,
+    комиссия 1,60% = 22,92, зачислено 1409,64 — к оплате при долге 1409,64
+    должно выйти ровно 1432,56 (а не 1409,64 × 1,016 = 1432,19)."""
+    coop = _make_coop(db, bank_fee_percent=Decimal("1.6"))
+    assert amount_with_bank_fee(Decimal("1409.64"), coop) == Decimal("1432.56")
+
+
+def test_amount_with_bank_fee_credited_equals_debt(db):
+    coop = _make_coop(db, bank_fee_percent=Decimal("1.6"))
+    for kopecks in range(1, 200001, 7):
+        debt = Decimal(kopecks) / 100
+        paid = amount_with_bank_fee(debt, coop)
+        fee = (paid * Decimal("0.016")).quantize(Decimal("0.01"), "ROUND_HALF_UP")
+        assert paid - fee == debt, debt
+
+
+def test_amount_with_bank_fee_without_percent(db):
+    assert amount_with_bank_fee(Decimal("777.00"), _make_coop(db, bank_fee_percent=None)) == Decimal("777.00")
+
+
+# ---------------------------------------------------------------------------
 # Печать квитанции/QR на электроэнергию — комиссия прибавляется
 # ---------------------------------------------------------------------------
 
@@ -68,7 +93,7 @@ def test_electricity_slip_amount_includes_bank_fee(db, client):
     resp = client.get(f"/pd4/print?garage_id={garage.id}")
     assert resp.status_code == 200
     body = resp.get_data(as_text=True)
-    assert "1016,00" in body  # fmt2 без разделителя тысяч, запятая — дробная часть (ru-локаль)
+    assert "1016,26" in body  # fmt2 без разделителя тысяч, запятая — дробная часть (ru-локаль)
 
 
 def test_electricity_slip_preview_forces_white_background(db, client):
@@ -92,7 +117,7 @@ def test_electricity_slip_preview_forces_white_background(db, client):
     assert ".pd4-table td { border: 1px solid black; padding: 4px; vertical-align: top; background: #fff; }" in body
 
     doc = db.query(PD4Document).one()
-    assert doc.amount == Decimal("1016.00")
+    assert doc.amount == Decimal("1016.26")
 
 
 def test_electricity_slip_qr_payload_sum_includes_bank_fee(db, client):
@@ -108,8 +133,8 @@ def test_electricity_slip_qr_payload_sum_includes_bank_fee(db, client):
 
     client.get(f"/pd4/print?garage_id={garage.id}")
     doc = db.query(PD4Document).one()
-    # 500 * 1.016 = 508.00 -> 50800 копеек в поле Sum= QR-кода (СБП-формат ST00012)
-    assert "Sum=50800" in doc.qr_payload
+    # 500 / (1 − 0.016) = 508.13 -> 50813 копеек в поле Sum= QR-кода (СБП-формат ST00012)
+    assert "Sum=50813" in doc.qr_payload
 
 
 def test_electricity_slip_no_fee_when_bank_fee_percent_is_zero(db, client):

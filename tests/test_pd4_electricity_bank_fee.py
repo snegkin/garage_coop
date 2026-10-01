@@ -37,7 +37,8 @@ def _make_coop(db, bank_fee_percent=Decimal("1.6")):
 
 def test_bank_fee_multiplier_default_percent(db):
     coop = _make_coop(db, bank_fee_percent=Decimal("1.6"))
-    assert bank_fee_multiplier(coop) == Decimal("1.016")
+    # банк берёт % с оплаченной суммы → 1 / (1 − 0,016), а не 1,016
+    assert bank_fee_multiplier(coop) == Decimal("100") / Decimal("98.4")
 
 
 def test_bank_fee_multiplier_zero_percent(db):

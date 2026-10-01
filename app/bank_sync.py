@@ -29,7 +29,7 @@ from .models import (
     PaymentRegistryEntry, BankRegistryFormat, ChargeRegistryFile, Cooperative,
     MemberAccount, PersonalAccount, Payment, Person, Garage, GarageOwnership, GarageContact, CORE_FEE_TYPE_CODES,
 )
-from .accounting import balance as _balance, bank_fee_multiplier, reallocate_garage_charges, reallocate_member_charges
+from .accounting import balance as _balance, amount_with_bank_fee, reallocate_garage_charges, reallocate_member_charges
 from .bank_api import get_client, crypto, build_registry_format
 from .bank_api.base import BankApiError, ChargeRegistryItem
 from .bank_api import registry_file
@@ -755,13 +755,12 @@ def _charge_registry_items() -> list[ChargeRegistryItem]:
     новому собственнику показала бы долг прежнего.
 
     Электричество — как в ПД-4 (pd4.py): долг за него считается по факту
-    потребления, без комиссии банка, поэтому к оплате — долг × (1 + % банка)
-    (accounting.bank_fee_multiplier), с той же пометкой в назначении; иначе
+    потребления, без комиссии банка, поэтому к оплате — долг / (1 − % банка)
+    (accounting.amount_with_bank_fee), с той же пометкой в назначении; иначе
     после удержания банком комиссии на счёт кооператива поступит меньше
     долга. У взносов комиссия уже в самом начислении (compute_land_tax) —
     их сумма не меняется."""
     coop = database.db_session.query(Cooperative).first()
-    fee_multiplier = bank_fee_multiplier(coop) if coop else Decimal("1")
     fee_note = ""
     if coop and coop.bank_fee_percent:
         percent = f"{coop.bank_fee_percent.quantize(Decimal('0.01'))}".replace(".", ",")
@@ -791,7 +790,7 @@ def _charge_registry_items() -> list[ChargeRegistryItem]:
         items.append(ChargeRegistryItem(
             account_number=personal_account.account_number,
             payer_name=owners,
-            amount=(debt * fee_multiplier).quantize(Decimal("0.01")),
+            amount=amount_with_bank_fee(debt, coop),
             purpose=f"Электричество, гараж №{garage.number}{fee_note}",
         ))
     for member_account in member_accounts:
@@ -1352,7 +1351,7 @@ def _allocate_payment_to_account(
     если она своя. Реестр платежей передаёт сюда сумму ЗАЧИСЛЕНИЯ (за
     вычетом комиссии банка): к оплате за электричество выставляется долг
     уже с надбавкой на комиссию (реестр начислений и ПД-4, см.
-    accounting.bank_fee_multiplier), и полная сумма дала бы гаражу
+    accounting.amount_with_bank_fee), и полная сумма дала бы гаражу
     переплату на размер этой надбавки."""
     kind, target = (None, None)
     resolved_account_number = account_number

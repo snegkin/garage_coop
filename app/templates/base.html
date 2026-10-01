@@ -14,7 +14,7 @@
 </head>
 <body class="bg-body-tertiary">
 <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4" data-bs-theme="dark">
-  <div class="container">
+  <div class="container app-container">
     {# Для правления/председателя дашборд остаётся рабочей "главной" —
        лого ведёт туда же, куда и вход по умолчанию (см.
        auth._complete_login); для остальных — на общедоступную главную
@@ -197,7 +197,7 @@
   </div>
 </nav>
 
-<div class="container pb-5" id="mainContent">
+<div class="container app-container pb-5" id="mainContent">
   {% with messages = get_flashed_messages(with_categories=true) %}
     {% if messages %}
       {% for category, message in messages %}
@@ -981,6 +981,13 @@ tr.table-info-subtle { --bs-table-bg: var(--bs-info-bg-subtle); --bs-table-borde
   #mainContent .table > :not(caption) > * > * { padding: .4rem .45rem; }
   .chat-widget-bubble { width: 2.75rem; height: 2.75rem; font-size: 1.2rem; right: .75rem; bottom: .75rem; }
   .chat-widget-bubble--left { left: .75rem; }
+}
+/* Шапка и контент на широких мониторах — шире бутстраповских 1320px
+   (.container): таблицам с кнопками в правых колонках тесно, а на 2K/4K
+   по бокам оставались пустые поля. 92% окна, но не больше 2400px —
+   строки текста не растягиваются бесконечно. */
+@media (min-width: 1600px) {
+  .app-container { max-width: min(92vw, 2400px); }
 }
 /* На компьютере — без прокрутки внутри блока: у длинной таблицы её
    полоса оказывалась внизу таблицы, за экраном, и до кнопок в правых

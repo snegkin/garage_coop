@@ -11,7 +11,7 @@
 Секреты маскируются: значения ключей вида token/secret/password/key/… в
 адресе, форме и JSON (в т.ч. в ответе — Сбер отдаёт refresh_token), токен
 бота Telegram в пути, заголовок Authorization не пишется вовсе. Тела
-обрезаются до API_LOG_MAX_BODY символов; не текстовые — только размер.
+обрезаются до API_LOG_MAX_BODY символов (200 000 — страница выписки банка целиком); не текстовые — только размер.
 
 Файл на каждый день, а не RotatingFileHandler: в него пишут несколько
 воркеров gunicorn и cron-скрипты одновременно, а ротация переименованием
@@ -108,12 +108,30 @@ def format_body(body, content_type: str | None, max_len: int) -> str:
     return text
 
 
-def install(log_dir: str, keep_days: int = 7, max_body: int = 4000) -> None:
+def install_app_log(log_dir: str, keep_days: int = 7) -> None:
+    """Предупреждения и ошибки самого приложения (WARNING и выше, с
+    трассировкой) — в <log_dir>/app-ГГГГ-ММ-ДД.log рядом с журналом API,
+    чтобы их было видно на странице «Логи сервера», а не только в выводе
+    gunicorn/journalctl. Например «Bad form input» из app/errors.py —
+    за ним прячутся настоящие исключения разбора данных."""
+    os.makedirs(log_dir, exist_ok=True)
+    _cleanup(log_dir, keep_days, "app")
+    root = logging.getLogger()
+    for h in list(root.handlers):
+        if isinstance(h, _DailyFileHandler):
+            root.removeHandler(h)
+    handler = _DailyFileHandler(log_dir, "app")
+    handler.setLevel(logging.WARNING)
+    handler.setFormatter(logging.Formatter("%(asctime)s [%(process)d] %(levelname)s %(name)s: %(message)s"))
+    root.addHandler(handler)
+
+
+def install(log_dir: str, keep_days: int = 7, max_body: int = 200_000) -> None:
     """Включает журнал. Повторный вызов (второй create_app в том же
     процессе) только перенастраивает каталог/лимиты."""
     global _original_send
     os.makedirs(log_dir, exist_ok=True)
-    _cleanup(log_dir, keep_days)
+    _cleanup(log_dir, keep_days, "external_api")
 
     for h in list(logger.handlers):
         logger.removeHandler(h)
@@ -129,7 +147,7 @@ def install(log_dir: str, keep_days: int = 7, max_body: int = 4000) -> None:
     _original_send = requests.Session.send
 
     def send(self, request, **kwargs):
-        max_len = getattr(logger, "max_body", 4000)
+        max_len = getattr(logger, "max_body", 200_000)
         url = mask_url(request.url)
         logger.info(
             "→ %s %s %s", request.method, url,
@@ -154,10 +172,12 @@ def install(log_dir: str, keep_days: int = 7, max_body: int = 4000) -> None:
     requests.Session.send = send
 
 
-def _cleanup(log_dir: str, keep_days: int) -> None:
+def _cleanup(log_dir: str, keep_days: int, prefix: str) -> None:
     border = (dt.date.today() - dt.timedelta(days=keep_days)).isoformat()
-    for path in glob.glob(os.path.join(log_dir, "external_api-*.log")):
-        day = os.path.basename(path)[len("external_api-"):-len(".log")]
+    for path in glob.glob(os.path.join(log_dir, f"{prefix}-*.log")):
+        day = os.path.basename(path)[len(prefix) + 1:-len(".log")]
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day):
+            continue
         if day < border:
             try:
                 os.remove(path)

@@ -90,3 +90,22 @@ def test_old_files_are_removed(tmp_path):
     old.write_text("x")
     api_log.install(str(tmp_path), keep_days=14)
     assert not old.exists()
+
+
+def test_app_log_writes_warnings_with_traceback(tmp_path):
+    import logging
+    api_log.install_app_log(str(tmp_path))
+    try:
+        try:
+            raise ValueError("кривая сумма")
+        except ValueError as e:
+            logging.getLogger("app.errors").warning("Bad form input: %r", e, exc_info=e)
+        logging.getLogger("app.x").info("не должно попасть")
+        text = (tmp_path / f"app-{dt.date.today().isoformat()}.log").read_text(encoding="utf-8")
+        assert "Bad form input" in text and "Traceback" in text and "кривая сумма" in text
+        assert "не должно попасть" not in text
+    finally:
+        root = logging.getLogger()
+        for h in list(root.handlers):
+            if isinstance(h, api_log._DailyFileHandler):
+                root.removeHandler(h)

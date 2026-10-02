@@ -968,3 +968,17 @@ def test_lawsuit_header_uses_surname_and_initials_for_defendant(db, client):
     header_chunk = body[header_idx:header_idx + 800]
     assert person.short_name in header_chunk
     assert person.full_name not in header_chunk
+
+
+def test_debt_categories_lists_electricity_once(app, db):
+    """FeeType "electricity" (название платежа в квитанциях) не даёт второй
+    пункт «Электричество» в фильтре — долг за свет на гаражном счёте."""
+    from app.legal_docs import debt_categories
+    db.add(FeeType(code="electricity", name="Электроэнергия", is_penalty=False))
+    db.add(FeeType(code="membership", name="Членский взнос", is_penalty=False))
+    db.commit()
+    cats = debt_categories()
+    electricity = [c for c in cats if c["key"] == "electricity"]
+    assert len(electricity) == 1 and electricity[0]["label"] == "Электроэнергия"
+    assert [c["label"] for c in cats].count("Электроэнергия") == 1
+    assert any(c["label"] == "Членский взнос" for c in cats)

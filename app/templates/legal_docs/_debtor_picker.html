@@ -98,6 +98,18 @@ document.addEventListener("DOMContentLoaded", function () {
   const checkboxes = rows.map(function (row) { return row.querySelector("input[type=checkbox]"); });
   const currentYear = new Date().getFullYear();
 
+  // Строка — .d-flex (display: flex !important), обычный style.display =
+  // "none" она перебивает и остаётся на экране (так и было: со снятыми
+  // галочками видны все должники с 0,00) — скрываем тоже с !important.
+  function setRowVisible(row, visible) {
+    if (visible) row.style.removeProperty("display");
+    else row.style.setProperty("display", "none", "important");
+  }
+
+  function isRowHidden(row) {
+    return row.style.getPropertyValue("display") === "none";
+  }
+
   function updateCount() {
     countEl.textContent = checkboxes.filter(function (cb) { return cb.checked; }).length;
   }
@@ -152,7 +164,7 @@ document.addEventListener("DOMContentLoaded", function () {
       const hasDebt = total > 0.004;  // защита от округления копеек
       const matchesAge = minAge === 0 || age >= minAge;
       const visible = matchesName && hasDebt && matchesAge;
-      row.style.display = visible ? "" : "none";
+      setRowVisible(row, visible);
       if (!visible) checkboxes[i].checked = false;
 
       return { row: row, total: total, age: age, name: row.dataset.search || "" };
@@ -178,7 +190,7 @@ document.addEventListener("DOMContentLoaded", function () {
   if (selectAllBtn) {
     selectAllBtn.addEventListener("click", function () {
       rows.forEach(function (row, i) {
-        if (row.style.display === "none") return;
+        if (isRowHidden(row)) return;
         checkboxes[i].checked = true;
       });
       updateCount();

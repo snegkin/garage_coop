@@ -108,7 +108,7 @@
         <form method="post" action="{{ url_for('bank_sync.unallocate_payment_registry_entry', account_id=account.id, entry_id=entry.id) }}" class="js-unallocate-form{{ '' if entry.matched_payment_id else ' d-none' }}" onsubmit="return confirm('{{ _('Отменить разнесение? Платёж будет удалён с лицевого счёта, запись можно будет разнести заново.') }}')">
           <input type="hidden" name="date_from" value="{{ date_from.isoformat() if date_from else '' }}">
           <input type="hidden" name="date_to" value="{{ date_to.isoformat() if date_to else '' }}">
-          <button class="btn btn-sm btn-outline-danger">{{ _("Отменить разнесение") }}</button>
+          <button class="btn btn-sm btn-outline-danger">{{ _("Отменить") }}</button>
         </form>
         {% if not entry.matched_payment_id %}
         <form method="post" action="{{ url_for('bank_sync.allocate_payment_registry_entry', account_id=account.id, entry_id=entry.id) }}" class="js-allocate-form d-flex flex-column gap-1">

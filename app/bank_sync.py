@@ -436,6 +436,34 @@ def sync_account_statement(account: BankAccount, date_from: dt.date, date_to: dt
         database.db_session.commit()
         return "error", _("Не удалось получить выписку из банка: {error}").format(error=error), {}
 
+    try:
+        added, auto_allocated, direct, parametric = _save_fetched_statement(account, fetched, date_from, date_to)
+    except Exception as e:
+        # Выписка получена, но упала обработка (разнесение, сопоставление с
+        # реестром, уведомление…) — откатываем её целиком, но новый
+        # refresh_token, который банк выдаёт при каждом обновлении токена,
+        # и текст ошибки сохраняем, иначе потеряли бы доступ к API, а
+        # пользователь увидел бы «проверьте правильность заполнения формы».
+        current_app.logger.exception("Сбой обработки выписки счёта %s", account.id)
+        database.db_session.rollback()
+        cred = _get_or_create_credential(account)
+        _persist_rotated_refresh_token(cred, client)
+        cred.last_error = f"Выписка получена, но не обработана: {e!r}"
+        database.db_session.commit()
+        return "error", _("Выписка получена из банка, но не обработана: {error}").format(error=repr(e)), {}
+
+    cred.last_statement_sync_at = dt.datetime.utcnow()
+    cred.last_error = None
+    _persist_rotated_refresh_token(cred, client)
+    database.db_session.commit()
+    stats = {"added": added, "auto_allocated": auto_allocated, "direct": direct, "parametric": parametric}
+    return "success", _("Выписка обновлена: {n} новых операций.").format(n=added), stats
+
+
+def _save_fetched_statement(account: BankAccount, fetched, date_from: dt.date, date_to: dt.date) -> tuple[int, int, int, int]:
+    """Сохраняет новые строки выписки, автоматически разносит зачисления и
+    сопоставляет с реестром — без commit, его делает sync_account_statement.
+    Возвращает (added, auto_allocated, direct, parametric)."""
     existing_uids = {
         row[0] for row in database.db_session.query(BankStatementLine.external_uid)
         .filter(BankStatementLine.bank_account_id == account.id, BankStatementLine.external_uid.isnot(None))
@@ -483,10 +511,6 @@ def sync_account_statement(account: BankAccount, date_from: dt.date, date_to: dt
                 row.account_number = resolved_number
                 auto_allocated += 1
 
-    cred.last_statement_sync_at = dt.datetime.utcnow()
-    cred.last_error = None
-    _persist_rotated_refresh_token(cred, client)
-
     # Сопоставить новые строки выписки с записями реестра
     direct, parametric = _match_registry_and_statement(account.id)
 
@@ -503,9 +527,7 @@ def sync_account_statement(account: BankAccount, date_from: dt.date, date_to: dt
                     f"{auto_allocated} разнесено автоматически, "
                     f"{direct + parametric} сопоставлено с реестром ({direct} прямых, {parametric} параметрических)",
         )
-    database.db_session.commit()
-    stats = {"added": added, "auto_allocated": auto_allocated, "direct": direct, "parametric": parametric}
-    return "success", _("Выписка обновлена: {n} новых операций.").format(n=added), stats
+    return added, auto_allocated, direct, parametric
 
 
 @bp.route("/sync-statement", methods=["POST"])

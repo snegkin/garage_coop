@@ -23,6 +23,12 @@ def create_app(config_class=Config):
             level=logging.INFO,
             format="%(asctime)s %(levelname)s %(name)s: %(message)s",
         )
+        if app.config.get("API_LOG_ENABLED"):
+            from . import api_log
+            api_log.install(
+                app.config["API_LOG_FOLDER"],
+                keep_days=app.config["API_LOG_KEEP_DAYS"], max_body=app.config["API_LOG_MAX_BODY"],
+            )
 
     from .errors import register_error_handlers
     register_error_handlers(app)

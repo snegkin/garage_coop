@@ -16,8 +16,11 @@ config = context.config
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
+# disable_existing_loggers=False: миграции запускаются из create_app() — по
+# умолчанию fileConfig молча отключил бы уже созданные логгеры приложения
+# (app.errors, журнал внешних API app/api_log.py и т.д.).
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 # Метаданные моделей проекта — источник правды для autogenerate.
 from app.models import Base  # noqa: E402

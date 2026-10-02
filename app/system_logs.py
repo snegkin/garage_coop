@@ -28,8 +28,15 @@ DEFAULT_LINES = 500
 SEARCH_TAIL_BYTES = 20 * 1024 * 1024
 # Строки, которые стоит заметить: ошибки cron-скриптов, трассировки,
 # сбои и 4xx/5xx-ответы в журнале внешних API.
-_ERROR_RE = re.compile(r"ОШИБКА|ERROR|CRITICAL|Traceback|Exception|Error:|^✗|\] ✗|← [45]\d\d ")
-_WARNING_RE = re.compile(r"WARNING|ПРЕДУПРЕЖДЕНИЕ")
+_ERROR_RE = re.compile(
+    r"ОШИБКА|\bERROR\b|\bCRITICAL\b|^Traceback \(most recent call last\)"
+    r"|^[\w.]*(?:Error|Exception)\b(?::|$)"  # последняя строка трассировки: «ValueError: …»
+)
+_WARNING_RE = re.compile(r"\bWARNING\b|ПРЕДУПРЕЖДЕНИЕ")
+# Строка журнала внешних API (app/api_log.py): «… [pid] → …», «← 200 …», «✗ …».
+# Её уровень — только по статусу: в телах ответов полно слов вроде
+# "hasException"/"error": 0, которые к сбою отношения не имеют.
+_API_LINE_RE = re.compile(r"^\S+ \S+ \[\d+\] ([→←✗]) (\d{3})?")
 
 
 def _log_dir() -> str:
@@ -92,6 +99,12 @@ def read_tail(path: str, max_lines: int, query: str | None = None) -> tuple[list
 
 
 def line_level(line: str) -> str | None:
+    m = _API_LINE_RE.match(line)
+    if m:
+        arrow, status = m.groups()
+        if arrow == "✗" or (arrow == "←" and status and status[0] in "45"):
+            return "error"
+        return None
     if _ERROR_RE.search(line):
         return "error"
     if _WARNING_RE.search(line):

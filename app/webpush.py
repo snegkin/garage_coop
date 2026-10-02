@@ -100,6 +100,13 @@ def send(settings: WebPushSettings, subscription: WebPushSubscription, title: st
     private_key = crypto.decrypt(settings.private_key_encrypted)
     if not private_key:
         raise WebPushError("Ключи VAPID не настроены")
+    # Ключ хранится в PEM (см. get_or_create_settings), а строку pywebpush
+    # разбирает через Vapid.from_string — только base64 DER/сырые 32 байта,
+    # на PEM падает ValueError. Поэтому отдаём уже разобранный объект.
+    try:
+        vapid = Vapid.from_pem(private_key.encode("ascii"))
+    except Exception as exc:
+        raise WebPushError(f"Не удалось прочитать ключ VAPID: {exc}") from exc
     try:
         webpush(
             subscription_info={
@@ -107,11 +114,13 @@ def send(settings: WebPushSettings, subscription: WebPushSubscription, title: st
                 "keys": {"p256dh": subscription.p256dh, "auth": subscription.auth},
             },
             data=json.dumps({"title": title, "body": body}, ensure_ascii=False),
-            vapid_private_key=private_key,
+            vapid_private_key=vapid,
             vapid_claims={"sub": settings.subject or "mailto:admin@example.com"},
         )
     except WebPushException as exc:
         raise WebPushError(str(exc), status_code=exc.status_code) from exc
+    except Exception as exc:  # сеть, шифрование, кривые ключи подписки — не роняем вызывающего
+        raise WebPushError(f"{type(exc).__name__}: {exc}") from exc
 
 
 def is_expired(exc: WebPushError) -> bool:

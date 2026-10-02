@@ -116,14 +116,17 @@ def install_app_log(log_dir: str, keep_days: int = 7) -> None:
     за ним прячутся настоящие исключения разбора данных."""
     os.makedirs(log_dir, exist_ok=True)
     _cleanup(log_dir, keep_days, "app")
-    root = logging.getLogger()
-    for h in list(root.handlers):
+    # Логгер пакета "app" (app.errors, current_app.logger и т.д.), а не
+    # корневой: миграции из create_app() вызывают logging.config.fileConfig
+    # (migrations/env.py), а он заменяет обработчики корневого логгера.
+    app_logger = logging.getLogger("app")
+    for h in list(app_logger.handlers):
         if isinstance(h, _DailyFileHandler):
-            root.removeHandler(h)
+            app_logger.removeHandler(h)
     handler = _DailyFileHandler(log_dir, "app")
     handler.setLevel(logging.WARNING)
     handler.setFormatter(logging.Formatter("%(asctime)s [%(process)d] %(levelname)s %(name)s: %(message)s"))
-    root.addHandler(handler)
+    app_logger.addHandler(handler)
 
 
 def install(log_dir: str, keep_days: int = 7, max_body: int = 200_000) -> None:

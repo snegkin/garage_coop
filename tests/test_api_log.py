@@ -105,7 +105,7 @@ def test_app_log_writes_warnings_with_traceback(tmp_path):
         assert "Bad form input" in text and "Traceback" in text and "кривая сумма" in text
         assert "не должно попасть" not in text
     finally:
-        root = logging.getLogger()
-        for h in list(root.handlers):
+        app_logger = logging.getLogger("app")
+        for h in list(app_logger.handlers):
             if isinstance(h, api_log._DailyFileHandler):
-                root.removeHandler(h)
+                app_logger.removeHandler(h)

@@ -143,11 +143,21 @@ def debt_categories() -> list[dict]:
         .order_by(FeeType.name)
         .all()
     )
+    # FeeType "electricity" — только название платежа в квитанциях (см.
+    # finance.py: тот же приём на странице видов взносов): долг за
+    # электричество — на гаражном счёте (PersonalAccount), это категория
+    # "electricity" ниже, а не "fee:<id>" — иначе в фильтре было бы два
+    # «Электричества», одно из которых никогда ничего не находит.
+    electricity_fee_type = next((ft for ft in fee_types if ft.code == "electricity"), None)
     cats = [
         {"key": f"fee:{ft.id}", "label": ft.name, "default": ft.code in CORE_FEE_TYPE_CODES}
-        for ft in fee_types
+        for ft in fee_types if ft is not electricity_fee_type
     ]
-    cats.append({"key": "electricity", "label": _("Электричество"), "default": False})
+    cats.append({
+        "key": "electricity",
+        "label": electricity_fee_type.name if electricity_fee_type else _("Электричество"),
+        "default": False,
+    })
     return cats
 
 

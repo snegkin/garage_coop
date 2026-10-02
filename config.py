@@ -110,7 +110,7 @@ class Config:
     # API_LOG_ENABLED=0 — выключить.
     API_LOG_ENABLED = os.environ.get("API_LOG_ENABLED", "1") not in ("0", "false", "False", "")
     API_LOG_KEEP_DAYS = int(os.environ.get("API_LOG_KEEP_DAYS", "7"))
-    API_LOG_MAX_BODY = int(os.environ.get("API_LOG_MAX_BODY", "4000"))
+    API_LOG_MAX_BODY = int(os.environ.get("API_LOG_MAX_BODY", "200000"))
 
     # Превью-кадры с камер видеонаблюдения (см. app/surveillance.py,
     # scripts/dvr_snapshot.py) — instance/dvr/<recorder_id>/snapshots/

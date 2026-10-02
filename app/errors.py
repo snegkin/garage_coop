@@ -89,7 +89,7 @@ def register_error_handlers(app):
         пользователь видит только понятное сообщение, не голый traceback.
         Обычный редирект (302), не 400 — по той же причине, что и в
         _csrf_error выше."""
-        logger.warning("Bad form input on %s %s: %r", request.method, request.path, e)
+        logger.warning("Bad form input on %s %s: %r", request.method, request.path, e, exc_info=e)
         from . import database
         database.db_session.rollback()
         flash(

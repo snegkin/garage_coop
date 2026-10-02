@@ -1733,17 +1733,11 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Формат файла реестра платежей сохранён.": "Payment registry file format saved.",
         "Погашение": "Settlement",
         "Реестр": "Registry",
-        "из реестра": "from registry",
-        "из выписки": "from statement",
-        "Сопоставить с выпиской": "Match with statement",
         "Зачисления гасят задолженность на лицевом счёте автоматически при загрузке — по номеру счёта, распознанному в назначении платежа («ЛС <номер>»), а если его нет — по совпадению ФИО плательщика или того, за кого платят, включая лиц для связи по гаражу. Полной поступившей суммой, без вычета возможной комиссии банка. Автоматически — только когда совпадение однозначно; в остальных случаях — кнопка «Разнести» ниже.":
             "Credits automatically settle the debt on an account — by the account number recognized in the payment purpose («Acct <number>»), or, failing that, by a match on the payer's full name or the name of whoever is being paid for, including garage contact persons. Using the full amount received, without deducting any bank fee. Automatic only when the match is unambiguous; otherwise use the «Allocate» button below.",
         "Разносить можно только зачисления, не списания.": "Only credits can be allocated, not debits.",
         "Разнесено вручную по выписке банка, операция {uid}": "Manually allocated from the bank statement, transaction {uid}",
         "Автоматически разнесено по выписке банка, операция {uid}": "Automatically allocated from the bank statement, transaction {uid}",
-        "Сопоставлено: {direct} прямых + {parametric} параметрических совпадений.":
-            "Matched: {direct} direct + {parametric} parametric matches.",
-        "Новых совпадений не найдено.": "No new matches found.",
         "Эта операция уже разнесена.": "This transaction has already been allocated.",
         "Выписка обновлена: {n} новых операций, из них {m} автоматически разнесено по лицевым счетам.":
             "Statement updated: {n} new transactions, {m} of them automatically allocated to accounts.",

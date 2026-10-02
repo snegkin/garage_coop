@@ -133,6 +133,9 @@
         <div class="modal-body">
           {% set cred = account.api_credential %}
           <input type="hidden" name="api_provider" value="{{ account.api_provider.value }}">
+          {% if cred and cred.last_error %}
+          <div class="alert alert-danger small">{{ _("Последняя ошибка обращения к банку:") }} {{ cred.last_error }}</div>
+          {% endif %}
           {% if account.api_provider.value != "sberbank" %}
           <div class="alert alert-warning">{{ _("Интеграция для этого банка ещё не реализована — реквизиты можно сохранить заранее, но синхронизация работать не будет.") }}</div>
           {% endif %}

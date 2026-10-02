@@ -74,3 +74,19 @@ def test_read_tail_small_file_not_truncated(tmp_path):
     path = tmp_path / "small.log"
     path.write_text("a\nb\n")
     assert system_logs.read_tail(str(path), 200) == (["a", "b"], False)
+
+
+@pytest.mark.parametrize("line, level", [
+    # тело успешного ответа с "hasException"/"error" — не ошибка
+    ('2026-10-02 08:51:03,314 [121104] ← 200 GET https://x (335 мс) {"error": 0, "hasException": false}', None),
+    ("2026-10-02 08:51:03,314 [121104] ← 500 GET https://x (335 мс) {}", "error"),
+    ("2026-10-02 08:51:03,314 [121104] ✗ GET https://x (0 мс): ConnectionError()", "error"),
+    ("2026-10-02 08:51:03,314 [121104] → POST https://x error=1", None),
+    ("Traceback (most recent call last):", "error"),
+    ("ValueError: Could not deserialize key data.", "error"),
+    ("[2026-09-12T07:08:06] счёт: выписка — ОШИБКА: сбой", "error"),
+    ("2026-10-02 09:00:22,156 [1] WARNING app.errors: Bad form input", "warning"),
+    ('  File "/x/errors.py", line 92, in _bad_form_input', None),
+])
+def test_line_level(line, level):
+    assert system_logs.line_level(line) == level

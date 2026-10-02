@@ -104,7 +104,18 @@ def notify(user: User | None, event: str, subject: str, body_text: str) -> None:
         return
     if not channel_is_ready(user, user.notify_channel):
         return
+    # Страховка поверх перехвата ошибок конкретных каналов ниже: любое
+    # непредвиденное исключение (кривой ключ VAPID давал ValueError из
+    # pywebpush) иначе откатывало загрузку выписки целиком.
+    try:
+        _send(user, event, subject, body_text)
+    except Exception:
+        current_app.logger.exception(
+            "Не удалось отправить уведомление user_id=%s событие=%s", user.id, event,
+        )
 
+
+def _send(user: User, event: str, subject: str, body_text: str) -> None:
     if user.notify_channel == NotificationChannel.EMAIL:
         settings = database.db_session.query(MailboxSettings).first()
         if settings is None:

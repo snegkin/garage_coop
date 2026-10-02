@@ -19,12 +19,10 @@ from tests.conftest import make_person, make_user, login
 
 
 def _make_webpush_settings(db):
-    settings = WebPushSettings(
-        public_key="pubkey123", private_key_encrypted=crypto.encrypt("dummy-private-key"),
-        subject="mailto:test@example.com",
-    )
-    db.add(settings)
-    db.commit()
+    """Настоящие ключи — так, как их создаёт приложение: ключ-заглушка
+    скрывал, что сохранённый PEM pywebpush не читает (см. test_send_passes_parsed_vapid_key)."""
+    settings = webpush.get_or_create_settings()
+    webpush.set_subject(settings, "mailto:test@example.com")
     return settings
 
 
@@ -137,6 +135,59 @@ def test_notify_keeps_subscription_on_transient_error(app, db, monkeypatch):
     notifications.notify(user, "charge", "Тема", "Текст")
 
     assert db.query(WebPushSubscription).filter_by(endpoint="https://push.example.com/flaky").first() is not None
+
+
+def test_send_passes_parsed_vapid_key(app, db, monkeypatch):
+    """Ключ хранится в PEM — pywebpush должен получить разобранный Vapid,
+    а не строку (строку он разбирает Vapid.from_string и падает ValueError)."""
+    from py_vapid import Vapid01
+    settings = _make_webpush_settings(db)
+    person = make_person(db, full_name="Проверка Ключа")
+    user = make_user(db, "vapidkey", "pass1234", role=RoleEnum.MEMBER, person=person)
+    db.commit()
+    webpush.subscribe(user.id, "https://push.example.com/key", "p", "a")
+    subscription = db.query(WebPushSubscription).filter_by(endpoint="https://push.example.com/key").one()
+
+    received = []
+    monkeypatch.setattr(webpush, "webpush", lambda **kw: received.append(kw["vapid_private_key"]))
+    webpush.send(settings, subscription, "Тема", "Текст")
+    assert isinstance(received[0], Vapid01)
+
+
+def test_send_wraps_unexpected_errors(app, db, monkeypatch):
+    import pytest
+    settings = _make_webpush_settings(db)
+    person = make_person(db, full_name="Кривая Подписка")
+    user = make_user(db, "badsub", "pass1234", role=RoleEnum.MEMBER, person=person)
+    db.commit()
+    webpush.subscribe(user.id, "https://push.example.com/bad", "p", "a")
+    subscription = db.query(WebPushSubscription).filter_by(endpoint="https://push.example.com/bad").one()
+
+    def boom(**kw):
+        raise ValueError("Could not deserialize key data")
+
+    monkeypatch.setattr(webpush, "webpush", boom)
+    with pytest.raises(webpush.WebPushError):
+        webpush.send(settings, subscription, "Тема", "Текст")
+
+
+def test_notify_never_raises(app, db, monkeypatch):
+    """Сбой отправки не должен ронять транзакцию, породившую событие
+    (раньше ValueError из pywebpush откатывал загрузку выписки банка)."""
+    from app import notifications
+    _make_webpush_settings(db)
+    person = make_person(db, full_name="Не Ронять")
+    user = make_user(db, "noraise", "pass1234", role=RoleEnum.MEMBER, person=person)
+    user.notify_channel = NotificationChannel.WEBPUSH
+    user.notify_payment = True
+    db.commit()
+    webpush.subscribe(user.id, "https://push.example.com/x", "p", "a")
+
+    def boom(*a, **kw):
+        raise RuntimeError("что угодно")
+
+    monkeypatch.setattr(webpush, "send", boom)
+    notifications.notify(user, "payment", "Тема", "Текст")  # не бросает
 
 
 # ---------------------------------------------------------------------------

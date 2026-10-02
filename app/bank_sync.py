@@ -26,7 +26,7 @@ from .i18n import translate as _
 from .auth import roles_required
 from .models import (
     RoleEnum, BankAccount, BankApiCredential, BankApiProvider, BankStatementLine,
-    PaymentRegistryEntry, BankRegistryFormat, ChargeRegistryFile, Cooperative,
+    PaymentRegistryEntry, BankRegistryFormat, ChargeRegistryFile, Cooperative, Counterparty,
     MemberAccount, PersonalAccount, Payment, Person, Garage, GarageOwnership, GarageContact, CORE_FEE_TYPE_CODES,
 )
 from .accounting import balance as _balance, amount_with_bank_fee, reallocate_garage_charges, reallocate_member_charges
@@ -394,10 +394,18 @@ def statement(account_id):
         for line in lines if line.matched_registry
     }
 
+    # Контрагент из справочника по ИНН — показываем его название ссылкой на
+    # карточку вместо написания банка (у банка оно бывает в разном регистре
+    # и с полной ОПФ, а в справочнике — как привыкли в кооперативе).
+    inns = {line.counterparty_inn for line in lines if line.counterparty_inn}
+    counterparties_by_inn = {
+        c.inn: c for c in database.db_session.query(Counterparty).filter(Counterparty.inn.in_(inns)).all()
+    } if inns else {}
+
     return render_template(
         "cooperative/bank_statement.html", account=account, lines=lines, date_from=date_from, date_to=date_to,
         is_aggregate_registry_payment=is_aggregate_registry_payment, suggested_numbers=suggested_numbers,
-        registry_link_dates=registry_link_dates,
+        registry_link_dates=registry_link_dates, counterparties_by_inn=counterparties_by_inn,
         pending_credits=sum(
             1 for line in lines
             if line.direction == "credit" and not line.matched_payment_id
@@ -464,16 +472,24 @@ def _save_fetched_statement(account: BankAccount, fetched, date_from: dt.date, d
     """Сохраняет новые строки выписки, автоматически разносит зачисления и
     сопоставляет с реестром — без commit, его делает sync_account_statement.
     Возвращает (added, auto_allocated, direct, parametric)."""
-    existing_uids = {
-        row[0] for row in database.db_session.query(BankStatementLine.external_uid)
+    existing_by_uid = {
+        row.external_uid: row for row in database.db_session.query(BankStatementLine)
         .filter(BankStatementLine.bank_account_id == account.id, BankStatementLine.external_uid.isnot(None))
         .all()
     }
     added = 0
     auto_allocated = 0
     for line in fetched:
-        if line.external_uid and line.external_uid in existing_uids:
-            continue  # уже загружена раньше — не дублируем
+        existing = existing_by_uid.get(line.external_uid) if line.external_uid else None
+        if existing is not None:
+            # Уже загружена раньше — не дублируем, но дозаполняем контрагента:
+            # до исправления разбора у списаний он не сохранялся (см.
+            # sberbank._parse_transaction: payee*, а не receiver*).
+            if not existing.counterparty_name and line.counterparty_name:
+                existing.counterparty_name = line.counterparty_name
+            if not existing.counterparty_inn and line.counterparty_inn:
+                existing.counterparty_inn = line.counterparty_inn
+            continue
         account_number = extract_account_number(line.payment_purpose)
         row = BankStatementLine(
             bank_account_id=account.id,

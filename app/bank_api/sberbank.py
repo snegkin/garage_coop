@@ -283,8 +283,10 @@ def _parse_transaction(t: dict, fallback_date: dt.date) -> StatementLine:
         operation_date=_parse_date(t.get("operationDate")) or fallback_date,
         direction=direction,
         amount=Decimal(str(amount).replace(" ", "").replace(",", ".")),
-        counterparty_name=counterparty.get("payerName") if is_credit else counterparty.get("receiverName"),
-        counterparty_inn=counterparty.get("payerInn") if is_credit else counterparty.get("receiverInn"),
+        # Получатель списания у Сбера — payee*, не receiver* (receiver* — на
+        # случай, если встретится в старом формате ответа).
+        counterparty_name=counterparty.get("payerName") if is_credit else (counterparty.get("payeeName") or counterparty.get("receiverName")),
+        counterparty_inn=counterparty.get("payerInn") if is_credit else (counterparty.get("payeeInn") or counterparty.get("receiverInn")),
         payment_purpose=t.get("paymentPurpose"),
         document_number=t.get("number"),
     )

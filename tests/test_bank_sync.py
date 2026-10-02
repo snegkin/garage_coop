@@ -2772,3 +2772,54 @@ def test_api_settings_modal_shows_last_error(app, db, client):
     login(client, "chair_err", "pass12345")
     html = client.get("/finance/bank-accounts").get_data(as_text=True)
     assert "Последняя ошибка обращения к банку" in html and "Refresh token expired" in html
+
+
+def test_parse_transaction_debit_takes_payee():
+    raw = {
+        "uuid": "op-d", "direction": "DEBIT", "amountRub": {"amount": "500.00"},
+        "rurTransfer": {
+            "payerName": "ГМ \"ВОСХОД\"", "payerInn": "7610037501",
+            "payeeName": "ООО \"СМС АЭРО\"", "payeeInn": "7713770811",
+        },
+    }
+    line = _parse_transaction(raw, dt.date(2026, 9, 1))
+    assert line.direction == "debit"
+    assert line.counterparty_name == "ООО \"СМС АЭРО\"" and line.counterparty_inn == "7713770811"
+
+
+def test_sync_statement_backfills_counterparty_of_existing_line(app, db, monkeypatch):
+    account = make_bank_account(db, provider=BankApiProvider.SBERBANK)
+    make_credential(db, account)
+    db.add(BankStatementLine(
+        bank_account_id=account.id, external_uid="old-debit", operation_date=dt.date(2026, 9, 1),
+        direction="debit", amount=Decimal("500.00"),
+    ))
+    db.commit()
+    stub = _StubClient(statement_result=[StatementLine(
+        external_uid="old-debit", operation_date=dt.date(2026, 9, 1), direction="debit", amount=Decimal("500.00"),
+        counterparty_name="ООО \"СМС АЭРО\"", counterparty_inn="7713770811",
+    )])
+    monkeypatch.setattr(bank_sync, "get_client", lambda acc: stub)
+    status, _message, stats = bank_sync.sync_account_statement(account, dt.date(2026, 9, 1), dt.date(2026, 9, 1))
+    assert status == "success" and stats["added"] == 0
+    db.expire_all()
+    line = db.query(BankStatementLine).filter_by(external_uid="old-debit").one()
+    assert line.counterparty_name == "ООО \"СМС АЭРО\"" and line.counterparty_inn == "7713770811"
+
+
+def test_statement_shows_known_counterparty_by_inn(app, db, client):
+    from app.models import Counterparty
+    account = make_bank_account(db, provider=BankApiProvider.SBERBANK)
+    cp = Counterparty(name="СМС Аэро", inn="7713770811")
+    db.add(cp)
+    db.add(BankStatementLine(
+        bank_account_id=account.id, external_uid="d1", operation_date=dt.date(2026, 9, 1),
+        direction="debit", amount=Decimal("500.00"), counterparty_name="ООО \"СМС АЭРО\"", counterparty_inn="7713770811",
+    ))
+    make_user(db, "chair_cp", "pass12345", role=RoleEnum.CHAIRMAN)
+    db.commit()
+    login(client, "chair_cp", "pass12345")
+    html = client.get(
+        f"/cooperative/bank-accounts/{account.id}/statement?date_from=2026-09-01&date_to=2026-09-01"
+    ).get_data(as_text=True)
+    assert f"/counterparties/{cp.id}" in html and "СМС Аэро" in html

@@ -242,7 +242,17 @@ class SberbankClient(BankApiClient):
                 if not transactions:
                     break
                 for t in transactions:
-                    lines.append(_parse_transaction(t, day))
+                    # Неожиданный формат операции иначе вылетел бы голым
+                    # ValueError/InvalidOperation, а глобальный обработчик
+                    # показал бы «проверьте правильность заполнения формы».
+                    try:
+                        lines.append(_parse_transaction(t, day))
+                    except (ValueError, ArithmeticError, KeyError, TypeError, AttributeError) as e:
+                        raise BankApiError(
+                            f"Не удалось разобрать операцию выписки за {day.isoformat()} "
+                            f"(uuid={t.get('uuid') if isinstance(t, dict) else None}): {e!r}; "
+                            f"данные операции: {str(t)[:500]}"
+                        ) from e
                 if len(transactions) < 100:  # меньше полной страницы — дальше страниц для этого дня нет
                     break
                 page += 1
@@ -251,7 +261,11 @@ class SberbankClient(BankApiClient):
 
 
 def _parse_transaction(t: dict, fallback_date: dt.date) -> StatementLine:
-    amount_obj = t.get("amountRub") or t.get("amount") or {}
+    amount = _amount_value(t.get("amountRub"))
+    if amount is None:
+        amount = _amount_value(t.get("amount"))
+    if amount is None:
+        raise ValueError("в операции нет суммы (amountRub/amount)")
     direction_raw = (t.get("direction") or "").upper()
     direction = "credit" if direction_raw == "CREDIT" else "debit"
     counterparty = t.get("rurTransfer") or {}
@@ -260,12 +274,21 @@ def _parse_transaction(t: dict, fallback_date: dt.date) -> StatementLine:
         external_uid=t.get("uuid"),
         operation_date=_parse_date(t.get("operationDate")) or fallback_date,
         direction=direction,
-        amount=Decimal(str(amount_obj.get("amount", "0"))),
+        amount=Decimal(str(amount).replace(" ", "").replace(",", ".")),
         counterparty_name=counterparty.get("payerName") if is_credit else counterparty.get("receiverName"),
         counterparty_inn=counterparty.get("payerInn") if is_credit else counterparty.get("receiverInn"),
         payment_purpose=t.get("paymentPurpose"),
         document_number=t.get("number"),
     )
+
+
+def _amount_value(raw):
+    """Сумма — объект {"amount": ...} или (на всякий случай) само число/строка."""
+    if isinstance(raw, dict):
+        raw = raw.get("amount")
+    if raw is None or raw == "":
+        return None
+    return raw
 
 
 def _parse_date(raw: str | None) -> dt.date | None:

@@ -162,6 +162,22 @@ def test_parse_transaction_credit():
     assert line.external_uid == "op-1"
 
 
+def test_parse_transaction_falls_back_to_amount_when_amount_rub_empty():
+    raw = {"uuid": "op-2", "direction": "CREDIT", "amountRub": {"amount": None}, "amount": {"amount": 250}}
+    assert _parse_transaction(raw, dt.date(2026, 8, 20)).amount == Decimal("250")
+
+
+def test_get_statement_wraps_unparseable_transaction_in_bank_api_error(monkeypatch):
+    from app.bank_api.base import BankApiError
+    from app.bank_api.sberbank import SberbankClient
+
+    client = SberbankClient.__new__(SberbankClient)
+    client.account_number = "40703810777030002079"
+    monkeypatch.setattr(client, "_get", lambda path, params: {"transactions": [{"uuid": "bad-op", "direction": "CREDIT"}]})
+    with pytest.raises(BankApiError, match="bad-op"):
+        client.get_statement(dt.date(2026, 9, 25), dt.date(2026, 9, 25))
+
+
 # ---------------------------------------------------------------------------
 # Настройки API — только председатель
 # ---------------------------------------------------------------------------

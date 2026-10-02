@@ -72,11 +72,18 @@
        остаются рабочими "из коробки" через var(--bs-success)/var(--bs-danger). #}
     {% for line in lines %}
     {% set status_text = (_('разнесён') if line.matched_payment_id else (_('реестр платежей') if is_aggregate_registry_payment(line.payment_purpose) else _('не разнесён'))) if line.direction == 'credit' else '' %}
-    <tr id="stmt-line-{{ line.id }}" data-filter-text="{{ (fmt_date(line.operation_date) ~ ' ' ~ fmt2(line.amount) ~ ' ' ~ (line.account_number or '') ~ ' ' ~ (line.counterparty_name or '') ~ ' ' ~ (line.payment_purpose or '') ~ ' ' ~ (line.document_number or '') ~ ' ' ~ status_text)|lower }}" style="--bs-table-color: var({{ '--bs-success' if line.direction == 'credit' else '--bs-danger' }});">
+    <tr id="stmt-line-{{ line.id }}" data-filter-text="{{ (fmt_date(line.operation_date) ~ ' ' ~ fmt2(line.amount) ~ ' ' ~ (line.account_number or '') ~ ' ' ~ (line.counterparty_name or '') ~ ' ' ~ (line.counterparty_inn or '') ~ ' ' ~ (counterparties_by_inn[line.counterparty_inn].name if line.counterparty_inn in counterparties_by_inn else '') ~ ' ' ~ (line.payment_purpose or '') ~ ' ' ~ (line.document_number or '') ~ ' ' ~ status_text)|lower }}" style="--bs-table-color: var({{ '--bs-success' if line.direction == 'credit' else '--bs-danger' }});">
       <td data-sort-value="{{ line.operation_date.isoformat() }}">{{ fmt_date(line.operation_date) }}</td>
       <td data-sort-value="{{ line.amount }}">{{ fmt2(line.amount) }} ₽</td>
       <td class="text-end js-account-number">{{ line.account_number or "—" }}</td>
-      <td>{{ line.counterparty_name or "—" }}</td>
+      {% set known_counterparty = counterparties_by_inn.get(line.counterparty_inn) if line.counterparty_inn else none %}
+      <td>
+        {% if known_counterparty %}
+          <a href="{{ url_for('counterparties.detail', counterparty_id=known_counterparty.id) }}" title="{{ line.counterparty_name or '' }}, {{ _('ИНН') }} {{ line.counterparty_inn }}">{{ known_counterparty.name }}</a>
+        {% else %}
+          <span {% if line.counterparty_inn %}title="{{ _('ИНН') }} {{ line.counterparty_inn }}"{% endif %}>{{ line.counterparty_name or "—" }}</span>
+        {% endif %}
+      </td>
       <td>{{ line.payment_purpose or "—" }}</td>
       <td id="line-{{ line.id }}">{{ line.document_number or "—" }}</td>
       <td class="js-settlement-status">

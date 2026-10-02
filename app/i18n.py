@@ -1597,7 +1597,6 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Все годы": "All years",
         "Все статусы": "All statuses",
         "Разнести": "Allocate",
-        "Отменить разнесение": "Undo allocation",
         "Отменить": "Undo",
         "Отменить разнесение? Платёж будет удалён с лицевого счёта, операцию можно будет разнести заново.":
             "Undo the allocation? The payment will be removed from the personal account; the transaction can be allocated again.",

@@ -1621,6 +1621,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Не удалось получить баланс из банка: {error}": "Failed to fetch balance from the bank: {error}",
         "Баланс обновлён из банка.": "Balance updated from the bank.",
         "Не удалось получить выписку из банка: {error}": "Failed to fetch the statement from the bank: {error}",
+        "Выписка получена из банка, но не обработана: {error}": "The statement was received from the bank but could not be processed: {error}",
         "Выписка обновлена: {n} новых операций.": "Statement updated: {n} new transactions.",
         "API банка отключён для этого счёта.": "Bank API disabled for this account.",
         "Настройки API банка сохранены.": "Bank API settings saved.",

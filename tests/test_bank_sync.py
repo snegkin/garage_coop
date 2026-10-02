@@ -401,6 +401,35 @@ def test_sync_statement_unexpected_error_keeps_rotated_token(app, db, client, mo
     assert "странный ответ" in cred.last_error
 
 
+def test_sync_statement_processing_error_rolls_back_but_keeps_rotated_token(app, db, client, monkeypatch):
+    """Выписка получена, но упала обработка (так было с ValueError из
+    webpush-уведомления о зачтённом платеже) — строки откатываются, а новый
+    refresh_token и текст ошибки сохраняются."""
+    account = make_bank_account(db, provider=BankApiProvider.SBERBANK)
+    make_credential(db, account)
+    db.commit()
+
+    class _Rotating(_StubClient):
+        rotated_refresh_token = "rotated-r3fresh"
+
+    stub = _Rotating(statement_result=[
+        StatementLine(external_uid="op-x", operation_date=dt.date(2026, 10, 1), direction="credit", amount=Decimal("10.00")),
+    ])
+    monkeypatch.setattr(bank_sync, "get_client", lambda acc: stub)
+
+    def boom(*args, **kwargs):
+        raise ValueError("Could not deserialize key data")
+
+    monkeypatch.setattr(bank_sync, "_allocate_payment_to_account", boom)
+    status, message, _stats = bank_sync.sync_account_statement(account, dt.date(2026, 10, 1), dt.date(2026, 10, 1))
+    assert status == "error" and "deserialize" in message
+    db.expire_all()
+    assert database.db_session.query(BankStatementLine).filter_by(external_uid="op-x").first() is None
+    cred = database.db_session.get(BankAccount, account.id).api_credential
+    assert crypto.decrypt(cred.refresh_token_encrypted) == "rotated-r3fresh"
+    assert "deserialize" in cred.last_error
+
+
 def test_sync_statement_empty_does_not_log_audit(app, db, client, monkeypatch):
     """Выписка за период пустая (или целиком уже загружена раньше) — в журнал ничего не пишем."""
     account = make_bank_account(db, provider=BankApiProvider.SBERBANK)

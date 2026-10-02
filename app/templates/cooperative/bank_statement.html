@@ -108,7 +108,7 @@
         <form method="post" action="{{ url_for('bank_sync.unallocate_statement_line', account_id=account.id, line_id=line.id) }}" class="js-unallocate-form{{ '' if line.matched_payment_id else ' d-none' }}" onsubmit="return confirm('{{ _('Отменить разнесение? Платёж будет удалён с лицевого счёта, операцию можно будет разнести заново.') }}')">
           <input type="hidden" name="date_from" value="{{ request.args.get('date_from', '') }}">
           <input type="hidden" name="date_to" value="{{ request.args.get('date_to', '') }}">
-          <button class="btn btn-sm btn-outline-danger">{{ _("Отменить разнесение") }}</button>
+          <button class="btn btn-sm btn-outline-danger">{{ _("Отменить") }}</button>
         </form>
         {% endif %}
         {% if line.direction == "credit" and not line.matched_payment_id and not is_aggregate_registry_payment(line.payment_purpose) %}
@@ -123,7 +123,7 @@
           <div class="text-danger small js-allocate-error d-none"></div>
         </form>
         {% elif line.direction == "credit" and is_aggregate_registry_payment(line.payment_purpose) %}
-        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('bank_sync.payment_registry', account_id=account.id) }}">{{ _("К реестру платежей") }}</a>
+        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('bank_sync.payment_registry', account_id=account.id) }}">{{ _("Реестр") }}</a>
         {% endif %}
       </td>
       {% endif %}

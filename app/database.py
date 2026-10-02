@@ -1,8 +1,11 @@
 """Инициализация БД: движок и scoped_session, подключаемые к жизненному циклу запроса Flask."""
+import logging
 import os
 
 from sqlalchemy import create_engine, event, inspect
 from sqlalchemy.orm import scoped_session, sessionmaker
+
+logger = logging.getLogger(__name__)
 
 engine = None
 db_session = None
@@ -54,6 +57,21 @@ def run_migrations(database_uri: str):
     3. БД уже под управлением Alembic — обычный `alembic upgrade head`
        применит только новые миграции поверх текущих данных.
     """
+    # Alembic на INFO пишет «setup plugin…» (при импорте), «Context impl…/
+    # Will assume…» (на каждое подключение) при КАЖДОМ запуске — а
+    # create_app() вызывает каждый cron-скрипт, раз в минуту. Глушим на
+    # время миграций; о реально применённых сообщает одна строка в
+    # _run_migrations.
+    alembic_logger = logging.getLogger("alembic")
+    previous_level = alembic_logger.level
+    alembic_logger.setLevel(logging.WARNING)
+    try:
+        _run_migrations(database_uri)
+    finally:
+        alembic_logger.setLevel(previous_level)
+
+
+def _run_migrations(database_uri: str):
     from alembic import command
     from alembic.config import Config as AlembicConfig
     from alembic.runtime.migration import MigrationContext
@@ -83,6 +101,15 @@ def run_migrations(database_uri: str):
     else:
         # Сценарий 1 или 3.
         command.upgrade(alembic_cfg, "head")
+
+    probe_engine = create_engine(database_uri, connect_args={"check_same_thread": False})
+    try:
+        with probe_engine.connect() as conn:
+            new_rev = MigrationContext.configure(conn).get_current_revision()
+    finally:
+        probe_engine.dispose()
+    if new_rev != current_rev:
+        logger.info("Схема БД обновлена: ревизия %s → %s", current_rev or "(пусто)", new_rev)
 
 
 def init_app(app):

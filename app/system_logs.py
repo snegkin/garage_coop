@@ -33,6 +33,10 @@ _ERROR_RE = re.compile(
     r"|^[\w.]*(?:Error|Exception)\b(?::|$)"  # последняя строка трассировки: «ValueError: …»
 )
 _WARNING_RE = re.compile(r"\bWARNING\b|ПРЕДУПРЕЖДЕНИЕ")
+# Служебные INFO-строки Alembic, которые до починки migrations/env.py
+# писал каждый запуск cron-скрипта («setup plugin…», «Context impl…») —
+# в старых логах их большинство; по умолчанию скрываются.
+_ALEMBIC_NOISE_RE = re.compile(r"INFO\s+\[?alembic\.runtime\.")
 # Строка журнала внешних API (app/api_log.py): «… [pid] → …», «← 200 …», «✗ …».
 # Её уровень — только по статусу: в телах ответов полно слов вроде
 # "hasException"/"error": 0, которые к сбою отношения не имеют.
@@ -130,14 +134,20 @@ def view(name):
         max_lines = DEFAULT_LINES
     query = (request.args.get("q") or "").strip() or None
     only_errors = request.args.get("errors") == "1"
+    show_noise = request.args.get("noise") == "1"
 
-    lines, truncated = read_tail(path, max_lines if not only_errors else LINE_CHOICES[-1], query)
+    # Фильтры ниже выкидывают строки — читаем с запасом, чтобы осталось max_lines.
+    filtered = only_errors or not show_noise
+    lines, truncated = read_tail(path, LINE_CHOICES[-1] if filtered else max_lines, query)
+    if not show_noise:
+        lines = [line for line in lines if not _ALEMBIC_NOISE_RE.search(line)][-max_lines:]
     rows = [(line, line_level(line)) for line in lines]
     if only_errors:
         rows = [r for r in rows if r[1] == "error"][-max_lines:]
     return render_template(
         "system_logs/view.html", name=name, rows=rows, truncated=truncated, size=os.path.getsize(path),
         max_lines=max_lines, line_choices=LINE_CHOICES, query=query or "", only_errors=only_errors,
+        show_noise=show_noise,
         files=_list_logs(),
     )
 

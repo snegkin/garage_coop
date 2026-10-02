@@ -16,10 +16,13 @@ config = context.config
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
-# disable_existing_loggers=False: миграции запускаются из create_app() — по
-# умолчанию fileConfig молча отключил бы уже созданные логгеры приложения
-# (app.errors, журнал внешних API app/api_log.py и т.д.).
-if config.config_file_name is not None:
+# Логирование из alembic.ini — только для ручного запуска `alembic ...` из
+# консоли. Из create_app() (app/database.py: run_migrations) передаётся
+# configure_logger=False: fileConfig заменил бы обработчики корневого
+# логгера приложения и засыпал бы каждый лог cron-скрипта служебными
+# «setup plugin…/Context impl…». disable_existing_loggers=False — на
+# случай, если в процессе уже есть логгеры приложения.
+if config.config_file_name is not None and config.attributes.get("configure_logger", True):
     fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 # Метаданные моделей проекта — источник правды для autogenerate.

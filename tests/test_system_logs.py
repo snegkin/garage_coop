@@ -90,3 +90,17 @@ def test_read_tail_small_file_not_truncated(tmp_path):
 ])
 def test_line_level(line, level):
     assert system_logs.line_level(line) == level
+
+
+def test_alembic_noise_hidden_by_default(app, db, client, log_dir):
+    (log_dir / "poll.log").write_text(
+        "2026-09-06 07:08:04,769 INFO alembic.runtime.plugins: setup plugin alembic.autogenerate.schemas\n"
+        "INFO  [alembic.runtime.migration] Context impl SQLiteImpl.\n"
+        "[2026-09-06T07:08:07] баланс обновлён\n",
+        encoding="utf-8",
+    )
+    _chairman(db, client)
+    html = client.get("/system-logs/poll.log").get_data(as_text=True)
+    assert "баланс обновлён" in html and "setup plugin" not in html and "Context impl" not in html
+    html = client.get("/system-logs/poll.log?noise=1").get_data(as_text=True)
+    assert "setup plugin" in html and "Context impl" in html

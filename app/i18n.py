@@ -1094,6 +1094,19 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         # --- Правление: созывы, ревизионная комиссия ---
         "Правление кооператива": "Cooperative board",
         "Журнал аудита": "Audit log",
+        "Логи сервера": "Server logs",
+        "Логи cron-скриптов (синхронизация с банком, опрос eWeLink, резервные копии…) и журнал обмена с внешними API (external_api-ДАТА.log) — запросы к банку и сервисам с ответами, секреты скрыты. Содержат персональные данные — не пересылайте целиком.":
+            "Cron script logs (bank sync, eWeLink polling, backups…) and the external API log (external_api-DATE.log) — requests to the bank and services with responses, secrets hidden. They contain personal data — do not share them in full.",
+        "Изменён": "Modified",
+        "ошибки": "errors",
+        "Логов пока нет.": "No logs yet.",
+        "Строк с конца": "Last lines",
+        "Подстрока, без учёта регистра": "Substring, case-insensitive",
+        "Только ошибки": "Errors only",
+        "Скачать целиком": "Download full file",
+        "Показан конец файла — более ранние строки не выведены, полный файл можно скачать.":
+            "Showing the end of the file — earlier lines are not displayed; download the full file to see them.",
+        "Файл пуст.": "The file is empty.",
         "Все начисления, платежи, изменения ролей и доступа — кто и когда сделал. Записи не редактируются.":
             "All charges, payments, role and access changes — who did what and when. Entries cannot be edited.",
         "Когда": "When",

@@ -424,11 +424,17 @@ def sync_account_statement(account: BankAccount, date_from: dt.date, date_to: dt
     cred = _get_or_create_credential(account)
     try:
         fetched = client.get_statement(date_from, date_to)
-    except BankApiError as e:
+    except Exception as e:
+        # Не только BankApiError: при любом сбое разбора ответа банк уже мог
+        # выдать новый refresh_token — без коммита он потерялся бы вместе с
+        # доступом к API, а пользователь увидел бы «проверьте форму».
+        if not isinstance(e, BankApiError):
+            current_app.logger.exception("Сбой загрузки выписки счёта %s", account.id)
+        error = str(e) if isinstance(e, BankApiError) else repr(e)
         _persist_rotated_refresh_token(cred, client)
-        cred.last_error = str(e)
+        cred.last_error = error
         database.db_session.commit()
-        return "error", _("Не удалось получить выписку из банка: {error}").format(error=str(e)), {}
+        return "error", _("Не удалось получить выписку из банка: {error}").format(error=error), {}
 
     existing_uids = {
         row[0] for row in database.db_session.query(BankStatementLine.external_uid)

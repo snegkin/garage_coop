@@ -376,6 +376,31 @@ def test_sync_statement_deduplicates_by_external_uid(app, db, client, monkeypatc
     assert len(lines) == 2  # дубль не добавился
 
 
+def test_sync_statement_unexpected_error_keeps_rotated_token(app, db, client, monkeypatch):
+    """Не-BankApiError при получении выписки — понятная ошибка, а не «проверьте
+    форму», и выданный банком новый refresh_token не теряется."""
+    account = make_bank_account(db, provider=BankApiProvider.SBERBANK)
+    make_credential(db, account)
+    make_user(db, "chair5c", "pass12345", role=RoleEnum.CHAIRMAN)
+    db.commit()
+    login(client, "chair5c", "pass12345")
+
+    class _Failing:
+        rotated_refresh_token = "new-r3fresh"
+
+        def get_statement(self, date_from, date_to):
+            raise ValueError("странный ответ")
+
+    monkeypatch.setattr(bank_sync, "get_client", lambda acc: _Failing())
+    status, message, _stats = bank_sync.sync_account_statement(account, dt.date(2026, 8, 1), dt.date(2026, 8, 2))
+    assert status == "error"
+    assert "странный ответ" in message
+    db.expire_all()
+    cred = database.db_session.get(BankAccount, account.id).api_credential
+    assert crypto.decrypt(cred.refresh_token_encrypted) == "new-r3fresh"
+    assert "странный ответ" in cred.last_error
+
+
 def test_sync_statement_empty_does_not_log_audit(app, db, client, monkeypatch):
     """Выписка за период пустая (или целиком уже загружена раньше) — в журнал ничего не пишем."""
     account = make_bank_account(db, provider=BankApiProvider.SBERBANK)

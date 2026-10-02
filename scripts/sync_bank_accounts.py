@@ -89,8 +89,6 @@ def _sync_bank_accounts() -> bool:
             extra = ""
             if stats["auto_allocated"]:
                 extra = f", из них {stats['auto_allocated']} разнесено автоматически"
-            if stats["direct"] or stats["parametric"]:
-                extra += f"; сопоставлено с реестром: {stats['direct']} прямых + {stats['parametric']} параметрических"
             _log(f"{label}: выписка за {date_from}—{date_to} — {stats['added']} новых операций{extra}.")
         # statement_status == "unsupported" здесь не ожидается отдельно от
         # баланса (get_client одинаково решает для обоих), но на всякий

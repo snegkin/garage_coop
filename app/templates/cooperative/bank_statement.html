@@ -58,7 +58,6 @@
       <th>{{ _("Назначение платежа") }}</th>
       <th>{{ _("№ документа") }}</th>
       <th>{{ _("Погашение") }}</th>
-      <th>{{ _("Реестр") }}</th>
       {% if is_chairman() %}<th class="no-sort"></th>{% endif %}
     </tr>
   </thead>
@@ -95,16 +94,6 @@
           <span class="badge bg-info text-dark" title="{{ _("Сумма сразу за нескольких плательщиков — разносится через реестр платежей, не здесь.") }}">{{ _("реестр платежей") }}</span>
         {% else %}
           <span class="badge bg-secondary">{{ _("не разнесён") }}</span>
-        {% endif %}
-      </td>
-      <td>
-        {% if line.matched_registry %}
-          <a href="{{ url_for('bank_sync.payment_registry', account_id=account.id, date_from=registry_link_dates[line.id][0], date_to=registry_link_dates[line.id][1]) }}#entry-{{ line.matched_registry.id }}"
-             class="badge bg-info text-decoration-none" title="Реестр #{{ line.matched_registry.id }}">
-            {{ _("из реестра") }}
-          </a>
-        {% else %}
-          —
         {% endif %}
       </td>
       {% if is_chairman() %}

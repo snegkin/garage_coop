@@ -65,7 +65,6 @@
       <th>{{ _("Сумма") }}</th>
       <th>{{ _("Зачислено (за вычетом комиссии)") }}</th>
       <th>{{ _("Назначение платежа") }}</th>
-      <th>{{ _("Выписка") }}</th>
       <th>{{ _("Статус") }}</th>
       {% if is_chairman() %}<th class="no-sort"></th>{% endif %}
     </tr>
@@ -84,16 +83,6 @@
         {% else %}—{% endif %}
       </td>
       <td id="entry-{{ entry.id }}">{{ entry.payment_purpose or "—" }}</td>
-      <td>
-        {% if entry.matched_statement %}
-          <a href="{{ url_for('bank_sync.statement', account_id=account.id, date_from=statement_link_dates[entry.id][0], date_to=statement_link_dates[entry.id][1]) }}#line-{{ entry.matched_statement.id }}"
-             class="badge bg-info text-decoration-none" title="Выписка #{{ entry.matched_statement.id }}">
-            {{ _("из выписки") }}
-          </a>
-        {% else %}
-          —
-        {% endif %}
-      </td>
       <td class="js-settlement-status">
         {% if entry.matched_payment_id %}
           <span class="badge bg-success">{{ _("разнесён") }}</span>
@@ -131,11 +120,6 @@
   <ul class="pagination pagination-sm mb-0"></ul>
 </nav>
 
-{% if is_chairman() %}
-<form method="post" action="{{ url_for('bank_sync.match_registry_and_statement_manual', account_id=account.id) }}" class="d-inline" data-ajax>
-  <button class="btn btn-sm btn-outline-secondary mt-2">{{ _("Сопоставить с выпиской") }}</button>
-</form>
-{% endif %}
 
 <script>
 (function () {

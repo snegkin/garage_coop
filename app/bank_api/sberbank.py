@@ -162,6 +162,14 @@ class SberbankClient(BankApiClient):
                 f"и сертификат счёта: {e}"
             ) from e
         except requests.RequestException as e:
+            reason = _invalid_grant_reason(getattr(e, "response", None))
+            if reason is not None:
+                raise BankApiError(
+                    f"Банк больше не принимает сохранённый refresh_token ({reason}). Что делать: "
+                    "получите новый в личном кабинете Sber API («Ключи доступа» → сгенерировать) и "
+                    "вставьте его в поле «Refresh token»: «Расчётные счета» → «Действия» → «Настроить API». "
+                    "Остальные поля заполнять заново не нужно."
+                ) from e
             raise BankApiError(
                 f"Не удалось обновить access_token СберБизнес по refresh_token: {e}"
             ) from e
@@ -280,6 +288,21 @@ def _parse_transaction(t: dict, fallback_date: dt.date) -> StatementLine:
         payment_purpose=t.get("paymentPurpose"),
         document_number=t.get("number"),
     )
+
+
+def _invalid_grant_reason(resp) -> str | None:
+    """Текст причины, если банк отверг refresh_token (OAuth invalid_grant:
+    истёк, отозван или уже израсходован), иначе None. Это не сбой связи —
+    без нового токена из личного кабинета дальше ничего не заработает."""
+    if resp is None or resp.status_code not in (400, 401):
+        return None
+    try:
+        payload = resp.json()
+    except ValueError:
+        return None
+    if not isinstance(payload, dict) or payload.get("error") != "invalid_grant":
+        return None
+    return payload.get("error_description") or "invalid_grant"
 
 
 def _amount_value(raw):

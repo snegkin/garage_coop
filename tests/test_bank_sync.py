@@ -10,6 +10,7 @@
 ответа банка (_parse_transaction) — без сети.
 """
 import datetime as dt
+import json
 import os
 from decimal import Decimal
 
@@ -2730,3 +2731,44 @@ def test_sync_statement_triggers_match(app, db, client, monkeypatch):
     entry = database.db_session.query(PaymentRegistryEntry).filter_by(bank_account_id=bank_account.id).first()
     assert line.matched_registry_id == entry.id
     assert entry.matched_statement_id == line.id
+
+
+def _token_response(status, payload):
+    import requests
+    resp = requests.Response()
+    resp.status_code = status
+    resp._content = json.dumps(payload).encode()
+    resp.url = "https://fintech.sberbank.ru:9443/ic/sso/api/v2/oauth/token"
+    return resp
+
+
+def test_expired_refresh_token_gives_hint(monkeypatch):
+    from app.bank_api import sberbank
+    monkeypatch.setattr(sberbank.requests, "post", lambda *a, **kw: _token_response(
+        400, {"error": "invalid_grant", "error_description": "Refresh token expired"},
+    ))
+    client = sberbank.SberbankClient("id", "s", "r", "40703810777030002079", sandbox=False)
+    with pytest.raises(BankApiError) as exc:
+        client._get_access_token()
+    assert "Refresh token expired" in str(exc.value)
+    assert "Настроить API" in str(exc.value) and "Ключи доступа" in str(exc.value)
+
+
+def test_other_token_error_is_reported_as_is(monkeypatch):
+    from app.bank_api import sberbank
+    monkeypatch.setattr(sberbank.requests, "post", lambda *a, **kw: _token_response(400, {"error": "invalid_client"}))
+    client = sberbank.SberbankClient("id", "s", "r", "40703810777030002079", sandbox=False)
+    with pytest.raises(BankApiError) as exc:
+        client._get_access_token()
+    assert "400 Client Error" in str(exc.value) and "Настроить API" not in str(exc.value)
+
+
+def test_api_settings_modal_shows_last_error(app, db, client):
+    account = make_bank_account(db, provider=BankApiProvider.SBERBANK)
+    cred = make_credential(db, account)
+    cred.last_error = "Банк больше не принимает сохранённый refresh_token (Refresh token expired)."
+    make_user(db, "chair_err", "pass12345", role=RoleEnum.CHAIRMAN)
+    db.commit()
+    login(client, "chair_err", "pass12345")
+    html = client.get("/finance/bank-accounts").get_data(as_text=True)
+    assert "Последняя ошибка обращения к банку" in html and "Refresh token expired" in html

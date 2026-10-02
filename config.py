@@ -101,6 +101,14 @@ class Config:
     )
     UPLOAD_FOLDER = os.environ.get("UPLOAD_FOLDER") or os.path.join(INSTANCE_DIR, "uploads")
 
+    # Отладочный журнал обмена с внешними API (банк, eWeLink, СМС, Telegram…)
+    # — см. app/api_log.py. Файл на день в API_LOG_FOLDER, секреты маскируются.
+    # API_LOG_ENABLED=0 — выключить.
+    API_LOG_ENABLED = os.environ.get("API_LOG_ENABLED", "1") not in ("0", "false", "False", "")
+    API_LOG_FOLDER = os.environ.get("API_LOG_FOLDER") or os.path.join(INSTANCE_DIR, "logs")
+    API_LOG_KEEP_DAYS = int(os.environ.get("API_LOG_KEEP_DAYS", "7"))
+    API_LOG_MAX_BODY = int(os.environ.get("API_LOG_MAX_BODY", "4000"))
+
     # Превью-кадры с камер видеонаблюдения (см. app/surveillance.py,
     # scripts/dvr_snapshot.py) — instance/dvr/<recorder_id>/snapshots/
     # camera_<camera_id>.jpg, пишутся cron-скриптом раз в минуту. Отдаются

@@ -26,7 +26,7 @@ def create_app(config_class=Config):
         if app.config.get("API_LOG_ENABLED"):
             from . import api_log
             api_log.install(
-                app.config["API_LOG_FOLDER"],
+                app.config["LOG_FOLDER"],
                 keep_days=app.config["API_LOG_KEEP_DAYS"], max_body=app.config["API_LOG_MAX_BODY"],
             )
 
@@ -279,6 +279,7 @@ def create_app(config_class=Config):
     from .legal_docs import bp as legal_docs_bp
     from .postal_letters import bp as postal_letters_bp
     from .annual_reports import bp as annual_reports_bp
+    from .system_logs import bp as system_logs_bp
 
     app.register_blueprint(main_bp)
     app.register_blueprint(garages_bp)
@@ -313,5 +314,6 @@ def create_app(config_class=Config):
     app.register_blueprint(legal_docs_bp)
     app.register_blueprint(postal_letters_bp)
     app.register_blueprint(annual_reports_bp)
+    app.register_blueprint(system_logs_bp)
 
     return app

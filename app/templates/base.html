@@ -114,6 +114,7 @@
             <li><h6 class="dropdown-header">{{ _("Администрирование") }}</h6></li>
             <li><a class="dropdown-item" href="{{ url_for('persons.accounts_list') }}">{{ _("Учётные записи") }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('setup_wizard.index') }}">{{ _("Мастер первоначальной настройки") }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('system_logs.index') }}">{{ _("Логи сервера") }}</a></li>
             {% endif %}
           </ul>
         </li>

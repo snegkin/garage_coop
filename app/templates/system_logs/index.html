@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Логи сервера") }}{% endblock %}
+{% block content %}
+<h3 class="mb-3">{{ _("Логи сервера") }}</h3>
+<p class="text-muted small">{{ _("Логи cron-скриптов (синхронизация с банком, опрос eWeLink, резервные копии…) и журнал обмена с внешними API (external_api-ДАТА.log) — запросы к банку и сервисам с ответами, секреты скрыты. Содержат персональные данные — не пересылайте целиком.") }}</p>
+
+<table class="table table-bordered bg-body table-sm sortable">
+  <thead>
+    <tr>
+      <th>{{ _("Файл") }}</th>
+      <th>{{ _("Изменён") }}</th>
+      <th class="text-end">{{ _("Размер") }}</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for f in files %}
+    <tr>
+      <td><a href="{{ url_for('system_logs.view', name=f.name) }}">{{ f.name }}</a></td>
+      <td class="text-nowrap" data-sort-value="{{ f.mtime }}">{{ fmt_date(f.modified) }} {{ f.modified.strftime("%H:%M") }}</td>
+      <td class="text-end text-nowrap" data-sort-value="{{ f.size }}">{{ f.size|filesizeformat }}</td>
+      <td class="text-nowrap"><a href="{{ url_for('system_logs.view', name=f.name, errors=1) }}">{{ _("ошибки") }}</a> · <a href="{{ url_for('system_logs.download', name=f.name) }}">{{ _("скачать") }}</a></td>
+    </tr>
+    {% else %}
+    <tr><td colspan="4" class="text-muted">{{ _("Логов пока нет.") }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

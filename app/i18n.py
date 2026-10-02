@@ -1103,6 +1103,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Строк с конца": "Last lines",
         "Подстрока, без учёта регистра": "Substring, case-insensitive",
         "Только ошибки": "Errors only",
+        "Служебные строки alembic": "Alembic service lines",
         "Скачать целиком": "Download full file",
         "Показан конец файла — более ранние строки не выведены, полный файл можно скачать.":
             "Showing the end of the file — earlier lines are not displayed; download the full file to see them.",

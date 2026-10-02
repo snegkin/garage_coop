@@ -9,7 +9,7 @@
     <label class="form-label mb-0">{{ _("Файл") }}</label>
     <select class="form-select" onchange="window.location = this.value">
       {% for f in files %}
-      <option value="{{ url_for('system_logs.view', name=f.name, lines=max_lines, q=query or None, errors=1 if only_errors else None) }}" {% if f.name == name %}selected{% endif %}>{{ f.name }}</option>
+      <option value="{{ url_for('system_logs.view', name=f.name, lines=max_lines, q=query or None, errors=1 if only_errors else None, noise=1 if show_noise else None) }}" {% if f.name == name %}selected{% endif %}>{{ f.name }}</option>
       {% endfor %}
     </select>
   </div>
@@ -26,6 +26,10 @@
   <div class="form-check mb-2">
     <input class="form-check-input" type="checkbox" name="errors" value="1" id="onlyErrors" {% if only_errors %}checked{% endif %}>
     <label class="form-check-label" for="onlyErrors">{{ _("Только ошибки") }}</label>
+  </div>
+  <div class="form-check mb-2">
+    <input class="form-check-input" type="checkbox" name="noise" value="1" id="showNoise" {% if show_noise %}checked{% endif %}>
+    <label class="form-check-label" for="showNoise">{{ _("Служебные строки alembic") }}</label>
   </div>
   <button class="btn btn-primary">{{ _("Показать") }}</button>
   <a class="btn btn-outline-secondary" href="{{ url_for('system_logs.download', name=name) }}">{{ _("Скачать целиком") }}</a>

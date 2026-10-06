@@ -28,6 +28,16 @@ def test_login_accepts_case_and_cyrillic_variants(db, client, typed):
         assert sess.get("user_id") == db.query(User).filter_by(username="starasov").one().id
 
 
+def test_cabinet_shows_canonical_login_not_typed_variant(db, client):
+    make_user(db, "starasov", "secret", role=RoleEnum.MEMBER)
+    db.commit()
+
+    login(client, "СТарасов", "secret")
+    html = client.get("/", follow_redirects=True).get_data(as_text=True)
+    assert ">starasov<" in html
+    assert "СТарасов" not in html
+
+
 def test_login_variant_still_checks_password(db, client):
     make_user(db, "starasov", "secret", role=RoleEnum.MEMBER)
     db.commit()

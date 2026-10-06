@@ -19,6 +19,17 @@
 from .translit import transliterate
 
 
+def login_key(login: str) -> str:
+    """Нормализованная форма логина для нестрогого сравнения: без учёта
+    регистра и с кириллицей, транслитерированной в латиницу — чтобы
+    «Starasov», «STarasov», «СТарасов», «старасов» находили одного и того
+    же «starasov» (люди путают регистр и раскладку). Отсюда же требование
+    к уникальности: два логина с одинаковым ключом заводить нельзя (см.
+    persons.create_account/change_username, setup_wizard), иначе вход по
+    ключу стал бы неоднозначным."""
+    return transliterate(login.strip()).lower()
+
+
 def default_login(full_name: str) -> str:
     """Первая буква имени + фамилия целиком."""
     parts = full_name.strip().split()
@@ -48,8 +59,10 @@ def escalated_login_candidates(full_name: str) -> list[str]:
 
 def generate_unique_login(full_name: str, existing_usernames) -> str:
     """Первый свободный из escalated_login_candidates(); если и они все
-    заняты — числовой суффикс (2, 3...) у последнего варианта."""
-    existing = set(existing_usernames)
+    заняты — числовой суффикс (2, 3...) у последнего варианта. Занятость
+    проверяется по login_key() — кандидаты и так в нижнем регистре
+    латиницей, т.е. сами себе ключ."""
+    existing = {login_key(u) for u in existing_usernames}
     candidates = escalated_login_candidates(full_name)
     for candidate in candidates:
         if candidate and candidate not in existing:

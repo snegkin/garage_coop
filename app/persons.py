@@ -9,7 +9,7 @@ from werkzeug.security import generate_password_hash
 from . import database
 from . import audit
 from .i18n import translate as _
-from .auth import login_required, roles_required, is_safe_next_url
+from .auth import login_required, roles_required, is_safe_next_url, login_taken
 from .permissions import is_board, is_chairman, sync_user_role
 from .models import (
     Person, Phone, User, RoleEnum, MemberAccount, PersonDataRevision, PersonDataRevisionStatus,
@@ -573,7 +573,7 @@ def create_account(person_id):
     username = request.form["username"].strip()
     password = request.form["password"]
 
-    if database.db_session.query(User).filter_by(username=username).first():
+    if login_taken(username):
         flash(_("Такой логин уже занят."), "danger")
         return redirect(url_for("persons.detail", person_id=person.id))
 
@@ -635,10 +635,7 @@ def change_username(person_id):
         flash(_("Логин не может быть пустым."), "danger")
         return redirect(url_for("persons.detail", person_id=person.id))
 
-    conflict = database.db_session.query(User).filter(
-        User.username == new_username, User.id != user.id
-    ).first()
-    if conflict:
+    if login_taken(new_username, exclude_user_id=user.id):
         flash(_("Такой логин уже занят."), "danger")
         return redirect(url_for("persons.detail", person_id=person.id))
 

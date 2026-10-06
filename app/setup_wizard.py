@@ -36,7 +36,7 @@ from .models import (
     MasterMeterReading, Garage, GarageOwnership, Person, PersonalAccount, BoardTerm, RoleEnum,
     CsvImportProfile, User,
 )
-from .login_generation import default_login
+from .login_generation import default_login, login_key
 from .accounting import (
     get_electricity_settings, current_tariff, electricity_account_number,
 )
@@ -781,17 +781,20 @@ def _build_account_rows(overrides: dict[int, str] | None = None):
     вычисленное значение по умолчанию."""
     overrides = overrides or {}
     persons = _unlinked_persons()
-    existing_usernames = {u for (u,) in database.db_session.query(User.username)}
+    # Коллизии — с точностью до login_key(), как и при входе (см.
+    # auth.find_user_by_login): «Ivanov» и «ivanov» неразличимы.
+    existing_keys = {login_key(u) for (u,) in database.db_session.query(User.username)}
 
     logins = {p.id: (overrides.get(p.id) or default_login(p.full_name)) for p in persons}
     counts: dict[str, int] = {}
     for login in logins.values():
-        counts[login] = counts.get(login, 0) + 1
+        counts[login_key(login)] = counts.get(login_key(login), 0) + 1
 
     rows = []
     for p in persons:
         login = logins[p.id]
-        collision = (not login) or counts[login] > 1 or login in existing_usernames
+        key = login_key(login)
+        collision = (not login) or counts[key] > 1 or key in existing_keys
         rows.append({"person": p, "login": login, "collision": collision})
     return rows
 

@@ -21,10 +21,39 @@ from .models import (
     User, RoleEnum, Person, Phone, MailboxSettings, Cooperative, VerificationCode, VerificationCodePurpose,
     NotificationChannel,
 )
-from .login_generation import generate_unique_login
+from .login_generation import generate_unique_login, login_key
 from .sms import get_sms_client, SmsError, sms_site_identifier
 
 bp = Blueprint("auth", __name__, url_prefix="/auth")
+
+
+def find_user_by_login(username: str) -> User | None:
+    """Пользователь по введённому логину: сначала точное совпадение, иначе —
+    по login_key() (без учёта регистра и раскладки: «СТарасов» -> «starasov»).
+    Учётных записей в кооперативе десятки-сотни, так что ключ считаем в
+    Python, а не храним отдельной колонкой. Если по ключу совпало несколько
+    (старые логины, заведённые до этой проверки уникальности), — None:
+    угадывать, в чью учётную запись пускать, нельзя."""
+    user = database.db_session.query(User).filter_by(username=username).first()
+    if user is not None:
+        return user
+    key = login_key(username)
+    if not key:
+        return None
+    matches = [u for u in database.db_session.query(User) if login_key(u.username) == key]
+    return matches[0] if len(matches) == 1 else None
+
+
+def login_taken(username: str, exclude_user_id: int | None = None) -> bool:
+    """Занят ли логин с точностью до login_key() — для создания/переименования
+    учётных записей, чтобы нестрогий вход (find_user_by_login) оставался
+    однозначным."""
+    key = login_key(username)
+    return any(
+        login_key(u) == key
+        for (uid, u) in database.db_session.query(User.id, User.username)
+        if uid != exclude_user_id
+    )
 
 _PHONE_NON_DIGIT_RE = re.compile(r"\D")
 
@@ -173,7 +202,7 @@ def login():
         username = request.form["username"].strip()
         password = request.form["password"]
         remember = bool(request.form.get("remember_me"))
-        user = database.db_session.query(User).filter_by(username=username).first()
+        user = find_user_by_login(username)
 
         if user is None or not check_password_hash(user.password_hash, password):
             summary = f"Неудачная попытка входа: логин «{username}»"
@@ -199,12 +228,12 @@ def login():
         elif not user.is_active:
             audit.record(
                 "auth.login_failed", entity_type="user", entity_id=user.id,
-                summary=f"Попытка входа в отключённую учётную запись «{username}»", actor=user,
+                summary=f"Попытка входа в отключённую учётную запись «{user.username}»", actor=user,
             )
             database.db_session.commit()
             flash(_("Учётная запись отключена."), "danger")
         else:
-            return _complete_login(user, f"Успешный вход: «{username}»", remember=remember)
+            return _complete_login(user, f"Успешный вход: «{user.username}»", remember=remember)
 
     # Сама форма входа теперь ещё и всегда доступна дропдауном в шапке
     # (см. base.html, auth/_login_form.html) — эта страница нужна как

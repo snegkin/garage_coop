@@ -28,11 +28,21 @@ DEFAULT_LINES = 500
 SEARCH_TAIL_BYTES = 20 * 1024 * 1024
 # Строки, которые стоит заметить: ошибки cron-скриптов, трассировки,
 # сбои и 4xx/5xx-ответы в журнале внешних API.
+# Сообщения cron-скриптов пишутся как попало: «— ОШИБКА: …» (sync_bank_accounts),
+# «Ошибка подключения к eWeLink: …», «ffmpeg завершился с кодом 145: Error
+# opening…» (dvr_snapshot), «не удалось построить кадр», итог «ошибок: 6».
 _ERROR_RE = re.compile(
-    r"ОШИБКА|\bERROR\b|\bCRITICAL\b|^Traceback \(most recent call last\)"
+    r"[Оо]шибк[аи]\b|ОШИБК[АИ]\b|[Нн]е удалось|\b(?:[Ee]rror|ERROR)\b|\bCRITICAL\b"
+    r"|^Traceback \(most recent call last\)"
+    r"|ошибок: [1-9]"
     r"|^[\w.]*(?:Error|Exception)\b(?::|$)"  # последняя строка трассировки: «ValueError: …»
 )
 _WARNING_RE = re.compile(r"\bWARNING\b|ПРЕДУПРЕЖДЕНИЕ")
+# Без этих подстрок (в нижнем регистре) ни _ERROR_RE, ни _WARNING_RE не
+# сработают. Проверка `in` в разы быстрее регулярок, а фильтр «только ошибки»
+# прогоняет через line_level весь 20-МБ хвост (~250 тыс. строк poll_ewelink).
+_LEVEL_HINTS = ("ошибк", "ошибок", "не удалось", "error", "critical", "traceback", "exception",
+                "warning", "предупреждение")
 # Служебные INFO-строки Alembic, которые до починки migrations/env.py
 # писал каждый запуск cron-скрипта («setup plugin…», «Context impl…») —
 # в старых логах их большинство; по умолчанию скрываются.
@@ -70,13 +80,13 @@ def _resolve(name: str) -> str:
     return os.path.join(_log_dir(), name)
 
 
-def read_tail(path: str, max_lines: int, query: str | None = None) -> tuple[list[str], bool]:
+def read_tail(path: str, max_lines: int, query: str | None = None, keep=None) -> tuple[list[str], bool]:
     """Последние max_lines строк файла (с фильтром по подстроке без учёта
-    регистра — среди последних SEARCH_TAIL_BYTES). Второе значение — файл
-    прочитан не целиком (есть более ранние строки)."""
+    регистра и/или функцией keep(line) — среди последних SEARCH_TAIL_BYTES).
+    Второе значение — файл прочитан не целиком (есть более ранние строки)."""
     size = os.path.getsize(path)
     with open(path, "rb") as f:
-        if query:
+        if query or keep:
             start = max(0, size - SEARCH_TAIL_BYTES)
             f.seek(start)
             data = f.read()
@@ -96,6 +106,8 @@ def read_tail(path: str, max_lines: int, query: str | None = None) -> tuple[list
     if query:
         q = query.lower()
         lines = [line for line in lines if q in line.lower()]
+    if keep:
+        lines = [line for line in lines if keep(line)]
     if len(lines) > max_lines:
         lines = lines[-max_lines:]
         truncated = True
@@ -108,6 +120,9 @@ def line_level(line: str) -> str | None:
         arrow, status = m.groups()
         if arrow == "✗" or (arrow == "←" and status and status[0] in "45"):
             return "error"
+        return None
+    lowered = line.lower()
+    if not any(hint in lowered for hint in _LEVEL_HINTS):
         return None
     if _ERROR_RE.search(line):
         return "error"
@@ -136,14 +151,14 @@ def view(name):
     only_errors = request.args.get("errors") == "1"
     show_noise = request.args.get("noise") == "1"
 
-    # Фильтры ниже выкидывают строки — читаем с запасом, чтобы осталось max_lines.
-    filtered = only_errors or not show_noise
-    lines, truncated = read_tail(path, LINE_CHOICES[-1] if filtered else max_lines, query)
+    # Ошибки редки (раз в сутки среди поминутных «ошибок: 0») — ищем их, как и
+    # подстроку, во всём хвосте SEARCH_TAIL_BYTES, а не в последних N строках.
+    keep = (lambda line: line_level(line) == "error") if only_errors else None
+    # Шум выкидывается после чтения — читаем с запасом, чтобы осталось max_lines.
+    lines, truncated = read_tail(path, max_lines if show_noise else LINE_CHOICES[-1], query, keep)
     if not show_noise:
         lines = [line for line in lines if not _ALEMBIC_NOISE_RE.search(line)][-max_lines:]
     rows = [(line, line_level(line)) for line in lines]
-    if only_errors:
-        rows = [r for r in rows if r[1] == "error"][-max_lines:]
     return render_template(
         "system_logs/view.html", name=name, rows=rows, truncated=truncated, size=os.path.getsize(path),
         max_lines=max_lines, line_choices=LINE_CHOICES, query=query or "", only_errors=only_errors,

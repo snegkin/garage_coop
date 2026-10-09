@@ -18,7 +18,8 @@
      попробовать refresh() и повторить.
   3. Для каждого активного PowerPhaseDevice разобрать снимок из уже
      полученного списка устройств (один HTTP-запрос на весь цикл, не по
-     одному на фазу) и сохранить PowerPhaseReading.
+     одному на фазу) и сохранить PowerPhaseReading (для офлайн-устройства —
+     только отметку без значений, см. reading_from_snapshot).
   4. Сохранить токены (в т.ч. если eWeLink их ротировал), last_poll_at,
      last_error — независимо от того, успешно ли получилось для всех 3
      устройств (частичный успех — тоже успех, см. per-device try/except
@@ -34,10 +35,10 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app import create_app, database
-from app.models import EWeLinkAccount, PowerPhaseDevice, PowerPhaseReading
+from app.models import EWeLinkAccount, PowerPhaseDevice
 from app.bank_api import crypto
 from app.ewelink import EWeLinkApiError, EWeLinkAuthError
-from app.electricity_monitor import build_client, persist_tokens
+from app.electricity_monitor import build_client, persist_tokens, reading_from_snapshot
 
 
 def _utcnow() -> dt.datetime:
@@ -83,6 +84,7 @@ def main() -> int:
         )
 
         saved, failed = 0, 0
+        offline = []
         for phase_device in active_devices:
             try:
                 snapshot = client.get_phase_snapshot(phase_device.ewelink_device_id, account.family_id, devices=devices)
@@ -92,26 +94,18 @@ def main() -> int:
                       f"{phase_device.label}: {exc}", file=sys.stderr)
                 continue
 
-            database.db_session.add(PowerPhaseReading(
-                device_id=phase_device.id,
-                ts=_utcnow(),
-                power_w=snapshot.power_w,
-                voltage_v=snapshot.voltage_v,
-                current_a=snapshot.current_a,
-                day_kwh=snapshot.day_kwh,
-                month_kwh=snapshot.month_kwh,
-                is_online=snapshot.is_online,
-                sled_online=snapshot.sled_online,
-                switch_on=snapshot.switch_on,
-            ))
+            database.db_session.add(reading_from_snapshot(phase_device.id, snapshot, _utcnow()))
             saved += 1
+            if not snapshot.is_online:
+                offline.append(phase_device.label)
 
         account.last_poll_at = _utcnow()
         account.last_error = None if failed == 0 else f"{failed} из {len(active_devices)} устройств не опрошены — см. лог"
         database.db_session.commit()
 
         print(f"[{dt.datetime.now().isoformat(timespec='seconds')}] "
-              f"Опрошено устройств: {saved}, ошибок: {failed}.")
+              f"Опрошено устройств: {saved}, ошибок: {failed}."
+              + (f" Офлайн (нет связи с облаком): {', '.join(offline)}." if offline else ""))
         return 0 if failed == 0 else 1
 
 

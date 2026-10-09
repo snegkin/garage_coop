@@ -17,7 +17,7 @@ import pytest
 
 from app import database
 from app.bank_api import crypto
-from app.electricity_monitor import HISTORY_FETCH_HOURS
+from app.electricity_monitor import HISTORY_FETCH_HOURS, reading_from_snapshot
 from app.models import RoleEnum, EWeLinkAccount, PowerPhaseDevice, PowerPhaseReading
 from app.ewelink import EWeLinkClient, EWeLinkTokens, EWeLinkApiError, EWeLinkAuthError, parse_phase_snapshot
 from app.ewelink.client import AUTHORIZE_PAGE_URL, _extract_token_pair
@@ -514,9 +514,61 @@ def test_view_shows_switch_off_badge(app, db, client):
     assert "LED" in body
 
 
+def test_reading_from_snapshot_offline_keeps_no_values():
+    """Офлайн-устройство облако отдаёт с последними известными params —
+    сохранять их как показания нельзя (2026-10-08: сутки одних и тех же чисел)."""
+    device = {"itemData": {"online": False, "params": {"power": "3577", "voltage": "24042", "dayKwh": 90}}}
+    ts = dt.datetime(2026, 10, 9, 6, 23)
+    reading = reading_from_snapshot(1, parse_phase_snapshot(device), ts)
+    assert reading.is_online is False and reading.ts == ts
+    assert reading.power_w is None and reading.voltage_v is None and reading.day_kwh is None
+
+    device["itemData"]["online"] = True
+    reading = reading_from_snapshot(1, parse_phase_snapshot(device), ts)
+    assert reading.is_online is True and reading.power_w == Decimal("35.77")
+
+
+def test_view_offline_device_shows_since_and_last_data_excluded_from_totals(app, db, client):
+    device_a = make_phase_device(db, label="Фаза A", ewelink_device_id="dev-a", sort_order=0)
+    device_b = make_phase_device(db, label="Фаза B", ewelink_device_id="dev-b", sort_order=1)
+    now = dt.datetime.utcnow()
+    db.add(PowerPhaseReading(device_id=device_a.id, ts=now - dt.timedelta(minutes=30), power_w=Decimal("1234"),
+                             day_kwh=Decimal("7.77"), is_online=True))
+    db.add(PowerPhaseReading(device_id=device_a.id, ts=now - dt.timedelta(minutes=29), is_online=False))
+    db.add(PowerPhaseReading(device_id=device_a.id, ts=now, is_online=False))
+    db.add(PowerPhaseReading(device_id=device_b.id, ts=now, power_w=Decimal("500"), day_kwh=Decimal("1.11"),
+                             is_online=True))
+    make_user(db, "board19", "pass12345", role=RoleEnum.BOARD)
+    db.commit()
+    login(client, "board19", "pass12345")
+
+    body = client.get("/electricity/").get_data(as_text=True)
+    assert "Нет связи с устройством с" in body
+    offline_since = (now - dt.timedelta(minutes=29)).isoformat()
+    assert f'data-utc-datetime="{offline_since}Z"' in body
+    assert "1,23" in body  # последние реальные данные фазы A — в её карточке
+    # итоги — только по фазе B на связи
+    assert "0,50" in body and "1,11" in body and "8,88" not in body
+    assert "Без учёта фаз офлайн." in body
+
+
 # ---------------------------------------------------------------------------
 # /electricity/history-data — JSON для графика (см. monitor.html)
 # ---------------------------------------------------------------------------
+
+def test_history_data_offline_marks_are_null_points(app, db, client):
+    device = make_phase_device(db)
+    now = dt.datetime.utcnow()
+    db.add(PowerPhaseReading(device_id=device.id, ts=now - dt.timedelta(minutes=2), power_w=Decimal("100")))
+    db.add(PowerPhaseReading(device_id=device.id, ts=now - dt.timedelta(minutes=1), is_online=False))
+    db.add(PowerPhaseReading(device_id=device.id, ts=now, power_w=Decimal("200")))
+    make_user(db, "board20", "pass12345", role=RoleEnum.BOARD)
+    db.commit()
+    login(client, "board20", "pass12345")
+
+    points = client.get("/electricity/history-data").get_json()["devices"][0]["points"]
+    assert [p["w"] for p in points] == [100.0, None, 200.0]
+
 
 def test_history_data_returns_points_in_watts_per_device(app, db, client):
     device_a = make_phase_device(db, label="Фаза A", ewelink_device_id="dev-a", sort_order=0)

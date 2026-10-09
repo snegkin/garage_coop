@@ -87,9 +87,26 @@ def test_read_tail_small_file_not_truncated(tmp_path):
     ("[2026-09-12T07:08:06] счёт: выписка — ОШИБКА: сбой", "error"),
     ("2026-10-02 09:00:22,156 [1] WARNING app.errors: Bad form input", "warning"),
     ('  File "/x/errors.py", line 92, in _bad_form_input', None),
+    ("[2026-10-09T02:53:13] Ошибка подключения к eWeLink: Сетевая ошибка при обращении к eWeLink", "error"),
+    ("[2026-10-09T09:20:15] Регистратор-4 / Камера 6: ffmpeg завершился с кодом 145: "
+     "Error opening input files: Connection refused", "error"),
+    ("[2026-10-09T09:20:15] Регистратор 4: не удалось построить общий смонтированный кадр.", "error"),
+    ("[2026-10-09T09:20:15] Снято кадров: 0, ошибок: 6.", "error"),
+    ("[2026-10-09T09:21:05] Опрошено устройств: 3, ошибок: 0.", None),
 ])
 def test_line_level(line, level):
     assert system_logs.line_level(line) == level
+
+
+def test_errors_filter_finds_rare_errors_beyond_line_window(app, db, client, log_dir):
+    # Как poll_ewelink.log: ошибка, а за ней больше LINE_CHOICES[-1] строк без ошибок.
+    ok = "".join(f"[2026-10-09T09:{i % 60:02d}:05] Опрошено устройств: 3, ошибок: 0.\n" for i in range(12_000))
+    (log_dir / "poll_ewelink.log").write_text(
+        "[2026-10-09T02:53:13] Ошибка подключения к eWeLink: таймаут\n" + ok, encoding="utf-8",
+    )
+    _chairman(db, client)
+    html = client.get("/system-logs/poll_ewelink.log?errors=1").get_data(as_text=True)
+    assert "Ошибка подключения к eWeLink" in html and "Опрошено устройств" not in html
 
 
 def test_alembic_noise_hidden_by_default(app, db, client, log_dir):

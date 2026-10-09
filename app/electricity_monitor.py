@@ -28,7 +28,7 @@ import datetime as dt
 import secrets
 
 from flask import Blueprint, render_template, request, redirect, url_for, flash, session, jsonify
-from sqlalchemy import func
+from sqlalchemy import func, or_
 
 from . import database
 from .i18n import translate as _
@@ -70,6 +70,29 @@ def _downsample(rows: list, max_points: int) -> list:
         return rows
     step = len(rows) / max_points
     return [rows[int(i * step)] for i in range(max_points)]
+
+
+def reading_from_snapshot(device_id: int, snapshot, ts: dt.datetime) -> PowerPhaseReading:
+    """Запись для поллера (scripts/poll_ewelink.py). Пока устройство офлайн,
+    облако eWeLink продолжает отдавать его последние известные params — сутками
+    одни и те же числа (так было 2026-10-08, когда в гаражах пропала связь).
+    Такие «показания» не сохраняем: пишем только отметку офлайн без значений —
+    на графике получается разрыв, а не ложная ровная линия, и view() видит,
+    с какого момента нет связи."""
+    if not snapshot.is_online:
+        return PowerPhaseReading(device_id=device_id, ts=ts, is_online=False)
+    return PowerPhaseReading(
+        device_id=device_id,
+        ts=ts,
+        power_w=snapshot.power_w,
+        voltage_v=snapshot.voltage_v,
+        current_a=snapshot.current_a,
+        day_kwh=snapshot.day_kwh,
+        month_kwh=snapshot.month_kwh,
+        is_online=True,
+        sled_online=snapshot.sled_online,
+        switch_on=snapshot.switch_on,
+    )
 
 
 def _get_or_create_account() -> EWeLinkAccount:
@@ -153,20 +176,33 @@ def view():
         .all()
     )
 
+    # latest_by_device — последние РЕАЛЬНЫЕ показания (онлайн); offline_since_by_device —
+    # с какого момента устройство офлайн, если последняя отметка поллера — офлайн
+    # (тогда показания в карточке устаревшие, см. reading_from_snapshot).
     latest_by_device = {}
+    offline_since_by_device = {}
     for device in devices:
-        latest_by_device[device.id] = (
-            database.db_session.query(PowerPhaseReading)
-            .filter_by(device_id=device.id)
-            .order_by(PowerPhaseReading.ts.desc())
-            .first()
-        )
+        readings = database.db_session.query(PowerPhaseReading).filter_by(device_id=device.id)
+        latest = readings.order_by(PowerPhaseReading.ts.desc()).first()
+        if latest is None or latest.is_online:
+            latest_by_device[device.id] = latest
+            continue
+        last_online = readings.filter_by(is_online=True).order_by(PowerPhaseReading.ts.desc()).first()
+        latest_by_device[device.id] = last_online
+        offline_since_by_device[device.id] = (
+            readings.filter(PowerPhaseReading.ts > last_online.ts) if last_online else readings
+        ).with_entities(func.min(PowerPhaseReading.ts)).scalar()
 
-    power_values = [r.power_w for r in latest_by_device.values() if r and r.power_w is not None]
+    # Итоги — только по фазам на связи: устаревшие показания офлайн-фазы в сумме
+    # выглядели бы как текущие.
+    online_readings = [
+        r for device_id, r in latest_by_device.items() if r and device_id not in offline_since_by_device
+    ]
+    power_values = [r.power_w for r in online_readings if r.power_w is not None]
     total_power = sum(power_values) if power_values else None
 
-    day_kwh_values = [r.day_kwh for r in latest_by_device.values() if r and r.day_kwh is not None]
-    month_kwh_values = [r.month_kwh for r in latest_by_device.values() if r and r.month_kwh is not None]
+    day_kwh_values = [r.day_kwh for r in online_readings if r.day_kwh is not None]
+    month_kwh_values = [r.month_kwh for r in online_readings if r.month_kwh is not None]
     total_day_kwh = sum(day_kwh_values) if day_kwh_values else None
     total_month_kwh = sum(month_kwh_values) if month_kwh_values else None
 
@@ -208,6 +244,7 @@ def view():
         devices=devices,
         devices_json=devices_json,
         latest_by_device=latest_by_device,
+        offline_since_by_device=offline_since_by_device,
         total_power=total_power,
         total_day_kwh=total_day_kwh,
         total_month_kwh=total_month_kwh,
@@ -256,7 +293,9 @@ def history_data():
                 PowerPhaseReading.device_id == device.id,
                 PowerPhaseReading.ts >= since,
                 PowerPhaseReading.ts <= until,
-                PowerPhaseReading.power_w.isnot(None),
+                # Офлайн-отметки (см. reading_from_snapshot) идут точками с w=null —
+                # Chart.js рвёт на них линию, а не тянет её через время без связи.
+                or_(PowerPhaseReading.power_w.isnot(None), PowerPhaseReading.is_online.is_(False)),
             )
             .order_by(PowerPhaseReading.ts.asc())
             .all()
@@ -267,7 +306,7 @@ def history_data():
             "label": device.label,
             # "Z" — ts в БД наивный UTC (см. models.py); суффикс делает JS-Date() на
             # клиенте однозначным (иначе браузер трактует его как локальное время).
-            "points": [{"t": ts.isoformat() + "Z", "w": float(w)} for ts, w in rows],
+            "points": [{"t": ts.isoformat() + "Z", "w": None if w is None else float(w)} for ts, w in rows],
         })
 
     return jsonify(devices=result)

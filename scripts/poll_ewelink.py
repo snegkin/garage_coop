@@ -19,7 +19,8 @@
   3. Для каждого активного PowerPhaseDevice разобрать снимок из уже
      полученного списка устройств (один HTTP-запрос на весь цикл, не по
      одному на фазу) и сохранить PowerPhaseReading (для офлайн-устройства —
-     только отметку без значений, см. reading_from_snapshot).
+     только отметку без значений, см. reading_from_snapshot), затем свернуть
+     показания старше 3 месяцев в почасовые (compact_old_readings).
   4. Сохранить токены (в т.ч. если eWeLink их ротировал), last_poll_at,
      last_error — независимо от того, успешно ли получилось для всех 3
      устройств (частичный успех — тоже успех, см. per-device try/except
@@ -38,7 +39,9 @@ from app import create_app, database
 from app.models import EWeLinkAccount, PowerPhaseDevice
 from app.bank_api import crypto
 from app.ewelink import EWeLinkApiError, EWeLinkAuthError
-from app.electricity_monitor import build_client, persist_tokens, reading_from_snapshot
+from app.electricity_monitor import (
+    RAW_READINGS_KEEP_DAYS, build_client, compact_old_readings, persist_tokens, reading_from_snapshot,
+)
 
 
 def _utcnow() -> dt.datetime:
@@ -106,6 +109,11 @@ def main() -> int:
         print(f"[{dt.datetime.now().isoformat(timespec='seconds')}] "
               f"Опрошено устройств: {saved}, ошибок: {failed}."
               + (f" Офлайн (нет связи с облаком): {', '.join(offline)}." if offline else ""))
+
+        compacted = compact_old_readings(_utcnow())
+        if compacted:
+            print(f"[{dt.datetime.now().isoformat(timespec='seconds')}] "
+                  f"Свёрнуто в почасовые показания старше {RAW_READINGS_KEEP_DAYS} дн.: {compacted} устройство-часов.")
         return 0 if failed == 0 else 1
 
 

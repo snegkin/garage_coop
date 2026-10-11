@@ -17,7 +17,7 @@ import pytest
 
 from app import database
 from app.bank_api import crypto
-from app.electricity_monitor import HISTORY_FETCH_HOURS, reading_from_snapshot
+from app.electricity_monitor import HISTORY_FETCH_HOURS, RAW_READINGS_KEEP_DAYS, compact_old_readings, reading_from_snapshot
 from app.models import RoleEnum, EWeLinkAccount, PowerPhaseDevice, PowerPhaseReading
 from app.ewelink import EWeLinkClient, EWeLinkTokens, EWeLinkApiError, EWeLinkAuthError, parse_phase_snapshot
 from app.ewelink.client import AUTHORIZE_PAGE_URL, _extract_token_pair
@@ -770,3 +770,51 @@ def test_test_connection_shows_api_error(app, db, client, monkeypatch):
     db.expire_all()
     account = database.db_session.query(EWeLinkAccount).first()
     assert account.last_error == "сеть недоступна"
+
+
+# ---------------------------------------------------------------------------
+# Свёртка старых показаний в почасовые (compact_old_readings)
+# ---------------------------------------------------------------------------
+
+def test_compact_old_readings_folds_hour_and_keeps_recent(app, db):
+    device = make_phase_device(db)
+    now = dt.datetime(2027, 1, 15, 12, 0)
+    old_hour = now - dt.timedelta(days=RAW_READINGS_KEEP_DAYS, hours=5)
+    old_hour = old_hour.replace(minute=0, second=0, microsecond=0)
+    for minute, power, online in [(1, "100", True), (2, "200", True), (3, None, False), (59, "300", True)]:
+        db.add(PowerPhaseReading(
+            device_id=device.id, ts=old_hour + dt.timedelta(minutes=minute, seconds=4), is_online=online,
+            power_w=Decimal(power) if power else None, voltage_v=Decimal("230") if power else None,
+            day_kwh=Decimal(minute) if power else None,
+        ))
+    offline_hour = old_hour + dt.timedelta(hours=1)
+    for minute in (5, 6):
+        db.add(PowerPhaseReading(device_id=device.id, ts=offline_hour + dt.timedelta(minutes=minute), is_online=False))
+    recent = now - dt.timedelta(days=1)
+    for minute in (1, 2):
+        db.add(PowerPhaseReading(device_id=device.id, ts=recent + dt.timedelta(minutes=minute), power_w=Decimal("5")))
+    db.commit()
+
+    assert compact_old_readings(now) == 2
+    rows = db.query(PowerPhaseReading).order_by(PowerPhaseReading.ts).all()
+    assert len(rows) == 4  # час с данными + офлайн-час + 2 свежие поминутные
+    hourly, offline, *fresh = rows
+    assert hourly.ts == old_hour and hourly.is_online
+    assert hourly.power_w == Decimal("200")  # среднее онлайн-снимков 100/200/300
+    assert hourly.voltage_v == Decimal("230") and hourly.day_kwh == Decimal("59")  # кВт·ч — последний снимок часа
+    assert offline.ts == offline_hour and not offline.is_online and offline.power_w is None
+    assert len(fresh) == 2
+
+    assert compact_old_readings(now) == 0  # свёрнутый час повторно не трогается
+
+
+def test_compact_old_readings_respects_batch_limit(app, db):
+    device = make_phase_device(db)
+    now = dt.datetime(2027, 1, 15, 12, 0)
+    base = (now - dt.timedelta(days=RAW_READINGS_KEEP_DAYS + 1)).replace(minute=0, second=0, microsecond=0)
+    for h in range(3):
+        for minute in (1, 2):
+            db.add(PowerPhaseReading(device_id=device.id, ts=base + dt.timedelta(hours=h, minutes=minute), power_w=Decimal("1")))
+    db.commit()
+    assert compact_old_readings(now, max_groups=2) == 2
+    assert compact_old_readings(now, max_groups=2) == 1

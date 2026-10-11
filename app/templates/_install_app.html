@@ -5,8 +5,10 @@
     показываем кнопку, она открывает системный диалог установки;
   - iPhone/iPad (Safari такого события не присылает) — подсказка «Поделиться →
     На экран „Домой“»; push на iOS работают только у установленного PWA;
-  - уже установлено (открыто не обычной вкладкой, или браузер однажды открыл
-    сайт как приложение / сообщил об установке — запоминается) — не показываем.
+  - открыто как установленное приложение — не показываем; на iOS запуск с
+    экрана «Домой» запоминается и подсказка больше не показывается; на
+    Android решает beforeinstallprompt (приходит, только пока не установлено,
+    в т.ч. после удаления приложения).
   dismissible=true (главная) — только на сенсорных устройствах, с крестиком,
   закрытие запоминается в браузере.
 #}
@@ -45,16 +47,23 @@
   var standalone = (browserMode.media !== "not all" && !browserMode.matches)  // "not all" — браузер не знает display-mode
     || window.navigator.standalone === true
     || document.referrer.indexOf("android-app://") === 0;
-  if (standalone) localStorage.setItem(INSTALLED_KEY, "1");
-  if (localStorage.getItem(INSTALLED_KEY)) return;
+  if (standalone) {
+    localStorage.setItem(INSTALLED_KEY, "1");
+    return;
+  }
   var closeBtn = document.getElementById("installAppClose");
-  if (closeBtn && localStorage.getItem(DISMISS_KEY)) return;
-  // На главной (с крестиком) — только на телефонах/планшетах: на компьютере
-  // Chrome тоже предлагает установку, но баннер «на телефон» там лишний.
-  if (closeBtn && !window.matchMedia("(pointer: coarse)").matches) return;
+  // Где баннер вообще уместен: на главной (с крестиком) — только на
+  // телефонах/планшетах (на компьютере Chrome тоже предлагает установку, но
+  // «на телефон» там лишнее) и пока его не закрыли; в профиле — всегда.
+  var allowed = !closeBtn || (!localStorage.getItem(DISMISS_KEY) && window.matchMedia("(pointer: coarse)").matches);
 
+  // beforeinstallprompt Chrome/Edge/Samsung Internet присылают, только если
+  // приложение НЕ установлено — надёжнее отметки INSTALLED_KEY: если
+  // приложение удалили, отметка снимается и кнопка возвращается.
   var deferredPrompt = null;
   window.addEventListener("beforeinstallprompt", function (e) {
+    localStorage.removeItem(INSTALLED_KEY);
+    if (!allowed) return;  // без preventDefault — у Chrome остаётся своя установка из меню
     e.preventDefault();  // свой баннер вместо мини-панели Chrome
     deferredPrompt = e;
     document.getElementById("installAppPrompt").hidden = false;
@@ -73,9 +82,11 @@
     box.hidden = true;
   });
 
-  // iPadOS представляется как Mac — отличаем по сенсорному экрану.
+  // iOS такого события не присылает — подсказку показываем, пока сайт ни
+  // разу не открывался с экрана «Домой» в этом браузере. iPadOS
+  // представляется как Mac — отличаем по сенсорному экрану.
   var ios = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
-  if (ios) {
+  if (ios && allowed && !localStorage.getItem(INSTALLED_KEY)) {
     document.getElementById("installAppIos").hidden = false;
     box.hidden = false;
   }

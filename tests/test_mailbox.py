@@ -7,6 +7,7 @@ last_error), паттерн «пустой пароль — не менять»,
 message_sent пишутся, неудачные попытки и test-connection — нет), и то,
 что почта правления не создаёт побочных денежных сущностей.
 """
+import base64
 import io
 import re
 from email.message import EmailMessage
@@ -817,6 +818,45 @@ def test_compose_reply_prefills_recipient_subject_and_quotes_body(db, client, mo
     assert 'value="sender@example.com"' in body
     assert 'value="Re: Собрание"' in body
     assert "&gt; Текст письма" in body
+
+
+def test_compose_reply_quotes_text_not_html_from_plain_part(db, client, monkeypatch):
+    """Рассылка с HTML в text/plain: в цитате — текст, без тегов, CSS и сущностей."""
+    raw = (
+        "From: x@example.com\r\nSubject: s\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n"
+        "<!DOCTYPE html><html><head><style>p{color:red}</style></head>"
+        "<body><p>Добрый день!</p><p>Цена &lt; 100&nbsp;руб</p></body></html>"
+    ).encode()
+    _make_board(db)
+    _make_settings(db)
+    _mock_imap(monkeypatch, {1: raw})
+    login(client, "board1", "pass1234")
+
+    body = client.get("/mailbox/compose?reply_to=1").get_data(as_text=True)
+    assert "&gt; Добрый день!" in body and "&gt; Цена &lt; 100 руб" in body
+    assert "DOCTYPE" not in body and "color:red" not in body and "&lt;p&gt;" not in body
+
+
+def test_inbox_joins_split_encoded_words_in_sender_name(db, client, monkeypatch):
+    """«=?UTF-8?B?…Технолог?= =?UTF-8?B?ии добра?=» — без склейки парсер адресов
+    оставлял пробел («Технолог ии добра»), а разрез посреди буквы давал «�»."""
+    name = "Технологии добра".encode()
+    cut = len("Технолог".encode()) + 1  # посреди двухбайтовой «и»
+
+    def ew(b):
+        return "=?UTF-8?B?" + base64.b64encode(b).decode() + "?="
+
+    raw = (
+        f"From: {ew(name[:cut])}\r\n {ew(name[cut:])} <info@example.com>\r\n"
+        f"Subject: {ew(name[:cut])} {ew(name[cut:])}\r\n\r\nТекст"
+    ).encode()
+    _make_board(db)
+    _make_settings(db)
+    _mock_imap(monkeypatch, {1: raw})
+    login(client, "board1", "pass1234")
+
+    body = client.get("/mailbox/").get_data(as_text=True)
+    assert body.count("Технологии добра") >= 2 and "Технолог ии" not in body and "�" not in body
 
 
 def test_compose_reply_does_not_double_prefix_subject(db, client, monkeypatch):

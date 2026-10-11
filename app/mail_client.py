@@ -23,9 +23,12 @@ IMAP и POP3 объединены общим интерфейсом IncomingMail
 from __future__ import annotations
 
 import abc
+import base64
 import dataclasses
 import datetime as dt
 import email
+import email.errors
+import email.header
 import email.policy
 import email.utils
 import imaplib
@@ -178,8 +181,44 @@ def decode_idn_address(addr: str | None) -> str:
     return f"{local}@{decoded_domain}"
 
 
+# Подряд идущие encoded-word (RFC 2047) — «=?UTF-8?B?…?= =?UTF-8?B?…?=».
+_ENCODED_WORD = r"=\?[^?\s]+\?[BbQq]\?[^?\s]*\?="
+_ENCODED_WORD_RUN_RE = re.compile(rf"{_ENCODED_WORD}(?:\s+{_ENCODED_WORD})+")
+
+
+def _merge_encoded_words(value: str) -> str:
+    """Склеивает подряд идущие encoded-word в одно. Рассылки режут длинное
+    имя на куски, и парсер адресов email.policy.default оставляет пробел
+    между ними («Технолог ии добра» вместо «Технологии добра»), а кусок,
+    разрезанный посреди UTF-8-символа, превращает в «�». decode_header
+    склеивает байты соседних кусков одной кодировки до декодирования —
+    результат перекодируем обратно в одно encoded-word, чтобы дальше
+    заголовок разбирался как обычно (запятые/кавычки в имени не мешают)."""
+    def merge(match: re.Match) -> str:
+        try:
+            text = str(email.header.make_header(email.header.decode_header(match.group(0))))
+        except (UnicodeError, LookupError, email.errors.HeaderParseError):
+            return match.group(0)
+        return "=?utf-8?b?" + base64.b64encode(text.encode("utf-8")).decode("ascii") + "?="
+
+    return _ENCODED_WORD_RUN_RE.sub(merge, value)
+
+
+def _header(msg: email.message.Message, name: str):
+    """msg[name], но с склеенными encoded-word (см. _merge_encoded_words)."""
+    for key, value in msg.raw_items():
+        if key.lower() == name:
+            unfolded = re.sub(r"\r?\n(?=[ \t])", "", value)
+            return email.policy.default.header_factory(key, _merge_encoded_words(unfolded))
+    return None
+
+
+def _subject(msg: email.message.Message) -> str:
+    return str(_header(msg, "subject") or "").strip() or "(без темы)"
+
+
 def _address_from_header(msg: email.message.Message, header: str) -> tuple[str | None, str | None]:
-    raw = msg[header]
+    raw = _header(msg, header)
     if not raw:
         return None, None
     addresses = email.utils.getaddresses([str(raw)])
@@ -190,7 +229,7 @@ def _address_from_header(msg: email.message.Message, header: str) -> tuple[str |
 
 
 def _addr_list_from_header(msg: email.message.Message, header: str) -> list[str]:
-    raw = msg[header]
+    raw = _header(msg, header)
     if not raw:
         return []
     return [addr for _name, addr in email.utils.getaddresses([str(raw)]) if addr]
@@ -263,6 +302,12 @@ def _extract_attachment(raw: bytes, index: int) -> tuple[AttachmentPart, bytes] 
     return None
 
 
+# Рассылки кладут HTML и в text/plain-альтернативу (или отдают HTML как
+# text/plain вовсе) — тогда «Ответить» цитировал голую разметку. Признак —
+# теги документа/вёрстки, которых в обычном тексте письма не бывает.
+_HTML_IN_TEXT_RE = re.compile(r"<(?:!doctype|html|head|body|table|div|p|br|span|td)\b[^>]*>", re.IGNORECASE)
+
+
 def _parse_message(uid: str, raw: bytes) -> MessageDetail:
     msg = email.message_from_bytes(raw, policy=email.policy.default)
 
@@ -283,6 +328,12 @@ def _parse_message(uid: str, raw: bytes) -> MessageDetail:
                 body_html = content
             else:
                 body_text = content
+    if body_text is not None and _HTML_IN_TEXT_RE.search(body_text):
+        # Разметка в text/plain: показывать её надо как HTML, а «текстовой»
+        # версии для цитаты у такого письма фактически нет.
+        if body_html is None:
+            body_html = body_text
+        body_text = None
 
     attachments: list[AttachmentPart] = []
     inline_images: dict[str, tuple[AttachmentPart, bytes]] = {}
@@ -301,7 +352,7 @@ def _parse_message(uid: str, raw: bytes) -> MessageDetail:
             continue  # inline-картинки подставляются в тело письма (см. mail_html.py), в списке вложений не дублируются
         attachments.append(att)
 
-    subject = str(msg.get("subject", "")).strip() or "(без темы)"
+    subject = _subject(msg)
 
     return MessageDetail(
         uid=uid, subject=subject, from_name=from_name, from_addr=from_addr,
@@ -549,7 +600,7 @@ class ImapMailClient(IncomingMailClient):
             from_name, from_addr = _address_from_header(msg, "from")
             to_addrs = _addr_list_from_header(msg, "to")
             messages.append(MessageSummary(
-                uid=uid.decode(), subject=str(msg.get("subject", "")).strip() or "(без темы)",
+                uid=uid.decode(), subject=_subject(msg),
                 from_name=from_name, from_addr=from_addr, to_addr=(to_addrs[0] if to_addrs else None),
                 date=_parse_date(msg), seen=seen, flagged=flagged, has_attachments=has_attachments,
             ))
@@ -736,7 +787,7 @@ class Pop3MailClient(IncomingMailClient):
             from_name, from_addr = _address_from_header(msg, "from")
             to_addrs = _addr_list_from_header(msg, "to")
             messages.append(MessageSummary(
-                uid=str(num), subject=str(msg.get("subject", "")).strip() or "(без темы)",
+                uid=str(num), subject=_subject(msg),
                 from_name=from_name, from_addr=from_addr, to_addr=(to_addrs[0] if to_addrs else None),
                 date=_parse_date(msg), seen=None, flagged=None, has_attachments=None,
                 uidl=(uidl_map.get(num) if uidl_map else None),

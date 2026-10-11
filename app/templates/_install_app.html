@@ -5,7 +5,8 @@
     показываем кнопку, она открывает системный диалог установки;
   - iPhone/iPad (Safari такого события не присылает) — подсказка «Поделиться →
     На экран „Домой“»; push на iOS работают только у установленного PWA;
-  - уже установлено (display-mode: standalone) — не показываем.
+  - уже установлено (открыто не обычной вкладкой, или браузер однажды открыл
+    сайт как приложение / сообщил об установке — запоминается) — не показываем.
   dismissible=true (главная) — только на сенсорных устройствах, с крестиком,
   закрытие запоминается в браузере.
 #}
@@ -30,9 +31,20 @@
   var box = document.getElementById("installApp");
   if (!box) return;
   var DISMISS_KEY = "installAppDismissed";
-  var standalone = window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
+  var INSTALLED_KEY = "appInstalled";
+  // Установленное приложение браузеры открывают по-разному: Chrome —
+  // standalone, но Яндекс Браузер/Samsung Internet/Chrome без сервисов
+  // Google могут дать minimal-ui или fullscreen. Поэтому «установлено» —
+  // любой режим, кроме обычной вкладки (display-mode: browser); на iOS —
+  // navigator.standalone; android-app:// — открыто из Android-приложения.
+  var browserMode = window.matchMedia("(display-mode: browser)");
+  var standalone = (browserMode.media !== "not all" && !browserMode.matches)  // "not all" — браузер не знает display-mode
+    || window.navigator.standalone === true
+    || document.referrer.indexOf("android-app://") === 0;
+  if (standalone) localStorage.setItem(INSTALLED_KEY, "1");
+  if (localStorage.getItem(INSTALLED_KEY)) return;
   var closeBtn = document.getElementById("installAppClose");
-  if (standalone || (closeBtn && localStorage.getItem(DISMISS_KEY))) return;
+  if (closeBtn && localStorage.getItem(DISMISS_KEY)) return;
   // На главной (с крестиком) — только на телефонах/планшетах: на компьютере
   // Chrome тоже предлагает установку, но баннер «на телефон» там лишний.
   if (closeBtn && !window.matchMedia("(pointer: coarse)").matches) return;
@@ -52,7 +64,10 @@
       box.hidden = true;
     });
   });
-  window.addEventListener("appinstalled", function () { box.hidden = true; });
+  window.addEventListener("appinstalled", function () {
+    localStorage.setItem(INSTALLED_KEY, "1");
+    box.hidden = true;
+  });
 
   // iPadOS представляется как Mac — отличаем по сенсорному экрану.
   var ios = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);

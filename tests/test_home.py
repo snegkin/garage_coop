@@ -299,6 +299,9 @@ def test_install_app_block_on_home_and_profile(db, client):
     from tests.conftest import make_person, make_user, login
     home = client.get("/").get_data(as_text=True)
     assert 'id="installApp"' in home and 'id="installAppClose"' in home
+    # hidden — на обёртке без d-flex: display:flex !important перебивал hidden,
+    # блок был виден всегда и не закрывался.
+    assert '<div id="installApp" hidden>' in home
 
     make_user(db, "pwa_user", "pass12345", person=make_person(db))
     db.commit()

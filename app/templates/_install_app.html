@@ -10,7 +10,10 @@
   dismissible=true (главная) — только на сенсорных устройствах, с крестиком,
   закрытие запоминается в браузере.
 #}
-<div class="alert alert-info d-flex align-items-start gap-2" id="installApp" hidden>
+{# hidden — на обёртке без d-flex: .d-flex (display:flex !important) перебивает
+   атрибут hidden, и блок был виден всегда, а крестик его не скрывал. #}
+<div id="installApp" hidden>
+<div class="alert alert-info d-flex align-items-start gap-2">
   <img src="{{ url_for('static', filename='icon-192.png') }}" alt="" width="40" height="40" class="rounded flex-shrink-0">
   <div class="flex-grow-1">
     <div class="fw-semibold">{{ _("Приложение на телефон") }}</div>
@@ -25,6 +28,7 @@
   {% if dismissible %}
   <button type="button" class="btn-close" id="installAppClose" aria-label="{{ _('Закрыть') }}"></button>
   {% endif %}
+</div>
 </div>
 <script>
 (function () {

@@ -820,21 +820,93 @@ def test_compose_reply_prefills_recipient_subject_and_quotes_body(db, client, mo
     assert "&gt; Текст письма" in body
 
 
-def test_compose_reply_quotes_text_not_html_from_plain_part(db, client, monkeypatch):
-    """Рассылка с HTML в text/plain: в цитате — текст, без тегов, CSS и сущностей."""
-    raw = (
-        "From: x@example.com\r\nSubject: s\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n"
-        "<!DOCTYPE html><html><head><style>p{color:red}</style></head>"
-        "<body><p>Добрый день!</p><p>Цена &lt; 100&nbsp;руб</p></body></html>"
-    ).encode()
+_HTML_NEWSLETTER = (
+    "From: Технологии добра <news@example.com>\r\nSubject: Новости\r\n"
+    "Message-ID: <orig-1@example.com>\r\nReferences: <root@example.com>\r\n"
+    "Date: Fri, 04 Sep 2026 12:00:00 +0300\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n"
+    # HTML в text/plain — как у реальной рассылки
+    "<!DOCTYPE html><html><head><style>p{color:red}</style></head>"
+    "<body><p>Добрый день!</p><p>Цена &lt; 100&nbsp;руб</p><script>alert(1)</script></body></html>"
+).encode()
+
+
+def test_compose_reply_to_html_message_shows_quote_preview_not_raw_html(db, client, monkeypatch):
     _make_board(db)
     _make_settings(db)
-    _mock_imap(monkeypatch, {1: raw})
+    _mock_imap(monkeypatch, {1: _HTML_NEWSLETTER})
     login(client, "board1", "pass1234")
 
     body = client.get("/mailbox/compose?reply_to=1").get_data(as_text=True)
-    assert "&gt; Добрый день!" in body and "&gt; Цена &lt; 100 руб" in body
-    assert "DOCTYPE" not in body and "color:red" not in body and "&lt;p&gt;" not in body
+    textarea = re.search(r'<textarea id="compose-body"[^>]*>(.*?)</textarea>', body, re.S).group(1)
+    assert textarea == ""  # HTML-оригинал — не в поле, а превью ниже
+    assert 'id="quoteFrame"' in body and 'name="quote_original"' in body
+    assert 'name="in_reply_to" value="&lt;orig-1@example.com&gt;"' in body
+    assert 'value="&lt;root@example.com&gt; &lt;orig-1@example.com&gt;"' in body
+
+
+def test_compose_reply_sends_html_quote_and_thread_headers(db, client, monkeypatch):
+    _make_board(db)
+    _make_settings(db)
+    _mock_imap(monkeypatch, {1: _HTML_NEWSLETTER})
+    fake_smtp = _mock_smtp(monkeypatch)
+    login(client, "board1", "pass1234")
+
+    resp = client.post("/mailbox/compose?reply_to=1", data={
+        "to": "news@example.com", "subject": "Re: Новости", "body": "Спасибо, **получили**.",
+        "quote_original": "1", "in_reply_to": "<orig-1@example.com>",
+        "references": "<root@example.com> <orig-1@example.com>",
+    })
+    assert resp.get_json()["ok"] is True
+    sent = fake_smtp.sent[0]
+    assert sent["In-Reply-To"] == "<orig-1@example.com>"
+    assert sent["References"] == "<root@example.com> <orig-1@example.com>"
+    html = sent.get_body(preferencelist=("html",)).get_content()
+    assert "<strong>получили</strong>" in html
+    assert "Технологии добра писал(а):" in html and "<blockquote" in html and "Добрый день!" in html
+    assert "<script" not in html and "color:red" not in html
+    text = sent.get_body(preferencelist=("plain",)).get_content()
+    assert text.startswith("Спасибо, **получили**.")
+    assert "> Добрый день!" in text and "> Цена < 100 руб" in text and "<p>" not in text
+
+
+def test_compose_reply_without_quote_checkbox_sends_only_own_text(db, client, monkeypatch):
+    _make_board(db)
+    _make_settings(db)
+    _mock_imap(monkeypatch, {1: _HTML_NEWSLETTER})
+    fake_smtp = _mock_smtp(monkeypatch)
+    login(client, "board1", "pass1234")
+
+    client.post("/mailbox/compose?reply_to=1", data={"to": "news@example.com", "subject": "Re", "body": "Ок"})
+    html = fake_smtp.sent[0].get_body(preferencelist=("html",)).get_content()
+    assert "Ок" in html and "Добрый день!" not in html
+
+
+def test_compose_forward_html_message_keeps_markup_without_quote_markers(db, client, monkeypatch):
+    _make_board(db)
+    _make_settings(db)
+    _mock_imap(monkeypatch, {1: _HTML_NEWSLETTER})
+    fake_smtp = _mock_smtp(monkeypatch)
+    login(client, "board1", "pass1234")
+
+    client.post("/mailbox/compose?forward=1", data={
+        "to": "other@example.com", "subject": "Fwd: Новости", "body": "", "quote_original": "1",
+    })
+    sent = fake_smtp.sent[0]
+    assert sent["In-Reply-To"] is None
+    html = sent.get_body(preferencelist=("html",)).get_content()
+    assert "Пересланное сообщение" in html and "<p>Добрый день!</p>" in html and "<blockquote" not in html
+    text = sent.get_body(preferencelist=("plain",)).get_content()
+    assert "Пересланное сообщение" in text and "Добрый день!" in text and "> " not in text
+
+
+def test_compose_reply_to_plain_message_quotes_in_textarea(db, client, monkeypatch):
+    _make_board(db)
+    _make_settings(db)
+    _mock_imap(monkeypatch, {1: _test_email(subject="Собрание").as_bytes()})
+    login(client, "board1", "pass1234")
+
+    body = client.get("/mailbox/compose?reply_to=1").get_data(as_text=True)
+    assert "&gt; Текст письма" in body and 'id="quoteFrame"' not in body
 
 
 def test_inbox_joins_split_encoded_words_in_sender_name(db, client, monkeypatch):

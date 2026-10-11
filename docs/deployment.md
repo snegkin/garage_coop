@@ -178,19 +178,11 @@ cron-скрипт, а не фоновый поток внутри веб-про�
 * * * * * /путь/к/проекту/scripts/poll_ewelink.sh
 ```
 
-Тот же принцип (venv, `flock`, лог), но лог `instance/logs/poll_ewelink.log`
-растёт быстро при опросе раз в минуту — стоит добавить в logrotate, например:
-
-```
-# /etc/logrotate.d/garage_coop
-/путь/к/проекту/instance/logs/poll_ewelink.log {
-    daily
-    rotate 14
-    compress
-    missingok
-    notifempty
-}
-```
+Тот же принцип (venv, `flock`, лог `instance/logs/poll_ewelink.log`). Логи
+всех cron-скриптов ротируются сами (`rotate_log` в `scripts/_common.sh`):
+больше 5 МБ — лог сдвигается в `*.log.1` … `*.log.3`, самый старый удаляется;
+настраивается переменными `LOG_MAX_BYTES`/`LOG_KEEP` в `.env`. Отдельный
+logrotate не нужен.
 
 Запустить вручную для проверки: `python3 scripts/poll_ewelink.py`.
 
@@ -202,8 +194,7 @@ cron-скрипт, а не фоновый поток внутри веб-про�
 * * * * * /путь/к/проекту/scripts/dvr_snapshot.sh
 ```
 
-Тот же принцип (venv, `flock`, лог `instance/logs/dvr_snapshot.log` — тоже
-растёт быстро, см. logrotate-пример выше для `poll_ewelink.log`). Требует
+Тот же принцип (venv, `flock`, лог `instance/logs/dvr_snapshot.log`, ротируется сам — см. выше). Требует
 системный бинарник `ffmpeg` (не Python-пакет, не в `requirements.txt`,
 устанавливается отдельно — например `apt install ffmpeg`); без него скрипт
 сразу завершается с понятной ошибкой в лог, ничего не пытаясь. Запустить
@@ -343,9 +334,8 @@ POP3 сам флагов не хранит, поэтому «прочитано�
 * * * * * /путь/к/проекту/scripts/poll_telegram.sh
 ```
 
-Тот же принцип (venv, `flock`, лог `instance/logs/poll_telegram.log` —
-растёт быстро при опросе раз в минуту, см. logrotate-пример выше для
-`poll_ewelink.log`). Без бота, настроенного на `/telegram/` (только
+Тот же принцип (venv, `flock`, лог `instance/logs/poll_telegram.log`, ротируется сам —
+см. выше про `poll_ewelink.log`). Без бота, настроенного на `/telegram/` (только
 председатель), скрипт просто ничего не делает — не ошибка. Запустить
 вручную для проверки: `python3 scripts/poll_telegram.py`.
 

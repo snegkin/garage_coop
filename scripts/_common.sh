@@ -62,16 +62,45 @@ else
     PYTHON="$(command -v python3)"
 fi
 
+# rotate_log <файл> — если лог больше LOG_MAX_BYTES (по умолчанию 5 МБ),
+# сдвигает его в <файл>.1, .1 → .2 … до LOG_KEEP (по умолчанию 3) архивов,
+# самый старый удаляется. Архивы не сжимаются — их показывает просмотр логов
+# на сайте (app/system_logs.py понимает имена *.log.N). Два одновременных
+# запуска одного скрипта (раз в минуту — практически не бывает) в худшем
+# случае ротируют лишний раз, строки при этом не теряются: mv атомарен, а
+# уже открытый на запись файл продолжает писаться в архив.
+rotate_log() {
+    file="$1"
+    max_bytes="${LOG_MAX_BYTES:-5242880}"
+    keep="${LOG_KEEP:-3}"
+    [ -f "$file" ] || return 0
+    size=$(wc -c < "$file" 2>/dev/null || echo 0)
+    [ "$size" -gt "$max_bytes" ] || return 0
+    i="$keep"
+    while [ "$i" -gt 1 ]; do
+        prev=$((i - 1))
+        if [ -f "$file.$prev" ]; then
+            mv -f "$file.$prev" "$file.$i"
+        fi
+        i=$prev
+    done
+    mv -f "$file" "$file.1"
+}
+
 # run_locked <имя> [аргументы] — запускает scripts/<имя>.py с логом в
 # $LOG_DIR/<имя>.log. flock -n на $INSTANCE_DIR/<имя>.lock: если предыдущий
 # запуск этого же скрипта этого же кооператива ещё не завершился (подвис на
 # таймауте внешнего сервиса, ручной запуск + cron день в день), новый просто
 # пропускается, а не встаёт в очередь и не копится. Если flock в системе нет
 # (минимальные образы) — выполняем без блокировок.
+#
+# Перед запуском лог ротируется по размеру (rotate_log): logrotate на
+# сервере не обязателен — лог poll_ewelink иначе дорастал до десятков МБ.
 run_locked() {
     name="$1"
     shift
     log_file="$LOG_DIR/$name.log"
+    rotate_log "$log_file"
     if ! command -v flock >/dev/null 2>&1; then
         exec "$PYTHON" "$SCRIPT_DIR/$name.py" "$@" >> "$log_file" 2>&1
     fi

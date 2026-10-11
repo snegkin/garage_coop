@@ -1,4 +1,5 @@
 import datetime as dt
+import json
 from decimal import Decimal
 
 from flask import Blueprint, render_template, redirect, url_for, Response
@@ -46,6 +47,39 @@ self.addEventListener('notificationclick', function (event) {
 @bp.route("/service-worker.js")
 def service_worker():
     return Response(_SERVICE_WORKER_JS, mimetype="application/javascript")
+
+
+@bp.route("/manifest.webmanifest")
+def web_manifest():
+    """Манифест PWA: с ним Chrome на Android предлагает «Установить
+    приложение» (иконка на рабочем столе, без адресной строки), и из него же
+    Bubblewrap собирает APK (Trusted Web Activity). Маршрут, а не файл в
+    static: название — из карточки кооператива, у каждого кооператива с
+    одного кода своё. Иконки — знак из static/logo.png без надписи (на
+    размере иконки она не читается)."""
+    from .models import Cooperative
+
+    coop = database.db_session.query(Cooperative).first()
+    name = (coop.short_name or coop.full_name) if coop and (coop.short_name or coop.full_name) else "ГСК"
+    icon = lambda filename, size, purpose: {  # noqa: E731
+        "src": url_for("static", filename=filename), "sizes": f"{size}x{size}", "type": "image/png", "purpose": purpose,
+    }
+    manifest = {
+        "name": name,
+        "short_name": name,
+        "lang": "ru",
+        "start_url": "/",
+        "scope": "/",
+        "display": "standalone",
+        "background_color": "#ffffff",
+        "theme_color": "#0d6efd",  # как <meta name="theme-color"> в base.html
+        "icons": [
+            icon("icon-192.png", 192, "any"),
+            icon("icon-512.png", 512, "any"),
+            icon("icon-maskable-512.png", 512, "maskable"),
+        ],
+    }
+    return Response(json.dumps(manifest, ensure_ascii=False), mimetype="application/manifest+json")
 
 
 @bp.route("/")

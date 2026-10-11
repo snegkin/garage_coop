@@ -265,3 +265,20 @@ def test_login_required_redirect_still_returns_to_originally_requested_page(db, 
     )
     assert resp.status_code == 302
     assert resp.headers["Location"] == "/wiki/"
+
+
+def test_web_manifest_is_public_and_names_cooperative(db, client):
+    """PWA-манифест (main.web_manifest) — без входа: браузер запрашивает его
+    ещё на странице логина, чтобы предложить установку."""
+    from app.models import Cooperative
+    db.add(Cooperative(full_name="Гаражно-строительный кооператив «Тест»", short_name="ГСК Тест", inn="7610037501", kpp="761001001", ogrn="1027600000000"))
+    db.commit()
+
+    resp = client.get("/manifest.webmanifest")
+    assert resp.status_code == 200 and resp.mimetype == "application/manifest+json"
+    data = resp.get_json(force=True)
+    assert data["name"] == "ГСК Тест" and data["display"] == "standalone" and data["start_url"] == "/"
+    for icon in data["icons"]:
+        assert client.get(icon["src"]).status_code == 200
+    assert {i["purpose"] for i in data["icons"]} == {"any", "maskable"}
+    assert 'rel="manifest"' in client.get("/").get_data(as_text=True)

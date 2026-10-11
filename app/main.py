@@ -2,7 +2,7 @@ import datetime as dt
 import json
 from decimal import Decimal
 
-from flask import Blueprint, render_template, redirect, url_for, Response
+from flask import Blueprint, render_template, redirect, url_for, Response, current_app
 from sqlalchemy import func
 
 from . import database
@@ -35,11 +35,23 @@ self.addEventListener('push', function (event) {
   var data = {};
   try { data = event.data.json(); } catch (e) {}
   var title = data.title || 'Уведомление';
-  event.waitUntil(self.registration.showNotification(title, { body: data.body || '' }));
+  event.waitUntil(self.registration.showNotification(title, {
+    body: data.body || '',
+    icon: '/static/icon-192.png',
+    data: { url: data.url || '/' }
+  }));
 });
+// Клик — в уже открытое окно сайта/приложения (в Android-приложении это то
+// же окно TWA), если оно есть, иначе — новое.
 self.addEventListener('notificationclick', function (event) {
   event.notification.close();
-  event.waitUntil(clients.openWindow('/'));
+  var url = (event.notification.data && event.notification.data.url) || '/';
+  event.waitUntil(clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function (list) {
+    for (var i = 0; i < list.length; i++) {
+      if (url === '/' && 'focus' in list[i]) return list[i].focus();
+    }
+    return clients.openWindow(url);
+  }));
 });
 """
 
@@ -80,6 +92,33 @@ def web_manifest():
         ],
     }
     return Response(json.dumps(manifest, ensure_ascii=False), mimetype="application/manifest+json")
+
+
+@bp.route("/.well-known/assetlinks.json")
+def asset_links():
+    """Digital Asset Links: подтверждение, что Android-приложение (TWA, см.
+    docs/android-app.md) и сайт — одного владельца. Без него приложение
+    открывает сайт с адресной строкой браузера. Формат — как генерирует
+    Bubblewrap (DigitalAssetLinks.generateAssetLinks)."""
+    package = current_app.config["ANDROID_APP_PACKAGE"]
+    fingerprints = current_app.config["ANDROID_APP_SHA256"]
+    links = []
+    if package and fingerprints:
+        links.append({
+            "relation": ["delegate_permission/common.handle_all_urls"],
+            "target": {"namespace": "android_app", "package_name": package, "sha256_cert_fingerprints": fingerprints},
+        })
+    return Response(json.dumps(links), mimetype="application/json")
+
+
+@bp.route("/privacy")
+def privacy():
+    """Политика конфиденциальности — общедоступна: её адрес обязателен в
+    карточке приложения в Google Play и RuStore (docs/android-app.md)."""
+    from .models import Cooperative
+
+    coop = database.db_session.query(Cooperative).first()
+    return render_template("privacy.html", coop=coop)
 
 
 @bp.route("/")

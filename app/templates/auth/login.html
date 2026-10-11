@@ -11,6 +11,7 @@
         {% include "auth/_login_form.html" with context %}
       </div>
     </div>
+    <div class="text-center small mt-2"><a class="text-muted" href="{{ url_for('main.privacy') }}">{{ _("Политика конфиденциальности") }}</a></div>
   </div>
 </div>
 {% endblock %}

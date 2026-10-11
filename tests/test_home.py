@@ -282,3 +282,26 @@ def test_web_manifest_is_public_and_names_cooperative(db, client):
         assert client.get(icon["src"]).status_code == 200
     assert {i["purpose"] for i in data["icons"]} == {"any", "maskable"}
     assert 'rel="manifest"' in client.get("/").get_data(as_text=True)
+
+
+def test_asset_links_empty_until_android_app_configured(app, client):
+    assert client.get("/.well-known/assetlinks.json").get_json() == []
+
+
+def test_asset_links_lists_package_and_fingerprints(app, client):
+    app.config["ANDROID_APP_PACKAGE"] = "ru.example.coop"
+    app.config["ANDROID_APP_SHA256"] = ["AA:BB", "CC:DD"]
+    data = client.get("/.well-known/assetlinks.json").get_json()
+    assert data == [{
+        "relation": ["delegate_permission/common.handle_all_urls"],
+        "target": {"namespace": "android_app", "package_name": "ru.example.coop", "sha256_cert_fingerprints": ["AA:BB", "CC:DD"]},
+    }]
+
+
+def test_privacy_page_is_public_and_linked_from_login(db, client):
+    from app.models import Cooperative
+    db.add(Cooperative(full_name="ГСК «Тест»", inn="7610037501", kpp="761001001", ogrn="1027600000000", email="board@example.com"))
+    db.commit()
+    body = client.get("/privacy").get_data(as_text=True)
+    assert "Политика конфиденциальности" in body and "7610037501" in body and "board@example.com" in body
+    assert "/privacy" in client.get("/auth/login").get_data(as_text=True)

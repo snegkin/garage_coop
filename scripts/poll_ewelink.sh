@@ -5,9 +5,8 @@
 # гранулярность нативно, отдельный планировщик внутри приложения не нужен):
 #   * * * * * /path/to/project/scripts/poll_ewelink.sh
 #
-# Логи копятся в <INSTANCE_DIR>/logs/poll_ewelink.log — сама папка logs/ будет
-# создана при первом запуске, если её ещё нет. Лог-файл при опросе раз в
-# минуту растёт быстро — см. docs/deployment.md, раздел «Автоматизация», про logrotate.
+# Логи копятся в <INSTANCE_DIR>/logs/poll_ewelink.log и ротируются по размеру
+# (rotate_log в _common.sh) — logrotate не нужен.
 
 set -eu
 

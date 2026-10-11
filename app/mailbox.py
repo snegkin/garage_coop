@@ -17,8 +17,7 @@ HTML-тело письма рендерится в песочнице (iframe sa
 import datetime as dt
 import io
 import re
-
-import bleach
+from html.parser import HTMLParser
 from sqlalchemy.exc import IntegrityError
 
 from flask import Blueprint, render_template, request, redirect, url_for, flash, abort, send_file, jsonify, g
@@ -103,15 +102,54 @@ EXTRA_FOLDERS = (
 )
 
 
+class _HtmlTextExtractor(HTMLParser):
+    """Текст HTML-письма для цитаты: содержимое head/style/script/title
+    пропускается (bleach.clean(strip=True) оставлял его видимым текстом — CSS
+    рассылки в начале цитаты), блочные теги дают переносы строк, сущности
+    (&lt; &nbsp;…) раскодированы — в textarea нужен текст, а не HTML."""
+    _SKIP = {"head", "style", "script", "title", "xml"}
+    _BREAK = {"br", "tr", "li", "div", "table", "ul", "ol", "blockquote", "hr"}
+    _PARAGRAPH = {"p", "h1", "h2", "h3", "h4", "h5", "h6"}
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.parts: list[str] = []
+        self._skip_depth = 0
+
+    def handle_starttag(self, tag, attrs):
+        if tag in self._SKIP:
+            self._skip_depth += 1
+        elif tag in self._BREAK:
+            self.parts.append("\n")
+        elif tag in self._PARAGRAPH:
+            self.parts.append("\n\n")
+        elif tag == "td":
+            self.parts.append(" ")
+
+    def handle_endtag(self, tag):
+        if tag in self._SKIP:
+            self._skip_depth = max(0, self._skip_depth - 1)
+        elif tag in self._BREAK:
+            self.parts.append("\n")
+        elif tag in self._PARAGRAPH:
+            self.parts.append("\n\n")
+
+    def handle_data(self, data):
+        if not self._skip_depth:
+            self.parts.append(data)
+
+
 def _html_to_text(html: str) -> str:
-    """Грубая конвертация HTML в текст для цитирования оригинала письма,
-    у которого нет text/plain-альтернативы (см. compose(): reply_to/forward).
-    Не претендует на точность — только чтобы в цитате не остались теги,
-    переносы строк расставлены по <br>/</p>, а не всё одним куском."""
-    text = re.sub(r"(?i)<br\s*/?>", "\n", html)
-    text = re.sub(r"(?i)</p\s*>", "\n\n", text)
-    text = bleach.clean(text, tags=[], strip=True)
-    text = re.sub(r"[ \t]+", " ", text)
+    """Конвертация HTML в текст для цитирования оригинала письма (см.
+    compose(): reply_to/forward). Не претендует на точность вёрстки — только
+    чтобы в цитате не было тегов, CSS и сущностей, а абзацы не слиплись."""
+    parser = _HtmlTextExtractor()
+    parser.feed(html)
+    parser.close()
+    text = "".join(parser.parts).replace("\xa0", " ")
+    # Отступы вёрстки (переносы и пробелы между тегами) — в одиночные пробелы.
+    lines = [re.sub(r"[ \t\r\f\v]+", " ", line).strip() for line in text.split("\n")]
+    text = "\n".join(lines)
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
 

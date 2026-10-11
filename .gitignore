@@ -20,3 +20,7 @@ venv/
 
 # Личные настройки Claude Code (не для команды)
 .claude/settings.local.json
+
+# Ключи подписи Android-приложения (docs/android-app.md) — никогда в git
+*.keystore
+*.jks

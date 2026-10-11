@@ -99,8 +99,13 @@ def create_app(config_class=Config):
     # setup_wizard.accounts_create — массово созданные учётные записи со
     # случайным паролем): пока флаг не снят, любая другая страница
     # редиректит сюда. static — иначе сломались бы CSS/JS/favicon даже на
-    # самой странице смены пароля.
-    _PASSWORD_CHANGE_ALLOWED_ENDPOINTS = {"auth.force_change_password", "auth.logout", "static"}
+    # самой странице смены пароля. Служебные адреса PWA/Android-приложения
+    # (манифест, service worker, assetlinks) и политика конфиденциальности —
+    # тоже: браузеру и магазинам приложений нужен сам файл, а не редирект.
+    _PASSWORD_CHANGE_ALLOWED_ENDPOINTS = {
+        "auth.force_change_password", "auth.logout", "static",
+        "main.web_manifest", "main.service_worker", "main.asset_links", "main.privacy",
+    }
 
     @app.before_request
     def _enforce_password_change():

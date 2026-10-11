@@ -119,16 +119,6 @@ class Config:
     # статика — тот же принцип, что и у UPLOAD_FOLDER.
     DVR_SNAPSHOT_FOLDER = os.environ.get("DVR_SNAPSHOT_FOLDER") or os.path.join(INSTANCE_DIR, "dvr")
 
-    # Android-приложение кооператива (TWA из PWA, см. docs/android-app.md):
-    # имя пакета и SHA-256 отпечатки ключей подписи (через запятую — свой
-    # ключ загрузки и ключ подписи Google Play, если он подписывает сам).
-    # По ним отдаётся /.well-known/assetlinks.json — без него приложение
-    # открывается с адресной строкой браузера, а не на весь экран.
-    ANDROID_APP_PACKAGE = os.environ.get("ANDROID_APP_PACKAGE", "").strip()
-    ANDROID_APP_SHA256 = [
-        fp.strip().upper() for fp in os.environ.get("ANDROID_APP_SHA256", "").split(",") if fp.strip()
-    ]
-
     # Ограничение размера входящего запроса (загрузка файлов и т.д.) —
     # без этого анонимный/залогиненный пользователь может положить сервер
     # запросами с гигантскими телами. 25 МБ с запасом покрывает фото/сканы/протоколы.

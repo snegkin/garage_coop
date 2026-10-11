@@ -1,8 +1,9 @@
 """Инициализация БД: движок и scoped_session, подключаемые к жизненному циклу запроса Flask."""
 import logging
 import os
+import re
 
-from sqlalchemy import create_engine, event, inspect
+from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.orm import scoped_session, sessionmaker
 
 logger = logging.getLogger(__name__)
@@ -62,6 +63,11 @@ def run_migrations(database_uri: str):
     # create_app() вызывает каждый cron-скрипт, раз в минуту. Глушим на
     # время миграций; о реально применённых сообщает одна строка в
     # _run_migrations.
+    # Быстрый путь: схема уже на последней ревизии (почти каждый запуск) —
+    # Alembic не загружаем вовсе. Его upgrade() даже вхолостую импортирует все
+    # ~80 файлов миграций — ~1,5 с на каждый запуск cron-скрипта.
+    if _is_at_head(database_uri):
+        return
     alembic_logger = logging.getLogger("alembic")
     previous_level = alembic_logger.level
     alembic_logger.setLevel(logging.WARNING)
@@ -69,6 +75,44 @@ def run_migrations(database_uri: str):
         _run_migrations(database_uri)
     finally:
         alembic_logger.setLevel(previous_level)
+
+
+_REVISION_RE = re.compile(r"^revision\b[^=]*=\s*['\"]([^'\"]+)['\"]", re.MULTILINE)
+_DOWN_REVISION_RE = re.compile(r"^down_revision\b[^=]*=\s*(.+)$", re.MULTILINE)
+
+
+def _head_revisions() -> set[str]:
+    """Head-ревизии по тексту файлов миграций (revision/down_revision), без
+    их импорта: ревизии, на которые не ссылается ни один down_revision."""
+    versions_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "migrations", "versions")
+    revisions, parents = set(), set()
+    for name in os.listdir(versions_dir):
+        if not name.endswith(".py"):
+            continue
+        with open(os.path.join(versions_dir, name), encoding="utf-8") as f:
+            source = f.read()
+        rev = _REVISION_RE.search(source)
+        down = _DOWN_REVISION_RE.search(source)
+        if rev is None or down is None:
+            return set()  # непривычный формат файла — пусть разбирается сам Alembic
+        revisions.add(rev.group(1))
+        parents.update(re.findall(r"['\"]([^'\"]+)['\"]", down.group(1)))
+    return revisions - parents
+
+
+def _is_at_head(database_uri: str) -> bool:
+    heads = _head_revisions()
+    if not heads:
+        return False
+    probe_engine = create_engine(database_uri, connect_args={"check_same_thread": False})
+    try:
+        with probe_engine.connect() as conn:
+            if not inspect(conn).has_table("alembic_version"):
+                return False
+            current = {row[0] for row in conn.execute(text("SELECT version_num FROM alembic_version"))}
+    finally:
+        probe_engine.dispose()
+    return current == heads
 
 
 def _run_migrations(database_uri: str):

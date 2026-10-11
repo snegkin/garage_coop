@@ -2506,7 +2506,7 @@ class PowerPhaseReading(Base):
     __tablename__ = "power_phase_reading"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    device_id: Mapped[int] = mapped_column(ForeignKey("power_phase_device.id", ondelete="CASCADE"), index=True)
+    device_id: Mapped[int] = mapped_column(ForeignKey("power_phase_device.id", ondelete="CASCADE"))  # индекс — составной (device_id, ts) ниже
     ts: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.utcnow, index=True)
     power_w: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
     voltage_v: Mapped[Decimal | None] = mapped_column(Numeric(6, 2))

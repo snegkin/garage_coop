@@ -26,6 +26,7 @@ flow, приложение зарегистрировано на dev.ewelink.cc)
 """
 import datetime as dt
 import secrets
+from decimal import Decimal
 
 from flask import Blueprint, render_template, request, redirect, url_for, flash, session, jsonify
 from sqlalchemy import func, or_
@@ -43,6 +44,8 @@ HISTORY_FETCH_HOURS = 24 * 30  # период по умолчанию для З�
 HISTORY_VIEW_HOURS = 24 * 3  # период НАЧАЛЬНОГО масштаба графика (см. monitor.html) — узкое окно поверх уже загруженных HISTORY_FETCH_HOURS, чтобы сразу открывался читаемый недавний график, а не размазанный на весь месяц; раздвинуть/промотать до полных 30 дней можно прямо в браузере без перезагрузки
 MAX_CHART_POINTS = 8640  # точек на устройство в ответе history_data() — при опросе раз в 5 минут за HISTORY_FETCH_HOURS (30 дней) сырых точек ~8640, т.е. порог практически не прореживает дефолтный запрос (иначе даже начальный узкий масштаб HISTORY_VIEW_HOURS получил бы точку раз в ~29 минут вместо раз в ~5); прореживание реально включается только при вручную расширенном периоде за пределами 30 дней — без ограничения совсем график на таком периоде будет тормозить
 OAUTH_STATE_SESSION_KEY = "ewelink_oauth_state"
+RAW_READINGS_KEEP_DAYS = 90  # поминутные показания храним 3 месяца, дальше — почасовые (см. compact_old_readings)
+COMPACT_BATCH_GROUPS = 200  # (~2 с на пачку) устройство-часов за один прогон поллера — первый запуск разбирает накопившееся порциями
 
 
 def _parse_iso_utc(value: str | None) -> dt.datetime | None:
@@ -93,6 +96,67 @@ def reading_from_snapshot(device_id: int, snapshot, ts: dt.datetime) -> PowerPha
         sled_online=snapshot.sled_online,
         switch_on=snapshot.switch_on,
     )
+
+
+def _avg(values: list) -> Decimal | None:
+    values = [v for v in values if v is not None]
+    if not values:
+        return None
+    return (sum(Decimal(v) for v in values) / len(values)).quantize(Decimal("0.001"))
+
+
+def compact_old_readings(now: dt.datetime, max_groups: int = COMPACT_BATCH_GROUPS) -> int:
+    """Сворачивает поминутные показания старше RAW_READINGS_KEEP_DAYS в одну
+    запись на устройство-час (ts — начало часа): мощность/напряжение/ток —
+    средние по онлайн-снимкам, day/month_kwh и реле/LED — последний онлайн-
+    снимок часа; весь час офлайн — офлайн-отметка без значений (как пишет
+    reading_from_snapshot). Таблица та же — график истории и прочие запросы
+    работают без изменений, только точки за давние периоды реже.
+
+    Вызывается поллером на каждом прогоне (scripts/poll_ewelink.py): за раз —
+    не больше max_groups устройство-часов, так что накопившийся хвост (первый
+    запуск) разбирается порциями. Уже свёрнутый час — одна запись, повторно
+    не трогается. Возвращает число свёрнутых устройство-часов."""
+    cutoff = now - dt.timedelta(days=RAW_READINGS_KEEP_DAYS)
+    hour = func.strftime("%Y-%m-%d %H:00:00", PowerPhaseReading.ts)
+    groups = (
+        database.db_session.query(PowerPhaseReading.device_id, hour)
+        .filter(PowerPhaseReading.ts < cutoff)
+        .group_by(PowerPhaseReading.device_id, hour)
+        .having(func.count() > 1)
+        .limit(max_groups)
+        .all()
+    )
+    for device_id, hour_str in groups:
+        start = dt.datetime.strptime(hour_str, "%Y-%m-%d %H:%M:%S")
+        rows = (
+            database.db_session.query(PowerPhaseReading)
+            .filter(
+                PowerPhaseReading.device_id == device_id,
+                PowerPhaseReading.ts >= start,
+                PowerPhaseReading.ts < start + dt.timedelta(hours=1),
+            )
+            .order_by(PowerPhaseReading.ts)
+            .all()
+        )
+        online = [r for r in rows if r.is_online]
+        if online:
+            last = online[-1]
+            summary = PowerPhaseReading(
+                device_id=device_id, ts=start, is_online=True,
+                power_w=_avg([r.power_w for r in online]),
+                voltage_v=_avg([r.voltage_v for r in online]),
+                current_a=_avg([r.current_a for r in online]),
+                day_kwh=last.day_kwh, month_kwh=last.month_kwh,
+                sled_online=last.sled_online, switch_on=last.switch_on,
+            )
+        else:
+            summary = PowerPhaseReading(device_id=device_id, ts=start, is_online=False)
+        for r in rows:
+            database.db_session.delete(r)
+        database.db_session.add(summary)
+    database.db_session.commit()
+    return len(groups)
 
 
 def _get_or_create_account() -> EWeLinkAccount:

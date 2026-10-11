@@ -13,6 +13,11 @@ sqlite3 backup API (а не простой `cp`) — это безопасно �
 `cp`, который может скопировать файл в момент активной записи и получить
 повреждённую копию.
 
+Копия сжимается gzip (coop_ГГГГММДД_ЧЧММСС.db.gz) — SQLite-файл с
+показаниями и индексами сжимается ~в 5 раз за секунду; scripts/restore_db.py
+распаковывает сам, вручную — `gunzip -k`. Старые несжатые бэкапы (.db)
+остаются в ротации наравне со сжатыми.
+
 Хранит последние KEEP_BACKUPS копий (по умолчанию 30 — месяц ежедневных
 бэкапов), старые удаляет автоматически.
 
@@ -23,7 +28,9 @@ sqlite3 backup API (а не простой `cp`) — это безопасно �
 и добавляют в crontab.
 """
 import datetime as dt
+import gzip
 import os
+import shutil
 import sqlite3
 import sys
 
@@ -45,24 +52,39 @@ def backup() -> str:
 
     os.makedirs(BACKUP_DIR, exist_ok=True)
     timestamp = dt.datetime.now().strftime("%Y%m%d_%H%M%S")
-    backup_path = os.path.join(BACKUP_DIR, f"coop_{timestamp}.db")
+    backup_path = os.path.join(BACKUP_DIR, f"coop_{timestamp}.db.gz")
+    # Снимок — через backup API во временный .db (сжимать живой файл БД
+    # нельзя, см. докстринг), затем сжатие; ".tmp" — чтобы ни ротация, ни
+    # restore_db не приняли недописанный файл за бэкап.
+    snapshot_path = os.path.join(BACKUP_DIR, f"coop_{timestamp}.db.tmp")
 
     source = sqlite3.connect(DB_PATH)
-    dest = sqlite3.connect(backup_path)
+    dest = sqlite3.connect(snapshot_path)
     try:
         source.backup(dest)
     finally:
         dest.close()
         source.close()
 
+    try:
+        with open(snapshot_path, "rb") as raw, gzip.open(backup_path + ".tmp", "wb", compresslevel=6) as packed:
+            shutil.copyfileobj(raw, packed, 1024 * 1024)
+        os.replace(backup_path + ".tmp", backup_path)
+    finally:
+        os.remove(snapshot_path)
+
     return backup_path
+
+
+def is_backup_name(name: str) -> bool:
+    return name.startswith("coop_") and name.endswith((".db", ".db.gz"))
 
 
 def rotate_old_backups() -> int:
     if not os.path.isdir(BACKUP_DIR):
         return 0
     backups = sorted(
-        (f for f in os.listdir(BACKUP_DIR) if f.startswith("coop_") and f.endswith(".db")),
+        (f for f in os.listdir(BACKUP_DIR) if is_backup_name(f)),  # имя начинается с метки времени — сортировка по нему = по дате
     )
     to_delete = backups[:-KEEP_BACKUPS] if KEEP_BACKUPS > 0 else []
     for name in to_delete:

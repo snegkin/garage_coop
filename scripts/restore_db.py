@@ -3,7 +3,8 @@
 Восстановление БД из бэкапа, созданного scripts/backup_db.py.
 
 Без аргументов — показывает список доступных бэкапов в BACKUP_DIR (те же
-файлы coop_YYYYMMDD_HHMMSS.db) и ничего не меняет. Восстановление —
+файлы coop_YYYYMMDD_HHMMSS.db.gz, старые — .db) и ничего не меняет.
+Сжатые бэкапы распаковываются во временный файл сами. Восстановление —
 явное и обязательно подтверждается, т.к. перезаписывает текущую БД.
 
 Использование:
@@ -12,7 +13,7 @@
 
     # восстановить конкретный (по номеру из --list или по имени файла)
     python3 scripts/restore_db.py --restore 3
-    python3 scripts/restore_db.py --restore coop_20260829_030000.db
+    python3 scripts/restore_db.py --restore coop_20260829_030000.db.gz
 
     # восстановить самый свежий бэкап
     python3 scripts/restore_db.py --restore latest
@@ -29,6 +30,7 @@ BACKUP_DIR с пометкой pre_restore_ — так что откатить �
 """
 import argparse
 import datetime as dt
+import gzip
 import os
 import shutil
 import sqlite3
@@ -48,13 +50,13 @@ def list_backups() -> list[str]:
     if not os.path.isdir(BACKUP_DIR):
         return []
     return sorted(
-        f for f in os.listdir(BACKUP_DIR) if f.startswith("coop_") and f.endswith(".db")
+        f for f in os.listdir(BACKUP_DIR) if f.startswith("coop_") and f.endswith((".db", ".db.gz"))
     )
 
 
 def print_backups(backups: list[str]) -> None:
     if not backups:
-        print(f"В {BACKUP_DIR} нет бэкапов (файлов coop_*.db).")
+        print(f"В {BACKUP_DIR} нет бэкапов (файлов coop_*.db / coop_*.db.gz).")
         return
     print(f"Бэкапы в {BACKUP_DIR}:")
     for i, name in enumerate(backups, start=1):
@@ -84,7 +86,8 @@ def resolve_backup(selector: str, backups: list[str]) -> str:
             sys.exit(1)
         return backups[idx - 1]
 
-    name = selector if selector.endswith(".db") else f"{selector}.db"
+    candidates = [selector] if selector.endswith((".db", ".db.gz")) else [f"{selector}.db.gz", f"{selector}.db"]
+    name = next((c for c in candidates if c in backups), candidates[0])
     if name not in backups:
         print(f"Бэкап не найден: {name} (в {BACKUP_DIR}). См. --list.", file=sys.stderr)
         sys.exit(1)
@@ -105,6 +108,23 @@ def restore(backup_name: str, skip_confirm: bool) -> None:
     if not os.path.exists(backup_path):
         print(f"Файл бэкапа не найден: {backup_path}", file=sys.stderr)
         sys.exit(1)
+
+    if backup_name.endswith(".gz"):
+        # Сжатый бэкап (scripts/backup_db.py) — распаковываем во временный
+        # файл и дальше работаем с ним как с обычным .db.
+        unpacked_path = os.path.join(BACKUP_DIR, backup_name[:-len(".gz")] + ".unpacked")
+        with gzip.open(backup_path, "rb") as packed, open(unpacked_path, "wb") as raw:
+            shutil.copyfileobj(packed, raw, 1024 * 1024)
+        try:
+            _restore_from(unpacked_path, backup_name, skip_confirm)
+        finally:
+            if os.path.exists(unpacked_path):
+                os.remove(unpacked_path)
+    else:
+        _restore_from(backup_path, backup_name, skip_confirm)
+
+
+def _restore_from(backup_path: str, backup_name: str, skip_confirm: bool) -> None:
 
     if not verify_integrity(backup_path):
         print(

@@ -34,8 +34,8 @@
   5. Для КАЖДОГО регистратора — общий смонтированный кадр (сетка из
      последних снятых кадров ВСЕХ его камер сразу, см.
      _build_combined_snapshot и app.surveillance.combined_dir). Строится
-     ffmpeg (фильтр xstack, без масштабирования — в исходном разрешении
-     каждой камеры) — без Pillow, чтобы не тащить ещё одну
+     ffmpeg (фильтр xstack, без масштабирования — в разрешении сохранённых
+     кадров камер, см. SNAPSHOT_SCALE_FILTER) — без Pillow, чтобы не тащить ещё одну
      Python-зависимость только ради этого. Берутся кадры, которые
      реально есть на диске, даже если конкретно в этом прогоне съёмка
      камеры не удалась (тот же принцип, что last_snapshot_at) — иначе
@@ -68,6 +68,10 @@ from app.surveillance import (
 
 FFMPEG_TIMEOUT_SECONDS = 20
 HISTORY_RETENTION_HOURS = 24  # глубина хранения истории кадров (и по камере, и общей на регистратор)
+# Кадр уменьшается до 75% по каждой стороне (2304×1296 → 1728×972): мелкие
+# детали полного разрешения — шум матрицы/сжатия камеры, а файл (и история
+# за сутки, и общий кадр, собранный из этих же файлов) становится ~в 1,5 раза меньше.
+SNAPSHOT_SCALE_FILTER = "scale=iw*3/4:-1"
 
 
 def _utcnow() -> dt.datetime:
@@ -109,7 +113,7 @@ def _capture(camera: DvrCamera) -> str | None:
     url = rtsp_url(camera.recorder, camera)
     try:
         result = subprocess.run(
-            ["ffmpeg", "-y", "-rtsp_transport", "tcp", "-i", url, "-vframes", "1", tmp_path],
+            ["ffmpeg", "-y", "-rtsp_transport", "tcp", "-i", url, "-vframes", "1", "-vf", SNAPSHOT_SCALE_FILTER, tmp_path],
             capture_output=True, timeout=FFMPEG_TIMEOUT_SECONDS,
         )
     except subprocess.TimeoutExpired:
@@ -144,7 +148,7 @@ def _capture(camera: DvrCamera) -> str | None:
 def _build_combined_snapshot(image_paths: list[str], out_path: str) -> bool:
     """Монтирует уже отснятые кадры камер (image_paths) в одну сетку NxM
     через ffmpeg (фильтр xstack) БЕЗ масштабирования — каждая ячейка в
-    полном разрешении, как снята камерой. xstack сам выравнивает тайлы по
+    разрешении сохранённого кадра камеры (см. SNAPSHOT_SCALE_FILTER). xstack сам выравнивает тайлы по
     сетке через символьные ссылки w{i}/h{i} на реальные размеры конкретных
     входов (официальный приём ffmpeg для сетки без единого общего размера
     тайла: x — сумма ширин предыдущих тайлов ТОЙ ЖЕ строки, y — сумма

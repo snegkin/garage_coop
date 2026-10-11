@@ -15,6 +15,7 @@ HTML-тело письма рендерится в песочнице (iframe sa
 внешних картинок (защита от трекинг-пикселей).
 """
 import datetime as dt
+import html as html_module
 import io
 import re
 from html.parser import HTMLParser
@@ -29,7 +30,7 @@ from .auth import roles_required, ROLE_LEVEL
 from .models import RoleEnum, MailboxSettings, MailProtocol, MailEncryption, MailboxPop3MessageState, User
 from . import mail_client
 from .mail_client import MailError, DEFAULT_FOLDER, MessageDetail
-from .mail_html import render_email_body
+from .mail_html import render_email_body, sanitize_email_body
 from .news_format import render_html
 from .bank_api import crypto
 
@@ -162,41 +163,83 @@ def _plain_text_of(detail: MessageDetail) -> str:
     return ""
 
 
+def _reply_header(detail: MessageDetail) -> str:
+    when = detail.date.strftime("%d.%m.%Y %H:%M") if detail.date else ""
+    who = detail.from_name or mail_client.decode_idn_address(detail.from_addr)
+    return _("{when} {who} писал(а):", when=when, who=who) if (when or who) else _("Исходное письмо:")
+
+
+def _forward_header_lines(detail: MessageDetail) -> list[str]:
+    when = detail.date.strftime("%d.%m.%Y %H:%M") if detail.date else "—"
+    who = detail.from_name or ""
+    from_addr_display = mail_client.decode_idn_address(detail.from_addr)
+    from_line = f"{who} <{from_addr_display}>" if who and from_addr_display else (from_addr_display or who or "—")
+    to_display = ", ".join(mail_client.decode_idn_address(a) for a in detail.to_addrs) or "—"
+    return [
+        "---------- " + _("Пересланное сообщение") + " ----------",
+        _("От") + f": {from_line}",
+        _("Дата") + f": {when}",
+        _("Тема") + f": {detail.subject}",
+        _("Кому") + f": {to_display}",
+    ]
+
+
+def _quotes_as_html(detail: MessageDetail) -> bool:
+    """HTML-оригинал цитируется не в textarea (там был бы только текст без
+    вёрстки), а отдельным блоком: в форме — превью, при отправке — сам
+    очищенный HTML в HTML-версии письма (см. _original_quote)."""
+    return detail.body_html is not None
+
+
+def _original_quote(detail: MessageDetail, reply: bool) -> tuple[str, str]:
+    """(текст, HTML) цитаты HTML-оригинала, которые compose() дописывает после
+    текста автора: в text/plain-версию — как раньше в textarea (с «> » для
+    ответа), в HTML-версию — очищенный оригинал (тот же санитайзер, что при
+    просмотре письма) в <blockquote> — как цитируют Gmail/Thunderbird."""
+    body, _had_blocked = sanitize_email_body(detail, allow_remote_images=True)
+    plain = _plain_text_of(detail)
+    if reply:
+        header = _reply_header(detail)
+        text = header + "\n" + "\n".join("> " + line for line in plain.splitlines())
+        html = (
+            f"<p>{html_module.escape(header)}</p>"
+            '<blockquote type="cite" style="margin:0 0 0 .8ex;border-left:1px solid #ccc;padding-left:1ex">'
+            f"{body}</blockquote>"
+        )
+    else:
+        lines = _forward_header_lines(detail)
+        text = "\n".join(lines) + "\n\n" + plain
+        html = "<p>" + "<br>".join(html_module.escape(line) for line in lines) + f"</p><div>{body}</div>"
+    return text, html
+
+
 def _reply_prefill(detail: MessageDetail) -> tuple[str, str, str]:
     """(to, subject, body) для «Ответить» — получатель - отправитель
     оригинала, тема с «Re:» (без дублирования, если оно уже есть), тело -
-    пустая первая строка для ответа + цитата оригинала с «> »."""
+    пустая первая строка для ответа + цитата оригинала с «> » (у
+    HTML-оригинала цитата не в теле, а отдельным блоком — см. _quotes_as_html)."""
     to = detail.from_addr or ""  # реальный адрес получателя ответа — НЕ декодировать, это значение поля формы, а не подпись для человека
     subject = detail.subject if detail.subject.lower().startswith("re:") else _("Re: {subject}", subject=detail.subject)
-    when = detail.date.strftime("%d.%m.%Y %H:%M") if detail.date else ""
-    who = detail.from_name or mail_client.decode_idn_address(detail.from_addr)
-    header = _("{when} {who} писал(а):", when=when, who=who) if (when or who) else _("Исходное письмо:")
+    if _quotes_as_html(detail):
+        return to, subject, ""
     quoted = "\n".join("> " + line for line in _plain_text_of(detail).splitlines())
-    body = "\n\n" + header + "\n" + quoted + "\n"
+    body = "\n\n" + _reply_header(detail) + "\n" + quoted + "\n"
     return to, subject, body
 
 
 def _forward_prefill(detail: MessageDetail) -> tuple[str, str, str]:
     """(to, subject, body) для «Переслать» — получателя правление выбирает
     само (пусто), тема с «Fwd:», тело — служебный заголовок + текст
-    оригинала БЕЗ цитирования (">"), вложения оригинала не переносятся
+    оригинала БЕЗ цитирования (">"; у HTML-оригинала — отдельным блоком, см.
+    _quotes_as_html), вложения оригинала не переносятся
     автоматически (это отдельная непростая механика — переучёт cid/повторная
     загрузка через IMAP), только упоминаются в тексте, чтобы автор письма не
     удивился их отсутствию и при необходимости прикрепил вручную."""
     subject = detail.subject if detail.subject.lower().startswith("fwd:") else _("Fwd: {subject}", subject=detail.subject)
-    when = detail.date.strftime("%d.%m.%Y %H:%M") if detail.date else "—"
-    who = detail.from_name or ""
-    from_addr_display = mail_client.decode_idn_address(detail.from_addr)
-    from_line = f"{who} <{from_addr_display}>" if who and from_addr_display else (from_addr_display or who or "—")
-    to_display = ", ".join(mail_client.decode_idn_address(a) for a in detail.to_addrs) or "—"
-    body = (
-        "\n\n---------- " + _("Пересланное сообщение") + " ----------\n"
-        + _("От") + f": {from_line}\n"
-        + _("Дата") + f": {when}\n"
-        + _("Тема") + f": {detail.subject}\n"
-        + _("Кому") + f": {to_display}\n\n"
-        + _plain_text_of(detail)
-    )
+    if _quotes_as_html(detail):
+        body = ""
+    else:
+        body = "\n\n" + "\n".join(_forward_header_lines(detail)) + "\n\n" + _plain_text_of(detail)
     if detail.attachments:
         names = ", ".join(a.filename for a in detail.attachments)
         body += "\n\n" + _("[Вложения оригинала не пересылаются автоматически: {names} — прикрепите вручную при необходимости.]", names=names)
@@ -632,11 +675,31 @@ def compose():
         # (жирный/курсив/списки и т.п. в почтовом клиенте получателя), текст
         # без разметки остаётся как plain-fallback (см. mail_client.send_message).
         body_html = str(render_html(body)) if body.strip() else None
+        body_text = body
+
+        # Цитата HTML-оригинала (галочка под полем «Текст», см. compose.html) —
+        # письмо перечитывается с сервера: сам HTML через форму не гоняем.
+        original_uid = request.args.get("reply_to") or request.args.get("forward")
+        if original_uid and f.get("quote_original") == "1":
+            try:
+                with mail_client.get_incoming_client(settings) as client:
+                    original = client.get_message(original_uid, folder=_folder_from_request(settings))
+            except MailError as exc:
+                _record_connection_error(settings, exc)
+                return jsonify(ok=False, error=_("Не удалось получить исходное письмо для цитаты: {error}", error=str(exc))), 400
+            quote_text, quote_html = _original_quote(original, reply=bool(request.args.get("reply_to")))
+            body_text = (body.rstrip() + "\n\n" if body.strip() else "") + quote_text
+            body_html = (body_html or "") + quote_html
+
+        # Заголовки цепочки — из скрытых полей формы ответа; переносы строк
+        # (инъекция заголовков) отсекает split/join.
+        in_reply_to = " ".join(f.get("in_reply_to", "").split()) or None
+        references = " ".join(f.get("references", "").split()) or None
 
         try:
             mail_client.send_message(
-                settings, to_addrs=to_addrs, subject=subject, body_text=body, body_html=body_html,
-                attachments=attachments,
+                settings, to_addrs=to_addrs, subject=subject, body_text=body_text, body_html=body_html,
+                attachments=attachments, in_reply_to=in_reply_to, references=references,
             )
         except MailError as exc:
             _record_connection_error(settings, exc)
@@ -648,6 +711,8 @@ def compose():
         return jsonify(ok=True, redirect=url_for("mailbox.inbox"))
 
     to, subject, body = "", "", ""
+    quote_srcdoc = None
+    in_reply_to = references = ""
     reply_uid = request.args.get("reply_to")
     forward_uid = request.args.get("forward")
     if reply_uid or forward_uid:
@@ -660,8 +725,16 @@ def compose():
             flash(_("Не удалось открыть письмо: {error}", error=str(exc)), "danger")
             return redirect(url_for("mailbox.inbox", folder=folder))
         to, subject, body = _reply_prefill(detail) if reply_uid else _forward_prefill(detail)
+        if _quotes_as_html(detail):
+            quote_srcdoc, _had_blocked = render_email_body(detail, allow_remote_images=False)
+        if reply_uid and detail.message_id:
+            in_reply_to = detail.message_id
+            references = " ".join(filter(None, [detail.references, detail.message_id]))
 
-    return render_template("mailbox/compose.html", to=to, subject=subject, body=body)
+    return render_template(
+        "mailbox/compose.html", to=to, subject=subject, body=body, quote_srcdoc=quote_srcdoc,
+        in_reply_to=in_reply_to, references=references,
+    )
 
 
 @bp.route("/settings", methods=["POST"])

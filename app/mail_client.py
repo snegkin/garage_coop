@@ -153,6 +153,8 @@ class MessageDetail:
     body_html: str | None
     attachments: list[AttachmentPart]
     inline_images: dict[str, tuple[AttachmentPart, bytes]]  # content_id (без <>) -> (метаданные, байты)
+    message_id: str | None = None   # заголовок Message-ID как есть (с <>) — для In-Reply-To/References ответа
+    references: str | None = None   # заголовок References оригинала — цепочка, к которой добавляется ответ
 
 
 # ---------------------------------------------------------------------------
@@ -358,6 +360,8 @@ def _parse_message(uid: str, raw: bytes) -> MessageDetail:
         uid=uid, subject=subject, from_name=from_name, from_addr=from_addr,
         to_addrs=to_addrs, date=date, body_text=body_text, body_html=body_html,
         attachments=attachments, inline_images=inline_images,
+        message_id=str(msg.get("message-id", "")).strip() or None,
+        references=" ".join(str(msg.get("references", "")).split()) or None,
     )
 
 
@@ -877,8 +881,12 @@ def send_message(
     body_text: str,
     body_html: str | None = None,
     attachments: list[tuple[str, str, bytes]] | None = None,
+    in_reply_to: str | None = None,
+    references: str | None = None,
 ) -> None:
     """attachments — список (filename, content_type, data). Поднимает MailError.
+    in_reply_to/references — для ответа (RFC 5322 3.6.4): почтовый клиент
+    получателя по ним ставит письмо в ту же цепочку, что и оригинал.
 
     body_html — отрендеренная разметка тулбара формы письма (см. mailbox.py:
     compose, app/news_format.py: render_html, тот же приём, что и у
@@ -892,6 +900,10 @@ def send_message(
     msg["Subject"] = subject
     msg["Date"] = email.utils.formatdate(localtime=True)
     msg["Message-ID"] = email.utils.make_msgid()
+    if in_reply_to:
+        msg["In-Reply-To"] = in_reply_to
+    if references:
+        msg["References"] = references
     msg.set_content(body_text)
     if body_html:
         msg.add_alternative(body_html, subtype="html")

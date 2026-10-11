@@ -155,6 +155,14 @@ def render_email_body(detail: MessageDetail, allow_remote_images: bool) -> tuple
     (не в песочницу iframe, а в её DOM-родителя) — НЕ повторять эту ошибку
     при рефакторинге.
     """
+    clean, had_blocked = sanitize_email_body(detail, allow_remote_images)
+    return _wrap_html_document(clean), had_blocked
+
+
+def sanitize_email_body(detail: MessageDetail, allow_remote_images: bool) -> tuple[str, bool]:
+    """(очищенный HTML-фрагмент тела письма, had_blocked_images) — без обёртки
+    в документ: render_email_body() кладёт его в srcdoc, mailbox.compose —
+    цитатой в HTML-версию ответа/пересылки."""
     if detail.body_html is not None:
         raw_html = detail.body_html
         had_blocked = bool(_REMOTE_IMG_RE.search(raw_html)) if not allow_remote_images else False
@@ -175,4 +183,4 @@ def render_email_body(detail: MessageDetail, allow_remote_images: bool) -> tuple
         protocols=["data", "mailto", "http", "https"], strip=True, strip_comments=True,
     )
     clean = _A_TAG_RE.sub('<a target="_blank" rel="noopener noreferrer" ', clean)
-    return _wrap_html_document(clean), had_blocked
+    return clean, had_blocked

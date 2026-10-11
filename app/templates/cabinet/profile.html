@@ -144,6 +144,7 @@
             <button type="button" class="btn btn-sm btn-outline-secondary" id="webpushUnsubscribeBtn" hidden>{{ _("Отключить push в этом браузере") }}</button>
             <span class="text-muted small" id="webpushUnsupported" hidden>{{ _("Этот браузер не поддерживает push-уведомления.") }}</span>
           </div>
+          <div class="mt-3">{% with dismissible=false %}{% include "_install_app.html" %}{% endwith %}</div>
         </div>
         <div class="col-md-6">
           <label class="form-label d-block">{{ _("О каких событиях уведомлять") }}</label>

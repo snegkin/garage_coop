@@ -1,0 +1,71 @@
+{#
+  Предложение установить сайт на телефон как приложение (PWA, см.
+  main.web_manifest). Скрыто, пока не ясно, что установка возможна:
+  - Chrome/Edge/Samsung Internet присылают событие beforeinstallprompt —
+    показываем кнопку, она открывает системный диалог установки;
+  - iPhone/iPad (Safari такого события не присылает) — подсказка «Поделиться →
+    На экран „Домой“»; push на iOS работают только у установленного PWA;
+  - уже установлено (display-mode: standalone) — не показываем.
+  dismissible=true (главная) — только на сенсорных устройствах, с крестиком,
+  закрытие запоминается в браузере.
+#}
+<div class="alert alert-info d-flex align-items-start gap-2" id="installApp" hidden>
+  <img src="{{ url_for('static', filename='icon-192.png') }}" alt="" width="40" height="40" class="rounded flex-shrink-0">
+  <div class="flex-grow-1">
+    <div class="fw-semibold">{{ _("Приложение на телефон") }}</div>
+    <div class="small" id="installAppPrompt" hidden>
+      {{ _("Установите сайт как приложение: значок на главном экране, открывается без адресной строки, приходят уведомления.") }}
+      <div class="mt-2"><button type="button" class="btn btn-sm btn-primary" id="installAppBtn">{{ _("Установить") }}</button></div>
+    </div>
+    <div class="small" id="installAppIos" hidden>
+      {{ _("Чтобы установить сайт как приложение и получать уведомления, нажмите «Поделиться» внизу экрана Safari и выберите «На экран „Домой“».") }}
+    </div>
+  </div>
+  {% if dismissible %}
+  <button type="button" class="btn-close" id="installAppClose" aria-label="{{ _('Закрыть') }}"></button>
+  {% endif %}
+</div>
+<script>
+(function () {
+  var box = document.getElementById("installApp");
+  if (!box) return;
+  var DISMISS_KEY = "installAppDismissed";
+  var standalone = window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
+  var closeBtn = document.getElementById("installAppClose");
+  if (standalone || (closeBtn && localStorage.getItem(DISMISS_KEY))) return;
+  // На главной (с крестиком) — только на телефонах/планшетах: на компьютере
+  // Chrome тоже предлагает установку, но баннер «на телефон» там лишний.
+  if (closeBtn && !window.matchMedia("(pointer: coarse)").matches) return;
+
+  var deferredPrompt = null;
+  window.addEventListener("beforeinstallprompt", function (e) {
+    e.preventDefault();  // свой баннер вместо мини-панели Chrome
+    deferredPrompt = e;
+    document.getElementById("installAppPrompt").hidden = false;
+    box.hidden = false;
+  });
+  document.getElementById("installAppBtn").addEventListener("click", function () {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    deferredPrompt.userChoice.then(function () {
+      deferredPrompt = null;
+      box.hidden = true;
+    });
+  });
+  window.addEventListener("appinstalled", function () { box.hidden = true; });
+
+  // iPadOS представляется как Mac — отличаем по сенсорному экрану.
+  var ios = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  if (ios) {
+    document.getElementById("installAppIos").hidden = false;
+    box.hidden = false;
+  }
+
+  if (closeBtn) {
+    closeBtn.addEventListener("click", function () {
+      localStorage.setItem(DISMISS_KEY, "1");
+      box.hidden = true;
+    });
+  }
+})();
+</script>

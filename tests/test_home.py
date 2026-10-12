@@ -281,6 +281,8 @@ def test_web_manifest_is_public_and_names_cooperative(db, client):
     for icon in data["icons"]:
         assert client.get(icon["src"]).status_code == 200
     assert {i["purpose"] for i in data["icons"]} == {"any", "maskable"}
+    # по нему Chrome на Android отвечает getInstalledRelatedApps() (_install_app.html)
+    assert data["related_applications"] == [{"platform": "webapp", "url": "https://localhost/manifest.webmanifest"}]
     assert 'rel="manifest"' in client.get("/").get_data(as_text=True)
 
 

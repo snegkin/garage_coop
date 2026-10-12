@@ -3,6 +3,10 @@
   main.web_manifest). Скрыто, пока не ясно, что установка возможна:
   - Chrome/Edge/Samsung Internet присылают событие beforeinstallprompt —
     показываем кнопку, она открывает системный диалог установки;
+  - Android без этого события (Opera, Яндекс Браузер; Chrome — пока не
+    набралось «вовлечённости» или после отмены диалога установки) —
+    подсказка «меню браузера → Установить приложение», если приложение не
+    установлено (Chrome сообщает это через getInstalledRelatedApps);
   - iPhone/iPad (Safari такого события не присылает) — подсказка «Поделиться →
     На экран „Домой“»; push на iOS работают только у установленного PWA;
   - открыто как установленное приложение — не показываем; на iOS запуск с
@@ -22,6 +26,9 @@
     <div class="small" id="installAppPrompt" hidden>
       {{ _("Установите сайт как приложение: значок на главном экране, открывается без адресной строки, приходят уведомления.") }}
       <div class="mt-2"><button type="button" class="btn btn-sm btn-primary" id="installAppBtn">{{ _("Установить") }}</button></div>
+    </div>
+    <div class="small" id="installAppMenu" hidden>
+      {{ _("Чтобы установить сайт как приложение, откройте меню браузера (⋮) и выберите «Установить приложение» или «Добавить на главный экран».") }}
     </div>
     <div class="small" id="installAppIos" hidden>
       {{ _("Чтобы установить сайт как приложение и получать уведомления, нажмите «Поделиться» внизу экрана Safari и выберите «На экран „Домой“».") }}
@@ -66,6 +73,7 @@
     if (!allowed) return;  // без preventDefault — у Chrome остаётся своя установка из меню
     e.preventDefault();  // свой баннер вместо мини-панели Chrome
     deferredPrompt = e;
+    document.getElementById("installAppMenu").hidden = true;
     document.getElementById("installAppPrompt").hidden = false;
     box.hidden = false;
   });
@@ -89,6 +97,32 @@
   if (ios && allowed && !localStorage.getItem(INSTALLED_KEY)) {
     document.getElementById("installAppIos").hidden = false;
     box.hidden = false;
+  }
+
+  // Android без beforeinstallprompt: Chrome присылает его не сразу (нужно
+  // коснуться страницы и пробыть на ней ~30 с) и надолго перестаёт после
+  // «Отмены» в диалоге установки, а Opera/Яндекс Браузер не присылают вовсе.
+  // Подождав, показываем подсказку про меню браузера — если приложение не
+  // установлено: по ответу getInstalledRelatedApps (Chrome, manifest:
+  // related_applications) или по отметке INSTALLED_KEY (сайт запускался как
+  // приложение) — любой из признаков, чтобы не звать ставить уже установленное.
+  if (/Android/i.test(navigator.userAgent) && allowed) {
+    setTimeout(function () {
+      if (deferredPrompt) return;
+      var flagged = !!localStorage.getItem(INSTALLED_KEY);
+      var installed = navigator.getInstalledRelatedApps
+        ? navigator.getInstalledRelatedApps().then(function (apps) { return apps.length > 0 || flagged; }, function () { return flagged; })
+        : Promise.resolve(flagged);
+      installed.then(function (isInstalled) {
+        if (isInstalled) {
+          localStorage.setItem(INSTALLED_KEY, "1");
+          return;
+        }
+        if (deferredPrompt) return;  // событие успело прийти, пока ждали ответа
+        document.getElementById("installAppMenu").hidden = false;
+        box.hidden = false;
+      });
+    }, 3000);
   }
 
   if (closeBtn) {

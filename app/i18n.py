@@ -887,6 +887,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Установите сайт как приложение: значок на главном экране, открывается без адресной строки, приходят уведомления.":
             "Install the site as an app: an icon on your home screen, opens without the address bar, notifications arrive.",
         "Установить": "Install",
+        "Чтобы установить сайт как приложение, откройте меню браузера (⋮) и выберите «Установить приложение» или «Добавить на главный экран».":
+            "To install the site as an app, open the browser menu (⋮) and choose “Install app” or “Add to Home screen”.",
         "Чтобы установить сайт как приложение и получать уведомления, нажмите «Поделиться» внизу экрана Safari и выберите «На экран „Домой“».":
             "To install the site as an app and receive notifications, tap “Share” at the bottom of Safari and choose “Add to Home Screen”.",
         "Вт": "W",

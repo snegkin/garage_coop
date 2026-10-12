@@ -143,6 +143,8 @@
             <button type="button" class="btn btn-sm btn-outline-primary" id="webpushSubscribeBtn" hidden>{{ _("Разрешить push-уведомления в этом браузере") }}</button>
             <button type="button" class="btn btn-sm btn-outline-secondary" id="webpushUnsubscribeBtn" hidden>{{ _("Отключить push в этом браузере") }}</button>
             <span class="text-muted small" id="webpushUnsupported" hidden>{{ _("Этот браузер не поддерживает push-уведомления.") }}</span>
+            <div class="text-danger small mt-1" id="webpushDenied" hidden>{{ _("Уведомления для сайта запрещены в настройках браузера или телефона — разрешите их там и нажмите кнопку ещё раз.") }}</div>
+            <div class="text-danger small mt-1" id="webpushFailed" hidden>{{ _("Не удалось включить push-уведомления на этом устройстве. Обычно так бывает на телефонах без сервисов Google (например, новые Huawei) — браузерам там нечем доставлять push. Выберите выше Telegram или email.") }}</div>
           </div>
           <div class="mt-3">{% with dismissible=false %}{% include "_install_app.html" %}{% endwith %}</div>
         </div>
@@ -296,6 +298,8 @@
       } else {
         subscribeBtn.hidden = false;
         subscribeBtn.onclick = function () {
+          document.getElementById("webpushDenied").hidden = true;
+          document.getElementById("webpushFailed").hidden = true;
           registration.pushManager.subscribe({
             userVisibleOnly: true,
             applicationServerKey: urlBase64ToUint8Array(vapidKey),
@@ -304,6 +308,12 @@
           }).then(function () {
             subscribeBtn.hidden = true;
             unsubscribeBtn.hidden = false;
+          }).catch(function () {
+            // Раньше ошибка глоталась молча — кнопка «ничего не делала».
+            // Запрет — в настройках; иначе на Android обычно нет сервисов
+            // Google: браузеры доставляют web push через Firebase Cloud Messaging.
+            var denied = window.Notification && Notification.permission === "denied";
+            document.getElementById(denied ? "webpushDenied" : "webpushFailed").hidden = false;
           });
         };
       }

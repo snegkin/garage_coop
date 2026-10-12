@@ -2,7 +2,7 @@ import datetime as dt
 import json
 from decimal import Decimal
 
-from flask import Blueprint, render_template, redirect, url_for, Response
+from flask import Blueprint, render_template, redirect, url_for, Response, request
 from sqlalchemy import func
 
 from . import database
@@ -89,6 +89,14 @@ def web_manifest():
             icon("icon-192.png", 192, "any"),
             icon("icon-512.png", 512, "any"),
             icon("icon-maskable-512.png", 512, "maskable"),
+        ],
+        # Ссылка на само это PWA — по ней Chrome на Android отвечает через
+        # navigator.getInstalledRelatedApps(), установлено ли приложение (см.
+        # _install_app.html). Адрес должен в точности совпадать с адресом
+        # манифеста; https явно — PWA ставится только по HTTPS, а за прокси
+        # без ProxyFix url_for(_external=True) дал бы http://.
+        "related_applications": [
+            {"platform": "webapp", "url": f"https://{request.host}{url_for('main.web_manifest')}"},
         ],
     }
     return Response(json.dumps(manifest, ensure_ascii=False), mimetype="application/manifest+json")

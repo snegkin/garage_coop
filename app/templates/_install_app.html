@@ -3,10 +3,12 @@
   main.web_manifest). Скрыто, пока не ясно, что установка возможна:
   - Chrome/Edge/Samsung Internet присылают событие beforeinstallprompt —
     показываем кнопку, она открывает системный диалог установки;
-  - Android без этого события (Opera, Яндекс Браузер; Chrome — пока не
-    набралось «вовлечённости» или после отмены диалога установки) —
-    подсказка «меню браузера → Установить приложение», если приложение не
-    установлено (Chrome сообщает это через getInstalledRelatedApps);
+  - Android без этого события, если приложение не установлено (Chrome
+    сообщает это через getInstalledRelatedApps): в Chrome (пока не набралось
+    «вовлечённости» или после отмены диалога установки) — подсказка «меню
+    браузера → Установить приложение»; в Opera/Яндекс Браузере и прочих —
+    кнопка «Открыть в Chrome»: их «Добавить на главный экран» — ярлык,
+    который на Huawei/Xiaomi без разрешения на ярлыки молча не создаётся;
   - iPhone/iPad (Safari такого события не присылает) — подсказка «Поделиться →
     На экран „Домой“»; push на iOS работают только у установленного PWA;
   - открыто как установленное приложение — не показываем; на iOS запуск с
@@ -29,6 +31,11 @@
     </div>
     <div class="small" id="installAppMenu" hidden>
       {{ _("Чтобы установить сайт как приложение, откройте меню браузера (⋮) и выберите «Установить приложение» или «Добавить на главный экран».") }}
+    </div>
+    <div class="small" id="installAppOtherBrowser" hidden>
+      {{ _("Приложение удобнее всего установить через Chrome — откройте сайт в нём и нажмите «Установить».") }}
+      <div class="mt-2"><a class="btn btn-sm btn-primary" id="installAppChromeLink" href="#">{{ _("Открыть в Chrome") }}</a></div>
+      <div class="text-muted mt-2">{{ _("Или в меню этого браузера: «Добавить на главный экран». Если значок не появился — разрешите браузеру создавать ярлыки: Настройки телефона → Приложения → этот браузер → Разрешения.") }}</div>
     </div>
     <div class="small" id="installAppIos" hidden>
       {{ _("Чтобы установить сайт как приложение и получать уведомления, нажмите «Поделиться» внизу экрана Safari и выберите «На экран „Домой“».") }}
@@ -102,10 +109,28 @@
   // Android без beforeinstallprompt: Chrome присылает его не сразу (нужно
   // коснуться страницы и пробыть на ней ~30 с) и надолго перестаёт после
   // «Отмены» в диалоге установки, а Opera/Яндекс Браузер не присылают вовсе.
-  // Подождав, показываем подсказку про меню браузера — если приложение не
+  // Подождав, показываем подсказку (какую — см. шапку файла) — если приложение не
   // установлено: по ответу getInstalledRelatedApps (Chrome, manifest:
   // related_applications) или по отметке INSTALLED_KEY (сайт запускался как
   // приложение) — любой из признаков, чтобы не звать ставить уже установленное.
+  // Настоящий Chrome, а не браузер на его движке (у тех в UA тоже «Chrome/»).
+  function isChrome() {
+    var brands = navigator.userAgentData && navigator.userAgentData.brands;
+    if (brands && brands.length) {
+      return brands.some(function (b) { return b.brand === "Google Chrome"; });
+    }
+    var ua = navigator.userAgent;
+    return /Chrome\/\d+/.test(ua)
+      && !/OPR\/|OPT\/|Opera|YaBrowser|SamsungBrowser|EdgA|MiuiBrowser|HuaweiBrowser|HeyTapBrowser|UCBrowser|VivoBrowser|DuckDuckGo|; wv\)/.test(ua);
+  }
+  // intent:// — Android откроет этот же адрес в Chrome; нет Chrome — его
+  // страница в Google Play.
+  function chromeIntentUrl() {
+    var fallback = "https://play.google.com/store/apps/details?id=com.android.chrome";
+    return "intent://" + location.host + location.pathname + location.search
+      + "#Intent;scheme=https;package=com.android.chrome;S.browser_fallback_url=" + encodeURIComponent(fallback) + ";end";
+  }
+
   if (/Android/i.test(navigator.userAgent) && allowed) {
     setTimeout(function () {
       if (deferredPrompt) return;
@@ -119,7 +144,12 @@
           return;
         }
         if (deferredPrompt) return;  // событие успело прийти, пока ждали ответа
-        document.getElementById("installAppMenu").hidden = false;
+        if (isChrome()) {
+          document.getElementById("installAppMenu").hidden = false;
+        } else {
+          document.getElementById("installAppChromeLink").href = chromeIntentUrl();
+          document.getElementById("installAppOtherBrowser").hidden = false;
+        }
         box.hidden = false;
       });
     }, 3000);

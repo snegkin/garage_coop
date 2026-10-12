@@ -890,6 +890,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Приложение удобнее всего установить через Chrome — откройте сайт в нём и нажмите «Установить».":
             "The easiest way to install the app is via Chrome — open the site there and tap “Install”.",
         "Открыть в Chrome": "Open in Chrome",
+        "Уведомления для сайта запрещены в настройках браузера или телефона — разрешите их там и нажмите кнопку ещё раз.":
+            "Notifications for this site are blocked in the browser or phone settings — allow them there and press the button again.",
+        "Не удалось включить push-уведомления на этом устройстве. Обычно так бывает на телефонах без сервисов Google (например, новые Huawei) — браузерам там нечем доставлять push. Выберите выше Telegram или email.":
+            "Could not enable push notifications on this device. This usually happens on phones without Google services (e.g. newer Huawei) — browsers there have no way to deliver push. Choose Telegram or email above.",
         "Или в меню этого браузера: «Добавить на главный экран». Если значок не появился — разрешите браузеру создавать ярлыки: Настройки телефона → Приложения → этот браузер → Разрешения.":
             "Or use this browser’s menu: “Add to Home screen”. If the icon doesn’t appear, allow the browser to create shortcuts: phone Settings → Apps → this browser → Permissions.",
         "Чтобы установить сайт как приложение, откройте меню браузера (⋮) и выберите «Установить приложение» или «Добавить на главный экран».":

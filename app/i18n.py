@@ -887,6 +887,11 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Установите сайт как приложение: значок на главном экране, открывается без адресной строки, приходят уведомления.":
             "Install the site as an app: an icon on your home screen, opens without the address bar, notifications arrive.",
         "Установить": "Install",
+        "Приложение удобнее всего установить через Chrome — откройте сайт в нём и нажмите «Установить».":
+            "The easiest way to install the app is via Chrome — open the site there and tap “Install”.",
+        "Открыть в Chrome": "Open in Chrome",
+        "Или в меню этого браузера: «Добавить на главный экран». Если значок не появился — разрешите браузеру создавать ярлыки: Настройки телефона → Приложения → этот браузер → Разрешения.":
+            "Or use this browser’s menu: “Add to Home screen”. If the icon doesn’t appear, allow the browser to create shortcuts: phone Settings → Apps → this browser → Permissions.",
         "Чтобы установить сайт как приложение, откройте меню браузера (⋮) и выберите «Установить приложение» или «Добавить на главный экран».":
             "To install the site as an app, open the browser menu (⋮) and choose “Install app” or “Add to Home screen”.",
         "Чтобы установить сайт как приложение и получать уведомления, нажмите «Поделиться» внизу экрана Safari и выберите «На экран „Домой“».":

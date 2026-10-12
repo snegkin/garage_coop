@@ -252,9 +252,19 @@ function initChatWidget(cfg) {
   // комиссии) и каждый браузер; сброс к позиции по умолчанию не нужен —
   // достаточно один раз почистить localStorage вручную.
   var headerEl = panel.querySelector(".chat-widget-header");
+  var backBtn = panel.querySelector(".chat-widget-back");
   var geometryKey = "chatWidgetGeometry:" + cfg.prefix;
 
+  // На телефоне панель — полноэкранная, как в Telegram (см. CSS в
+  // @media max-width: 575.98px): без перетаскивания и ресайза, а её
+  // полноэкранный размер не должен затирать в localStorage сохранённую
+  // десктопную геометрию — поэтому saveGeometry/clampToViewport ниже на
+  // мобильном ничего не делают. Порог — тот же, что в CSS.
+  var mobileQuery = window.matchMedia("(max-width: 575.98px)");
+  function isMobile() { return mobileQuery.matches; }
+
   function saveGeometry() {
+    if (isMobile()) return;
     try {
       var rect = panel.getBoundingClientRect();
       var geo = { width: rect.width + "px", height: rect.height + "px" };
@@ -283,6 +293,7 @@ function initChatWidget(cfg) {
   }
 
   function clampToViewport() {
+    if (isMobile()) return;
     var rect = panel.getBoundingClientRect();
     var maxLeft = Math.max(window.innerWidth - rect.width, 0);
     var maxTop = Math.max(window.innerHeight - rect.height, 0);
@@ -302,6 +313,7 @@ function initChatWidget(cfg) {
   if (headerEl) {
     headerEl.addEventListener("mousedown", function (e) {
       if (closeBtn && closeBtn.contains(e.target)) return;
+      if (isMobile()) return;
       var rect = panel.getBoundingClientRect();
       dragState = { startX: e.clientX, startY: e.clientY, startLeft: rect.left, startTop: rect.top };
       panel.style.left = rect.left + "px";
@@ -431,18 +443,60 @@ function initChatWidget(cfg) {
       .catch(function () {});
   }
 
+  // Полноэкранная панель на телефоне подгоняется по высоте под видимую
+  // область (visualViewport) — иначе экранная клавиатура перекрывала бы
+  // поле ввода: в мобильном Chrome клавиатура по умолчанию не уменьшает
+  // ни 100vh, ни 100dvh. Значение — CSS-переменная, её читает правило
+  // .chat-widget-panel в мобильном @media.
+  function fitToVisualViewport() {
+    if (!window.visualViewport) return;
+    panel.style.setProperty("--chat-viewport-height", window.visualViewport.height + "px");
+    panel.style.setProperty("--chat-viewport-top", window.visualViewport.offsetTop + "px");
+    if (!panel.classList.contains("d-none")) scrollToBottom();
+  }
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener("resize", fitToVisualViewport);
+    window.visualViewport.addEventListener("scroll", fitToVisualViewport);
+  }
+
+  // На телефоне открытый чат — отдельный "экран": кладём запись в историю,
+  // чтобы системная кнопка/жест "Назад" закрывали чат, а не уводили со
+  // страницы. Закрытие крестиком/стрелкой эту запись снимает (history.back),
+  // и уже popstate доводит закрытие до конца — один путь для обоих случаев.
+  var historyPushed = false;
+  window.addEventListener("popstate", function () {
+    if (!historyPushed) return;
+    historyPushed = false;
+    if (!panel.classList.contains("d-none")) close();
+  });
+
   function open() {
     panel.classList.remove("d-none");
+    if (isMobile()) {
+      fitToVisualViewport();
+      document.documentElement.classList.add("chat-widget-fullscreen");
+      if (!historyPushed) {
+        history.pushState({ chatWidget: cfg.prefix }, "");
+        historyPushed = true;
+      }
+    }
     loadInitial();
     loadParticipants();
     if (pollTimer) clearInterval(pollTimer);
     pollTimer = setInterval(function () { poll(); loadParticipants(); }, 4000);
     sendHeartbeat(true);
-    input.focus();
+    // На телефоне без автофокуса — иначе при каждом открытии сразу
+    // выезжает клавиатура и закрывает половину переписки.
+    if (!isMobile()) input.focus();
   }
 
   function close() {
+    if (historyPushed) {
+      history.back();  // popstate вызовет close() ещё раз, уже без записи в истории
+      return;
+    }
     panel.classList.add("d-none");
+    document.documentElement.classList.remove("chat-widget-fullscreen");
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
     sendHeartbeat(false);
   }
@@ -451,6 +505,7 @@ function initChatWidget(cfg) {
     if (panel.classList.contains("d-none")) open(); else close();
   });
   closeBtn.addEventListener("click", close);
+  if (backBtn) backBtn.addEventListener("click", close);
 
   form.addEventListener("submit", function (e) {
     e.preventDefault();
@@ -503,7 +558,8 @@ function initChatWidget(cfg) {
   </button>
   <div id="boardChatPanel" class="chat-widget-panel d-none">
     <div class="chat-widget-header">
-      <span>{{ _("Чат правления") }}</span>
+      <button type="button" class="chat-widget-back" aria-label="{{ _('Назад') }}">&#8592;</button>
+      <span class="chat-widget-title">{{ _("Чат правления") }}</span>
       <button type="button" id="boardChatClose" class="btn-close btn-close-white" aria-label="{{ _('Закрыть') }}"></button>
     </div>
     <div id="boardChatParticipants" class="chat-widget-participants"></div>
@@ -535,7 +591,8 @@ function initChatWidget(cfg) {
   </button>
   <div id="revisionChatPanel" class="chat-widget-panel chat-widget-panel--left d-none">
     <div class="chat-widget-header">
-      <span>{{ _("Чат ревизионной комиссии") }}</span>
+      <button type="button" class="chat-widget-back" aria-label="{{ _('Назад') }}">&#8592;</button>
+      <span class="chat-widget-title">{{ _("Чат ревизионной комиссии") }}</span>
       <button type="button" id="revisionChatClose" class="btn-close btn-close-white" aria-label="{{ _('Закрыть') }}"></button>
     </div>
     <div id="revisionChatMessages" class="chat-widget-messages"></div>
@@ -862,6 +919,12 @@ tr.table-info-subtle { --bs-table-bg: var(--bs-info-bg-subtle); --bs-table-borde
   display: flex; justify-content: space-between; align-items: center; font-weight: 600;
   cursor: move; user-select: none; flex: none;
 }
+/* Стрелка "назад" — только в полноэкранном мобильном режиме (см. @media
+   max-width: 575.98px ниже), на десктопе панель закрывается крестиком. */
+.chat-widget-back {
+  display: none; background: none; border: none; color: inherit;
+  font-size: 1.4rem; line-height: 1; padding: .25rem .5rem .25rem 0;
+}
 .chat-widget-participants {
   display: flex; flex-wrap: wrap; gap: .25rem .6rem; padding: .4rem .75rem;
   border-bottom: 1px solid var(--bs-border-color); font-size: .75rem; max-height: 4.5rem; overflow-y: auto;
@@ -983,6 +1046,34 @@ tr.table-info-subtle { --bs-table-bg: var(--bs-info-bg-subtle); --bs-table-borde
   #mainContent .table > :not(caption) > * > * { padding: .4rem .45rem; }
   .chat-widget-bubble { width: 2.75rem; height: 2.75rem; font-size: 1.2rem; right: .75rem; bottom: .75rem; }
   .chat-widget-bubble--left { left: .75rem; }
+  /* Чат на телефоне — полноэкранный, как в Telegram: плавающее окошко на
+     узком экране закрывало страницу почти целиком, но было неудобно ни
+     читать, ни печатать. !important — перебить инлайн-геометрию, которую
+     initChatWidget восстанавливает из localStorage для десктопа.
+     --chat-viewport-* — видимая область за вычетом экранной клавиатуры
+     (см. fitToVisualViewport); 100dvh — запасной вариант без visualViewport.
+     z-index выше пузырей — чтобы пузырь второго чата (у членов обоих
+     органов) не висел поверх открытой переписки. */
+  .chat-widget-panel {
+    top: var(--chat-viewport-top, 0) !important; left: 0 !important; right: 0 !important; bottom: auto !important;
+    width: 100% !important; max-width: none; min-width: 0;
+    height: var(--chat-viewport-height, 100dvh) !important; max-height: none; min-height: 0;
+    border: none; border-radius: 0; box-shadow: none;
+    resize: none; overflow: hidden; z-index: 1600;
+  }
+  .chat-widget-header {
+    cursor: default; justify-content: flex-start; gap: .25rem;
+    padding: calc(.6rem + env(safe-area-inset-top)) .75rem .6rem; font-size: 1.05rem;
+  }
+  .chat-widget-header .btn-close { display: none; }
+  .chat-widget-back { display: block; }
+  .chat-widget-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chat-widget-message { font-size: .95rem; }
+  .chat-widget-form { padding: .5rem .5rem calc(.5rem + env(safe-area-inset-bottom)); }
+  /* 16px — меньше iOS Safari при фокусе зумит страницу. */
+  .chat-widget-form textarea { font-size: 16px; resize: none; }
+  /* Страница под открытым чатом не прокручивается. */
+  html.chat-widget-fullscreen, html.chat-widget-fullscreen body { overflow: hidden; }
 }
 /* Шапка и контент на широких мониторах — шире бутстраповских 1320px
    (.container): таблицам с кнопками в правых колонках тесно, а на 2K/4K

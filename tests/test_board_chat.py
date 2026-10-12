@@ -239,8 +239,26 @@ def test_widget_panel_is_resizable_and_draggable(db, client):
     assert "resize: both" in body
     assert "cursor: move" in body
     assert "ResizeObserver" in body
-    assert "resize: vertical" in body
-    assert "resize: none" not in body
+    assert ".chat-widget-form textarea { resize: vertical;" in body
+
+
+def test_widget_panel_is_fullscreen_on_mobile(db, client):
+    """На телефоне чат — полноэкранный, как в Telegram: в мобильном @media
+    панель растянута на весь экран, без ресайза, со стрелкой "назад"
+    вместо крестика; системная кнопка "Назад" закрывает чат (pushState),
+    а полноэкранный размер не затирает сохранённую десктопную геометрию."""
+    _board_user(db)
+    login(client, "board1", "pass1234")
+    resp = client.get("/dashboard")
+    body = resp.get_data(as_text=True)
+    mobile_css = body.split("@media (max-width: 575.98px) {", 1)[1].split("\n}", 1)[0]
+    assert "width: 100% !important" in mobile_css
+    assert "height: var(--chat-viewport-height, 100dvh) !important" in mobile_css
+    assert "resize: none" in mobile_css
+    assert ".chat-widget-back { display: block; }" in mobile_css
+    assert 'class="chat-widget-back"' in body
+    assert "history.pushState" in body
+    assert "function saveGeometry() {\n    if (isMobile()) return;" in body
 
 
 def test_widget_absent_for_plain_member(db, client):

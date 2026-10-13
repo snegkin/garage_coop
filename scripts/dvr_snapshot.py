@@ -8,9 +8,12 @@
 внутри веб-процесса.
 
 Логика:
-  1. Если ffmpeg не установлен в системе (shutil.which) — тихо выйти с
+  1. Если ffmpeg не установлен в системе (shutil.which) — выйти с
      кодом 1 и понятным сообщением в лог, ничего не пытаясь (все камеры
      всё равно не снимутся).
+  1.1. О сбоях (нет ffmpeg, не снялась камера) правлению уходит
+     уведомление — не чаще раза в сутки на регистратор, см.
+     app/notifications.py: notify_failure.
   2. Для каждой DvrCamera каждого DvrRecorder — собрать RTSP URL
      (app.surveillance.rtsp_url) и вызвать
          ffmpeg -y -rtsp_transport tcp -i "<url>" -vframes 1 <tmp>.jpg
@@ -59,7 +62,7 @@ from itertools import groupby
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app import create_app, database
+from app import create_app, database, notifications
 from app.models import DvrCamera
 from app.surveillance import (
     rtsp_url, snapshot_dir, snapshot_path, history_dir,
@@ -235,19 +238,24 @@ def _update_combined_snapshot(recorder_id: int, cameras: list[DvrCamera]) -> Non
 
 
 def main() -> int:
-    if shutil.which("ffmpeg") is None:
-        print(f"[{dt.datetime.now().isoformat(timespec='seconds')}] "
-              f"ffmpeg не найден в PATH — снятие кадров пропущено (см. docstring скрипта).", file=sys.stderr)
-        return 1
-
     app = create_app()
     with app.app_context():
+        if shutil.which("ffmpeg") is None:
+            print(f"[{dt.datetime.now().isoformat(timespec='seconds')}] "
+                  f"ffmpeg не найден в PATH — снятие кадров пропущено (см. docstring скрипта).", file=sys.stderr)
+            if database.db_session.query(DvrCamera).first() is not None:
+                notifications.notify_failure(
+                    "dvr:ffmpeg", "снятие кадров с камер", "На сервере не найден ffmpeg — кадры с камер не снимаются.",
+                )
+            return 1
+
         cameras = database.db_session.query(DvrCamera).order_by(DvrCamera.recorder_id).all()
         if not cameras:
             print(f"[{dt.datetime.now().isoformat(timespec='seconds')}] Камер не настроено — снимать нечего.")
             return 0
 
         saved, failed = 0, 0
+        errors_by_recorder: dict[int, list[str]] = {}
         for camera in cameras:
             try:
                 error = _capture(camera)
@@ -260,10 +268,19 @@ def main() -> int:
                 saved += 1
             else:
                 failed += 1
+                errors_by_recorder.setdefault(camera.recorder_id, []).append(f"{camera.label}: {error}")
                 print(f"[{dt.datetime.now().isoformat(timespec='seconds')}] "
                       f"{camera.recorder.name} / {camera.label}: {error}", file=sys.stderr)
 
         database.db_session.commit()
+        # Одно сообщение на регистратор, а не на камеру: недоступный
+        # регистратор — это сразу все его камеры.
+        for recorder_id, errors in errors_by_recorder.items():
+            recorder_name = next(c.recorder.name for c in cameras if c.recorder_id == recorder_id)
+            notifications.notify_failure(
+                f"dvr:{recorder_id}", f"регистратор {recorder_name}",
+                "Не удалось снять кадр:\n" + "\n".join(errors),
+            )
         print(f"[{dt.datetime.now().isoformat(timespec='seconds')}] "
               f"Снято кадров: {saved}, ошибок: {failed}.")
 

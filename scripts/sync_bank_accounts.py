@@ -81,6 +81,7 @@ def _sync_bank_accounts() -> bool:
         if balance_status == "error":
             had_errors = True
             _log(f"{label}: баланс — ОШИБКА: {balance_message}")
+            notifications.notify_failure(f"bank:{account.id}", f"синхронизация счёта {label}", balance_message)
         else:
             _log(f"{label}: баланс — {balance_message}")
 
@@ -88,6 +89,7 @@ def _sync_bank_accounts() -> bool:
         if statement_status == "error":
             had_errors = True
             _log(f"{label}: выписка за {date_from}—{date_to} — ОШИБКА: {statement_message}")
+            notifications.notify_failure(f"bank:{account.id}", f"синхронизация счёта {label}", statement_message)
         elif statement_status == "success":
             extra = ""
             if stats["auto_allocated"]:
@@ -129,6 +131,9 @@ def _sync_counterparties() -> bool:
         if status == "error":
             had_errors = True
             _log(f"{counterparty.name}: баланс личного кабинета — ОШИБКА: {message}")
+            notifications.notify_failure(
+                f"counterparty_api:{counterparty.id}", f"баланс личного кабинета {counterparty.name}", message,
+            )
         else:
             _log(f"{counterparty.name}: баланс личного кабинета — {message}")
     return had_errors

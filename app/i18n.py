@@ -1869,6 +1869,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Почта и настройки": "Mail and settings",
         "Входы на сайт": "Sign-ins to the site",
         "Неудачные попытки входа": "Failed sign-in attempts",
+        "Сбои синхронизации с банком, eWeLink, регистратором": "Bank, eWeLink and video recorder sync failures",
         "Чтобы получать уведомления этим способом, сначала укажите и сохраните соответствующий контакт в профиле.":
             "To receive notifications this way, first fill in and save the matching contact field in your profile.",
         "Настройки уведомлений сохранены.": "Notification settings saved.",

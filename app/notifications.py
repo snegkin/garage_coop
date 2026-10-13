@@ -35,7 +35,7 @@ from .auth import ROLE_LEVEL
 from .i18n import translate as _
 from .mail_client import MailError, send_message
 from .models import (
-    BoardChatMessage, MailboxSettings, NotificationChannel, RoleEnum, TelegramSettings, WebPushSettings,
+    BoardChatMessage, FailureNotification, MailboxSettings, NotificationChannel, RoleEnum, TelegramSettings, WebPushSettings,
     WebPushSubscription, User,
 )
 from . import telegram_bot
@@ -415,6 +415,11 @@ BOARD_EVENT_GROUPS = {
         "label": "Неудачные попытки входа",
         "actions": ("auth.login_failed",),
     },
+    # Не действия журнала, а сбои cron-синхронизаций — см. notify_failure.
+    "failures": {
+        "label": "Сбои синхронизации с банком, eWeLink, регистратором",
+        "actions": (),
+    },
 }
 
 # Самое частое и наименее важное — включается только явно.
@@ -492,12 +497,46 @@ def _dispatch_board_event(action: str, group: str, summary: str, link: str | Non
     if link:
         lines.append(link)
     body_text = "\n".join(lines).rstrip()
+    _send_to_board(group, f"board:{action}", subject, body_text, min_level=min_level, exclude_user_id=actor_user_id)
 
+
+def _send_to_board(group: str, event: str, subject: str, body_text: str,
+                   min_level: int = ROLE_LEVEL[RoleEnum.BOARD], exclude_user_id: int | None = None) -> int:
+    sent = 0
     for user in database.db_session.query(User).filter(User.is_active.is_(True)).all():
         if ROLE_LEVEL[user.role] < min_level:
             continue
-        if actor_user_id is not None and user.id == actor_user_id:
+        if exclude_user_id is not None and user.id == exclude_user_id:
             continue
         if group not in board_event_groups(user):
             continue
-        _deliver(user, f"board:{action}", subject, body_text)
+        _deliver(user, event, subject, body_text)
+        sent += 1
+    return sent
+
+
+FAILURE_NOTIFY_INTERVAL = dt.timedelta(days=1)
+
+
+def notify_failure(source: str, title: str, error: str) -> bool:
+    """Сообщить правлению (группа «failures») о сбое фоновой
+    синхронизации — не чаще раза в FAILURE_NOTIFY_INTERVAL на источник
+    (source — см. FailureNotification.source): cron опрашивает eWeLink и
+    регистратор раз в минуту, и без этого ограничения о затянувшемся сбое
+    приходило бы сообщение на каждый прогон. Отправляет сразу, без
+    after_commit — вызывается из cron-скриптов вне запроса, после их
+    собственного commit. Возвращает True, если уведомление ушло."""
+    now = dt.datetime.utcnow()
+    mark = database.db_session.query(FailureNotification).filter_by(source=source).first()
+    if mark is not None and now - mark.notified_at < FAILURE_NOTIFY_INTERVAL:
+        return False
+    if mark is None:
+        mark = FailureNotification(source=source, notified_at=now)
+        database.db_session.add(mark)
+    else:
+        mark.notified_at = now
+    database.db_session.commit()
+
+    body_text = f"{error}\n\nСледующее сообщение об этом сбое — не раньше чем через сутки."
+    _send_to_board("failures", f"failure:{source}", f"Сбой: {title}", body_text)
+    return True

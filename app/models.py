@@ -2958,13 +2958,18 @@ class PostalDispatch(Base):
 
 
 class FailureNotification(Base):
-    """Когда правлению последний раз сообщали о сбое фоновой синхронизации
-    (банк, eWeLink, регистратор) — см. notifications.notify_failure. Cron
+    """Счёт неудачных прогонов подряд и когда правлению последний раз
+    сообщали о сбое фоновой синхронизации (банк, eWeLink, регистратор) —
+    см. notifications.notify_failure. Cron
     опрашивает раз в минуту/пять, и без этой отметки сообщение о том же
     сбое уходило бы на каждый прогон."""
     __tablename__ = "failure_notification"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    # Источник сбоя: "bank:<id счёта>", "counterparty_api:<id>", "ewelink", "dvr:<id регистратора>".
+    # Источник сбоя: "bank:<id счёта>", "counterparty_api:<id>", "ewelink",
+    # "power_phase:<id устройства>" (фаза офлайн), "dvr:<id регистратора>".
     source: Mapped[str] = mapped_column(String(100), unique=True)
-    notified_at: Mapped[dt.datetime] = mapped_column(DateTime)
+    # Неудачных прогонов подряд — уведомляем, только когда их набралось
+    # достаточно (см. notifications.FREQUENT_FAILURE_THRESHOLD).
+    consecutive_failures: Mapped[int] = mapped_column(Integer, default=0)
+    notified_at: Mapped[dt.datetime | None] = mapped_column(DateTime)

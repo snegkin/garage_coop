@@ -78,7 +78,10 @@ def main() -> int:
             database.db_session.commit()
             print(f"[{dt.datetime.now().isoformat(timespec='seconds')}] "
                   f"Ошибка подключения к eWeLink: {exc}", file=sys.stderr)
-            notifications.notify_failure("ewelink", "опрос eWeLink", f"Ошибка подключения к eWeLink: {exc}")
+            notifications.notify_failure(
+                "ewelink", "опрос eWeLink", f"Ошибка подключения к eWeLink: {exc}",
+                threshold=notifications.FREQUENT_FAILURE_THRESHOLD,
+            )
             return 1
 
         active_devices = (
@@ -89,6 +92,7 @@ def main() -> int:
 
         saved, failed = 0, 0
         offline = []
+        online_ids, offline_devices = [], []
         device_errors = []
         for phase_device in active_devices:
             try:
@@ -102,8 +106,11 @@ def main() -> int:
 
             database.db_session.add(reading_from_snapshot(phase_device.id, snapshot, _utcnow()))
             saved += 1
-            if not snapshot.is_online:
+            if snapshot.is_online:
+                online_ids.append(phase_device.id)
+            else:
                 offline.append(phase_device.label)
+                offline_devices.append((phase_device.id, phase_device.label))
 
         account.last_poll_at = _utcnow()
         account.last_error = None if failed == 0 else f"{failed} из {len(active_devices)} устройств не опрошены — см. лог"
@@ -112,7 +119,22 @@ def main() -> int:
             notifications.notify_failure(
                 "ewelink", "опрос eWeLink",
                 f"Не опрошены {failed} из {len(active_devices)} устройств:\n" + "\n".join(device_errors),
+                threshold=notifications.FREQUENT_FAILURE_THRESHOLD,
             )
+        else:
+            notifications.reset_failure("ewelink")
+        # Фаза офлайн — устройство не на связи с облаком: чаще всего
+        # пропало питание на этой фазе (Sonoff питается от неё же).
+        # Источник — по фазе, не общий: иначе сообщение о второй фазе,
+        # пропавшей позже, ждало бы сутки после первой.
+        for device_id, label in offline_devices:
+            notifications.notify_failure(
+                f"power_phase:{device_id}", f"фаза {label} не на связи",
+                f"Устройство фазы «{label}» не на связи с облаком eWeLink — возможно, на фазе пропало электропитание.",
+                threshold=notifications.FREQUENT_FAILURE_THRESHOLD,
+            )
+        for device_id in online_ids:
+            notifications.reset_failure(f"power_phase:{device_id}")
 
         print(f"[{dt.datetime.now().isoformat(timespec='seconds')}] "
               f"Опрошено устройств: {saved}, ошибок: {failed}."

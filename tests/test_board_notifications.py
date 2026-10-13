@@ -359,3 +359,60 @@ def test_profile_page_shows_board_groups_only_to_board(app, db, client):
     html = client.get("/cabinet/profile").get_data(as_text=True)
     assert 'name="notify_board_events"' not in html
     assert 'name="notify_vote"' in html
+
+
+# ---------------------------------------------------------------------------
+# Сбои фоновых синхронизаций — не чаще раза в сутки на источник
+# ---------------------------------------------------------------------------
+
+def test_failure_notified_once_per_day_per_source(app, db, monkeypatch):
+    from app.models import FailureNotification
+    fake = _mock_smtp(monkeypatch)
+    _make_mailbox_settings(db)
+    _board_user(db, "board1")
+    _board_user(db, "board_off", groups=["bank"])
+    db.commit()
+
+    assert notifications.notify_failure("ewelink", "опрос eWeLink", "таймаут") is True
+    assert _recipients(fake) == ["board1@example.com"]
+    assert fake.sent[0]["Subject"] == "Сбой: опрос eWeLink"
+
+    assert notifications.notify_failure("ewelink", "опрос eWeLink", "таймаут") is False
+    assert notifications.notify_failure("dvr:1", "регистратор", "нет связи") is True
+    assert len(fake.sent) == 2
+
+    mark = db.query(FailureNotification).filter_by(source="ewelink").one()
+    mark.notified_at -= dt.timedelta(hours=25)
+    db.commit()
+    assert notifications.notify_failure("ewelink", "опрос eWeLink", "таймаут") is True
+    assert len(fake.sent) == 3
+
+
+def test_dvr_script_sends_one_failure_per_recorder_and_throttles(app, db, monkeypatch, tmp_path):
+    from tests.test_dvr_snapshot_script import _load_dvr_snapshot_module, make_recorder, make_camera
+    module = _load_dvr_snapshot_module()
+    fake = _mock_smtp(monkeypatch)
+    _make_mailbox_settings(db)
+    _board_user(db, "board1")
+    recorder = make_recorder(db)
+    make_camera(db, recorder, label="Ворота", channel=1)
+    make_camera(db, recorder, label="Двор", channel=2)
+    db.commit()
+
+    class FailedResult:
+        returncode = 1
+        stderr = b"Connection refused"
+
+    monkeypatch.setitem(app.config, "DVR_SNAPSHOT_FOLDER", str(tmp_path))
+    monkeypatch.setattr(module, "create_app", lambda: app)
+    monkeypatch.setattr(module.shutil, "which", lambda name: "/usr/bin/ffmpeg")
+    monkeypatch.setattr(module.subprocess, "run", lambda *a, **kw: FailedResult())
+    monkeypatch.setattr(module, "_update_combined_snapshot", lambda *a: None)
+
+    assert module.main() == 1
+    assert _recipients(fake) == ["board1@example.com"]
+    body = fake.sent[0].get_content()
+    assert "Ворота" in body and "Двор" in body
+
+    assert module.main() == 1
+    assert len(fake.sent) == 1

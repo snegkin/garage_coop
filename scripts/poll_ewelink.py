@@ -35,7 +35,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app import create_app, database
+from app import create_app, database, notifications
 from app.models import EWeLinkAccount, PowerPhaseDevice
 from app.bank_api import crypto
 from app.ewelink import EWeLinkApiError, EWeLinkAuthError
@@ -78,6 +78,7 @@ def main() -> int:
             database.db_session.commit()
             print(f"[{dt.datetime.now().isoformat(timespec='seconds')}] "
                   f"Ошибка подключения к eWeLink: {exc}", file=sys.stderr)
+            notifications.notify_failure("ewelink", "опрос eWeLink", f"Ошибка подключения к eWeLink: {exc}")
             return 1
 
         active_devices = (
@@ -88,11 +89,13 @@ def main() -> int:
 
         saved, failed = 0, 0
         offline = []
+        device_errors = []
         for phase_device in active_devices:
             try:
                 snapshot = client.get_phase_snapshot(phase_device.ewelink_device_id, account.family_id, devices=devices)
             except EWeLinkApiError as exc:
                 failed += 1
+                device_errors.append(f"{phase_device.label}: {exc}")
                 print(f"[{dt.datetime.now().isoformat(timespec='seconds')}] "
                       f"{phase_device.label}: {exc}", file=sys.stderr)
                 continue
@@ -105,6 +108,11 @@ def main() -> int:
         account.last_poll_at = _utcnow()
         account.last_error = None if failed == 0 else f"{failed} из {len(active_devices)} устройств не опрошены — см. лог"
         database.db_session.commit()
+        if device_errors:
+            notifications.notify_failure(
+                "ewelink", "опрос eWeLink",
+                f"Не опрошены {failed} из {len(active_devices)} устройств:\n" + "\n".join(device_errors),
+            )
 
         print(f"[{dt.datetime.now().isoformat(timespec='seconds')}] "
               f"Опрошено устройств: {saved}, ошибок: {failed}."

@@ -2955,3 +2955,16 @@ class PostalDispatch(Base):
     person: Mapped["Person"] = relationship()
     document: Mapped["Document | None"] = relationship()
     created_by: Mapped["User | None"] = relationship()
+
+
+class FailureNotification(Base):
+    """Когда правлению последний раз сообщали о сбое фоновой синхронизации
+    (банк, eWeLink, регистратор) — см. notifications.notify_failure. Cron
+    опрашивает раз в минуту/пять, и без этой отметки сообщение о том же
+    сбое уходило бы на каждый прогон."""
+    __tablename__ = "failure_notification"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # Источник сбоя: "bank:<id счёта>", "counterparty_api:<id>", "ewelink", "dvr:<id регистратора>".
+    source: Mapped[str] = mapped_column(String(100), unique=True)
+    notified_at: Mapped[dt.datetime] = mapped_column(DateTime)

@@ -93,6 +93,10 @@ def profile():
             status=PersonDataRevisionStatus.PENDING,
         )
         database.db_session.add(revision)
+        audit.record(
+            "person.revision_submit", entity_type="person", entity_id=person.id,
+            summary=f"Отправлены на рассмотрение изменённые данные: {person.full_name}",
+        )
         database.db_session.commit()
         flash(_("Изменения отправлены на рассмотрение председателю."), "success")
         return redirect(url_for("cabinet.profile"))
@@ -152,6 +156,8 @@ def profile():
         "cabinet/profile.html", person=display_person, pending_revision=pending_revision, pending_data=snap,
         telegram_link_url=telegram_link_url,
         webpush_public_key=webpush.get_or_create_settings().public_key,
+        board_event_groups=[(code, group["label"]) for code, group in notifications.BOARD_EVENT_GROUPS.items()],
+        my_board_event_groups=notifications.board_event_groups(g.user),
     )
 
 
@@ -176,14 +182,25 @@ def notification_settings():
         "notify_payment": bool(f.get("notify_payment")),
         "notify_news": bool(f.get("notify_news")),
         "notify_forum": bool(f.get("notify_forum")),
+        "notify_vote": bool(f.get("notify_vote")),
+        "notify_meeting": bool(f.get("notify_meeting")),
+        "notify_my_requests": bool(f.get("notify_my_requests")),
+        "notify_documents": bool(f.get("notify_documents")),
         "notify_board_chat": bool(f.get("notify_board_chat")) and is_board(),
     }
-    if notify_channel is not None and any(notify_events.values()) and not notifications.channel_is_ready(g.user, notify_channel):
+    board_groups = [
+        code for code in notifications.BOARD_EVENT_GROUPS
+        if code in f.getlist("notify_board_events")
+    ] if is_board() else []
+    wants_any = any(notify_events.values()) or bool(board_groups)
+    if notify_channel is not None and wants_any and not notifications.channel_is_ready(g.user, notify_channel):
         flash(_("Чтобы получать уведомления этим способом, сначала укажите и сохраните соответствующий контакт в профиле."), "danger")
     else:
         g.user.notify_channel = notify_channel
         for field, value in notify_events.items():
             setattr(g.user, field, value)
+        if is_board():
+            g.user.notify_board_events = json.dumps(board_groups)
         database.db_session.commit()
         flash(_("Настройки уведомлений сохранены."), "success")
     return redirect(url_for("cabinet.profile"))

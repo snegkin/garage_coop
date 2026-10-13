@@ -670,6 +670,11 @@ def add_contact(garage_id):
     person_id = int(request.form["person_id"])
     relation = request.form.get("relation") or None
     database.db_session.add(GarageContact(garage_id=garage_id, person_id=person_id, relation=relation))
+    person = database.db_session.get(Person, person_id)
+    audit.record(
+        "garage_contact.add", entity_type="garage", entity_id=garage.id,
+        summary=f"Гараж №{garage.number}: добавлено лицо для связи {person.full_name if person else person_id}",
+    )
     database.db_session.commit()
     flash(_("Контактное лицо добавлено."), "success")
     return redirect(url_for("garages.detail", garage_id=garage_id))
@@ -690,6 +695,10 @@ def edit_contact(garage_id, contact_id):
         abort(404)
     contact.person_id = int(request.form["person_id"])
     contact.relation = request.form.get("relation") or None
+    audit.record(
+        "garage_contact.edit", entity_type="garage", entity_id=garage.id,
+        summary=f"Гараж №{garage.number}: изменено лицо для связи",
+    )
     database.db_session.commit()
     flash(_("Контактное лицо изменено."), "success")
     return redirect(url_for("garages.detail", garage_id=garage_id))
@@ -706,6 +715,10 @@ def remove_contact(garage_id, contact_id):
     contact = database.db_session.get(GarageContact, contact_id)
     if contact and contact.garage_id == garage_id:
         database.db_session.delete(contact)
+        audit.record(
+            "garage_contact.remove", entity_type="garage", entity_id=garage.id,
+            summary=f"Гараж №{garage.number}: удалено лицо для связи",
+        )
         database.db_session.commit()
         flash(_("Контактное лицо удалено."), "success")
     return redirect(url_for("garages.detail", garage_id=garage_id))
@@ -753,6 +766,7 @@ def add_photo(garage_id):
 
     photo = GaragePhoto(garage_id=garage.id, file_path=stored_name, caption=request.form.get("caption") or None)
     database.db_session.add(photo)
+    audit.record("garage_photo.add", f"Гараж №{garage.number}: добавлено фото", entity_type="garage", entity_id=garage.id)
     database.db_session.commit()
     flash(_("Фото добавлено."), "success")
     return redirect(url_for("garages.detail", garage_id=garage_id))
@@ -780,6 +794,9 @@ def edit_photo(garage_id, photo_id):
         upload.save(os.path.join(current_app.config["UPLOAD_FOLDER"], stored_name))
         photo.file_path = stored_name
 
+    audit.record(
+        "garage_photo.edit", f"Гараж №{photo.garage.number}: изменено фото", entity_type="garage", entity_id=garage_id,
+    )
     database.db_session.commit()
     flash(_("Фото обновлено."), "success")
     return redirect(url_for("garages.detail", garage_id=garage_id))
@@ -795,6 +812,9 @@ def remove_photo(garage_id, photo_id):
     file_path = os.path.join(current_app.config["UPLOAD_FOLDER"], photo.file_path)
     if os.path.exists(file_path):
         os.remove(file_path)
+    audit.record(
+        "garage_photo.remove", f"Гараж №{photo.garage.number}: удалено фото", entity_type="garage", entity_id=garage_id,
+    )
     database.db_session.delete(photo)
     database.db_session.commit()
     flash(_("Фото удалено."), "success")
@@ -849,6 +869,10 @@ def add_document_photo(garage_id):
         file_path=stored_name, comment=request.form.get("comment") or None, author_id=g.user.id,
     )
     database.db_session.add(doc)
+    audit.record(
+        "garage_document.add", entity_type="garage", entity_id=garage.id,
+        summary=f"Гараж №{garage.number}: загружен документ «{upload.filename}»",
+    )
     database.db_session.commit()
     flash(_("Документ добавлен."), "success")
     return redirect(url_for("garages.detail", garage_id=garage_id))
@@ -869,6 +893,10 @@ def remove_document_photo(garage_id, document_id):
     file_path = os.path.join(current_app.config["UPLOAD_FOLDER"], doc.file_path)
     if os.path.exists(file_path):
         os.remove(file_path)
+    audit.record(
+        "garage_document.remove", entity_type="garage", entity_id=garage.id,
+        summary=f"Гараж №{garage.number}: удалён документ «{doc.original_filename}»",
+    )
     database.db_session.delete(doc)
     database.db_session.commit()
     flash(_("Документ удалён."), "success")
@@ -917,6 +945,7 @@ def add_electricity_meter(garage_id):
         comment=f.get("comment") or None,
     )
     database.db_session.add(meter)
+    audit.record("electricity_meter.add", f"Добавлен счётчик гаража №{garage.number}: {meter.meter_number}", entity_type="garage", entity_id=garage.id)
     database.db_session.commit()
     flash(_("Счётчик добавлен."), "success")
     return redirect(url_for("garages.detail", garage_id=garage_id, tab="account"))
@@ -946,6 +975,7 @@ def edit_electricity_meter(garage_id, meter_id):
     meter.breaker_seal_number = f.get("breaker_seal_number") or None
     meter.comment = f.get("comment") or None
 
+    audit.record("electricity_meter.edit", f"Изменён счётчик гаража №{garage.number}: {meter.meter_number}", entity_type="garage", entity_id=garage.id)
     database.db_session.commit()
     flash(_("Счётчик обновлён."), "success")
     return redirect(url_for("garages.detail", garage_id=garage_id, tab="account"))
@@ -1219,6 +1249,10 @@ def update_account_number(garage_id):
     if account is None:
         abort(404)
     account.account_number = request.form["account_number"].strip()
+    audit.record(
+        "member_account.number_change", entity_type="garage", entity_id=garage.id,
+        summary=f"Гараж №{garage.number}: номер лицевого счёта изменён на {account.account_number}",
+    )
     try:
         database.db_session.commit()
     except Exception:

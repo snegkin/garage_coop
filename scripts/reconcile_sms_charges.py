@@ -37,7 +37,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import datetime as dt
 
-from app import create_app, database
+from app import create_app, database, notifications
 from app import audit
 from app.accounting import reallocate_member_charges
 from app.models import SmsLog, SmsLogStatus, MemberAccount, FeeType, Charge, Person
@@ -129,6 +129,10 @@ def main() -> int:
             )
             database.db_session.commit()
             charged += 1
+
+        # Уведомления правлению о начислениях (sms.password_reset_charged в
+        # журнале) — вне запроса after_request их не отправит.
+        notifications.dispatch_after_commit()
 
         print(f"[{dt.datetime.now().isoformat(timespec='seconds')}] "
               f"Начислено: {charged}, ещё не готово (нет стоимости у провайдера): {not_ready}, ошибок: {errors} "

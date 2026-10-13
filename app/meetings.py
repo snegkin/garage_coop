@@ -1,15 +1,30 @@
 import datetime as dt
 
-from flask import Blueprint, render_template, request, redirect, url_for, flash, current_app
+from flask import Blueprint, render_template, request, redirect, url_for, flash, current_app, g
 
 from . import database
 from . import audit
+from . import notifications
 from .i18n import translate as _
 from .auth import login_required, roles_required, is_safe_next_url
 from .models import GeneralMeeting, Person, Document, DocumentType, RoleEnum
 from .uploads import save_upload
 
 bp = Blueprint("meetings", __name__, url_prefix="/meetings")
+
+
+def _notify_members(meeting: GeneralMeeting, subject: str) -> None:
+    """Членам — только о предстоящем собрании: прошедшее, внесённое задним
+    числом ради протокола, рассылать незачем."""
+    if meeting.date < dt.date.today():
+        return
+    body = f"Дата: {meeting.date.strftime('%d.%m.%Y')}"
+    if meeting.agenda:
+        body += f"\n\nПовестка:\n{meeting.agenda}"
+    body += "\n\n" + url_for("meetings.list_meetings", _external=True)
+    notifications.after_commit(
+        notifications.notify_subscribers, "meeting", subject, body, g.user.id, "governance",
+    )
 
 
 @bp.route("/")
@@ -50,6 +65,7 @@ def create():
         )
         database.db_session.add(meeting)
         audit.record("meeting.create", f"Добавлено общее собрание от {audit.format_date(meeting_date)}")
+        _notify_members(meeting, f"Общее собрание {meeting_date.strftime('%d.%m.%Y')}")
         database.db_session.commit()
         flash(_("Собрание добавлено."), "success")
 
@@ -71,6 +87,7 @@ def edit(meeting_id):
         return redirect(url_for("meetings.list_meetings"))
 
     f = request.form
+    old_date, old_agenda = meeting.date, meeting.agenda
     meeting.date = dt.date.fromisoformat(f["date"])
     meeting.agenda = f.get("agenda") or None
     meeting.is_annual_report_meeting = bool(f.get("is_annual_report_meeting"))
@@ -90,6 +107,8 @@ def edit(meeting_id):
         meeting.protocol_document_id = protocol_doc.id
 
     audit.record("meeting.edit", f"Изменено общее собрание от {audit.format_date(meeting.date)}")
+    if (meeting.date, meeting.agenda) != (old_date, old_agenda):
+        _notify_members(meeting, f"Изменено общее собрание {meeting.date.strftime('%d.%m.%Y')}")
     database.db_session.commit()
     flash(_("Собрание обновлено."), "success")
     return redirect(url_for("meetings.list_meetings"))

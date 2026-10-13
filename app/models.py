@@ -1249,8 +1249,19 @@ class User(Base):
     notify_payment: Mapped[bool] = mapped_column(Boolean, default=True)
     notify_news: Mapped[bool] = mapped_column(Boolean, default=True)
     notify_forum: Mapped[bool] = mapped_column(Boolean, default=True)
+    notify_vote: Mapped[bool] = mapped_column(Boolean, default=True)
+    notify_meeting: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Решение правления/председателя по собственной заявке — правке
+    # данных профиля (PersonDataRevision) или предложению голосования.
+    notify_my_requests: Mapped[bool] = mapped_column(Boolean, default=True)
+    notify_documents: Mapped[bool] = mapped_column(Boolean, default=True)
     # Только для is_board() — см. scripts/board_chat_digest.py.
     notify_board_chat: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Только для is_board() — JSON-список кодов групп событий журнала
+    # аудита (см. notifications.BOARD_EVENT_GROUPS), о которых уведомлять.
+    # NULL — человек ещё не сохранял выбор, действует
+    # notifications.DEFAULT_BOARD_EVENT_GROUPS.
+    notify_board_events: Mapped[str | None] = mapped_column(Text)
     # id последнего сообщения чата правления, о непрочтении которого уже
     # отправлено уведомление — без этой отметки board_chat_digest.py слал
     # бы повторное письмо на каждый свой запуск, пока сообщение остаётся

@@ -12,8 +12,8 @@
      кодом 1 и понятным сообщением в лог, ничего не пытаясь (все камеры
      всё равно не снимутся).
   1.1. О сбоях (нет ffmpeg, не снялась камера) правлению уходит
-     уведомление — не чаще раза в сутки на регистратор, см.
-     app/notifications.py: notify_failure.
+     уведомление — после нескольких неудачных прогонов подряд и не чаще
+     раза в сутки на регистратор, см. app/notifications.py: notify_failure.
   2. Для каждой DvrCamera каждого DvrRecorder — собрать RTSP URL
      (app.surveillance.rtsp_url) и вызвать
          ffmpeg -y -rtsp_transport tcp -i "<url>" -vframes 1 <tmp>.jpg
@@ -246,6 +246,7 @@ def main() -> int:
             if database.db_session.query(DvrCamera).first() is not None:
                 notifications.notify_failure(
                     "dvr:ffmpeg", "снятие кадров с камер", "На сервере не найден ffmpeg — кадры с камер не снимаются.",
+                    threshold=notifications.FREQUENT_FAILURE_THRESHOLD,
                 )
             return 1
 
@@ -280,7 +281,11 @@ def main() -> int:
             notifications.notify_failure(
                 f"dvr:{recorder_id}", f"регистратор {recorder_name}",
                 "Не удалось снять кадр:\n" + "\n".join(errors),
+                threshold=notifications.FREQUENT_FAILURE_THRESHOLD,
             )
+        for recorder_id in {c.recorder_id for c in cameras} - set(errors_by_recorder):
+            notifications.reset_failure(f"dvr:{recorder_id}")
+        notifications.reset_failure("dvr:ffmpeg")
         print(f"[{dt.datetime.now().isoformat(timespec='seconds')}] "
               f"Снято кадров: {saved}, ошибок: {failed}.")
 

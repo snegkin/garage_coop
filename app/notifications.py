@@ -417,7 +417,7 @@ BOARD_EVENT_GROUPS = {
     },
     # Не действия журнала, а сбои cron-синхронизаций — см. notify_failure.
     "failures": {
-        "label": "Сбои синхронизации с банком, eWeLink, регистратором",
+        "label": "Сбои синхронизации с банком, eWeLink, регистратором; фаза электропитания не на связи",
         "actions": (),
     },
 }
@@ -516,27 +516,50 @@ def _send_to_board(group: str, event: str, subject: str, body_text: str,
 
 
 FAILURE_NOTIFY_INTERVAL = dt.timedelta(days=1)
+# Для задач, которые cron запускает чаще раза в сутки (eWeLink,
+# регистратор — раз в минуту): единичный сбой (сетевой таймаут, перезагрузка
+# роутера) — шум, уведомляем только о сбое, повторившемся столько прогонов подряд.
+FREQUENT_FAILURE_THRESHOLD = 3
 
 
-def notify_failure(source: str, title: str, error: str) -> bool:
+def notify_failure(source: str, title: str, error: str, threshold: int = 1) -> bool:
     """Сообщить правлению (группа «failures») о сбое фоновой
-    синхронизации — не чаще раза в FAILURE_NOTIFY_INTERVAL на источник
-    (source — см. FailureNotification.source): cron опрашивает eWeLink и
-    регистратор раз в минуту, и без этого ограничения о затянувшемся сбое
+    синхронизации (source — см. FailureNotification.source). Каждый вызов
+    — ещё один неудачный прогон подряд; уведомление уходит, только когда
+    их набралось threshold (удачный прогон обнуляет счёт — reset_failure),
+    и не чаще раза в FAILURE_NOTIFY_INTERVAL на источник: cron опрашивает
+    eWeLink и регистратор раз в минуту, и без этого о затянувшемся сбое
     приходило бы сообщение на каждый прогон. Отправляет сразу, без
     after_commit — вызывается из cron-скриптов вне запроса, после их
     собственного commit. Возвращает True, если уведомление ушло."""
     now = dt.datetime.utcnow()
     mark = database.db_session.query(FailureNotification).filter_by(source=source).first()
-    if mark is not None and now - mark.notified_at < FAILURE_NOTIFY_INTERVAL:
-        return False
     if mark is None:
-        mark = FailureNotification(source=source, notified_at=now)
+        mark = FailureNotification(source=source, consecutive_failures=0)
         database.db_session.add(mark)
-    else:
+    mark.consecutive_failures += 1
+    due = mark.consecutive_failures >= threshold and (
+        mark.notified_at is None or now - mark.notified_at >= FAILURE_NOTIFY_INTERVAL
+    )
+    if due:
         mark.notified_at = now
     database.db_session.commit()
+    if not due:
+        return False
 
-    body_text = f"{error}\n\nСледующее сообщение об этом сбое — не раньше чем через сутки."
+    body_text = error
+    if threshold > 1:
+        body_text += f"\n\nНеудачных попыток подряд: {mark.consecutive_failures}."
+    body_text += "\n\nСледующее сообщение об этом сбое — не раньше чем через сутки."
     _send_to_board("failures", f"failure:{source}", f"Сбой: {title}", body_text)
     return True
+
+
+def reset_failure(source: str) -> None:
+    """Удачный прогон — обнулить счёт неудачных подряд (см. notify_failure).
+    Отметку последнего уведомления не трогает: если сбой «мигает», новое
+    сообщение всё равно не раньше чем через сутки после прошлого."""
+    mark = database.db_session.query(FailureNotification).filter_by(source=source).first()
+    if mark is not None and mark.consecutive_failures:
+        mark.consecutive_failures = 0
+        database.db_session.commit()

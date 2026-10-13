@@ -388,7 +388,7 @@ def test_failure_notified_once_per_day_per_source(app, db, monkeypatch):
     assert len(fake.sent) == 3
 
 
-def test_dvr_script_sends_one_failure_per_recorder_and_throttles(app, db, monkeypatch, tmp_path):
+def test_dvr_script_notifies_after_consecutive_failures_once_per_recorder(app, db, monkeypatch, tmp_path):
     from tests.test_dvr_snapshot_script import _load_dvr_snapshot_module, make_recorder, make_camera
     module = _load_dvr_snapshot_module()
     fake = _mock_smtp(monkeypatch)
@@ -409,6 +409,11 @@ def test_dvr_script_sends_one_failure_per_recorder_and_throttles(app, db, monkey
     monkeypatch.setattr(module.subprocess, "run", lambda *a, **kw: FailedResult())
     monkeypatch.setattr(module, "_update_combined_snapshot", lambda *a: None)
 
+    # Первые прогоны подряд с ошибкой — ещё шум, не уведомляем.
+    for _ in range(notifications.FREQUENT_FAILURE_THRESHOLD - 1):
+        assert module.main() == 1
+    assert fake.sent == []
+
     assert module.main() == 1
     assert _recipients(fake) == ["board1@example.com"]
     body = fake.sent[0].get_content()
@@ -416,3 +421,69 @@ def test_dvr_script_sends_one_failure_per_recorder_and_throttles(app, db, monkey
 
     assert module.main() == 1
     assert len(fake.sent) == 1
+
+
+def test_success_resets_consecutive_failures(app, db, monkeypatch):
+    fake = _mock_smtp(monkeypatch)
+    _make_mailbox_settings(db)
+    _board_user(db, "board1")
+    db.commit()
+    threshold = notifications.FREQUENT_FAILURE_THRESHOLD
+
+    for _ in range(threshold - 1):
+        assert notifications.notify_failure("dvr:1", "регистратор", "нет связи", threshold=threshold) is False
+    notifications.reset_failure("dvr:1")
+    for _ in range(threshold - 1):
+        assert notifications.notify_failure("dvr:1", "регистратор", "нет связи", threshold=threshold) is False
+    assert fake.sent == []
+
+    assert notifications.notify_failure("dvr:1", "регистратор", "нет связи", threshold=threshold) is True
+    assert "Неудачных попыток подряд: 3" in fake.sent[0].get_content()
+
+
+def test_ewelink_offline_phase_notifies_per_phase(app, db, monkeypatch):
+    import importlib.util
+    from app.ewelink.client import PhaseSnapshot
+    from tests.test_electricity_monitor import make_ewelink_account, make_phase_device
+
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    spec = importlib.util.spec_from_file_location("poll_ewelink_script", os.path.join(root, "scripts", "poll_ewelink.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    fake = _mock_smtp(monkeypatch)
+    _make_mailbox_settings(db)
+    _board_user(db, "board1")
+    make_ewelink_account(db, app_id="app", access_token_encrypted="x", family_id="fam")
+    make_phase_device(db, label="Фаза A", ewelink_device_id="a")
+    make_phase_device(db, label="Фаза B", ewelink_device_id="b", sort_order=1)
+    db.commit()
+
+    online = {"a": True, "b": False}
+
+    class FakeClient:
+        tokens = object()
+
+        def list_devices(self, family_id):
+            return []
+
+        def get_phase_snapshot(self, device_id, family_id, devices=None):
+            return PhaseSnapshot(
+                power_w=Decimal("100"), voltage_v=Decimal("220"), current_a=Decimal("0.5"), day_kwh=None,
+                month_kwh=None, is_online=online[device_id], sled_online=None, switch_on=None,
+            )
+
+    monkeypatch.setattr(module, "create_app", lambda: app)
+    monkeypatch.setattr(module, "build_client", lambda account: FakeClient())
+
+    for _ in range(notifications.FREQUENT_FAILURE_THRESHOLD):
+        assert module.main() == 0
+    assert _recipients(fake) == ["board1@example.com"]
+    assert "Фаза B" in fake.sent[0]["Subject"]
+
+    # Фаза B вернулась, пропала фаза A — своё сообщение, не ждёт суток после B.
+    online.update(a=False, b=True)
+    for _ in range(notifications.FREQUENT_FAILURE_THRESHOLD):
+        module.main()
+    assert len(fake.sent) == 2
+    assert "Фаза A" in fake.sent[1]["Subject"]

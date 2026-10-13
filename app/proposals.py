@@ -27,7 +27,9 @@ import datetime as dt
 
 from flask import Blueprint, render_template, request, redirect, url_for, flash, g
 
+from . import audit
 from . import database
+from . import notifications
 from .i18n import translate as _
 from .auth import login_required, roles_required
 from .governance import current_board_member_ids
@@ -107,15 +109,33 @@ def resolve_if_due(proposal: VoteProposal) -> bool:
         database.db_session.add(vote)
         database.db_session.flush()
         proposal.resulting_vote_id = vote.id
+        verdict = "одобрено"
+        member_text = "Правление одобрило ваше предложение — председатель подготовит по нему голосование."
     else:
         proposal.status = ProposalStatus.REJECTED
+        verdict = "отклонено"
+        member_text = "Правление не поддержало ваше предложение."
+
+    # Решение подводится при чьём-то просмотре страницы — «автор» здесь
+    # случайный, уведомление получают все подписанные.
+    audit.record(
+        "proposal.decided", entity_type="proposal", entity_id=proposal.id, notify_exclude_actor=False,
+        summary=f"Предложение «{proposal.title}» {verdict} правлением "
+                f"(за {tally['for']}, против {tally['against']}, воздержались {tally['abstain']})",
+    )
+    proposer = notifications.user_for_person(proposal.proposed_by_person_id)
+    if proposer is not None:
+        notifications.after_commit(
+            notifications.notify_user_id, proposer.id, "my_requests",
+            f"Предложение «{proposal.title}» {verdict}", member_text,
+        )
     return True
 
 
 def _resolve_all_pending() -> bool:
     """Прогоняет resolve_if_due по всем PENDING-предложениям — вызывается со страниц списка/карточки, чтобы просроченные по неделе решались без отдельного действия председателя."""
     pending = database.db_session.query(VoteProposal).filter_by(status=ProposalStatus.PENDING).all()
-    return any(resolve_if_due(p) for p in pending)
+    return any([resolve_if_due(p) for p in pending])  # список, а не генератор: any() остановился бы на первом решённом
 
 
 # ---------------------------------------------------------------------------
@@ -169,6 +189,11 @@ def create():
             created_at=dt.datetime.now(),
         )
         database.db_session.add(proposal)
+        database.db_session.flush()
+        audit.record(
+            "proposal.create", entity_type="proposal", entity_id=proposal.id,
+            summary=f"Новое предложение голосования от {person.full_name}: «{proposal.title}»",
+        )
         database.db_session.commit()
         flash(_("Предложение отправлено правлению на рассмотрение."), "success")
         return redirect(url_for("proposals.detail", proposal_id=proposal.id))
@@ -195,6 +220,10 @@ def edit(proposal_id):
             return redirect(url_for("proposals.edit", proposal_id=proposal_id))
         proposal.title = title
         proposal.description = f.get("description") or None
+        audit.record(
+            "proposal.edit", entity_type="proposal", entity_id=proposal.id,
+            summary=f"Изменена формулировка предложения «{proposal.title}»",
+        )
         database.db_session.commit()
         flash(_("Предложение обновлено."), "success")
         return redirect(url_for("proposals.detail", proposal_id=proposal_id))
@@ -266,6 +295,11 @@ def board_vote(proposal_id):
         ))
     database.db_session.flush()
 
+    choice_text = {VoteChoice.FOR: "за", VoteChoice.AGAINST: "против", VoteChoice.ABSTAIN: "воздержался"}[choice]
+    audit.record(
+        "proposal.board_vote", entity_type="proposal", entity_id=proposal.id,
+        summary=f"{person.full_name} проголосовал(а) «{choice_text}» по предложению «{proposal.title}»",
+    )
     resolve_if_due(proposal)
     database.db_session.commit()
     flash(_("Ваш голос учтён."), "success")

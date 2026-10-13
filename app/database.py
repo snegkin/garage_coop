@@ -34,7 +34,13 @@ def init_engine(database_uri: str):
             cursor.execute("PRAGMA journal_mode=WAL")
             cursor.close()
 
-    db_session = scoped_session(sessionmaker(bind=engine, autoflush=False, autocommit=False))
+    session_factory = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    # Отложенные уведомления — уходят только после commit, см.
+    # app/notifications.py: after_commit.
+    from . import notifications
+    event.listen(session_factory, "after_commit", notifications.on_session_commit)
+    event.listen(session_factory, "after_rollback", notifications.on_session_rollback)
+    db_session = scoped_session(session_factory)
     return engine, db_session
 
 
@@ -157,7 +163,15 @@ def _run_migrations(database_uri: str):
 
 
 def init_app(app):
-    """Регистрирует закрытие сессии по завершении запроса."""
+    """Регистрирует закрытие сессии по завершении запроса и отправку
+    уведомлений о закоммиченных за запрос действиях (до remove() — иначе
+    очередь пропадёт вместе с сессией)."""
+    @app.after_request
+    def dispatch_notifications(response):
+        from . import notifications
+        notifications.dispatch_after_commit()
+        return response
+
     @app.teardown_appcontext
     def remove_session(exception=None):
         if db_session is not None:

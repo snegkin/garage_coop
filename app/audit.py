@@ -16,10 +16,11 @@ from decimal import Decimal
 from flask import g, url_for
 
 from . import database
-from .models import AuditLog
+from .models import AuditLog, WikiPage
 
 
-def record(action: str, summary: str, entity_type: str | None = None, entity_id: int | None = None, actor=None) -> None:
+def record(action: str, summary: str, entity_type: str | None = None, entity_id: int | None = None, actor=None,
+           notify_exclude_actor: bool = True) -> None:
     """
     action — короткий машиночитаемый код, напр. "payment.create", "charge.create",
     "role.change", "auth.login", "auth.login_failed", "account.password_change".
@@ -30,6 +31,12 @@ def record(action: str, summary: str, entity_type: str | None = None, entity_id:
     действие меняет самого текущего пользователя в той же обработке запроса
     (например login() — g.user ещё не обновлён в момент успешного входа,
     т.к. load_logged_in_user() уже отработал до этого запроса).
+
+    Заодно ставит уведомление правлению (notifications.queue_board_event) —
+    уйдёт только после commit этой же транзакции. Автора действия не
+    уведомляем; notify_exclude_actor=False — для событий, у которых «автор»
+    случайный (решение по предложению подводится при чьём-то просмотре
+    страницы, см. proposals.resolve_if_due).
     """
     user = actor if actor is not None else g.get("user", None)
     database.db_session.add(AuditLog(
@@ -41,6 +48,16 @@ def record(action: str, summary: str, entity_type: str | None = None, entity_id:
         entity_id=entity_id,
         summary=summary,
     ))
+    from . import notifications
+    notifications.queue_board_event(
+        action, summary, entity_type, entity_id,
+        actor_user_id=user.id if user and notify_exclude_actor else None,
+        actor_name=_actor_name(user) if user and notify_exclude_actor else None,
+    )
+
+
+def _actor_name(user) -> str:
+    return user.person.full_name if user.person else user.username
 
 
 def format_amount(value) -> str:
@@ -83,4 +100,9 @@ def entity_url(entity_type: str | None, entity_id: int | None) -> str | None:
         return url_for("voting.detail", vote_id=entity_id)
     if entity_type == "garage":
         return url_for("garages.detail", garage_id=entity_id)
+    if entity_type == "wiki":
+        page = database.db_session.get(WikiPage, entity_id)
+        return url_for("wiki.view", slug=page.slug) if page else None
+    if entity_type == "proposal":
+        return url_for("proposals.detail", proposal_id=entity_id)
     return None

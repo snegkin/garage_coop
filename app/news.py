@@ -7,6 +7,7 @@ from flask import (
     g, current_app, send_file, jsonify,
 )
 
+from . import audit
 from . import database
 from . import notifications
 from .i18n import translate as _
@@ -137,9 +138,11 @@ def create():
         database.db_session.add(item)
         _sync_inline_attachments(item, f["body"])
         _save_attachments(item)
+        database.db_session.flush()
+        audit.record("news.create", f"Опубликована новость «{item.title}»", entity_type="news", entity_id=item.id)
         database.db_session.commit()
         notifications.notify_subscribers(
-            "news", "Новая новость", item.title, exclude_user_id=g.user.id,
+            "news", "Новая новость", item.title, exclude_user_id=g.user.id, board_group="documents",
         )
         flash(_("Новость добавлена."), "success")
         return redirect(url_for("main.index"))
@@ -168,6 +171,7 @@ def edit(news_id):
 
         _sync_inline_attachments(item, f["body"])
         _save_attachments(item)
+        audit.record("news.edit", f"Изменена новость «{item.title}»", entity_type="news", entity_id=item.id)
         database.db_session.commit()
         flash(_("Новость обновлена."), "success")
         return redirect(url_for("main.index"))
@@ -181,6 +185,7 @@ def delete(news_id):
     item = database.db_session.get(News, news_id)
     if item is None:
         abort(404)
+    audit.record("news.delete", f"Удалена новость «{item.title}»")
     database.db_session.delete(item)
     database.db_session.commit()
     flash(_("Новость удалена."), "success")

@@ -2,11 +2,12 @@ import datetime as dt
 import os
 from decimal import Decimal
 
-from flask import Blueprint, render_template, request, redirect, url_for, flash, abort, send_file, current_app
+from flask import Blueprint, render_template, request, redirect, url_for, flash, abort, send_file, current_app, g
 from werkzeug.utils import secure_filename
 
 from . import database
 from . import audit
+from . import notifications
 from .i18n import translate as _, parse_optional_decimal as _parse_decimal
 from .auth import login_required, roles_required
 from .models import Cooperative, BankAccount, BankApiProvider, RoleEnum, Document, DocumentType, Person, Counterparty
@@ -193,6 +194,11 @@ def create_document():
         )
         database.db_session.add(doc)
         audit.record("document.create", f"Добавлен документ: {doc.title}")
+        if not doc.is_internal:
+            notifications.after_commit(
+                notifications.notify_subscribers, "documents", f"Новый документ кооператива: {doc.title}",
+                url_for("cooperative.view", _external=True) + "#documentsSection", g.user.id, "documents",
+            )
         database.db_session.commit()
         flash(_("Документ сохранён."), "success")
         return redirect(url_for("cooperative.view") + "#documentsSection")

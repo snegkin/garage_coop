@@ -8,6 +8,7 @@ from werkzeug.security import generate_password_hash
 
 from . import database
 from . import audit
+from . import notifications
 from .i18n import translate as _
 from .auth import login_required, roles_required, is_safe_next_url, login_taken
 from .permissions import is_board, is_chairman, sync_user_role
@@ -132,6 +133,10 @@ def create():
             for number in phones:
                 database.db_session.add(Phone(person_id=person.id, number=number))
 
+            audit.record(
+                "person.create", entity_type="person", entity_id=person.id,
+                summary=f"Добавлен человек: {person.full_name}",
+            )
             database.db_session.commit()
             flash(_("Человек «{name}» добавлен.", name=person.full_name), "success")
 
@@ -551,6 +556,10 @@ def edit(person_id):
         for number in phones:
             database.db_session.add(Phone(person_id=person.id, number=number))
 
+        audit.record(
+            "person.edit", entity_type="person", entity_id=person.id,
+            summary=f"Изменена карточка человека: {person.full_name}",
+        )
         database.db_session.commit()
         flash(_("Изменения сохранены."), "success")
         return redirect(url_for("persons.detail", person_id=person.id))
@@ -837,6 +846,10 @@ def approve_revision(person_id, revision_id):
         "person.revision_approve", entity_type="person", entity_id=person.id,
         summary=f"Одобрены и применены изменённые данные: {person.full_name}",
     )
+    notifications.after_commit(
+        notifications.notify_user_id, revision.submitted_by_user_id, "my_requests",
+        "Изменения данных одобрены", "Председатель одобрил изменения ваших данных — они уже применены в карточке.",
+    )
     database.db_session.commit()
     flash(_("Изменения для «{name}» одобрены и применены.", name=person.full_name), "success")
     return redirect(url_for("persons.detail", person_id=person.id))
@@ -858,6 +871,15 @@ def reject_revision(person_id, revision_id):
     revision.status = PersonDataRevisionStatus.REJECTED
     revision.reviewed_at = dt.datetime.utcnow()
     revision.reviewer_user_id = g.user.id
+    audit.record(
+        "person.revision_reject", entity_type="person", entity_id=person.id,
+        summary=f"Отклонены изменённые данные: {person.full_name}",
+    )
+    notifications.after_commit(
+        notifications.notify_user_id, revision.submitted_by_user_id, "my_requests",
+        "Изменения данных отклонены",
+        "Председатель отклонил изменения ваших данных. Уточнить причину можно у правления.",
+    )
     database.db_session.commit()
     flash(_("Изменения для «{name}» отклонены.", name=person.full_name), "info")
     return redirect(url_for("persons.detail", person_id=person.id))

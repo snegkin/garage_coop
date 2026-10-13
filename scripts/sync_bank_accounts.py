@@ -33,7 +33,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app import create_app, database
+from app import create_app, database, notifications
 from app.models import BankAccount, Counterparty, CounterpartyApiProvider
 from app.bank_sync import sync_account_balance, sync_account_statement
 from app.counterparty_sync import balance_sync_due, sync_counterparty_balance
@@ -50,6 +50,9 @@ def main() -> int:
     with app.app_context():
         had_bank_errors = _sync_bank_accounts()
         had_counterparty_errors = _sync_counterparties()
+        # Уведомления правлению о загруженной выписке (bank_api.statement_sync
+        # в журнале) — вне запроса after_request их не отправит.
+        notifications.dispatch_after_commit()
         return 1 if (had_bank_errors or had_counterparty_errors) else 0
 
 

@@ -42,6 +42,7 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 
 from . import database
 from . import audit
+from . import notifications
 from .i18n import translate as _, parse_decimal
 from .auth import login_required, roles_required
 from .permissions import is_board, is_chairman
@@ -432,6 +433,14 @@ def open_vote(vote_id):
         return redirect(url_for("voting.detail", vote_id=vote_id))
     vote.status = VoteStatus.OPEN
     audit.record("vote.open", f"Открыто голосование «{vote.title}»", entity_type="vote", entity_id=vote.id)
+    notifications.after_commit(
+        notifications.notify_persons, [p.id for p in eligible_voters()], "vote",
+        f"Открыто голосование «{vote.title}»",
+        f"Открыто голосование «{vote.title}». Бюллетени принимаются до "
+        f"{vote.closes_at.strftime('%d.%m.%Y %H:%M')}.\n\n"
+        + url_for("voting.detail", vote_id=vote.id, _external=True),
+        g.user.id, "governance",
+    )
     database.db_session.commit()
     flash(_("Голосование открыто — члены кооператива теперь могут голосовать."), "success")
     return redirect(url_for("voting.detail", vote_id=vote_id))
@@ -519,6 +528,10 @@ def ballot(vote_id):
             flash(_("Ответьте на все вопросы повестки перед отправкой бюллетеня."), "danger")
             return redirect(url_for("voting.ballot", vote_id=vote_id))
         cast_ballots(vote, person, choices, comments)
+        audit.record(
+            "vote.ballot_cast", f"{person.full_name} проголосовал(а) в голосовании «{vote.title}»",
+            entity_type="vote", entity_id=vote.id,
+        )
         database.db_session.commit()
         flash(_("Бюллетень принят. Вы можете изменить голос, пока приём бюллетеней открыт."), "success")
         return redirect(url_for("voting.detail", vote_id=vote_id))

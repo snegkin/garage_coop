@@ -25,7 +25,9 @@ from flask import (
     g, current_app, send_file, jsonify,
 )
 
+from . import audit
 from . import database
+from . import notifications
 from .i18n import translate as _
 from .auth import login_required, roles_required
 from .permissions import is_board
@@ -302,6 +304,13 @@ def create():
         database.db_session.add(page)
         _sync_inline_attachments(page, f["body"])
         _save_attachments(page)
+        database.db_session.flush()
+        audit.record("wiki.create", f"Добавлена страница вики «{page.title}»", entity_type="wiki", entity_id=page.id)
+        if not page.is_internal:
+            notifications.after_commit(
+                notifications.notify_subscribers, "documents", f"Новая страница вики: {page.title}",
+                url_for("wiki.view", slug=page.slug, _external=True), g.user.id, "documents",
+            )
         database.db_session.commit()
         flash(_("Страница вики добавлена."), "success")
         return redirect(url_for("wiki.view", slug=page.slug))
@@ -344,6 +353,7 @@ def edit(page_id):
 
         _sync_inline_attachments(page, f["body"])
         _save_attachments(page)
+        audit.record("wiki.edit", f"Изменена страница вики «{page.title}»", entity_type="wiki", entity_id=page.id)
         database.db_session.commit()
         flash(_("Страница вики обновлена."), "success")
         return redirect(url_for("wiki.view", slug=page.slug))
@@ -363,6 +373,7 @@ def delete(page_id):
     if page.children:
         flash(_("Нельзя удалить раздел, в котором есть подразделы/страницы — сначала удалите или перенесите их."), "danger")
         return redirect(url_for("wiki.view", slug=page.slug))
+    audit.record("wiki.delete", f"Удалена страница вики «{page.title}»")
     database.db_session.delete(page)
     database.db_session.commit()
     flash(_("Страница вики удалена."), "success")

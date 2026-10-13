@@ -166,6 +166,22 @@
             <input class="form-check-input" type="checkbox" name="notify_forum" id="notify_forum" {{ 'checked' if g.user.notify_forum }}>
             <label class="form-check-label" for="notify_forum">{{ _("Новая тема или ответ на форуме") }}</label>
           </div>
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="notify_vote" id="notify_vote" {{ 'checked' if g.user.notify_vote }}>
+            <label class="form-check-label" for="notify_vote">{{ _("Открыто голосование") }}</label>
+          </div>
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="notify_meeting" id="notify_meeting" {{ 'checked' if g.user.notify_meeting }}>
+            <label class="form-check-label" for="notify_meeting">{{ _("Назначено или изменено общее собрание") }}</label>
+          </div>
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="notify_my_requests" id="notify_my_requests" {{ 'checked' if g.user.notify_my_requests }}>
+            <label class="form-check-label" for="notify_my_requests">{{ _("Решение по моей заявке (изменение данных, предложение голосования)") }}</label>
+          </div>
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="notify_documents" id="notify_documents" {{ 'checked' if g.user.notify_documents }}>
+            <label class="form-check-label" for="notify_documents">{{ _("Новый документ кооператива или страница вики") }}</label>
+          </div>
           {% if is_board() %}
           <div class="form-check">
             <input class="form-check-input" type="checkbox" name="notify_board_chat" id="notify_board_chat" {{ 'checked' if g.user.notify_board_chat }}>
@@ -173,6 +189,20 @@
           </div>
           {% endif %}
         </div>
+        {% if is_board() %}
+        <div class="col-12">
+          <label class="form-label d-block">{{ _("Уведомления правления — о действиях других пользователей на сайте") }}</label>
+          <div class="row">
+            {% for code, label in board_event_groups %}
+            <div class="col-md-6 form-check">
+              <input class="form-check-input" type="checkbox" name="notify_board_events" value="{{ code }}" id="board_event_{{ code }}" {{ 'checked' if code in my_board_event_groups }}>
+              <label class="form-check-label" for="board_event_{{ code }}">{{ _(label) }}</label>
+            </div>
+            {% endfor %}
+          </div>
+          <div class="form-text">{{ _("О своих собственных действиях уведомления не приходят.") }}</div>
+        </div>
+        {% endif %}
       </div>
       <button class="btn btn-primary mt-3">{{ _("Сохранить настройки уведомлений") }}</button>
     </form>

@@ -188,7 +188,7 @@ def create():
     )
     database.db_session.commit()
     notifications.notify_subscribers(
-        "news", "Новое объявление на доске", title, exclude_user_id=g.user.id,
+        "news", "Новое объявление на доске", title, exclude_user_id=g.user.id, board_group="documents",
     )
     flash(_("Объявление опубликовано."), "success")
     return redirect(url_for("bulletin.list_posts"))

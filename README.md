@@ -96,7 +96,7 @@ pytest tests/test_penalty_amnesty.py   # точечно — по затрону�
 
 Библиотеки фронтенда (Bootstrap, иконки, Chart.js, Mermaid) лежат в
 `app/static/vendor/` готовыми файлами из пакетов npm, без сборки; проверка
-обновлений и уязвимостей, обновление — `python3 scripts/vendor.py check` /
+обновлений и уязвимостей, обновление — `./scripts/vendor.sh check` /
 `update`, подробно — [app/static/vendor/README.md](app/static/vendor/README.md).
 
 Технический журнал решений и грабель для продолжения разработки —

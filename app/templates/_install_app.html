@@ -64,9 +64,40 @@
   var standalone = (browserMode.media !== "not all" && !browserMode.matches)  // "not all" — браузер не знает display-mode
     || window.navigator.standalone === true
     || document.referrer.indexOf("android-app://") === 0;
+  var DEBUG = /[?&]install-debug\b/.test(location.search);
   if (standalone) {
     localStorage.setItem(INSTALLED_KEY, "1");
+    if (DEBUG) showInstallDebug();
     return;
+  }
+  // ?install-debug — что видит баннер на этом устройстве (для разбора
+  // жалоб «уже установил, а он всё равно предлагает»): показывается
+  // всегда, даже если баннер закрыт или приложение считается установленным.
+  // Функция (объявление поднимается) — зовётся и из ветки «открыто как
+  // приложение», которая дальше не идёт.
+  function showInstallDebug() {
+    setTimeout(function () {
+      var related = navigator.getInstalledRelatedApps
+        ? navigator.getInstalledRelatedApps().then(function (apps) { return String(apps.length); }, function (e) { return "ошибка: " + e; })
+        : Promise.resolve("не поддерживается");
+      related.then(function (relatedText) {
+        var pre = document.createElement("pre");
+        pre.className = "small mb-0 mt-2";
+        pre.textContent = [
+          "display-mode: browser = " + browserMode.matches + " (запрос понят: " + (browserMode.media !== "not all") + ")",
+          "navigator.standalone = " + window.navigator.standalone,
+          "referrer = " + (document.referrer || "—"),
+          "beforeinstallprompt пришёл = " + !!deferredPrompt,
+          "getInstalledRelatedApps = " + relatedText,
+          "отметка «установлено» = " + !!localStorage.getItem(INSTALLED_KEY),
+          "баннер закрыт крестиком = " + !!localStorage.getItem(DISMISS_KEY),
+          "Chrome = " + isChrome() + ", Android = " + /Android/i.test(navigator.userAgent),
+          navigator.userAgent,
+        ].join("\n");
+        box.querySelector(".flex-grow-1").appendChild(pre);
+        box.hidden = false;
+      });
+    }, 4000);
   }
   var closeBtn = document.getElementById("installAppClose");
   // Где баннер вообще уместен: на главной (с крестиком) — только на
@@ -90,7 +121,12 @@
   document.getElementById("installAppBtn").addEventListener("click", function () {
     if (!deferredPrompt) return;
     deferredPrompt.prompt();
-    deferredPrompt.userChoice.then(function () {
+    deferredPrompt.userChoice.then(function (choice) {
+      // Отметку — сразу по согласию, не дожидаясь appinstalled: тот приходит,
+      // только когда Chrome доделает приложение (несколько секунд), и если
+      // человек за это время ушёл со страницы, отметка не ставилась — и
+      // баннер потом снова звал установить «через меню».
+      if (choice && choice.outcome === "accepted") localStorage.setItem(INSTALLED_KEY, "1");
       deferredPrompt = null;
       box.hidden = true;
     });
@@ -176,6 +212,8 @@
       });
     }, 3000);
   }
+
+  if (DEBUG) showInstallDebug();
 
   if (closeBtn) {
     closeBtn.addEventListener("click", function () {

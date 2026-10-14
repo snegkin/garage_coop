@@ -11,14 +11,14 @@
   <link rel="manifest" href="{{ url_for('main.web_manifest') }}">
   <meta name="theme-color" content="#0d6efd">
   <meta name="csrf-token" content="{{ csrf_token() }}">
-  {# Bootstrap, Bootstrap Icons и прочие библиотеки — со своего сервера
-     (app/static/vendor/<пакет>-<версия>/, файлы из официальных пакетов npm
-     с проверкой контрольной суммы), не с CDN: страница не зависит от
-     доступности стороннего сервиса и не отдаёт ему адреса посетителей.
-     Версия в пути — браузер кэширует надолго (см. app/__init__.py:
-     get_send_file_max_age), новая версия — новый путь. #}
-  <link href="{{ url_for('static', filename='vendor/bootstrap-5.3.3/bootstrap.min.css') }}" rel="stylesheet">
-  <link href="{{ url_for('static', filename='vendor/bootstrap-icons-1.13.2/bootstrap-icons.min.css') }}" rel="stylesheet">
+  {# Bootstrap, Bootstrap Icons и прочие библиотеки — со своего сервера,
+     не с CDN: страница не зависит от доступности стороннего сервиса и не
+     отдаёт ему адреса посетителей. vendor_url() берёт версию из манифеста
+     app/static/vendor/vendor.json (ведёт scripts/vendor.py) — путь
+     <пакет>-<версия>/ меняется вместе с версией, поэтому браузер кэширует
+     файлы надолго (см. app/__init__.py: get_send_file_max_age). #}
+  <link href="{{ vendor_url('bootstrap', 'bootstrap.min.css') }}" rel="stylesheet">
+  <link href="{{ vendor_url('bootstrap-icons', 'bootstrap-icons.min.css') }}" rel="stylesheet">
 </head>
 <body class="bg-body-tertiary">
 <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4" data-bs-theme="dark">
@@ -818,7 +818,7 @@ function localizeDatetime(el) {
   });
 }
 </script>
-<script src="{{ url_for('static', filename='vendor/bootstrap-5.3.3/bootstrap.bundle.min.js') }}"></script>
+<script src="{{ vendor_url('bootstrap', 'bootstrap.bundle.min.js') }}"></script>
 <style>
 /* Единый стиль ссылок по всему проекту: без подчёркивания по умолчанию,
    подчёркивание только при наведении. Переопределяет базовое правило

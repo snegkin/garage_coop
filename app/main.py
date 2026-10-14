@@ -94,7 +94,7 @@ def web_manifest():
         # navigator.getInstalledRelatedApps(), установлено ли приложение (см.
         # _install_app.html). Адрес должен в точности совпадать с адресом
         # манифеста; https явно — PWA ставится только по HTTPS, а за прокси
-        # без ProxyFix url_for(_external=True) дал бы http://.
+        # без BEHIND_PROXY=1 (ProxyFix) url_for(_external=True) дал бы http://.
         "related_applications": [
             {"platform": "webapp", "url": f"https://{request.host}{url_for('main.web_manifest')}"},
         ],

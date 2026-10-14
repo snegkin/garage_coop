@@ -13,7 +13,6 @@ Alembic, как в реальном приложении — не Base.metadata.
 отдельный конфиг в tests/test_security.py, здесь она бы только мешала
 писать тесты на бизнес-логику.
 """
-import datetime as dt
 import os
 import shutil
 import tempfile
@@ -95,16 +94,12 @@ def make_ownership(db_session, garage, person, share="1"):
     return ownership
 
 
-def make_user(db_session, username, password, role=RoleEnum.MEMBER, person=None, pd_consent=True):
-    """pd_consent=True — согласие на обработку ПД уже дано раньше, форма
-    входа его не потребует (см. auth._complete_login); False — для тестов
-    самой галочки согласия."""
+def make_user(db_session, username, password, role=RoleEnum.MEMBER, person=None):
     user = User(
         username=username,
         password_hash=generate_password_hash(password),
         role=role,
         person_id=person.id if person else None,
-        pd_consent_at=dt.datetime(2026, 1, 1) if pd_consent else None,
     )
     db_session.add(user)
     db_session.flush()

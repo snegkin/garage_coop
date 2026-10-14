@@ -15,11 +15,10 @@
 
   Галочки под полями (login_checkboxes) — общие для обеих вкладок:
   «Запомнить меня», «Разрешить уведомления» (push в этом браузере, см.
-  auth._complete_login) и согласие на обработку персональных данных —
-  обязательно, пока человек его ни разу не давал; HTML-атрибута required
-  нет намеренно: давшим согласие раньше (на другом устройстве) отмечать
-  её снова не нужно, это решает сервер. Отмечена заранее, если на этом
-  устройстве согласие уже давали (cookie, см. auth.PD_CONSENT_COOKIE).
+  auth._complete_login; отмечена по умолчанию) и обработка персональных
+  данных — неактивная и всегда отмеченная, без name: обработка ведётся на
+  основании устава (п. 5 ч. 1 ст. 6 152-ФЗ), согласие для неё не нужно,
+  галочка лишь показывает это и ведёт на условия обработки.
 #}
 {% macro login_checkboxes(kind, form_id) %}
 <div class="mb-3">
@@ -28,13 +27,13 @@
     <label class="form-check-label" for="rememberMe{{ kind }}-{{ form_id }}">{{ _("Запомнить меня") }}</label>
   </div>
   <div class="form-check">
-    <input class="form-check-input js-enable-push" type="checkbox" name="enable_push" value="1" id="enablePush{{ kind }}-{{ form_id }}">
+    <input class="form-check-input js-enable-push" type="checkbox" name="enable_push" value="1" id="enablePush{{ kind }}-{{ form_id }}" checked>
     <label class="form-check-label" for="enablePush{{ kind }}-{{ form_id }}">{{ _("Разрешить уведомления") }}</label>
   </div>
   <div class="form-check">
-    <input class="form-check-input" type="checkbox" name="pd_consent" value="1" id="pdConsent{{ kind }}-{{ form_id }}" {{ 'checked' if request.cookies.get('pd_consent') }}>
-    <label class="form-check-label" for="pdConsent{{ kind }}-{{ form_id }}">
-      {{ _("Даю") }} <a href="{{ url_for('main.pd_consent') }}" target="_blank" rel="noopener">{{ _("согласие на обработку персональных данных") }}</a>
+    <input class="form-check-input" type="checkbox" id="pdProcessing{{ kind }}-{{ form_id }}" checked disabled>
+    <label class="form-check-label" for="pdProcessing{{ kind }}-{{ form_id }}">
+      {{ _("Персональные данные обрабатываются на основании устава —") }} <a href="{{ url_for('main.pd_processing') }}" target="_blank" rel="noopener">{{ _("условия обработки") }}</a>
     </label>
   </div>
 </div>

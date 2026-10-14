@@ -5,7 +5,6 @@
 намеренно ВКЛЮЧЕНА (в conftest.py она выключена ради удобства остальных
 тестов) — эти тесты как раз про неё.
 """
-import datetime as dt
 import io
 import os
 import re
@@ -50,7 +49,6 @@ def _seed_chairman(csrf_app):
     with csrf_app.app_context():
         database.db_session.add(User(
             username="chairman", password_hash=generate_password_hash("pw12345"), role=RoleEnum.CHAIRMAN,
-            pd_consent_at=dt.datetime(2026, 1, 1),
         ))
         database.db_session.commit()
 

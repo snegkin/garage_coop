@@ -57,7 +57,7 @@ def test_login_by_phone_sends_code_when_no_account_exists(db, client, fake_sms):
     _add_phone(db, person, "+7 900 123-45-67")
     db.commit()
 
-    resp = client.post("/auth/login-phone", data={"pd_consent": "1", "phone": "89001234567", "password": "mypassword1"})
+    resp = client.post("/auth/login-phone", data={"phone": "89001234567", "password": "mypassword1"})
     assert resp.status_code == 200  # не редирект — страница ввода кода
     assert "code" in resp.get_data(as_text=True) or "Код" in resp.get_data(as_text=True)
     assert len(fake_sms.sent) == 1
@@ -74,7 +74,7 @@ def test_login_by_phone_without_sms_configured_shows_error(db, client):
     _add_phone(db, person, "9001234568")
     db.commit()
 
-    resp = client.post("/auth/login-phone", data={"pd_consent": "1", "phone": "9001234568", "password": "mypassword1"})
+    resp = client.post("/auth/login-phone", data={"phone": "9001234568", "password": "mypassword1"})
     assert resp.status_code == 302
     assert resp.headers["Location"] == "/auth/login"
     assert db.query(User).count() == 0
@@ -89,10 +89,10 @@ def test_register_phone_confirm_creates_account_with_correct_code(db, client, fa
     _add_phone(db, person, "9001234567")
     db.commit()
 
-    client.post("/auth/login-phone", data={"pd_consent": "1", "phone": "9001234567", "password": "mypassword1"})
+    client.post("/auth/login-phone", data={"phone": "9001234567", "password": "mypassword1"})
     code = fake_sms.last_code()
 
-    resp = client.post("/auth/register-phone/confirm", data={"pd_consent": "1", "phone": "9001234567", "code": code})
+    resp = client.post("/auth/register-phone/confirm", data={"phone": "9001234567", "code": code})
     assert resp.status_code == 302
     assert resp.headers["Location"] != "/auth/login"
 
@@ -109,8 +109,8 @@ def test_register_phone_confirm_wrong_code_does_not_create_account(db, client, f
     _add_phone(db, person, "9001234567")
     db.commit()
 
-    client.post("/auth/login-phone", data={"pd_consent": "1", "phone": "9001234567", "password": "mypassword1"})
-    resp = client.post("/auth/register-phone/confirm", data={"pd_consent": "1", "phone": "9001234567", "code": "000000"})
+    client.post("/auth/login-phone", data={"phone": "9001234567", "password": "mypassword1"})
+    resp = client.post("/auth/register-phone/confirm", data={"phone": "9001234567", "code": "000000"})
     assert resp.status_code == 200
     assert db.query(User).filter_by(person_id=person.id).count() == 0
 
@@ -120,9 +120,9 @@ def test_register_phone_confirm_sets_role_from_person_flags(db, client, fake_sms
     _add_phone(db, person, "9997654321")
     db.commit()
 
-    client.post("/auth/login-phone", data={"pd_consent": "1", "phone": "9997654321", "password": "boardpass1"})
+    client.post("/auth/login-phone", data={"phone": "9997654321", "password": "boardpass1"})
     code = fake_sms.last_code()
-    client.post("/auth/register-phone/confirm", data={"pd_consent": "1", "phone": "9997654321", "code": code})
+    client.post("/auth/register-phone/confirm", data={"phone": "9997654321", "code": code})
 
     user = db.query(User).filter_by(person_id=person.id).one()
     assert user.role == RoleEnum.BOARD
@@ -133,9 +133,9 @@ def test_register_phone_confirm_password_becomes_login_password(db, client, fake
     _add_phone(db, person, "9161234567")
     db.commit()
 
-    client.post("/auth/login-phone", data={"pd_consent": "1", "phone": "9161234567", "password": "my-chosen-pass"})
+    client.post("/auth/login-phone", data={"phone": "9161234567", "password": "my-chosen-pass"})
     code = fake_sms.last_code()
-    client.post("/auth/register-phone/confirm", data={"pd_consent": "1", "phone": "9161234567", "code": code})
+    client.post("/auth/register-phone/confirm", data={"phone": "9161234567", "code": code})
     client.get("/auth/logout")
 
     resp = client.post("/auth/login", data={"username": "ssidorov", "password": "my-chosen-pass"})
@@ -148,9 +148,9 @@ def test_register_phone_confirm_escalates_login_on_collision(db, client, fake_sm
     _add_phone(db, person, "9031112233")
     db.commit()
 
-    client.post("/auth/login-phone", data={"pd_consent": "1", "phone": "9031112233", "password": "newpass1"})
+    client.post("/auth/login-phone", data={"phone": "9031112233", "password": "newpass1"})
     code = fake_sms.last_code()
-    client.post("/auth/register-phone/confirm", data={"pd_consent": "1", "phone": "9031112233", "code": code})
+    client.post("/auth/register-phone/confirm", data={"phone": "9031112233", "code": code})
 
     user = db.query(User).filter_by(person_id=person.id).one()
     assert user.username == "iiivanov"
@@ -161,19 +161,19 @@ def test_register_phone_resend_sends_new_code_reusing_same_password(db, client, 
     _add_phone(db, person, "9001234567")
     db.commit()
 
-    client.post("/auth/login-phone", data={"pd_consent": "1", "phone": "9001234567", "password": "mypassword1"})
+    client.post("/auth/login-phone", data={"phone": "9001234567", "password": "mypassword1"})
     first_code = fake_sms.last_code()
 
-    resp = client.post("/auth/register-phone/resend", data={"pd_consent": "1", "phone": "9001234567"})
+    resp = client.post("/auth/register-phone/resend", data={"phone": "9001234567"})
     assert resp.status_code == 200
     second_code = fake_sms.last_code()
     assert second_code != first_code
 
     # Старый код уже не должен приниматься, новый — должен.
-    bad = client.post("/auth/register-phone/confirm", data={"pd_consent": "1", "phone": "9001234567", "code": first_code})
+    bad = client.post("/auth/register-phone/confirm", data={"phone": "9001234567", "code": first_code})
     assert db.query(User).filter_by(person_id=person.id).count() == 0
 
-    good = client.post("/auth/register-phone/confirm", data={"pd_consent": "1", "phone": "9001234567", "code": second_code})
+    good = client.post("/auth/register-phone/confirm", data={"phone": "9001234567", "code": second_code})
     assert good.status_code == 302
     user = db.query(User).filter_by(person_id=person.id).one()
     from werkzeug.security import check_password_hash
@@ -192,7 +192,7 @@ def test_login_by_phone_logs_in_existing_account_without_sms(db, client):
     make_user(db, "kkuznetsov", "realpassword", role=RoleEnum.MEMBER, person=person)
     db.commit()
 
-    resp = client.post("/auth/login-phone", data={"pd_consent": "1", "phone": "9051112233", "password": "realpassword"})
+    resp = client.post("/auth/login-phone", data={"phone": "9051112233", "password": "realpassword"})
     assert resp.status_code == 302
     assert db.query(User).filter_by(person_id=person.id).count() == 1  # не создан второй аккаунт
 
@@ -203,7 +203,7 @@ def test_login_by_phone_wrong_password_for_existing_account(db, client):
     make_user(db, "kkuznetsov2", "realpassword", role=RoleEnum.MEMBER, person=person)
     db.commit()
 
-    resp = client.post("/auth/login-phone", data={"pd_consent": "1", "phone": "9051112234", "password": "wrongpassword"})
+    resp = client.post("/auth/login-phone", data={"phone": "9051112234", "password": "wrongpassword"})
     assert resp.status_code == 302
     assert resp.headers["Location"] == "/auth/login"
 
@@ -215,7 +215,7 @@ def test_login_by_phone_disabled_account(db, client):
     user.is_active = False
     db.commit()
 
-    resp = client.post("/auth/login-phone", data={"pd_consent": "1", "phone": "9051112235", "password": "realpassword"})
+    resp = client.post("/auth/login-phone", data={"phone": "9051112235", "password": "realpassword"})
     assert resp.status_code == 302
     assert resp.headers["Location"] == "/auth/login"
 
@@ -225,7 +225,7 @@ def test_login_by_phone_disabled_account(db, client):
 # ---------------------------------------------------------------------------
 
 def test_login_by_phone_unknown_number(client, db):
-    resp = client.post("/auth/login-phone", data={"pd_consent": "1", "phone": "9000000000", "password": "whatever1"})
+    resp = client.post("/auth/login-phone", data={"phone": "9000000000", "password": "whatever1"})
     assert resp.status_code == 302
     assert resp.headers["Location"] == "/auth/login"
     assert db.query(User).count() == 0
@@ -240,14 +240,14 @@ def test_login_by_phone_ambiguous_number_shared_by_two_people_is_rejected(db, cl
     _add_phone(db, p2, "9009998877")
     db.commit()
 
-    resp = client.post("/auth/login-phone", data={"pd_consent": "1", "phone": "9009998877", "password": "whatever1"})
+    resp = client.post("/auth/login-phone", data={"phone": "9009998877", "password": "whatever1"})
     assert resp.status_code == 302
     assert resp.headers["Location"] == "/auth/login"
     assert db.query(User).count() == 0
 
 
 def test_login_by_phone_missing_fields(client, db):
-    resp = client.post("/auth/login-phone", data={"pd_consent": "1", "phone": "", "password": ""})
+    resp = client.post("/auth/login-phone", data={"phone": "", "password": ""})
     assert resp.status_code == 302
     assert resp.headers["Location"] == "/auth/login"
 

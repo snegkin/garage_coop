@@ -1198,10 +1198,11 @@ class User(Base):
     # где пароль генерируется автоматически и человек его не выбирал.
     # Снимается в auth.force_change_password при успешной смене.
     must_change_password: Mapped[bool] = mapped_column(Boolean, default=False)
-    # Когда человек дал согласие на обработку персональных данных (галочка
-    # на форме входа, см. auth._complete_login и страницу main.pd_consent).
-    # Пока NULL — войти без этой галочки нельзя; дальше она не требуется.
-    pd_consent_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
+    # Когда человеку при входе впервые показаны условия обработки
+    # персональных данных (неактивная галочка на форме входа, см.
+    # auth._complete_login и страницу main.pd_processing). Не согласие:
+    # обработка ведётся на основании устава, согласие для неё не нужно.
+    pd_notice_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
     # Момент последнего опроса чата правления (см. app/board_chat.py) —
     # общий на все сообщения, не по каждому отдельно: этого достаточно для
     # бейджа непрочитанных (app/__init__.py: _inject_user). Обновляется

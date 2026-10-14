@@ -148,7 +148,7 @@ def test_registration_code_sms_includes_website(db, client, fake_sms):
     db.commit()
 
     client.post("/auth/login-phone", data={
-        "phone": "89001112233", "password": "pass12345",
+        "phone": "89001112233", "password": "pass12345", "pd_consent": "1",
     })
     text = fake_sms.last_text()
     assert "mycoop.ru" in text
@@ -164,7 +164,7 @@ def test_registration_code_sms_has_no_parentheses_without_cooperative(db, client
     db.commit()
 
     client.post("/auth/login-phone", data={
-        "phone": "89001112244", "password": "pass12345",
+        "phone": "89001112244", "password": "pass12345", "pd_consent": "1",
     })
     text = fake_sms.last_text()
     assert "(" not in text

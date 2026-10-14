@@ -2,6 +2,7 @@
 Простая аутентификация на сессиях Flask (без внешних зависимостей вроде
 Flask-Login) + декораторы для ограничения доступа по ролям.
 """
+import datetime as dt
 import re
 from functools import wraps
 
@@ -167,7 +168,32 @@ def roles_required(*roles: RoleEnum):
     return decorator
 
 
-def _complete_login(user: User, summary: str, remember: bool = False):
+# Cookie «на этом устройстве уже давали согласие на обработку ПД» — только
+# чтобы форма входа показывала галочку отмеченной (см. auth/_login_form.html).
+# Сам факт согласия хранится в User.pd_consent_at, cookie ничего не решает.
+PD_CONSENT_COOKIE = "pd_consent"
+PD_CONSENT_COOKIE_MAX_AGE = 5 * 365 * 24 * 3600
+
+
+def _login_form_choices() -> dict:
+    """Галочки формы входа (auth/_login_form.html) — те же поля передаются
+    скрытыми через страницу кода СМС при регистрации по телефону."""
+    f = request.form
+    return {
+        "remember": bool(f.get("remember_me")),
+        "pd_consent": bool(f.get("pd_consent")),
+        "enable_push": bool(f.get("enable_push")),
+    }
+
+
+def _pd_consent_missing_redirect():
+    flash(_("Для входа необходимо согласие на обработку персональных данных — отметьте галочку под формой."), "danger")
+    next_url = request.args.get("next")
+    return redirect(url_for("auth.login", next=next_url) if is_safe_next_url(next_url) else url_for("auth.login"))
+
+
+def _complete_login(user: User, summary: str, remember: bool = False, pd_consent: bool = False,
+                    enable_push: bool = False):
     """Общий хвост успешного входа — заводит сессию, пишет аудит,
     редиректит на next (если безопасный), иначе — на главную (по прямой
     просьбе не уводить рядового члена на дашборд/«мои гаражи»
@@ -181,18 +207,45 @@ def _complete_login(user: User, summary: str, remember: bool = False):
     remember — галка «Запомнить меня»: session.permanent=True переводит
     cookie сессии из обычной cookie сессии браузера (стирается при его
     закрытии) в постоянную, живущую PERMANENT_SESSION_LIFETIME (см.
-    config.py — 12 месяцев). Без галки поведение как раньше."""
+    config.py — 12 месяцев). Без галки поведение как раньше.
+
+    pd_consent — галка согласия на обработку персональных данных:
+    обязательна, пока человек его ни разу не давал (User.pd_consent_at),
+    дальше не требуется. enable_push — «Разрешить уведомления»: следующая
+    страница подпишет этот браузер на push (тот же одноразовый флаг
+    webpush_prompt, что и у force_change_password); способ доставки
+    меняется на push, только если свой ещё не выбран или не работает."""
+    if user.pd_consent_at is None and not pd_consent:
+        return _pd_consent_missing_redirect()
+
     session.clear()
     session["user_id"] = user.id
     session.permanent = remember
     audit.record("auth.login", entity_type="user", entity_id=user.id, summary=summary, actor=user)
+    if user.pd_consent_at is None:
+        user.pd_consent_at = dt.datetime.utcnow()
+        audit.record(
+            "account.pd_consent", entity_type="user", entity_id=user.id, actor=user,
+            summary=f"Дано согласие на обработку персональных данных: «{user.username}»",
+        )
+    if enable_push:
+        from . import notifications
+        if user.notify_channel is None or not notifications.channel_is_ready(user, user.notify_channel):
+            user.notify_channel = NotificationChannel.WEBPUSH
+        session["webpush_prompt"] = True
     database.db_session.commit()
+
     next_url = request.args.get("next")
     if is_safe_next_url(next_url):
-        return redirect(next_url)
-    if ROLE_LEVEL[user.role] >= ROLE_LEVEL[RoleEnum.BOARD]:
-        return redirect(url_for("main.dashboard"))
-    return redirect(url_for("main.index"))
+        response = redirect(next_url)
+    elif ROLE_LEVEL[user.role] >= ROLE_LEVEL[RoleEnum.BOARD]:
+        response = redirect(url_for("main.dashboard"))
+    else:
+        response = redirect(url_for("main.index"))
+    response.set_cookie(
+        PD_CONSENT_COOKIE, "1", max_age=PD_CONSENT_COOKIE_MAX_AGE, httponly=True, samesite="Lax",
+    )
+    return response
 
 
 @bp.route("/login", methods=["GET", "POST"])
@@ -201,7 +254,7 @@ def login():
     if request.method == "POST":
         username = request.form["username"].strip()
         password = request.form["password"]
-        remember = bool(request.form.get("remember_me"))
+        choices = _login_form_choices()
         user = find_user_by_login(username)
 
         if user is None or not check_password_hash(user.password_hash, password):
@@ -233,7 +286,7 @@ def login():
             database.db_session.commit()
             flash(_("Учётная запись отключена."), "danger")
         else:
-            return _complete_login(user, f"Успешный вход: «{user.username}»", remember=remember)
+            return _complete_login(user, f"Успешный вход: «{user.username}»", **choices)
 
     # Сама форма входа теперь ещё и всегда доступна дропдауном в шапке
     # (см. base.html, auth/_login_form.html) — эта страница нужна как
@@ -272,7 +325,7 @@ def login_by_phone():
     """
     phone = request.form.get("phone", "").strip()
     password = request.form.get("password", "")
-    remember = bool(request.form.get("remember_me"))
+    choices = _login_form_choices()
     digits = _normalize_phone_digits(phone)
 
     if len(digits) < 7 or not password:
@@ -289,6 +342,10 @@ def login_by_phone():
     user = database.db_session.query(User).filter_by(person_id=person.id).first()
 
     if user is None:
+        # Новая учётная запись — согласие нужно до отправки СМС, а не после
+        # подтверждения кода, иначе человек ввёл бы код впустую.
+        if not choices["pd_consent"]:
+            return _pd_consent_missing_redirect()
         client = get_sms_client()
         if client is None:
             flash(_("СМС-уведомления пока не настроены — обратитесь к председателю."), "danger")
@@ -304,7 +361,7 @@ def login_by_phone():
             flash(_("Не удалось отправить СМС: {error}", error=str(exc)), "danger")
             return redirect(url_for("auth.login"))
         database.db_session.commit()
-        return render_template("auth/verify_phone_code.html", phone=phone, remember=remember)
+        return render_template("auth/verify_phone_code.html", phone=phone, **choices)
 
     if not check_password_hash(user.password_hash, password):
         audit.record(
@@ -324,7 +381,7 @@ def login_by_phone():
         flash(_("Учётная запись отключена."), "danger")
         return redirect(url_for("auth.login"))
 
-    return _complete_login(user, f"Успешный вход по телефону: «{user.username}»")
+    return _complete_login(user, f"Успешный вход по телефону: «{user.username}»", **choices)
 
 
 @bp.route("/register-phone/resend", methods=["POST"])
@@ -335,7 +392,7 @@ def register_phone_resend():
     непогашенного кода с первого запроса (см. login_by_phone), берём его
     оттуда, а не просим ввести снова."""
     phone = request.form.get("phone", "").strip()
-    remember = bool(request.form.get("remember_me"))
+    choices = _login_form_choices()
     digits = _normalize_phone_digits(phone)
     if len(digits) < 7:
         flash(_("Некорректный номер телефона."), "danger")
@@ -376,7 +433,7 @@ def register_phone_resend():
         return redirect(url_for("auth.login"))
     database.db_session.commit()
     flash(_("Код отправлен повторно."), "success")
-    return render_template("auth/verify_phone_code.html", phone=phone, remember=remember)
+    return render_template("auth/verify_phone_code.html", phone=phone, **choices)
 
 
 @bp.route("/register-phone/confirm", methods=["POST"])
@@ -387,15 +444,17 @@ def register_phone_confirm():
     и лежит в payload кода (см. verification.consume_code)."""
     phone = request.form.get("phone", "").strip()
     code = request.form.get("code", "").strip()
-    remember = bool(request.form.get("remember_me"))
+    choices = _login_form_choices()
     digits = _normalize_phone_digits(phone)
+    if not choices["pd_consent"]:
+        return _pd_consent_missing_redirect()
 
     person = _person_by_phone_digits(digits)
     ok, password_hash = verification.consume_code(VerificationCodePurpose.PHONE_REGISTER, digits, code)
     if not ok or person is None or password_hash is None:
         database.db_session.commit()  # попытка (attempts) должна сохраниться, даже если код неверный
         flash(_("Неверный или истёкший код."), "danger")
-        return render_template("auth/verify_phone_code.html", phone=phone, remember=remember)
+        return render_template("auth/verify_phone_code.html", phone=phone, **choices)
 
     # На случай, если аккаунт уже успели создать другим путём между
     # запросом кода и его подтверждением (например, открыли форму в двух
@@ -423,7 +482,7 @@ def register_phone_confirm():
         "account.self_register_by_phone", entity_type="user", entity_id=user.id,
         summary=f"Учётная запись «{username}» создана самостоятельно по номеру телефона для {person.full_name} (подтверждено СМС-кодом)",
     )
-    return _complete_login(user, f"Успешный вход по телефону (новая учётная запись «{username}»)", remember=remember)
+    return _complete_login(user, f"Успешный вход по телефону (новая учётная запись «{username}»)", **choices)
 
 
 # ---------------------------------------------------------------------------
@@ -589,10 +648,10 @@ def force_change_password():
             "account.password_change", entity_type="user", entity_id=g.user.id,
             summary=f"Пользователь «{g.user.username}» сменил пароль при первом входе",
         )
-        # Галочка «получать push-уведомления» — здесь, а не на форме входа/
-        # восстановления (там неуместно: пользователь заходит регулярно, а
-        # эта страница — ровно один раз при самом первом входе, см. докстринг
-        # выше), по умолчанию отмечена. Человек уже вошёл (это g.user, не
+        # Галочка «получать push-уведомления» — по умолчанию отмечена (эта
+        # страница — ровно один раз при самом первом входе, см. докстринг
+        # выше; на форме входа такая же галочка «Разрешить уведомления» —
+        # по умолчанию снята, там человек бывает регулярно). Человек уже вошёл (это g.user, не
         # чужая запись, как в reset_password) — сразу и включаем канал, и
         # заводим одноразовый флаг, по которому следующая же страница
         # (дашборд) запросит у браузера разрешение (см. base.html,

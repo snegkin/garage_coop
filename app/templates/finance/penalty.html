@@ -35,7 +35,7 @@
               {% if can_manage_amnesty %}
               <td>
                 <form method="post" action="{{ url_for('penalty.delete_amnesty', amnesty_id=row.amnesty.id) }}" onsubmit="return confirm('{{ _("Удалить амнистию? Списанная по ней пеня будет начислена обратно.") }}')">
-                  <button class="btn btn-sm btn-outline-danger btn-icon-square" title="{{ _('Удалить') }}">×</button>
+                  <button class="btn btn-sm btn-outline-danger btn-icon-square" title="{{ _('Удалить') }}"><i class="bi bi-trash" aria-hidden="true"></i></button>
                 </form>
               </td>
               {% endif %}
@@ -127,7 +127,7 @@
           <td>{{ _("вручную") if r.is_manual else "cbr.ru" }}</td>
           <td>
             <form method="post" action="{{ url_for('penalty.delete_key_rate', rate_id=r.id) }}" onsubmit="return confirm('{{ _("Удалить эту запись ставки?") }}')">
-              <button class="btn btn-sm btn-outline-danger btn-icon-square" title="{{ _('Удалить') }}">×</button>
+              <button class="btn btn-sm btn-outline-danger btn-icon-square" title="{{ _('Удалить') }}"><i class="bi bi-trash" aria-hidden="true"></i></button>
             </form>
           </td>
         </tr>

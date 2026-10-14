@@ -232,7 +232,7 @@
         <strong><span data-utc-datetime="{{ rev.submitted_at.isoformat() }}Z">{{ rev.submitted_at.strftime('%d.%m.%Y %H:%M') }}</span></strong>
         · {{ _("отправил") }} {{ rev.submitter.username if rev.submitter else '—' }}
         {% if rev.status.value == 'pending' %}
-        <span class="badge bg-warning text-dark ms-2">⚠ {{ _("ожидает") }}</span>
+        <span class="badge bg-warning text-dark ms-2"><i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i> {{ _("ожидает") }}</span>
         {% elif rev.status.value == 'approved' %}
         <span class="badge bg-success ms-2">{{ _("одобрено") }}</span> · {{ _("одобрил") }} {{ rev.reviewer.username if rev.reviewer else '—' }}
         {% else %}

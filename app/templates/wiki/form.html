@@ -38,18 +38,18 @@
       <div class="btn-group btn-group-sm">
         <button type="button" class="btn btn-outline-secondary" data-md-prefix="- " title="{{ _('Маркированный список') }}">&bull;</button>
         <button type="button" class="btn btn-outline-secondary" data-md-prefix="1. " title="{{ _('Нумерованный список') }}">1.</button>
-        <button type="button" class="btn btn-outline-secondary" data-md-prefix="&gt; " title="{{ _('Цитата') }}">&#10078;</button>
+        <button type="button" class="btn btn-outline-secondary" data-md-prefix="&gt; " title="{{ _('Цитата') }}"><i class="bi bi-quote" aria-hidden="true"></i></button>
         <button type="button" class="btn btn-outline-secondary" data-md-prefix="    " title="{{ _('Блок кода (со следующей строки, с отступом)') }}">{ }</button>
       </div>
       <div class="btn-group btn-group-sm">
-        <button type="button" class="btn btn-outline-secondary" data-md-link title="{{ _('Ссылка') }}">&#128279;</button>
-        <button type="button" class="btn btn-outline-secondary" id="wiki-insert-image-btn" title="{{ _('Вставить картинку') }}">&#128247;</button>
+        <button type="button" class="btn btn-outline-secondary" data-md-link title="{{ _('Ссылка') }}"><i class="bi bi-link-45deg" aria-hidden="true"></i></button>
+        <button type="button" class="btn btn-outline-secondary" id="wiki-insert-image-btn" title="{{ _('Вставить картинку') }}"><i class="bi bi-image" aria-hidden="true"></i></button>
         <input type="file" id="wiki-image-input" accept="image/jpeg,image/png,image/webp,image/gif" class="d-none">
-        <button type="button" class="btn btn-outline-secondary" data-md-insert-hr title="{{ _('Горизонтальная линия') }}">&#9135;</button>
+        <button type="button" class="btn btn-outline-secondary" data-md-insert-hr title="{{ _('Горизонтальная линия') }}"><i class="bi bi-hr" aria-hidden="true"></i></button>
         <button type="button" class="btn btn-outline-secondary" data-md-wrap="||" title="{{ _('Скрытый текст (например, пароль) — раскрывается по клику') }}">&bull;&bull;&bull;</button>
       </div>
       <div class="btn-group btn-group-sm">
-        <button type="button" class="btn btn-outline-secondary" id="wiki-preview-btn" title="{{ _('Предпросмотр') }}">&#128065; {{ _("Предпросмотр") }}</button>
+        <button type="button" class="btn btn-outline-secondary" id="wiki-preview-btn" title="{{ _('Предпросмотр') }}"><i class="bi bi-eye" aria-hidden="true"></i> {{ _("Предпросмотр") }}</button>
       </div>
     </div>
     <textarea id="wiki-body" class="form-control" name="body" rows="14" required>{{ page.body if page else '' }}</textarea>

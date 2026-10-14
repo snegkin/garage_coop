@@ -59,7 +59,7 @@
               <td class="no-sort">
                 {% if loop.first %}
                 <form method="post" action="{{ url_for('control_meters.delete_reading', node_id=node.id, reading_id=r.id) }}" onsubmit="return confirm('{{ _('Удалить показание?') }}')">
-                  <button class="btn btn-sm btn-outline-danger btn-icon-square" title="{{ _('Удалить') }}">✕</button>
+                  <button class="btn btn-sm btn-outline-danger btn-icon-square" title="{{ _('Удалить') }}"><i class="bi bi-trash" aria-hidden="true"></i></button>
                 </form>
                 {% endif %}
               </td>

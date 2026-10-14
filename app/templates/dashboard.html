@@ -181,7 +181,7 @@
               </div>
               <div class="{{ 'fw-semibold' if m.seen is false }}">{{ m.subject }}</div>
             </div>
-            <a class="btn btn-sm btn-outline-secondary btn-icon-square flex-shrink-0" href="{{ url_for('mailbox.view_message', uid=m.uid) }}" title="{{ _('Открыть письмо') }}">&rarr;</a>
+            <a class="btn btn-sm btn-outline-secondary btn-icon-square flex-shrink-0" href="{{ url_for('mailbox.view_message', uid=m.uid) }}" title="{{ _('Открыть письмо') }}"><i class="bi bi-arrow-right" aria-hidden="true"></i></a>
           </li>
           {% endfor %}
         </ul>
@@ -194,8 +194,8 @@
 </div>
 
 {% if electricity_devices %}
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+<script src="{{ url_for('static', filename='vendor/chart.js-4.4.4/chart.umd.js') }}"></script>
+<script src="{{ url_for('static', filename='vendor/chartjs-adapter-date-fns-3.0.0/chartjs-adapter-date-fns.bundle.min.js') }}"></script>
 <script>
 (function () {
   // Компактная превью-версия графика с /electricity/ (см. electricity/monitor.html) —

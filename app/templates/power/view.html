@@ -88,9 +88,9 @@
           <td class="no-sort">
             {% if loop.first %}
             <div class="d-flex gap-1 justify-content-end">
-              <button type="button" class="btn btn-sm btn-outline-secondary btn-icon-square" data-bs-toggle="modal" data-bs-target="#editSupplierTariffModal" title="{{ _('Изменить') }}">✎</button>
+              <button type="button" class="btn btn-sm btn-outline-secondary btn-icon-square" data-bs-toggle="modal" data-bs-target="#editSupplierTariffModal" title="{{ _('Изменить') }}"><i class="bi bi-pencil" aria-hidden="true"></i></button>
               <form method="post" action="{{ url_for('power.delete_tariff', tariff_id=t.id) }}" onsubmit="return confirm('{{ _('Удалить тариф?') }}')">
-                <button class="btn btn-sm btn-outline-danger btn-icon-square" title="{{ _('Удалить') }}">✕</button>
+                <button class="btn btn-sm btn-outline-danger btn-icon-square" title="{{ _('Удалить') }}"><i class="bi bi-trash" aria-hidden="true"></i></button>
               </form>
             </div>
             {% endif %}
@@ -133,9 +133,9 @@
           <td class="no-sort">
             {% if loop.first %}
             <div class="d-flex gap-1 justify-content-end">
-              <button type="button" class="btn btn-sm btn-outline-secondary btn-icon-square" data-bs-toggle="modal" data-bs-target="#editMemberTariffModal" title="{{ _('Изменить') }}">✎</button>
+              <button type="button" class="btn btn-sm btn-outline-secondary btn-icon-square" data-bs-toggle="modal" data-bs-target="#editMemberTariffModal" title="{{ _('Изменить') }}"><i class="bi bi-pencil" aria-hidden="true"></i></button>
               <form method="post" action="{{ url_for('power.delete_tariff', tariff_id=t.id) }}" onsubmit="return confirm('{{ _('Удалить тариф?') }}')">
-                <button class="btn btn-sm btn-outline-danger btn-icon-square" title="{{ _('Удалить') }}">✕</button>
+                <button class="btn btn-sm btn-outline-danger btn-icon-square" title="{{ _('Удалить') }}"><i class="bi bi-trash" aria-hidden="true"></i></button>
               </form>
             </div>
             {% endif %}
@@ -180,9 +180,9 @@
       <td class="no-sort">
         {% if loop.first %}
         <div class="d-flex gap-1 justify-content-end">
-          <button type="button" class="btn btn-sm btn-outline-secondary btn-icon-square" data-bs-toggle="modal" data-bs-target="#editReadingModal" title="{{ _('Изменить') }}">✎</button>
+          <button type="button" class="btn btn-sm btn-outline-secondary btn-icon-square" data-bs-toggle="modal" data-bs-target="#editReadingModal" title="{{ _('Изменить') }}"><i class="bi bi-pencil" aria-hidden="true"></i></button>
           <form method="post" action="{{ url_for('power.delete_reading', reading_id=r.id) }}" onsubmit="return confirm('{{ _('Удалить показание?') }}')">
-            <button class="btn btn-sm btn-outline-danger btn-icon-square" title="{{ _('Удалить') }}">✕</button>
+            <button class="btn btn-sm btn-outline-danger btn-icon-square" title="{{ _('Удалить') }}"><i class="bi bi-trash" aria-hidden="true"></i></button>
           </form>
         </div>
         {% endif %}

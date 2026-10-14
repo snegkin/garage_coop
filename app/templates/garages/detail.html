@@ -87,8 +87,8 @@
           {% if is_board() %}
           <td>
             <div class="d-flex gap-1 justify-content-end">
-              <button type="button" class="btn btn-sm btn-outline-primary btn-icon-square" data-bs-toggle="modal" data-bs-target="#editShareModal-{{ o.id }}" title="{{ _('Изменить долю') }}">✎</button>
-              <button type="button" class="btn btn-sm btn-outline-danger btn-icon-square" data-bs-toggle="modal" data-bs-target="#removeOwnerModal-{{ o.id }}" title="{{ _('Удалить собственника') }}">✕</button>
+              <button type="button" class="btn btn-sm btn-outline-primary btn-icon-square" data-bs-toggle="modal" data-bs-target="#editShareModal-{{ o.id }}" title="{{ _('Изменить долю') }}"><i class="bi bi-pencil" aria-hidden="true"></i></button>
+              <button type="button" class="btn btn-sm btn-outline-danger btn-icon-square" data-bs-toggle="modal" data-bs-target="#removeOwnerModal-{{ o.id }}" title="{{ _('Удалить собственника') }}"><i class="bi bi-trash" aria-hidden="true"></i></button>
               {% if not o.person.is_archived %}
               <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#archiveOwnerModal-{{ o.id }}" title="{{ _('Отправить человека в архив') }}">
                 {{ _("В архив") }}
@@ -213,9 +213,9 @@
           {% if is_board() %}
           <td>
             <div class="d-flex gap-1">
-              <button type="button" class="btn btn-sm btn-outline-secondary btn-icon-square" title="{{ _('Изменить') }}" data-bs-toggle="modal" data-bs-target="#editContactModal{{ c.id }}">✎</button>
+              <button type="button" class="btn btn-sm btn-outline-secondary btn-icon-square" title="{{ _('Изменить') }}" data-bs-toggle="modal" data-bs-target="#editContactModal{{ c.id }}"><i class="bi bi-pencil" aria-hidden="true"></i></button>
               <form method="post" action="{{ url_for('garages.remove_contact', garage_id=garage.id, contact_id=c.id) }}" onsubmit="return confirm('{{ _("Удалить контакт?") }}')">
-                <button class="btn btn-sm btn-outline-danger btn-icon-square" title="{{ _('Удалить') }}">✕</button>
+                <button class="btn btn-sm btn-outline-danger btn-icon-square" title="{{ _('Удалить') }}"><i class="bi bi-trash" aria-hidden="true"></i></button>
               </form>
             </div>
           </td>
@@ -424,7 +424,7 @@
         {% if doc.is_image %}
         <img src="{{ url_for('garages.document_photo_file', document_id=doc.id, original_filename=doc.original_filename) }}" class="card-img-top" style="height:150px;object-fit:cover">
         {% else %}
-        <div class="card-img-top d-flex align-items-center justify-content-center text-muted" style="height:150px;background:var(--bs-secondary-bg);font-size:2.5rem">&#128196;</div>
+        <div class="card-img-top d-flex align-items-center justify-content-center text-muted" style="height:150px;background:var(--bs-secondary-bg);font-size:2.5rem"><i class="bi bi-file-earmark-text" aria-hidden="true"></i></div>
         {% endif %}
       </a>
       <div class="card-body p-2">
@@ -499,9 +499,9 @@
         <th></th>
         <td class="text-end">
           <div class="d-flex gap-1 justify-content-end">
-            <button type="button" class="btn btn-sm btn-outline-primary btn-icon-square" data-bs-toggle="modal" data-bs-target="#editMeterModal" title="{{ _('Изменить параметры') }}">✎</button>
-            <button type="button" class="btn btn-sm btn-outline-primary btn-icon-square" data-bs-toggle="modal" data-bs-target="#replaceMeterModal" title="{{ _('Заменить прибор учета') }}">🔄</button>
-            <button type="button" class="btn btn-sm btn-outline-danger btn-icon-square" data-bs-toggle="modal" data-bs-target="#removeMeterModal" title="{{ _('Удалить счётчик') }}">✕</button>
+            <button type="button" class="btn btn-sm btn-outline-primary btn-icon-square" data-bs-toggle="modal" data-bs-target="#editMeterModal" title="{{ _('Изменить параметры') }}"><i class="bi bi-pencil" aria-hidden="true"></i></button>
+            <button type="button" class="btn btn-sm btn-outline-primary btn-icon-square" data-bs-toggle="modal" data-bs-target="#replaceMeterModal" title="{{ _('Заменить прибор учета') }}"><i class="bi bi-arrow-repeat" aria-hidden="true"></i></button>
+            <button type="button" class="btn btn-sm btn-outline-danger btn-icon-square" data-bs-toggle="modal" data-bs-target="#removeMeterModal" title="{{ _('Удалить счётчик') }}"><i class="bi bi-trash" aria-hidden="true"></i></button>
           </div>
         </td>
       </tr>
@@ -511,7 +511,7 @@
     <p class="text-muted">{{ _("Счётчик не установлен.") }}</p>
     {% if is_board() %}
     <button type="button" class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#replaceMeterModal">
-      ✎ {{ _("Добавить прибор учета") }}
+      <i class="bi bi-plus-lg" aria-hidden="true"></i> {{ _("Добавить прибор учета") }}
     </button>
     {% endif %}
     {% endif %}
@@ -779,7 +779,7 @@
   <div class="row g-2">
     <div class="col">
       <button type="button" class="btn btn-sm btn-primary ms-auto d-block" data-bs-toggle="modal" data-bs-target="#editLastReadingModal">
-      ✎ {{ _("Исправить последнее показание") }}
+      <i class="bi bi-pencil" aria-hidden="true"></i> {{ _("Исправить последнее показание") }}
       </button>
     </div>
   </div>

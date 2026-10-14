@@ -3,30 +3,20 @@
 {% block content %}
 {#
   Колонка «Уведомления» — способы доставки, отмеченные человеком в профиле
-  (persons._notify_channels_by_person). Иконки — свои SVG в одном стиле:
-  библиотеки иконок в проекте нет, а для Telegram нет и подходящего символа
-  Unicode. Отмеченный, но не работающий способ — бледный, причина в подсказке.
+  (persons._notify_channels_by_person). Отмеченный, но не работающий
+  способ — бледный, причина в подсказке.
 #}
 {% macro notify_icon(channel) %}
-  {% set titles = {
-    "email": (_("Email"), _("Email отмечен, но не указан адрес почты")),
-    "telegram": ("Telegram", _("Telegram отмечен, но не привязан")),
-    "webpush": (_("Push-уведомления"), _("Push отмечен, но нет подписки ни в одном браузере")),
+  {% set icons = {
+    "email": ("envelope", _("Email"), _("Email отмечен, но не указан адрес почты")),
+    "telegram": ("telegram", "Telegram", _("Telegram отмечен, но не привязан")),
+    "webpush": ("bell", _("Push-уведомления"), _("Push отмечен, но нет подписки ни в одном браузере")),
   } %}
-  <span class="notify-icon{{ '' if channel.ready else ' notify-icon-off' }}" title="{{ titles[channel.code][0 if channel.ready else 1] }}">
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true">
-      {% if channel.code == "email" %}
-        <rect x="1.5" y="3.5" width="13" height="9" rx="1.5"/><path d="M2 4.5 8 9l6-4.5"/>
-      {% elif channel.code == "telegram" %}
-        <path d="M14.5 2.5 1.5 7.6l4.4 1.6L12 5 7.3 10.1v3.4l2.3-2.4 3 2.2z"/>
-      {% else %}
-        <path d="M8 2a4 4 0 0 0-4 4v3l-1.5 2.5h11L12 9V6a4 4 0 0 0-4-4z"/><path d="M6.5 13.5a1.5 1.5 0 0 0 3 0"/>
-      {% endif %}
-    </svg>
-  </span>
+  {% set icon, ok_title, off_title = icons[channel.code] %}
+  <i class="bi bi-{{ icon }} notify-icon{{ '' if channel.ready else ' notify-icon-off' }}" title="{{ ok_title if channel.ready else off_title }}"></i>
 {% endmacro %}
 <style>
-  .notify-icon { display: inline-flex; vertical-align: middle; margin-right: .25rem; color: var(--bs-body-color); }
+  .notify-icon { margin-right: .3rem; }
   .notify-icon-off { opacity: .3; }
 </style>
 <div class="d-flex justify-content-between align-items-center mb-3">
@@ -34,7 +24,7 @@
   {% if is_board() %}
   <div class="d-flex gap-2">
     <a class="btn btn-outline-warning btn-sm{{ ' active' if show_pending_only }}" href="{{ url_for('persons.list_persons', q=q, pending=1) }}">
-      <span class="badge bg-warning text-dark">⚠</span> {{ _("Ожидают изменения") }} ({{ pending_by_person|length }})
+      <span class="badge bg-warning text-dark"><i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i></span> {{ _("Ожидают изменения") }} ({{ pending_by_person|length }})
     </a>
     <a class="btn btn-primary btn-sm{{ ' active' if not show_pending_only and not show_archived }}" href="{{ url_for('persons.list_persons', q=q) }}">
       {{ _("Все") }} ({{ active_count }})
@@ -81,9 +71,9 @@
       <td>
         {{ p.full_name }}
         {% if p.id in pending_by_person %}
-        <span class="badge bg-warning text-dark ms-1" title="Ожидают одобрения">⚠</span>
+        <span class="badge bg-warning text-dark ms-1" title="Ожидают одобрения"><i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i></span>
         {% endif %}
-        {% if p.comment %}<span class="text-info" title="{{ p.comment }}">✎</span>{% endif %}
+        {% if p.comment %}<span class="text-info" title="{{ p.comment }}"><i class="bi bi-chat-left-text" aria-hidden="true"></i></span>{% endif %}
       </td>
       <td onclick="event.stopPropagation()">{{ phones_html(p.phones) }}</td>
       <td onclick="event.stopPropagation()">{{ email_link(p.email) }}</td>

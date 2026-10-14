@@ -11,7 +11,14 @@
   <link rel="manifest" href="{{ url_for('main.web_manifest') }}">
   <meta name="theme-color" content="#0d6efd">
   <meta name="csrf-token" content="{{ csrf_token() }}">
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  {# Bootstrap, Bootstrap Icons и прочие библиотеки — со своего сервера
+     (app/static/vendor/<пакет>-<версия>/, файлы из официальных пакетов npm
+     с проверкой контрольной суммы), не с CDN: страница не зависит от
+     доступности стороннего сервиса и не отдаёт ему адреса посетителей.
+     Версия в пути — браузер кэширует надолго (см. app/__init__.py:
+     get_send_file_max_age), новая версия — новый путь. #}
+  <link href="{{ url_for('static', filename='vendor/bootstrap-5.3.3/bootstrap.min.css') }}" rel="stylesheet">
+  <link href="{{ url_for('static', filename='vendor/bootstrap-icons-1.13.2/bootstrap-icons.min.css') }}" rel="stylesheet">
 </head>
 <body class="bg-body-tertiary">
 <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4" data-bs-theme="dark">
@@ -125,7 +132,7 @@
            так они всегда в одну строку, сначала тема, потом язык. #}
         <li class="nav-item d-flex align-items-center gap-3">
           <a class="nav-link text-white" href="{{ url_for('set_theme', theme=next_theme(current_theme)) }}" title="{{ _('Переключить тему') }}" aria-label="{{ _('Переключить тему') }}">
-            {{ THEME_TOGGLE_ICONS[current_theme] }}
+            <i class="bi bi-{{ THEME_TOGGLE_ICONS[current_theme] }}" aria-hidden="true"></i>
           </a>
           <div class="dropdown">
             <a class="nav-link dropdown-toggle text-white" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
@@ -159,23 +166,23 @@
             </span>
           </a>
           <ul class="dropdown-menu dropdown-menu-end">
-            <li><a class="dropdown-item" href="{{ url_for('cabinet.profile') }}"><span class="dropdown-icon"></span>{{ _("Мой профиль") }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('cabinet.profile') }}"><span class="dropdown-icon"><i class="bi bi-person" aria-hidden="true"></i></span>{{ _("Мой профиль") }}</a></li>
             {% if is_chairman() and pending_pd_count > 0 %}
-            <li><a class="dropdown-item" href="{{ url_for('persons.list_persons') }}"><span class="dropdown-icon">⚠</span>{{ _("Ожидает одобрения") }} {{ pending_pd_count }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('persons.list_persons') }}"><span class="dropdown-icon"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i></span>{{ _("Ожидает одобрения") }} {{ pending_pd_count }}</a></li>
             {% endif %}
             {% if pending_votes_count > 0 %}
-            <li><a class="dropdown-item" href="{{ url_for('voting.list_votes') }}"><span class="dropdown-icon">⚠</span>{{ _("Не проголосовано") }} {{ pending_votes_count }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('voting.list_votes') }}"><span class="dropdown-icon"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i></span>{{ _("Не проголосовано") }} {{ pending_votes_count }}</a></li>
             {% endif %}
             {% if pending_proposals_count > 0 %}
-            <li><a class="dropdown-item" href="{{ url_for('proposals.list_proposals') }}"><span class="dropdown-icon">⚠</span>{{ _("Предложения ждут решения") }} {{ pending_proposals_count }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('proposals.list_proposals') }}"><span class="dropdown-icon"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i></span>{{ _("Предложения ждут решения") }} {{ pending_proposals_count }}</a></li>
             {% endif %}
             {% if mailbox_unread_count > 0 %}
-            <li><a class="dropdown-item" href="{{ url_for('mailbox.inbox') }}"><span class="dropdown-icon">✉</span>{{ _("Непрочитанные письма") }} {{ mailbox_unread_count }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('mailbox.inbox') }}"><span class="dropdown-icon"><i class="bi bi-envelope" aria-hidden="true"></i></span>{{ _("Непрочитанные письма") }} {{ mailbox_unread_count }}</a></li>
             {% endif %}
-            <li><a class="dropdown-item" href="{{ url_for('cabinet.garages') }}"><span class="dropdown-icon"></span>{{ _("Мой гараж") }}</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('pd4.select') }}"><span class="dropdown-icon"></span>{{ _("Квитанции (по форме ПД-4)") }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('cabinet.garages') }}"><span class="dropdown-icon"><i class="bi bi-house-door" aria-hidden="true"></i></span>{{ _("Мой гараж") }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('pd4.select') }}"><span class="dropdown-icon"><i class="bi bi-receipt" aria-hidden="true"></i></span>{{ _("Квитанции (по форме ПД-4)") }}</a></li>
             <li><hr class="dropdown-divider"></li>
-            <li><a class="dropdown-item" href="{{ url_for('auth.logout') }}"><span class="dropdown-icon"></span>{{ _("Выйти") }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('auth.logout') }}"><span class="dropdown-icon"><i class="bi bi-box-arrow-right" aria-hidden="true"></i></span>{{ _("Выйти") }}</a></li>
           </ul>
         </li>
         {% else %}
@@ -215,10 +222,10 @@
 </div>
 
 <div id="lightboxOverlay" class="lightbox-overlay d-none">
-  <button type="button" class="lightbox-close" aria-label="{{ _("Закрыть") }}">&times;</button>
-  <button type="button" class="lightbox-nav lightbox-prev" aria-label="{{ _("Предыдущее изображение") }}">&#10094;</button>
+  <button type="button" class="lightbox-close" aria-label="{{ _("Закрыть") }}"><i class="bi bi-x-lg" aria-hidden="true"></i></button>
+  <button type="button" class="lightbox-nav lightbox-prev" aria-label="{{ _("Предыдущее изображение") }}"><i class="bi bi-chevron-left" aria-hidden="true"></i></button>
   <img class="lightbox-image" src="" alt="">
-  <button type="button" class="lightbox-nav lightbox-next" aria-label="{{ _("Следующее изображение") }}">&#10095;</button>
+  <button type="button" class="lightbox-nav lightbox-next" aria-label="{{ _("Следующее изображение") }}"><i class="bi bi-chevron-right" aria-hidden="true"></i></button>
   <div class="lightbox-counter"></div>
 </div>
 
@@ -553,12 +560,12 @@ function initChatWidget(cfg) {
 {% if current_user and is_board() and not hide_chat_widgets %}
 <div id="boardChatWidget">
   <button type="button" id="boardChatToggle" class="chat-widget-bubble" aria-label="{{ _('Чат правления') }}">
-    &#128172;
+    <i class="bi bi-chat-dots-fill" aria-hidden="true"></i>
     <span id="boardChatBadge" class="chat-widget-badge {{ 'd-none' if not board_chat_unread_count }}">{{ board_chat_unread_count }}</span>
   </button>
   <div id="boardChatPanel" class="chat-widget-panel d-none">
     <div class="chat-widget-header">
-      <button type="button" class="chat-widget-back" aria-label="{{ _('Назад') }}">&#8592;</button>
+      <button type="button" class="chat-widget-back" aria-label="{{ _('Назад') }}"><i class="bi bi-arrow-left" aria-hidden="true"></i></button>
       <span class="chat-widget-title">{{ _("Чат правления") }}</span>
       <button type="button" id="boardChatClose" class="btn-close btn-close-white" aria-label="{{ _('Закрыть') }}"></button>
     </div>
@@ -586,12 +593,12 @@ function initChatWidget(cfg) {
 {% if current_user and is_revision_commission_member and not hide_chat_widgets %}
 <div id="revisionChatWidget">
   <button type="button" id="revisionChatToggle" class="chat-widget-bubble chat-widget-bubble--left" aria-label="{{ _('Чат ревизионной комиссии') }}">
-    &#128172;
+    <i class="bi bi-chat-dots-fill" aria-hidden="true"></i>
     <span id="revisionChatBadge" class="chat-widget-badge {{ 'd-none' if not revision_chat_unread_count }}">{{ revision_chat_unread_count }}</span>
   </button>
   <div id="revisionChatPanel" class="chat-widget-panel chat-widget-panel--left d-none">
     <div class="chat-widget-header">
-      <button type="button" class="chat-widget-back" aria-label="{{ _('Назад') }}">&#8592;</button>
+      <button type="button" class="chat-widget-back" aria-label="{{ _('Назад') }}"><i class="bi bi-arrow-left" aria-hidden="true"></i></button>
       <span class="chat-widget-title">{{ _("Чат ревизионной комиссии") }}</span>
       <button type="button" id="revisionChatClose" class="btn-close btn-close-white" aria-label="{{ _('Закрыть') }}"></button>
     </div>
@@ -811,7 +818,7 @@ function localizeDatetime(el) {
   });
 }
 </script>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="{{ url_for('static', filename='vendor/bootstrap-5.3.3/bootstrap.bundle.min.js') }}"></script>
 <style>
 /* Единый стиль ссылок по всему проекту: без подчёркивания по умолчанию,
    подчёркивание только при наведении. Переопределяет базовое правило
@@ -838,9 +845,10 @@ function localizeDatetime(el) {
 a { text-decoration: none; }
 a:hover:not(.btn):not(.navbar-brand):not(.nav-link):not(.dropdown-item) { text-decoration: underline; }
 table.sortable thead th:not(.no-sort) { cursor: pointer; user-select: none; white-space: nowrap; }
-table.sortable thead th:not(.no-sort)::after { content: "⇅"; opacity: .35; margin-left: 6px; font-size: .8em; }
-table.sortable thead th.sort-asc::after { content: "↑"; opacity: 1; }
-table.sortable thead th.sort-desc::after { content: "↓"; opacity: 1; }
+/* Стрелки сортировки — глифы шрифта Bootstrap Icons (bi-arrow-down-up / -up / -down) */
+table.sortable thead th:not(.no-sort)::after { font-family: "bootstrap-icons"; content: "\f127"; opacity: .35; margin-left: 6px; font-size: .8em; vertical-align: -.1em; }
+table.sortable thead th.sort-asc::after { content: "\f148"; opacity: 1; }
+table.sortable thead th.sort-desc::after { content: "\f128"; opacity: 1; }
 table.table-labels th.table-label { white-space: normal; word-break: break-word; width: 440px; }
 /* .table-warning/.table-info у Bootstrap используют захардкоженный при сборке
    цвет светлой темы, который не меняется по [data-bs-theme="dark"] — в отличие

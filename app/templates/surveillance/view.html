@@ -20,7 +20,7 @@
       {% if current_user and is_chairman() %}
       <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#editRecorderModal{{ recorder.id }}">{{ _("Изменить") }}</button>
       <form method="post" action="{{ url_for('surveillance.delete_recorder', recorder_id=recorder.id) }}" onsubmit="return confirm('{{ _('Удалить регистратор и все его камеры? Сохранённые кадры на диске тоже будут удалены.') }}')">
-        <button class="btn btn-sm btn-outline-danger btn-icon-square" title="{{ _('Удалить регистратор') }}">×</button>
+        <button class="btn btn-sm btn-outline-danger btn-icon-square" title="{{ _('Удалить регистратор') }}"><i class="bi bi-trash" aria-hidden="true"></i></button>
       </form>
       {% endif %}
     </div>
@@ -65,7 +65,7 @@
             <div class="text-muted small">{{ _("обновлено") }} <span data-utc-datetime="{{ camera.last_snapshot_at.isoformat() }}Z">{{ camera.last_snapshot_at.strftime('%H:%M:%S') }}</span></div>
             {% endif %}
             {% if camera.last_error %}
-            <div class="text-danger small" title="{{ camera.last_error }}">⚠ {{ _("последняя попытка снять кадр не удалась") }}</div>
+            <div class="text-danger small" title="{{ camera.last_error }}"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i> {{ _("последняя попытка снять кадр не удалась") }}</div>
             {% endif %}
           </div>
         </div>

@@ -78,10 +78,10 @@
           {% if is_board() %}
           <td>
             <div class="d-flex gap-1">
-              <button type="button" class="btn btn-sm btn-outline-secondary btn-icon-square" data-bs-toggle="modal" data-bs-target="#editChargeModal{{ c.id }}" title="{{ _('Изменить') }}">✎</button>
+              <button type="button" class="btn btn-sm btn-outline-secondary btn-icon-square" data-bs-toggle="modal" data-bs-target="#editChargeModal{{ c.id }}" title="{{ _('Изменить') }}"><i class="bi bi-pencil" aria-hidden="true"></i></button>
               {% if is_chairman() %}
               <form method="post" action="{{ url_for('finance.delete_member_charge', account_id=account.id, charge_id=c.id) }}" onsubmit="return confirm('{{ _('Удалить это начисление?') }}')">
-                <button class="btn btn-sm btn-outline-danger btn-icon-square" title="{{ _('Удалить') }}">×</button>
+                <button class="btn btn-sm btn-outline-danger btn-icon-square" title="{{ _('Удалить') }}"><i class="bi bi-trash" aria-hidden="true"></i></button>
               </form>
               {% endif %}
             </div>
@@ -135,7 +135,7 @@
             </form>
             {% else %}
             <form method="post" action="{{ url_for('finance.delete_member_payment', account_id=account.id, payment_id=p.id) }}" onsubmit="return confirm('{{ _('Удалить этот платёж? Если он был разнесён из выписки/реестра, соответствующая строка вернётся в статус «не разнесён».') }}')">
-              <button class="btn btn-sm btn-outline-danger btn-icon-square" title="{{ _('Удалить') }}">×</button>
+              <button class="btn btn-sm btn-outline-danger btn-icon-square" title="{{ _('Удалить') }}"><i class="bi bi-trash" aria-hidden="true"></i></button>
             </form>
             {% endif %}
           </td>

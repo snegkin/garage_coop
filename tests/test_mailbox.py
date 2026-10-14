@@ -1212,7 +1212,7 @@ def test_attachment_marker_shown_for_message_with_attachment(db, client, monkeyp
 
     resp = client.get("/mailbox/")
     body = resp.get_data(as_text=True)
-    assert "📎" in body
+    assert "bi-paperclip" in body
 
 
 def test_no_attachment_marker_when_no_attachments(db, client, monkeypatch):
@@ -1222,7 +1222,7 @@ def test_no_attachment_marker_when_no_attachments(db, client, monkeypatch):
     login(client, "board1", "pass1234")
 
     resp = client.get("/mailbox/")
-    assert "📎" not in resp.get_data(as_text=True)
+    assert "bi-paperclip" not in resp.get_data(as_text=True)
 
 
 # ---------------------------------------------------------------------------

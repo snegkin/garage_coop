@@ -28,7 +28,7 @@
           {% else %}<span class="badge bg-secondary">{{ _("доступ отключён") }}</span>{% endif %}
           <form method="post" action="{{ url_for('persons.toggle_account_active', user_id=user.id) }}" data-ajax>
             <button class="btn btn-sm btn-outline-{{ 'danger' if user.is_active else 'success' }} btn-icon-square"
-                    title="{{ _('Отключить доступ') if user.is_active else _('Включить доступ') }}">⏻</button>
+                    title="{{ _('Отключить доступ') if user.is_active else _('Включить доступ') }}"><i class="bi bi-power" aria-hidden="true"></i></button>
           </form>
         </div>
       </td>

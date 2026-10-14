@@ -40,7 +40,7 @@
         class="{{ row_classes|join(' ') }}">
       <td data-sort-value="{{ g.number }}">
         {{ g.number }}
-        {% if g.comment %}<span class="text-info" title="{{ g.comment }}">✎</span>{% endif %}
+        {% if g.comment %}<span class="text-info" title="{{ g.comment }}"><i class="bi bi-chat-left-text" aria-hidden="true"></i></span>{% endif %}
       </td>
       <td data-sort-value="{{ g.area_sqm }}">{{ fmt2(g.area_sqm) }}</td>
       <td>{{ _("да") if g.land_privatized else _("нет") }}</td>

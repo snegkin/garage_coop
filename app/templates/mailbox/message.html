@@ -27,7 +27,7 @@
       <div class="text-muted small mb-1">{{ _("Вложения:") }}</div>
       {% for att in detail.attachments %}
       <a class="btn btn-sm btn-outline-secondary me-1 mb-1" href="{{ url_for('mailbox.download_attachment', uid=detail.uid, index=att.index, folder=folder) }}">
-        📎 {{ att.filename }} <span class="text-muted">({{ (att.size / 1024) | round(1) }} КБ)</span>
+        <i class="bi bi-paperclip" aria-hidden="true"></i> {{ att.filename }} <span class="text-muted">({{ (att.size / 1024) | round(1) }} КБ)</span>
       </a>
       {% endfor %}
     </div>

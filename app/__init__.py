@@ -11,9 +11,22 @@ from .rate_limit import limiter
 
 csrf = CSRFProtect()
 
+VENDOR_STATIC_MAX_AGE = 365 * 24 * 3600
+
+
+class _App(Flask):
+    def get_send_file_max_age(self, filename):
+        """Сторонние библиотеки (static/vendor/<пакет>-<версия>/) — кэш на
+        год: файл по такому пути никогда не меняется, новая версия кладётся
+        по новому пути. Остальная статика — как по умолчанию у Flask
+        (проверка свежести на каждом запросе), её меняем без смены имени."""
+        if filename and filename.replace("\\", "/").startswith("vendor/"):
+            return VENDOR_STATIC_MAX_AGE
+        return super().get_send_file_max_age(filename)
+
 
 def create_app(config_class=Config):
-    app = Flask(__name__)
+    app = _App(__name__)
     app.config.from_object(config_class)
     csrf.init_app(app)
     limiter.init_app(app)

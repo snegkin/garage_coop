@@ -36,7 +36,7 @@
       {% if has_children %}
       <button type="button" class="btn btn-sm btn-link p-0 wiki-tree-toggle {{ '' if expanded else 'collapsed' }}"
               data-bs-toggle="collapse" data-bs-target="#{{ dom_id }}" aria-expanded="{{ 'true' if expanded else 'false' }}">
-        <span class="chevron">&#9662;</span>
+        <i class="bi bi-chevron-down chevron" aria-hidden="true"></i>
       </button>
       {% else %}
       <span class="wiki-tree-spacer"></span>
@@ -44,11 +44,11 @@
 
       {% if is_root %}
       <a href="{{ url_for('power.view') }}" class="wiki-tree-link fw-semibold text-body" title="{{ _('Показания вносятся на странице «Счётчик»') }}">
-        &#128268; {{ _("Ввод (общий счётчик)") }}
+        <i class="bi bi-plug" aria-hidden="true"></i> {{ _("Ввод (общий счётчик)") }}
       </a>
       {% elif is_garage %}
       <a href="{{ url_for('garages.detail', garage_id=n.id) }}" class="wiki-tree-link text-muted" title="{{ _('Точка подключения — через абонентский счётчик этого гаража запитан контрольный узел') }}">
-        &#128268; {{ _("Гараж №{number}", number=n.number) }}
+        <i class="bi bi-plug" aria-hidden="true"></i> {{ _("Гараж №{number}", number=n.number) }}
       </a>
       {% else %}
       <a href="{{ url_for('control_meters.detail', node_id=n.id) }}"
@@ -89,15 +89,15 @@
 
       <span class="wiki-tree-actions ms-auto">
         {% if is_garage %}
-        <a href="{{ url_for('control_meters.create', parent_garage_id=n.id) }}" class="btn btn-sm btn-link p-0 text-muted" title="{{ _('Добавить узел, запитанный через этот гараж') }}">&#10133;</a>
+        <a href="{{ url_for('control_meters.create', parent_garage_id=n.id) }}" class="btn btn-sm btn-link p-0 text-muted" title="{{ _('Добавить узел, запитанный через этот гараж') }}"><i class="bi bi-plus-lg" aria-hidden="true"></i></a>
         {% else %}
-        <a href="{{ url_for('control_meters.create', parent_id=n.id if not is_root else none) }}" class="btn btn-sm btn-link p-0 text-muted" title="{{ _('Добавить дочерний узел') }}">&#10133;</a>
+        <a href="{{ url_for('control_meters.create', parent_id=n.id if not is_root else none) }}" class="btn btn-sm btn-link p-0 text-muted" title="{{ _('Добавить дочерний узел') }}"><i class="bi bi-plus-lg" aria-hidden="true"></i></a>
         {% endif %}
         {% if not is_root and not is_garage %}
-        <a href="{{ url_for('control_meters.edit', node_id=n.id) }}" class="btn btn-sm btn-link p-0 text-muted" title="{{ _('Изменить') }}">&#9998;</a>
+        <a href="{{ url_for('control_meters.edit', node_id=n.id) }}" class="btn btn-sm btn-link p-0 text-muted" title="{{ _('Изменить') }}"><i class="bi bi-pencil" aria-hidden="true"></i></a>
         <form method="post" action="{{ url_for('control_meters.delete', node_id=n.id) }}" class="d-inline"
               onsubmit="return confirm('{{ _("Удалить узел контрольного счётчика?") }}')">
-          <button class="btn btn-sm btn-link p-0 text-muted" title="{{ _('Удалить') }}" {{ 'disabled' if has_children or n.garages }}>&#128465;</button>
+          <button class="btn btn-sm btn-link p-0 text-muted" title="{{ _('Удалить') }}" {{ 'disabled' if has_children or n.garages }}><i class="bi bi-trash" aria-hidden="true"></i></button>
         </form>
         {% endif %}
       </span>

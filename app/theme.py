@@ -5,7 +5,8 @@ DEFAULT_THEME = "light"
 SUPPORTED_THEMES = {"light": "Светлая", "dark": "Тёмная"}
 # Пиктограмма показывает тему, В КОТОРУЮ переключит клик (а не текущую) —
 # так кнопка выглядит как переключатель действия, а не индикатор состояния.
-THEME_TOGGLE_ICONS = {"light": "🌙", "dark": "☀️"}
+# Имена иконок Bootstrap Icons (bi-<имя>).
+THEME_TOGGLE_ICONS = {"light": "moon-stars", "dark": "sun"}
 
 
 def get_theme() -> str:

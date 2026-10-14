@@ -16,10 +16,10 @@
         <button type="button" class="btn btn-outline-secondary fst-italic" data-md-wrap="*" title="{{ _('Курсив') }}">I</button>
         <button type="button" class="btn btn-outline-secondary" data-md-prefix="### " title="{{ _('Подзаголовок') }}">H</button>
         <button type="button" class="btn btn-outline-secondary" data-md-prefix="- " title="{{ _('Список') }}">&bull; {{ _("Список") }}</button>
-        <button type="button" class="btn btn-outline-secondary" data-md-link title="{{ _('Ссылка') }}">&#128279;</button>
-        <button type="button" class="btn btn-outline-secondary" id="news-insert-image-btn" title="{{ _('Вставить картинку') }}">&#128247;</button>
+        <button type="button" class="btn btn-outline-secondary" data-md-link title="{{ _('Ссылка') }}"><i class="bi bi-link-45deg" aria-hidden="true"></i></button>
+        <button type="button" class="btn btn-outline-secondary" id="news-insert-image-btn" title="{{ _('Вставить картинку') }}"><i class="bi bi-image" aria-hidden="true"></i></button>
         <input type="file" id="news-image-input" accept="image/jpeg,image/png,image/webp,image/gif" class="d-none">
-        <button type="button" class="btn btn-outline-secondary" id="news-preview-btn" title="{{ _('Предпросмотр') }}">&#128065; {{ _("Предпросмотр") }}</button>
+        <button type="button" class="btn btn-outline-secondary" id="news-preview-btn" title="{{ _('Предпросмотр') }}"><i class="bi bi-eye" aria-hidden="true"></i> {{ _("Предпросмотр") }}</button>
       </div>
     </div>
     <textarea id="news-body" class="form-control" name="body" rows="10" required>{{ item.body if item else '' }}</textarea>

@@ -140,8 +140,8 @@ def test_persons_list_shows_notification_channels(app, db, client):
     assert "<th>Уведомления</th>" in html
     row = html[html.index("Многоканальный Человек"):]
     row = row[:row.index("</tr>")]
-    assert 'class="notify-icon" title="Email"' in row
-    assert 'class="notify-icon notify-icon-off" title="Telegram отмечен, но не привязан"' in row
+    assert 'class="bi bi-envelope notify-icon" title="Email"' in row
+    assert 'class="bi bi-telegram notify-icon notify-icon-off" title="Telegram отмечен, но не привязан"' in row
 
     silent = html[html.index("Тихий Человек"):]
     assert "не получает" in silent[:silent.index("</tr>")]

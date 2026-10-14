@@ -5,7 +5,7 @@
 
 {% if pending_revision %}
 <div class="alert alert-info d-flex align-items-center mb-3" role="alert">
-  <span class="me-2">⚠</span>
+  <span class="me-2"><i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i></span>
   <div>
     <strong>{{ _("Ожидают одобрения") }}</strong>: {{ _("Изменения отправлены на") }} <span data-utc-datetime="{{ pending_revision.submitted_at.isoformat() }}Z">{{ pending_revision.submitted_at.strftime('%d.%m.%Y %H:%M') }}</span>.
   </div>

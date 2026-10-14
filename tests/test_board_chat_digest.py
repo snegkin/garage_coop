@@ -6,7 +6,7 @@ app/notifications.py:run_board_chat_digest (сама логика; scripts/board
 import datetime as dt
 
 from app import database, mail_client
-from app.models import RoleEnum, BoardChatMessage, NotificationChannel
+from app.models import RoleEnum, BoardChatMessage
 from app.notifications import run_board_chat_digest
 
 from tests.conftest import make_person, make_user, login
@@ -16,7 +16,7 @@ from tests.test_notifications import FakeSmtpConn, _mock_smtp, _make_mailbox_set
 def _board_subscriber(db, username="board_sub", email="board@example.com"):
     person = make_person(db, full_name="Правленец", email=email)
     user = make_user(db, username, "pass1234", role=RoleEnum.BOARD, person=person)
-    user.notify_channel = NotificationChannel.EMAIL
+    user.notify_via_email = True
     user.notify_board_chat = True
     db.flush()
     return user
@@ -87,7 +87,7 @@ def test_non_board_user_not_notified(app, db, monkeypatch):
     author.notify_board_chat = False  # автор сообщения — не проверяем в этом тесте
     member_person = make_person(db, full_name="Рядовой", email="rank@example.com")
     member = make_user(db, "rankmember2", "pass1234", role=RoleEnum.MEMBER, person=member_person)
-    member.notify_channel = NotificationChannel.EMAIL
+    member.notify_via_email = True
     member.notify_board_chat = True  # гипотетически выставлено напрямую в БД
     _post_message(db, author, age=dt.timedelta(minutes=15))
     db.commit()

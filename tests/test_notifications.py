@@ -68,21 +68,21 @@ def _setup_account(db, account_number="19001", email="member@example.com"):
 # ---------------------------------------------------------------------------
 
 def test_cannot_switch_to_telegram_without_linked_account(app, db, client):
-    """По умолчанию канал — email (см. миграцию e379b7dc72bb), но
-    переключиться на Telegram без привязанного telegram_chat_id нельзя —
-    форма отклоняется, канал остаётся прежним (email)."""
+    """По умолчанию отмечен email, но включить Telegram без привязанного
+    telegram_chat_id нельзя — форма отклоняется, настройки остаются прежними."""
     person = make_person(db, full_name="Без Telegram Человек")
     make_user(db, "notg", "pass1234", role=RoleEnum.MEMBER, person=person)
     db.commit()
     login(client, "notg", "pass1234")
 
     resp = client.post("/cabinet/profile/notifications", data={
-        "notify_channel": "telegram", "notify_charge": "1",
+        "notify_via_telegram": "1", "notify_charge": "1",
     })
     assert resp.status_code == 302
     db.expire_all()
     user = db.query(User).filter_by(username="notg").first()
-    assert user.notify_channel.value == "email"
+    assert user.notify_via_email is True
+    assert user.notify_via_telegram is False
 
 
 def test_can_enable_email_channel_with_email_set(app, db, client):
@@ -92,12 +92,12 @@ def test_can_enable_email_channel_with_email_set(app, db, client):
     login(client, "withemail", "pass1234")
 
     resp = client.post("/cabinet/profile/notifications", data={
-        "notify_channel": "email", "notify_charge": "1", "notify_payment": "1",
+        "notify_via_email": "1", "notify_charge": "1", "notify_payment": "1",
     })
     assert resp.status_code == 302
     db.expire_all()
     user = db.query(User).filter_by(username="withemail").first()
-    assert user.notify_channel.value == "email"
+    assert user.notify_via_email is True
     assert user.notify_charge is True
     assert user.notify_payment is True
 
@@ -109,7 +109,7 @@ def test_board_chat_checkbox_ignored_for_non_board(app, db, client):
     login(client, "rankmember", "pass1234")
 
     client.post("/cabinet/profile/notifications", data={
-        "notify_channel": "email", "notify_board_chat": "1",
+        "notify_via_email": "1", "notify_board_chat": "1",
     })
     db.expire_all()
     user = db.query(User).filter_by(username="rankmember").first()
@@ -124,8 +124,7 @@ def test_charge_notification_sent_when_subscribed(app, db, client, monkeypatch):
     fake_smtp = _mock_smtp(monkeypatch)
     _make_mailbox_settings(db)
     account, person, user = _setup_account(db)
-    from app.models import NotificationChannel
-    user.notify_channel = NotificationChannel.EMAIL
+    user.notify_via_email = True
     user.notify_charge = True
     make_user(db, "board_actor", "pass1234", role=RoleEnum.BOARD)
     db.commit()
@@ -160,8 +159,7 @@ def test_payment_notification_sent_when_subscribed(app, db, client, monkeypatch)
     fake_smtp = _mock_smtp(monkeypatch)
     _make_mailbox_settings(db)
     account, person, user = _setup_account(db)
-    from app.models import NotificationChannel
-    user.notify_channel = NotificationChannel.EMAIL
+    user.notify_via_email = True
     user.notify_payment = True
     make_user(db, "board_actor3", "pass1234", role=RoleEnum.BOARD)
     db.commit()
@@ -180,10 +178,9 @@ def test_payment_notification_sent_when_subscribed(app, db, client, monkeypatch)
 # ---------------------------------------------------------------------------
 
 def _make_subscriber(db, username, event_field, email="sub@example.com"):
-    from app.models import NotificationChannel
     person = make_person(db, full_name=f"Подписчик {username}", email=email)
     user = make_user(db, username, "pass1234", role=RoleEnum.MEMBER, person=person)
-    user.notify_channel = NotificationChannel.EMAIL
+    user.notify_via_email = True
     setattr(user, event_field, True)
     db.flush()
     return user
@@ -196,8 +193,7 @@ def test_news_publish_notifies_subscriber_not_author(app, db, client, monkeypatc
     board_person = make_person(db, full_name="Правление Новостник", email="board@example.com")
     board = make_user(db, "news_board", "pass1234", role=RoleEnum.BOARD, person=board_person)
     board.notify_news = True  # автор тоже подписан — не должен получить письмо о своей же новости
-    from app.models import NotificationChannel
-    board.notify_channel = NotificationChannel.EMAIL
+    board.notify_via_email = True
     db.commit()
     login(client, "news_board", "pass1234")
 
@@ -295,13 +291,13 @@ def test_test_notification_button_without_channel_selected(app, db, client):
     make_user(db, "no_channel_user", "pass1234", role=RoleEnum.MEMBER, person=person)
     db.commit()
     user = db.query(User).filter_by(username="no_channel_user").one()
-    user.notify_channel = None  # явно отключаем дефолтный email
+    user.notify_via_email = False  # явно отключаем дефолтный email
     db.commit()
     login(client, "no_channel_user", "pass1234")
 
     resp = client.post("/cabinet/profile/notifications/test", follow_redirects=True)
     assert resp.status_code == 200
-    assert "Сначала выберите канал" in resp.get_data(as_text=True)
+    assert "Сначала отметьте хотя бы один способ доставки" in resp.get_data(as_text=True)
 
 
 def test_test_notification_button_channel_not_ready(app, db, client):

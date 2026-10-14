@@ -27,18 +27,20 @@ Bootstrap, Bootstrap Icons, Chart.js с плагинами, Mermaid — разд
   по sha256 (никто не правил руками), лишних папок нет, все `vendor_url()`
   ссылаются на файлы из манифеста, в шаблонах нет CDN и захардкоженных версий.
 
-## Обновление — `scripts/vendor.py`
+## Обновление — `scripts/vendor.sh`
 
-Запуск из корня проекта; нужен только Python 3 и доступ к registry.npmjs.org.
+Обёртка `scripts/vendor.sh` — как остальные `scripts/*.sh`, берёт python из venv
+проекта; сам `scripts/vendor.py` можно запускать и напрямую любым Python 3 —
+пакеты ему не нужны, только доступ к registry.npmjs.org.
 
 ```bash
-python3 scripts/vendor.py check     # что устарело + известные уязвимости текущих версий
-python3 scripts/vendor.py update    # все пакеты — до последней версии той же старшей (5.3.3 → 5.3.8, но не → 6.x)
-python3 scripts/vendor.py update chart.js            # один пакет
-python3 scripts/vendor.py update mermaid --major     # с переходом на новую старшую версию
-python3 scripts/vendor.py update bootstrap --to 5.3.5
-python3 scripts/vendor.py verify    # без сети: файлы совпадают с манифестом
-python3 scripts/vendor.py install   # восстановить испорченное/недостающее строго тех же версий
+./scripts/vendor.sh check     # что устарело + известные уязвимости текущих версий
+./scripts/vendor.sh update    # все пакеты — до последней версии той же старшей (5.3.3 → 5.3.8, но не → 6.x)
+./scripts/vendor.sh update chart.js            # один пакет
+./scripts/vendor.sh update mermaid --major     # с переходом на новую старшую версию
+./scripts/vendor.sh update bootstrap --to 5.3.5
+./scripts/vendor.sh verify    # без сети: файлы совпадают с манифестом
+./scripts/vendor.sh install   # восстановить испорченное/недостающее строго тех же версий
 ```
 
 `update` скачивает архив, сверяет его sha512 с реестром, берёт из него
@@ -49,9 +51,9 @@ python3 scripts/vendor.py install   # восстановить испорчен�
 
 Порядок обновления:
 
-1. `python3 scripts/vendor.py check` — раз в месяц-два или когда
+1. `./scripts/vendor.sh check` — раз в месяц-два или когда
    `check` (например, в CI) сообщает об уязвимости: тогда код выхода 2.
-2. `python3 scripts/vendor.py update` — минорные обновления обычно
+2. `./scripts/vendor.sh update` — минорные обновления обычно
    безопасны; `--major` — только осознанно, по одному пакету, прочитав его
    список изменений.
 3. `pytest tests/test_vendor_static.py` и открыть страницы из `used_on`
@@ -64,7 +66,7 @@ python3 scripts/vendor.py install   # восстановить испорчен�
 Добавить в `vendor.json` запись: `version` — любая (будет заменена),
 `files` (куда в папке пакета → откуда в пакете npm), `license`, `used_on`;
 `integrity` и `sha256` — пустые `""` и `{}`. Затем
-`python3 scripts/vendor.py update <пакет> --to <версия>` и в шаблоне —
+`./scripts/vendor.sh update <пакет> --to <версия>` и в шаблоне —
 `vendor_url("<пакет>", "<файл>")`.
 
 Лицензии всех текущих пакетов — MIT, лежат рядом с файлами.

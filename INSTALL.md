@@ -169,7 +169,7 @@ sudo -iu coop
 cd garage_coop
 git pull
 venv/bin/pip install -r requirements.txt
-python3 scripts/vendor.py verify             # библиотеки фронтенда совпадают с манифестом (без сети)
+./scripts/vendor.sh verify                   # библиотеки фронтенда совпадают с манифестом (без сети)
 exit
 sudo systemctl restart garage-coop            # миграции БД накатятся при старте
 ```

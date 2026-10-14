@@ -559,7 +559,8 @@ IP посетителей иностранному сервису — не вя�
 `vendor.json` (версия, integrity архива, files, license, sha256 файлов,
 used_on); шаблоны зовут `vendor_url("пакет", "файл")` (app/vendor.py), версию
 в шаблонах НЕ писать (тест `test_templates_use_vendor_url_not_hardcoded_versions`).
-`scripts/vendor.py check|update|verify|install` — голый Python, без Flask
+`scripts/vendor.py check|update|verify|install` (обёртка `scripts/vendor.sh`,
+как `restore_db.sh` — ручная, без flock и лога) — голый Python, без Flask
 (app/vendor.py импортирует flask только внутри init_app именно поэтому);
 архив читается в памяти, на диск — только перечисленные файлы, карты
 `*.map` подтягиваются по sourceMappingURL. Mermaid — однофайловая

@@ -122,3 +122,28 @@ def test_profile_shows_channel_checkboxes_without_push_buttons(app, db, client):
     assert 'name="notify_via_webpush"' in html
     assert 'name="notify_channel"' not in html
     assert "webpushSubscribeBtn" not in html and "webpushUnsubscribeBtn" not in html
+
+
+def test_persons_list_shows_notification_channels(app, db, client):
+    """Колонка «Уведомления» реестра людей: иконка на каждый отмеченный
+    способ, бледная — если он не работает; без учётной записи — «—»."""
+    user = _user(db)  # email отмечен и указан
+    user.notify_via_telegram = True  # отмечен, но не привязан
+    no_channels = make_user(db, "silent", "pass1234", person=make_person(db, full_name="Тихий Человек"))
+    no_channels.notify_via_email = False
+    make_person(db, full_name="Без Учётки Человек")
+    make_user(db, "boss", "pass1234", role=RoleEnum.CHAIRMAN)
+    db.commit()
+    login(client, "boss", "pass1234")
+
+    html = client.get("/persons/").get_data(as_text=True)
+    assert "<th>Уведомления</th>" in html
+    row = html[html.index("Многоканальный Человек"):]
+    row = row[:row.index("</tr>")]
+    assert 'class="notify-icon" title="Email"' in row
+    assert 'class="notify-icon notify-icon-off" title="Telegram отмечен, но не привязан"' in row
+
+    silent = html[html.index("Тихий Человек"):]
+    assert "не получает" in silent[:silent.index("</tr>")]
+    nobody = html[html.index("Без Учётки Человек"):]
+    assert "Нет учётной записи для входа" in nobody[:nobody.index("</tr>")]

@@ -15,6 +15,7 @@ from .permissions import is_board, is_chairman, sync_user_role
 from .models import (
     Person, Phone, User, RoleEnum, MemberAccount, PersonDataRevision, PersonDataRevisionStatus,
     GarageOwnership, GarageContact, PersonalAccount, Cooperative, Charge, FeeType, KeyRate, CourtSection,
+    WebPushSubscription,
 )
 from sqlalchemy.orm import joinedload
 from .accounting import balance
@@ -75,6 +76,7 @@ def list_persons():
         "persons/list.html",
         persons=persons,
         balances=balances,
+        notify_channels=_notify_channels_by_person(persons),
         pending_by_person=pending_by_person,
         show_pending_only=show_pending_only,
         show_archived=show_archived,
@@ -82,6 +84,34 @@ def list_persons():
         active_count=active_count,
         q=q,
     )
+
+
+def _notify_channels_by_person(persons) -> dict[int, list[dict] | None]:
+    """Колонка «Уведомления» реестра: отмеченные в профиле способы доставки
+    (User.notify_via_*) и работает ли каждый — та же проверка, что у
+    notifications.channel_is_ready, но двумя запросами на весь список, а не
+    по запросу на строку. None — у человека нет учётной записи для входа."""
+    users = {
+        u.person_id: u for u in database.db_session.query(User).filter(
+            User.person_id.in_([p.id for p in persons])
+        )
+    }
+    push_user_ids = {uid for (uid,) in database.db_session.query(WebPushSubscription.user_id).distinct()}
+    result = {}
+    for person in persons:
+        user = users.get(person.id)
+        if user is None:
+            result[person.id] = None
+            continue
+        channels = []
+        if user.notify_via_email:
+            channels.append({"code": "email", "ready": bool(person.email)})
+        if user.notify_via_telegram:
+            channels.append({"code": "telegram", "ready": bool(person.telegram_chat_id)})
+        if user.notify_via_webpush:
+            channels.append({"code": "webpush", "ready": user.id in push_user_ids})
+        result[person.id] = channels
+    return result
 
 
 def _save_from_form(person, f):

@@ -28,6 +28,9 @@ class _App(Flask):
 def create_app(config_class=Config):
     app = _App(__name__)
     app.config.from_object(config_class)
+    if app.config.get("BEHIND_PROXY"):
+        from werkzeug.middleware.proxy_fix import ProxyFix
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
     csrf.init_app(app)
     limiter.init_app(app)
 
@@ -61,9 +64,10 @@ def create_app(config_class=Config):
     engine, _db_session = init_engine(app.config["SQLALCHEMY_DATABASE_URI"])
     init_db_lifecycle(app)
 
-    from . import auth, i18n, theme, news_format, contact_format, comment_format, audit, mail_client, name_declension, accounting
+    from . import auth, i18n, theme, news_format, contact_format, comment_format, audit, mail_client, name_declension, accounting, vendor
     app.register_blueprint(auth.bp)
     i18n.init_app(app)
+    vendor.init_app(app)
     theme.init_app(app)
     app.jinja_env.globals["audit_entity_url"] = audit.entity_url
     app.jinja_env.globals["render_news_html"] = news_format.render_html

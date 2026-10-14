@@ -194,8 +194,8 @@
 </div>
 
 {% if electricity_devices %}
-<script src="{{ url_for('static', filename='vendor/chart.js-4.4.4/chart.umd.js') }}"></script>
-<script src="{{ url_for('static', filename='vendor/chartjs-adapter-date-fns-3.0.0/chartjs-adapter-date-fns.bundle.min.js') }}"></script>
+<script src="{{ vendor_url('chart.js', 'chart.umd.js') }}"></script>
+<script src="{{ vendor_url('chartjs-adapter-date-fns', 'chartjs-adapter-date-fns.bundle.min.js') }}"></script>
 <script>
 (function () {
   // Компактная превью-версия графика с /electricity/ (см. electricity/monitor.html) —

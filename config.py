@@ -131,6 +131,14 @@ class Config:
     SESSION_COOKIE_SAMESITE = "Lax"
     SESSION_COOKIE_SECURE = os.environ.get("FORCE_HTTPS", "0") == "1"
 
+    # Приложение за реверс-прокси (nginx, см. INSTALL.md): доверять его
+    # заголовкам X-Forwarded-For/-Proto/-Host (werkzeug ProxyFix, один
+    # прокси). Без этого за nginx каждый посетитель для приложения —
+    # 127.0.0.1: лимит попыток входа (rate_limit.py) становится общим на
+    # всех, reCAPTCHA получает не тот адрес, ссылки в уведомлениях — http://.
+    # Без прокси НЕ включать: заголовки подделал бы любой посетитель.
+    BEHIND_PROXY = os.environ.get("BEHIND_PROXY", "0") == "1"
+
     # Срок жизни сессии при отмеченной галке "Запомнить меня" (см.
     # auth._complete_login: session.permanent=True включает именно этот
     # срок). Без галки сессия остаётся обычной cookie сессии браузера —

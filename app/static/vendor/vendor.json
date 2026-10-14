@@ -1,0 +1,106 @@
+{
+  "_comment": "Сторонние библиотеки фронтенда. Ведётся scripts/vendor.py (check/update/verify/install), руками — только добавление нового пакета: name, files (куда в папке пакета → откуда в пакете npm), license, used_on; затем python3 scripts/vendor.py update <пакет> --to <версия>. В шаблонах — vendor_url(\"пакет\", \"файл\") (app/vendor.py).",
+  "packages": {
+    "bootstrap": {
+      "version": "5.3.3",
+      "files": {
+        "bootstrap.min.css": "dist/css/bootstrap.min.css",
+        "bootstrap.bundle.min.js": "dist/js/bootstrap.bundle.min.js"
+      },
+      "license": "LICENSE",
+      "used_on": "все страницы (base.html)",
+      "integrity": "sha512-8HLCdWgyoMguSO9o+aH+iuZ+aht+mzW0u3HIMzVu7Srrpv7EBBxTnrFlSCskwdY1+EOFQSm7uMJhNQHkdPcmjg==",
+      "sha256": {
+        "LICENSE": "8c14611ae41ac6fd543c13349f22188eb12c69b3e59105c5eca3925a8e4eca3e",
+        "bootstrap.bundle.min.js": "0833b2e9c3a26c258476c46266e6877fc75218625162e0460be9a3a098a61c6c",
+        "bootstrap.bundle.min.js.map": "5e3e0763164143baaa1ca0706b6100ba0452f911d6ce9713b48e3dbe07b35125",
+        "bootstrap.min.css": "3c8f27e6009ccfd710a905e6dcf12d0ee3c6f2ac7da05b0572d3e0d12e736fc8",
+        "bootstrap.min.css.map": "f12338536350a422c64d02d6e43ff1dea493c3156ad823fe19761cdd5d56c05b"
+      }
+    },
+    "bootstrap-icons": {
+      "version": "1.13.2",
+      "files": {
+        "bootstrap-icons.min.css": "font/bootstrap-icons.min.css",
+        "fonts/bootstrap-icons.woff2": "font/fonts/bootstrap-icons.woff2",
+        "fonts/bootstrap-icons.woff": "font/fonts/bootstrap-icons.woff"
+      },
+      "license": "LICENSE",
+      "used_on": "все страницы — иконки bi bi-*; стрелки сортировки таблиц (base.html, CSS content: \"\\f127\" и т.п.)",
+      "integrity": "sha512-fAU1Ly3dH7hwRg+CB8EZ0Vl0fF80zgXHeUVJyfUOKzoURr+TbwISbCW5tKUoQLERaWYG2emTCybcPbD96hdD1A==",
+      "sha256": {
+        "LICENSE": "0fb3e11bd57e896c5a512afd64864d28a37de45d19835016c87ca1ad19ead969",
+        "bootstrap-icons.min.css": "79c99c1a1e0e937f808a58165728b7ed00800f02ef5efcfcd10dfe71464e675d",
+        "fonts/bootstrap-icons.woff": "24929e8a44da027588f833d4e82240ee734bd65bf962b08b0545af58a9ce80fa",
+        "fonts/bootstrap-icons.woff2": "2b7689746f87e0beeae25338bc021dd2515c2f6f003f3d3d064d878d380b2150"
+      }
+    },
+    "chart.js": {
+      "version": "4.4.4",
+      "files": {
+        "chart.umd.js": "dist/chart.umd.js"
+      },
+      "license": "LICENSE.md",
+      "used_on": "/dashboard, /finance/member-accounts, /electricity/ (графики)",
+      "integrity": "sha512-emICKGBABnxhMjUjlYRR12PmOXhJ2eJjEHL2/dZlWjxRAZT1D8xplLFq5M0tMQK8ja+wBS/tuVEJB5C6r7VxJA==",
+      "sha256": {
+        "LICENSE.md": "41a84aa2caba645f966a18d9c2056b73e6d3a81d80bc0046bc0011a2634d4cce",
+        "chart.umd.js": "fed6a739f8d0f0687174de6cd14745fc0fc7809144ab113d22908a26bf0d7fea",
+        "chart.umd.js.map": "e5849a182620bef84bb6cb8cf274e4766a5b1d6b31cc4538cf179397f14bb2c5"
+      }
+    },
+    "chartjs-adapter-date-fns": {
+      "version": "3.0.0",
+      "files": {
+        "chartjs-adapter-date-fns.bundle.min.js": "dist/chartjs-adapter-date-fns.bundle.min.js"
+      },
+      "license": "LICENSE.md",
+      "used_on": "там же, где chart.js",
+      "integrity": "sha512-Rs3iEB3Q5pJ973J93OBTpnP7qoGwvq3nUnoMdtxO+9aoJof7UFcRbWcIDteXuYd1fgAvct/32T9qaLyLuZVwCg==",
+      "sha256": {
+        "LICENSE.md": "b4b8355c2cd2b18354980a0c6422181d7bd6e895d94ae88b3570e97c60eea03d",
+        "chartjs-adapter-date-fns.bundle.min.js": "ea7ab30d26c38dcf1f2d26bb43e73a94537b58f1906f55e1a546dd09321b5615"
+      }
+    },
+    "chartjs-plugin-zoom": {
+      "version": "2.0.1",
+      "files": {
+        "chartjs-plugin-zoom.min.js": "dist/chartjs-plugin-zoom.min.js"
+      },
+      "license": "LICENSE.md",
+      "used_on": "/electricity/ (масштабирование графика)",
+      "integrity": "sha512-ogOmLu6e+Q7E1XWOCOz9YwybMslz9qNfGV2a+qjfmqJYpsw5ZMoRHZBUyW+NGhkpQ5PwwPA/+rikHpBZb7PZuA==",
+      "sha256": {
+        "LICENSE.md": "faf50ba4a21e0c740c96e9bbce1b862273cfe5dd2cdf200d3271a781094c6ba9",
+        "chartjs-plugin-zoom.min.js": "503c709802be285c676afe0369bf5f72066d0b0c23929188c3158f35c0327a9c"
+      }
+    },
+    "hammerjs": {
+      "version": "2.0.8",
+      "files": {
+        "hammer.min.js": "hammer.min.js"
+      },
+      "license": "LICENSE.md",
+      "used_on": "/electricity/ (жесты масштабирования на телефоне)",
+      "integrity": "sha512-tSQXBXS/MWQOn/RKckawJ61vvsDpCom87JgxiYdGwHdOa0ht0vzUWDlfioofFCRU0L+6NGDt6XzbgoJvZkMeRQ==",
+      "sha256": {
+        "LICENSE.md": "4d93df6544df47a49b25add3aff67ff9ff47e4756d85dd0c3e1beba8520ab9f2",
+        "hammer.min.js": "7953631f0e54794d2352a3cfa591c0914d73e14f90141058e3cf16bee7939bcf",
+        "hammer.min.js.map": "39dea5fa7146243f97e38b80c05d53fe1d5f9e8fbb3ab76ec87e965ffb08045c"
+      }
+    },
+    "mermaid": {
+      "version": "11.17.2",
+      "files": {
+        "mermaid.min.js": "dist/mermaid.min.js"
+      },
+      "license": "LICENSE",
+      "used_on": "/control-meters/ (вкладка «Схема»)",
+      "integrity": "sha512-V6K3C8EBdEsPFZXSKMJe6ppQOENxuHARr9GvHX4hh47lAbhMRD9qf4oEK7LoaRQxULMa80/qt5gHO73aCleBBg==",
+      "sha256": {
+        "LICENSE": "ec9fb67dcb25eccc416ed56e1aab819222c805a2a4bfe4cb19e7556bf2ffde80",
+        "mermaid.min.js": "581ed7d74bd9048d0e3a91363927d72ef22942d7722546b27f7cc29e35390eb8"
+      }
+    }
+  }
+}

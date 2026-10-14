@@ -40,7 +40,7 @@
 
 {# Однофайловая сборка (window.mermaid), а не ESM-модуль: тот подгружает
    по ходу работы десятки своих частей отдельными файлами. #}
-<script src="{{ url_for('static', filename='vendor/mermaid-11.17.2/mermaid.min.js') }}"></script>
+<script src="{{ vendor_url('mermaid', 'mermaid.min.js') }}"></script>
 <script type="module">
   const mermaid = window.mermaid;
   mermaid.initialize({

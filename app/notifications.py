@@ -433,6 +433,9 @@ IGNORED_BOARD_ACTIONS = frozenset({
     "forum.topic_create", "forum.reply_create", "forum.post_edit", "forum.post_delete",
     "forum.topic_delete", "forum.topic_close", "forum.topic_reopen",
     "mailbox.message_trash", "mailbox.message_delete",
+    # Каждый член при первом входе после введения галочки — волна однотипных
+    # сообщений правлению; факт согласия и так в журнале.
+    "account.pd_consent",
 })
 
 # Действия, решение по которым принимает только председатель — остальным

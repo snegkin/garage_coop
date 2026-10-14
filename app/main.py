@@ -112,6 +112,16 @@ def privacy():
     return render_template("privacy.html", coop=coop)
 
 
+@bp.route("/personal-data-consent")
+def pd_consent():
+    """Текст согласия на обработку персональных данных — общедоступен, на
+    него ведёт обязательная галочка формы входа (auth/_login_form.html)."""
+    from .models import Cooperative
+
+    coop = database.db_session.query(Cooperative).first()
+    return render_template("pd_consent.html", coop=coop)
+
+
 @bp.route("/")
 def index():
     """Главная страница сайта — общедоступна (анонимный посетитель видит

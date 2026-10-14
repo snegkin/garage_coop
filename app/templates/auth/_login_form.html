@@ -12,7 +12,33 @@
   form_id — обязательный параметр: уникальный суффикс для id вкладок
   Bootstrap (data-bs-target ищет по id) — без него при одновременном
   показе (шапка + страница входа на одной странице) id задвоились бы.
+
+  Галочки под полями (login_checkboxes) — общие для обеих вкладок:
+  «Запомнить меня», «Разрешить уведомления» (push в этом браузере, см.
+  auth._complete_login) и согласие на обработку персональных данных —
+  обязательно, пока человек его ни разу не давал; HTML-атрибута required
+  нет намеренно: давшим согласие раньше (на другом устройстве) отмечать
+  её снова не нужно, это решает сервер. Отмечена заранее, если на этом
+  устройстве согласие уже давали (cookie, см. auth.PD_CONSENT_COOKIE).
 #}
+{% macro login_checkboxes(kind, form_id) %}
+<div class="mb-3">
+  <div class="form-check">
+    <input class="form-check-input" type="checkbox" name="remember_me" value="1" id="rememberMe{{ kind }}-{{ form_id }}">
+    <label class="form-check-label" for="rememberMe{{ kind }}-{{ form_id }}">{{ _("Запомнить меня") }}</label>
+  </div>
+  <div class="form-check">
+    <input class="form-check-input js-enable-push" type="checkbox" name="enable_push" value="1" id="enablePush{{ kind }}-{{ form_id }}">
+    <label class="form-check-label" for="enablePush{{ kind }}-{{ form_id }}">{{ _("Разрешить уведомления") }}</label>
+  </div>
+  <div class="form-check">
+    <input class="form-check-input" type="checkbox" name="pd_consent" value="1" id="pdConsent{{ kind }}-{{ form_id }}" {{ 'checked' if request.cookies.get('pd_consent') }}>
+    <label class="form-check-label" for="pdConsent{{ kind }}-{{ form_id }}">
+      {{ _("Даю") }} <a href="{{ url_for('main.pd_consent') }}" target="_blank" rel="noopener">{{ _("согласие на обработку персональных данных") }}</a>
+    </label>
+  </div>
+</div>
+{% endmacro %}
 <ul class="nav nav-tabs mb-3" role="tablist">
   <li class="nav-item" role="presentation">
     <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#loginByUsername-{{ form_id }}" type="button" role="tab">{{ _("По логину") }}</button>
@@ -32,10 +58,7 @@
         <label class="form-label">{{ _("Пароль") }}</label>
         <input class="form-control" type="password" name="password" required>
       </div>
-      <div class="mb-3 form-check">
-        <input class="form-check-input" type="checkbox" name="remember_me" value="1" id="rememberMeUsername-{{ form_id }}">
-        <label class="form-check-label" for="rememberMeUsername-{{ form_id }}">{{ _("Запомнить меня") }}</label>
-      </div>
+      {{ login_checkboxes("Username", form_id) }}
       <button class="btn btn-primary w-100">{{ _("Войти") }}</button>
     </form>
     <div class="text-end mt-3">
@@ -53,10 +76,7 @@
         <input class="form-control" type="password" name="password" required>
       </div>
       <div class="form-text mb-3">{{ _("Если у вас ещё нет учётной записи, но этот номер телефона есть в базе кооператива — на него придёт СМС с кодом подтверждения, а введённый здесь пароль станет вашим паролем для входа.") }}</div>
-      <div class="mb-3 form-check">
-        <input class="form-check-input" type="checkbox" name="remember_me" value="1" id="rememberMePhone-{{ form_id }}">
-        <label class="form-check-label" for="rememberMePhone-{{ form_id }}">{{ _("Запомнить меня") }}</label>
-      </div>
+      {{ login_checkboxes("Phone", form_id) }}
       <button class="btn btn-primary w-100">{{ _("Войти") }}</button>
     </form>
     <div class="text-end mt-3">
@@ -64,3 +84,27 @@
     </div>
   </div>
 </div>
+<script>
+// «Разрешить уведомления»: системный запрос разрешения — прямо в момент
+// нажатия «Войти». Firefox и Safari показывают его только в ответ на
+// действие пользователя, а после входа (base.html, webpush_prompt) такого
+// действия уже нет. Подписку на push оформит уже следующая страница.
+(function () {
+  if (window.__loginPushHandler) return;  // форма может быть на странице дважды (шапка + /auth/login)
+  window.__loginPushHandler = true;
+  document.addEventListener("submit", function (e) {
+    var form = e.target;
+    var box = form.querySelector && form.querySelector(".js-enable-push");
+    if (!box || !box.checked || !window.Notification || Notification.permission !== "default") return;
+    e.preventDefault();
+    var done = false;
+    function proceed() { if (!done) { done = true; form.submit(); } }
+    try {
+      var result = Notification.requestPermission(proceed);
+      if (result && result.then) result.then(proceed, proceed);
+    } catch (err) {
+      proceed();
+    }
+  });
+})();
+</script>

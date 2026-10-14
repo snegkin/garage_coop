@@ -1869,6 +1869,12 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Почта и настройки": "Mail and settings",
         "Входы на сайт": "Sign-ins to the site",
         "Неудачные попытки входа": "Failed sign-in attempts",
+        "Разрешить уведомления": "Allow notifications",
+        "Даю": "I give my",
+        "согласие на обработку персональных данных": "consent to the processing of personal data",
+        "Согласие на обработку персональных данных": "Consent to the processing of personal data",
+        "Для входа необходимо согласие на обработку персональных данных — отметьте галочку под формой.":
+            "Signing in requires consent to the processing of personal data — tick the box below the form.",
         "Сбои синхронизации с банком, eWeLink, регистратором; фаза электропитания не на связи": "Bank, eWeLink and video recorder sync failures; a power phase is offline",
         "Чтобы получать уведомления этим способом, сначала укажите и сохраните соответствующий контакт в профиле.":
             "To receive notifications this way, first fill in and save the matching contact field in your profile.",

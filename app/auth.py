@@ -168,32 +168,17 @@ def roles_required(*roles: RoleEnum):
     return decorator
 
 
-# Cookie «на этом устройстве уже давали согласие на обработку ПД» — только
-# чтобы форма входа показывала галочку отмеченной (см. auth/_login_form.html).
-# Сам факт согласия хранится в User.pd_consent_at, cookie ничего не решает.
-PD_CONSENT_COOKIE = "pd_consent"
-PD_CONSENT_COOKIE_MAX_AGE = 5 * 365 * 24 * 3600
-
-
 def _login_form_choices() -> dict:
     """Галочки формы входа (auth/_login_form.html) — те же поля передаются
     скрытыми через страницу кода СМС при регистрации по телефону."""
     f = request.form
     return {
         "remember": bool(f.get("remember_me")),
-        "pd_consent": bool(f.get("pd_consent")),
         "enable_push": bool(f.get("enable_push")),
     }
 
 
-def _pd_consent_missing_redirect():
-    flash(_("Для входа необходимо согласие на обработку персональных данных — отметьте галочку под формой."), "danger")
-    next_url = request.args.get("next")
-    return redirect(url_for("auth.login", next=next_url) if is_safe_next_url(next_url) else url_for("auth.login"))
-
-
-def _complete_login(user: User, summary: str, remember: bool = False, pd_consent: bool = False,
-                    enable_push: bool = False):
+def _complete_login(user: User, summary: str, remember: bool = False, enable_push: bool = False):
     """Общий хвост успешного входа — заводит сессию, пишет аудит,
     редиректит на next (если безопасный), иначе — на главную (по прямой
     просьбе не уводить рядового члена на дашборд/«мои гаражи»
@@ -209,43 +194,44 @@ def _complete_login(user: User, summary: str, remember: bool = False, pd_consent
     закрытии) в постоянную, живущую PERMANENT_SESSION_LIFETIME (см.
     config.py — 12 месяцев). Без галки поведение как раньше.
 
-    pd_consent — галка согласия на обработку персональных данных:
-    обязательна, пока человек его ни разу не давал (User.pd_consent_at),
-    дальше не требуется. enable_push — «Разрешить уведомления»: следующая
+    Галка «обработка персональных данных» на форме — неактивная и всегда
+    отмечена: обработка ведётся на основании устава (п. 5 ч. 1 ст. 6
+    152-ФЗ), согласие для неё не требуется, на сервер галка не приходит.
+    При первом входе лишь фиксируем, что условия обработки человеку
+    показаны (User.pd_notice_at).
+
+    enable_push — «Разрешить уведомления»: следующая
     страница подпишет этот браузер на push (тот же одноразовый флаг
     webpush_prompt, что и у force_change_password); способ доставки
-    меняется на push, только если свой ещё не выбран или не работает."""
-    if user.pd_consent_at is None and not pd_consent:
-        return _pd_consent_missing_redirect()
-
+    меняется на push, только если выбранный не работает (явный отказ от
+    уведомлений в профиле не трогаем)."""
     session.clear()
     session["user_id"] = user.id
     session.permanent = remember
     audit.record("auth.login", entity_type="user", entity_id=user.id, summary=summary, actor=user)
-    if user.pd_consent_at is None:
-        user.pd_consent_at = dt.datetime.utcnow()
+    if user.pd_notice_at is None:
+        user.pd_notice_at = dt.datetime.utcnow()
         audit.record(
-            "account.pd_consent", entity_type="user", entity_id=user.id, actor=user,
-            summary=f"Дано согласие на обработку персональных данных: «{user.username}»",
+            "account.pd_notice", entity_type="user", entity_id=user.id, actor=user,
+            summary=f"При входе показаны условия обработки персональных данных: «{user.username}»",
         )
     if enable_push:
         from . import notifications
-        if user.notify_channel is None or not notifications.channel_is_ready(user, user.notify_channel):
+        # notify_channel=None — человек сам выбрал в профиле «Не получать
+        # уведомления»; галочка отмечена по умолчанию, и молча отменять этот
+        # выбор при каждом входе нельзя. Меняем только выбранный, но
+        # неработающий способ (например, email без адреса).
+        if user.notify_channel is not None and not notifications.channel_is_ready(user, user.notify_channel):
             user.notify_channel = NotificationChannel.WEBPUSH
         session["webpush_prompt"] = True
     database.db_session.commit()
 
     next_url = request.args.get("next")
     if is_safe_next_url(next_url):
-        response = redirect(next_url)
-    elif ROLE_LEVEL[user.role] >= ROLE_LEVEL[RoleEnum.BOARD]:
-        response = redirect(url_for("main.dashboard"))
-    else:
-        response = redirect(url_for("main.index"))
-    response.set_cookie(
-        PD_CONSENT_COOKIE, "1", max_age=PD_CONSENT_COOKIE_MAX_AGE, httponly=True, samesite="Lax",
-    )
-    return response
+        return redirect(next_url)
+    if ROLE_LEVEL[user.role] >= ROLE_LEVEL[RoleEnum.BOARD]:
+        return redirect(url_for("main.dashboard"))
+    return redirect(url_for("main.index"))
 
 
 @bp.route("/login", methods=["GET", "POST"])
@@ -342,10 +328,6 @@ def login_by_phone():
     user = database.db_session.query(User).filter_by(person_id=person.id).first()
 
     if user is None:
-        # Новая учётная запись — согласие нужно до отправки СМС, а не после
-        # подтверждения кода, иначе человек ввёл бы код впустую.
-        if not choices["pd_consent"]:
-            return _pd_consent_missing_redirect()
         client = get_sms_client()
         if client is None:
             flash(_("СМС-уведомления пока не настроены — обратитесь к председателю."), "danger")
@@ -446,8 +428,6 @@ def register_phone_confirm():
     code = request.form.get("code", "").strip()
     choices = _login_form_choices()
     digits = _normalize_phone_digits(phone)
-    if not choices["pd_consent"]:
-        return _pd_consent_missing_redirect()
 
     person = _person_by_phone_digits(digits)
     ok, password_hash = verification.consume_code(VerificationCodePurpose.PHONE_REGISTER, digits, code)

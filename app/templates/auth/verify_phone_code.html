@@ -4,7 +4,6 @@
 {% macro login_choices_hidden() %}
   {# Галочки формы входа (auth/_login_form.html) — несём дальше до подтверждения кода #}
   <input type="hidden" name="remember_me" value="{{ '1' if remember else '' }}">
-  <input type="hidden" name="pd_consent" value="{{ '1' if pd_consent else '' }}">
   <input type="hidden" name="enable_push" value="{{ '1' if enable_push else '' }}">
 {% endmacro %}
 <div class="row justify-content-center">

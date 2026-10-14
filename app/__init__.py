@@ -104,7 +104,7 @@ def create_app(config_class=Config):
     # а не редирект.
     _PASSWORD_CHANGE_ALLOWED_ENDPOINTS = {
         "auth.force_change_password", "auth.logout", "static",
-        "main.web_manifest", "main.service_worker", "main.privacy", "main.pd_consent",
+        "main.web_manifest", "main.service_worker", "main.privacy", "main.pd_processing",
     }
 
     @app.before_request

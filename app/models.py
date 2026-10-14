@@ -1237,19 +1237,20 @@ class User(Base):
     board_chat_open: Mapped[bool] = mapped_column(Boolean, default=False)
 
     # Подписка на уведомления о событиях сайта (см. app/notifications.py) —
-    # один канал доставки на человека (см. NotificationChannel: email,
-    # telegram или webpush). Email проверяется против Person.email,
-    # telegram — против Person.telegram_chat_id (привязка через бота, см.
-    # app/telegram_bot.py), webpush — против наличия хотя бы одной
-    # WebPushSubscription (см. app/webpush.py) — единственный канал без
-    # привязки к конкретному контактному полю Person, т.к. подписок может
-    # быть несколько (разные браузеры/устройства). Проверяется при
-    # сохранении в настройках профиля (app/cabinet.py: notification_settings).
-    # По умолчанию email и все события включены — реальная отправка всё
-    # равно не пройдёт, пока у person не заполнено поле email (см.
-    # notifications.channel_is_ready), так что дефолт безопасен даже для
-    # ещё не привязанных к человеку учётных записей.
-    notify_channel: Mapped[NotificationChannel | None] = mapped_column(Enum(NotificationChannel), default=NotificationChannel.EMAIL)
+    # способы доставки, можно несколько сразу (галочки в профиле, см.
+    # app/cabinet.py: notification_settings); ни одного — уведомления не
+    # приходят. Email проверяется против Person.email, telegram — против
+    # Person.telegram_chat_id (привязка через бота, см. app/telegram_bot.py),
+    # webpush — против наличия хотя бы одной WebPushSubscription (см.
+    # app/webpush.py; подписок может быть несколько — разные браузеры и
+    # устройства, рассылается во все). Канал, отмеченный, но не готовый к
+    # отправке, просто пропускается (см. notifications.channel_is_ready).
+    notify_via_email: Mapped[bool] = mapped_column(Boolean, default=True)
+    notify_via_telegram: Mapped[bool] = mapped_column(Boolean, default=False)
+    # None — ещё не выбирал: галочка «Разрешить уведомления» на форме входа
+    # (отмечена по умолчанию) включит push; False — сам отключил в профиле,
+    # вход этот выбор не отменяет (см. auth._complete_login).
+    notify_via_webpush: Mapped[bool | None] = mapped_column(Boolean, default=None)
     notify_charge: Mapped[bool] = mapped_column(Boolean, default=True)
     notify_payment: Mapped[bool] = mapped_column(Boolean, default=True)
     notify_news: Mapped[bool] = mapped_column(Boolean, default=True)

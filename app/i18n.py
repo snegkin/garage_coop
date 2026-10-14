@@ -890,8 +890,6 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Приложение удобнее всего установить через Chrome — откройте сайт в нём и нажмите «Установить».":
             "The easiest way to install the app is via Chrome — open the site there and tap “Install”.",
         "Открыть в Chrome": "Open in Chrome",
-        "Уведомления для сайта запрещены в настройках браузера или телефона — разрешите их там и нажмите кнопку ещё раз.":
-            "Notifications for this site are blocked in the browser or phone settings — allow them there and press the button again.",
         "Не удалось включить push-уведомления на этом устройстве. Обычно так бывает на телефонах без сервисов Google (например, новые Huawei) — браузерам там нечем доставлять push. Выберите выше Telegram или email.":
             "Could not enable push notifications on this device. This usually happens on phones without Google services (e.g. newer Huawei) — browsers there have no way to deliver push. Choose Telegram or email above.",
         "Или в меню этого браузера: «Добавить на главный экран». Если значок не появился — разрешите браузеру создавать ярлыки: Настройки телефона → Приложения → этот браузер → Разрешения.":
@@ -1840,8 +1838,6 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Контактные данные": "Contact details",
         "Паспортные данные": "Passport details",
         "Уведомления": "Notifications",
-        "Способ доставки": "Delivery method",
-        "Не получать уведомления": "Don't receive notifications",
         "Реально отправляются пока только письма на email — Telegram/VK/MAX можно выбрать заранее, доставка появится позже. Выбранный способ должен быть заполнен в контактных данных выше.":
             "Only email is actually delivered for now — Telegram/VK/MAX can be selected in advance, delivery will follow later. The selected method must be filled in the contact details above.",
         "О каких событиях уведомлять": "Which events to notify about",
@@ -1870,6 +1866,24 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Входы на сайт": "Sign-ins to the site",
         "Неудачные попытки входа": "Failed sign-in attempts",
         "Разрешить уведомления": "Allow notifications",
+        "Как уведомлять": "How to notify",
+        "Адрес почты не указан в контактных данных выше.": "No email address in the contact details above.",
+        "Push-уведомления в этом браузере": "Push notifications in this browser",
+        "Подписка этого браузера включится или снимется при сохранении.": "This browser's subscription is turned on or off when you save.",
+        "Уведомления для сайта запрещены в настройках браузера или телефона — разрешите их там и сохраните ещё раз.":
+            "Notifications for this site are blocked in the browser or phone settings — allow them there and save again.",
+        "Можно отметить несколько способов. Если не отмечен ни один — уведомления не приходят.":
+            "You can tick several methods. If none is ticked, no notifications are sent.",
+        "Отправит тестовое сообщение по каждому сохранённому способу доставки.": "Sends a test message via each saved delivery method.",
+        "Для уведомлений по email нужен адрес почты в контактных данных — укажите его выше и дождитесь одобрения председателем.":
+            "Email notifications need an email address in your contact details — enter it above and wait for the chairman's approval.",
+        "Для уведомлений в Telegram сначала привяжите Telegram кнопкой рядом с галочкой.":
+            "For Telegram notifications, first link Telegram with the button next to the checkbox.",
+        "Не удалось включить push-уведомления в этом браузере — снимите галочку push или выберите другой способ.":
+            "Could not enable push notifications in this browser — untick push or choose another method.",
+        "Сначала отметьте хотя бы один способ доставки и сохраните настройки.": "First tick at least one delivery method and save the settings.",
+        "Нет ни одной подписки браузера на push-уведомления — отметьте push и сохраните настройки в нужном браузере.":
+            "No browser is subscribed to push notifications — tick push and save the settings in the browser you need.",
         "Персональные данные обрабатываются на основании устава —": "Personal data is processed under the cooperative's charter —",
         "условия обработки": "processing terms",
         "Обработка персональных данных": "Processing of personal data",
@@ -1879,13 +1893,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Настройки уведомлений сохранены.": "Notification settings saved.",
         "Сохранить настройки уведомлений": "Save notification settings",
         "Член кооператива с": "Cooperative member since",
-        "Email должен быть заполнен в контактных данных выше. Telegram и push-уведомления нужно привязать отдельно — см. ниже.":
-            "Email must be filled in the contact details above. Telegram and push notifications need to be enabled separately — see below.",
         "Telegram отвязан.": "Telegram unlinked.",
         "Telegram привязан": "Telegram linked",
-        "Push-уведомления в браузере": "Browser push notifications",
-        "Разрешить push-уведомления в этом браузере": "Enable push notifications in this browser",
-        "Отключить push в этом браузере": "Disable push in this browser",
         "Этот браузер не поддерживает push-уведомления.": "This browser doesn't support push notifications.",
         "Открыть в Telegram и привязать": "Open in Telegram and link",
         "Привязать Telegram": "Link Telegram",

@@ -65,7 +65,8 @@ def test_notify_sends_telegram_message_when_linked(app, db, monkeypatch):
     _make_telegram_settings(db)
     person = make_person(db, full_name="Получатель Уведомлений", telegram_chat_id=777)
     user = make_user(db, "recipient", "pass1234", role=RoleEnum.MEMBER, person=person)
-    user.notify_channel = NotificationChannel.TELEGRAM
+    user.notify_via_email = False
+    user.notify_via_telegram = True
     user.notify_charge = True
     db.commit()
 
@@ -90,7 +91,8 @@ def test_notify_noop_when_telegram_not_configured(app, db, monkeypatch):
     from app import notifications
     person = make_person(db, full_name="Без Настроек Бота", telegram_chat_id=888)
     user = make_user(db, "nobot", "pass1234", role=RoleEnum.MEMBER, person=person)
-    user.notify_channel = NotificationChannel.TELEGRAM
+    user.notify_via_email = False
+    user.notify_via_telegram = True
     user.notify_charge = True
     db.commit()
 

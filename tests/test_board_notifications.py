@@ -327,7 +327,7 @@ def test_settings_save_board_groups(app, db, client):
 
     login(client, "board1", "pass12345")
     client.post("/cabinet/profile/notifications", data={
-        "notify_channel": "email", "notify_board_events": ["bank", "logins", "bogus"], "notify_vote": "on",
+        "notify_via_email": "1", "notify_board_events": ["bank", "logins", "bogus"], "notify_vote": "on",
     })
     db.refresh(user)
     assert notifications.board_event_groups(user) == {"bank", "logins"}
@@ -339,7 +339,7 @@ def test_settings_board_groups_ignored_for_member(app, db, client):
     user, _ = _member(db)
     db.commit()
     login(client, "member1", "pass12345")
-    client.post("/cabinet/profile/notifications", data={"notify_channel": "email", "notify_board_events": ["bank"]})
+    client.post("/cabinet/profile/notifications", data={"notify_via_email": "1", "notify_board_events": ["bank"]})
     db.refresh(user)
     assert user.notify_board_events is None
 

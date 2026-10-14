@@ -10,7 +10,7 @@
 (см. base.html) — здесь это не тестируется (JS/браузер), только сама
 подготовка со стороны сервера.
 """
-from app.models import User, NotificationChannel
+from app.models import User
 from tests.conftest import make_person, make_user, login
 
 
@@ -18,7 +18,6 @@ def _make_first_login_user(db, username="firstlogin1", password="temp1234"):
     person = make_person(db, full_name="Первовходов Перв Первович")
     user = make_user(db, username, password, person=person)
     user.must_change_password = True
-    user.notify_channel = NotificationChannel.EMAIL
     user.notify_charge = False
     user.notify_forum = False
     db.commit()
@@ -50,7 +49,8 @@ def test_force_change_password_with_checkbox_enables_channel_and_all_events(app,
     db.expire_all()
     user = db.query(User).filter_by(username="firstlogin1").one()
     assert user.must_change_password is False
-    assert user.notify_channel == NotificationChannel.WEBPUSH
+    assert user.notify_via_webpush is True
+    assert user.notify_via_email is True  # остальные способы не трогаем — push добавляется к ним
     assert user.notify_charge is True
     assert user.notify_payment is True
     assert user.notify_news is True
@@ -61,7 +61,7 @@ def test_force_change_password_with_checkbox_enables_channel_and_all_events(app,
         assert sess.get("webpush_prompt") is True
 
 
-def test_force_change_password_unchecked_leaves_notify_channel_unchanged(app, db, client):
+def test_force_change_password_unchecked_leaves_channels_unchanged(app, db, client):
     """Человек явно снял галочку — ничего не меняем."""
     _make_first_login_user(db)
     login(client, "firstlogin1", "temp1234")
@@ -75,7 +75,8 @@ def test_force_change_password_unchecked_leaves_notify_channel_unchanged(app, db
     db.expire_all()
     user = db.query(User).filter_by(username="firstlogin1").one()
     assert user.must_change_password is False
-    assert user.notify_channel == NotificationChannel.EMAIL  # не тронут
+    assert user.notify_via_email is True  # не тронут
+    assert user.notify_via_webpush is None
 
     with client.session_transaction() as sess:
         assert not sess.get("webpush_prompt")

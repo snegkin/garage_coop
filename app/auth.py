@@ -20,7 +20,6 @@ from .rate_limit import limiter
 from .i18n import translate as _
 from .models import (
     User, RoleEnum, Person, Phone, MailboxSettings, Cooperative, VerificationCode, VerificationCodePurpose,
-    NotificationChannel,
 )
 from .login_generation import generate_unique_login, login_key
 from .sms import get_sms_client, SmsError, sms_site_identifier
@@ -202,9 +201,9 @@ def _complete_login(user: User, summary: str, remember: bool = False, enable_pus
 
     enable_push — «Разрешить уведомления»: следующая
     страница подпишет этот браузер на push (тот же одноразовый флаг
-    webpush_prompt, что и у force_change_password); способ доставки
-    меняется на push, только если выбранный не работает (явный отказ от
-    уведомлений в профиле не трогаем)."""
+    webpush_prompt, что и у force_change_password) и включит push как
+    способ доставки — в дополнение к уже выбранным, и только если человек
+    не отключал push в профиле сам."""
     session.clear()
     session["user_id"] = user.id
     session.permanent = remember
@@ -215,14 +214,11 @@ def _complete_login(user: User, summary: str, remember: bool = False, enable_pus
             "account.pd_notice", entity_type="user", entity_id=user.id, actor=user,
             summary=f"При входе показаны условия обработки персональных данных: «{user.username}»",
         )
-    if enable_push:
-        from . import notifications
-        # notify_channel=None — человек сам выбрал в профиле «Не получать
-        # уведомления»; галочка отмечена по умолчанию, и молча отменять этот
-        # выбор при каждом входе нельзя. Меняем только выбранный, но
-        # неработающий способ (например, email без адреса).
-        if user.notify_channel is not None and not notifications.channel_is_ready(user, user.notify_channel):
-            user.notify_channel = NotificationChannel.WEBPUSH
+    if enable_push and user.notify_via_webpush is not False:
+        # notify_via_webpush=False — человек сам снял push в профиле;
+        # галочка на входе отмечена по умолчанию, и молча отменять этот
+        # выбор при каждом входе нельзя. None (ещё не выбирал) — включаем.
+        user.notify_via_webpush = True
         session["webpush_prompt"] = True
     database.db_session.commit()
 
@@ -639,7 +635,7 @@ def force_change_password():
         # уведомлений, не только сам факт канала; лишнее человек отключит
         # сам в настройках профиля.
         if request.form.get("enable_webpush") == "1":
-            g.user.notify_channel = NotificationChannel.WEBPUSH
+            g.user.notify_via_webpush = True
             g.user.notify_charge = True
             g.user.notify_payment = True
             g.user.notify_news = True

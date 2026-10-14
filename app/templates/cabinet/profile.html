@@ -113,39 +113,43 @@
     </form>
 
     <h6 class="text-muted mt-4">{{ _("Уведомления") }}</h6>
-    <form method="post" action="{{ url_for('cabinet.notification_settings') }}" class="bg-body p-4 rounded border" data-ajax>
+    <form method="post" action="{{ url_for('cabinet.notification_settings') }}" class="bg-body p-4 rounded border" id="notificationSettingsForm" data-ajax>
       <div class="row g-3">
         <div class="col-md-6">
-          <label class="form-label">{{ _("Способ доставки") }}</label>
-          <select class="form-select" name="notify_channel">
-            <option value="">{{ _("Не получать уведомления") }}</option>
-            <option value="email" {{ 'selected' if g.user.notify_channel and g.user.notify_channel.value == 'email' }}>{{ _("Email") }}</option>
-            <option value="telegram" {{ 'selected' if g.user.notify_channel and g.user.notify_channel.value == 'telegram' }}>Telegram</option>
-            <option value="webpush" {{ 'selected' if g.user.notify_channel and g.user.notify_channel.value == 'webpush' }}>{{ _("Push-уведомления в браузере") }}</option>
-          </select>
-          <div class="form-text">{{ _("Email должен быть заполнен в контактных данных выше. Telegram и push-уведомления нужно привязать отдельно — см. ниже.") }}</div>
-
-          <div class="mt-3">
-            {% if person.telegram_chat_id %}
-              <span class="badge bg-success">{{ _("Telegram привязан") }}</span>
-              <button class="btn btn-sm btn-outline-secondary ms-2" form="telegramUnlinkForm">{{ _("Отвязать") }}</button>
-            {% elif telegram_link_url %}
-              <a href="{{ telegram_link_url }}" target="_blank" rel="noopener" class="btn btn-sm btn-primary">{{ _("Открыть в Telegram и привязать") }}</a>
-              <div class="form-text">{{ _("Ссылка одноразовая — откройте её в Telegram и нажмите Start.") }}</div>
-            {% else %}
-              <button class="btn btn-sm btn-outline-primary" form="telegramLinkForm">{{ _("Привязать Telegram") }}</button>
-            {% endif %}
+          <label class="form-label d-block">{{ _("Как уведомлять") }}</label>
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="notify_via_email" value="1" id="notify_via_email" {{ 'checked' if g.user.notify_via_email }}>
+            <label class="form-check-label" for="notify_via_email">{{ _("Email") }}</label>
+            <div class="form-text mt-0">{{ person.email if person.email else _("Адрес почты не указан в контактных данных выше.") }}</div>
           </div>
 
-          <div class="mt-3" id="webpushBlock" data-vapid-key="{{ webpush_public_key }}"
+          <div class="form-check mt-2">
+            <input class="form-check-input" type="checkbox" name="notify_via_telegram" value="1" id="notify_via_telegram" {{ 'checked' if g.user.notify_via_telegram }}>
+            <label class="form-check-label" for="notify_via_telegram">Telegram</label>
+            <div class="mt-1">
+              {% if person.telegram_chat_id %}
+                <span class="badge bg-success">{{ _("Telegram привязан") }}</span>
+                <button class="btn btn-sm btn-outline-secondary ms-2" form="telegramUnlinkForm">{{ _("Отвязать") }}</button>
+              {% elif telegram_link_url %}
+                <a href="{{ telegram_link_url }}" target="_blank" rel="noopener" class="btn btn-sm btn-primary">{{ _("Открыть в Telegram и привязать") }}</a>
+                <div class="form-text">{{ _("Ссылка одноразовая — откройте её в Telegram и нажмите Start.") }}</div>
+              {% else %}
+                <button class="btn btn-sm btn-outline-primary" form="telegramLinkForm">{{ _("Привязать Telegram") }}</button>
+              {% endif %}
+            </div>
+          </div>
+
+          <div class="form-check mt-2" id="webpushBlock" data-vapid-key="{{ webpush_public_key }}"
                data-subscribe-url="{{ url_for('cabinet.webpush_subscribe') }}"
                data-unsubscribe-url="{{ url_for('cabinet.webpush_unsubscribe') }}">
-            <button type="button" class="btn btn-sm btn-outline-primary" id="webpushSubscribeBtn" hidden>{{ _("Разрешить push-уведомления в этом браузере") }}</button>
-            <button type="button" class="btn btn-sm btn-outline-secondary" id="webpushUnsubscribeBtn" hidden>{{ _("Отключить push в этом браузере") }}</button>
-            <span class="text-muted small" id="webpushUnsupported" hidden>{{ _("Этот браузер не поддерживает push-уведомления.") }}</span>
-            <div class="text-danger small mt-1" id="webpushDenied" hidden>{{ _("Уведомления для сайта запрещены в настройках браузера или телефона — разрешите их там и нажмите кнопку ещё раз.") }}</div>
+            <input class="form-check-input" type="checkbox" name="notify_via_webpush" value="1" id="notify_via_webpush" {{ 'checked' if g.user.notify_via_webpush }}>
+            <label class="form-check-label" for="notify_via_webpush">{{ _("Push-уведомления в этом браузере") }}</label>
+            <div class="form-text mt-0" id="webpushHint">{{ _("Подписка этого браузера включится или снимется при сохранении.") }}</div>
+            <div class="text-muted small mt-1" id="webpushUnsupported" hidden>{{ _("Этот браузер не поддерживает push-уведомления.") }}</div>
+            <div class="text-danger small mt-1" id="webpushDenied" hidden>{{ _("Уведомления для сайта запрещены в настройках браузера или телефона — разрешите их там и сохраните ещё раз.") }}</div>
             <div class="text-danger small mt-1" id="webpushFailed" hidden>{{ _("Не удалось включить push-уведомления на этом устройстве. Обычно так бывает на телефонах без сервисов Google (например, новые Huawei) — браузерам там нечем доставлять push. Выберите выше Telegram или email.") }}</div>
           </div>
+          <div class="form-text">{{ _("Можно отметить несколько способов. Если не отмечен ни один — уведомления не приходят.") }}</div>
           <div class="mt-3">{% with dismissible=false %}{% include "_install_app.html" %}{% endwith %}</div>
         </div>
         <div class="col-md-6">
@@ -210,10 +214,10 @@
     <form method="post" action="{{ url_for('cabinet.telegram_unlink') }}" id="telegramUnlinkForm" onsubmit="return confirm('{{ _('Отвязать Telegram?') }}')"></form>
     <form method="post" action="{{ url_for('cabinet.telegram_link_start') }}" id="telegramLinkForm" data-ajax></form>
 
-    {% if g.user.notify_channel %}
+    {% if g.user.notify_via_email or g.user.notify_via_telegram or g.user.notify_via_webpush %}
     <form method="post" action="{{ url_for('cabinet.test_notification') }}" class="mt-2" data-ajax>
       <button class="btn btn-outline-secondary btn-sm">{{ _("Проверить уведомления") }}</button>
-      <span class="text-muted small ms-2">{{ _("Отправит тестовое сообщение по уже сохранённому способу доставки.") }}</span>
+      <span class="text-muted small ms-2">{{ _("Отправит тестовое сообщение по каждому сохранённому способу доставки.") }}</span>
     </form>
     {% endif %}
   </div>
@@ -281,20 +285,25 @@
 </script>
 
 <script>
+// Галочка «Push-уведомления в этом браузере» — подписка ЭТОГО браузера
+// оформляется (или снимается) при нажатии «Сохранить настройки
+// уведомлений», а не отдельными кнопками: сначала приводим подписку к
+// галочке, потом отправляем саму форму (submitFormAjax из base.html).
+// preventDefault() здесь же выключает общий AJAX-обработчик data-ajax-форм
+// (он пропускает события с defaultPrevented) — форму отправляем сами, когда
+// подписка готова. Нажатие «Сохранить» — действие пользователя, поэтому
+// браузер покажет системный запрос разрешения (Firefox и Safari без такого
+// действия его не показывают).
 (function () {
   var block = document.getElementById("webpushBlock");
-  if (!block) return;
-  var subscribeBtn = document.getElementById("webpushSubscribeBtn");
-  var unsubscribeBtn = document.getElementById("webpushUnsubscribeBtn");
-  var unsupported = document.getElementById("webpushUnsupported");
+  var form = document.getElementById("notificationSettingsForm");
+  if (!block || !form) return;
+  var box = document.getElementById("notify_via_webpush");
   var vapidKey = block.getAttribute("data-vapid-key");
   var subscribeUrl = block.getAttribute("data-subscribe-url");
   var unsubscribeUrl = block.getAttribute("data-unsubscribe-url");
-
-  if (!("serviceWorker" in navigator) || !("PushManager" in window) || !vapidKey) {
-    unsupported.hidden = false;
-    return;
-  }
+  var supported = "serviceWorker" in navigator && "PushManager" in window && !!vapidKey;
+  if (!supported) document.getElementById("webpushUnsupported").hidden = false;
 
   function urlBase64ToUint8Array(base64String) {
     var padding = "=".repeat((4 - base64String.length % 4) % 4);
@@ -309,47 +318,58 @@
     var csrfMeta = document.querySelector('meta[name="csrf-token"]');
     var headers = { "Content-Type": "application/json" };
     if (csrfMeta) headers["X-CSRFToken"] = csrfMeta.getAttribute("content");
-    return fetch(url, { method: "POST", headers: headers, body: JSON.stringify(body || {}) });
+    return fetch(url, { method: "POST", headers: headers, body: JSON.stringify(body || {}) }).then(function (resp) {
+      if (!resp.ok) throw new Error("HTTP " + resp.status);
+    });
   }
 
-  navigator.serviceWorker.register("/service-worker.js").then(function (registration) {
-    return registration.pushManager.getSubscription().then(function (subscription) {
-      if (subscription) {
-        unsubscribeBtn.hidden = false;
-        unsubscribeBtn.onclick = function () {
-          var endpoint = subscription.endpoint;
-          subscription.unsubscribe().then(function () {
-            return postJson(unsubscribeUrl, { endpoint: endpoint });
-          }).then(function () {
-            unsubscribeBtn.hidden = true;
-            subscribeBtn.hidden = false;
-          });
-        };
-      } else {
-        subscribeBtn.hidden = false;
-        subscribeBtn.onclick = function () {
-          document.getElementById("webpushDenied").hidden = true;
-          document.getElementById("webpushFailed").hidden = true;
-          registration.pushManager.subscribe({
+  function showError(id) {
+    document.getElementById("webpushDenied").hidden = id !== "webpushDenied";
+    document.getElementById("webpushFailed").hidden = id !== "webpushFailed";
+  }
+
+  // Приводит подписку этого браузера к галочке. Без поддержки push просто
+  // сохраняем — сервер сам откажет, если подписки нет ни на одном устройстве.
+  function syncSubscription() {
+    if (!supported) return Promise.resolve();
+    return navigator.serviceWorker.register("/service-worker.js").then(function (registration) {
+      return registration.pushManager.getSubscription().then(function (existing) {
+        if (box.checked) {
+          // Уже подписан — всё равно отправляем: на этом браузере мог
+          // входить другой человек, подписка переедет на текущего.
+          var ready = existing ? Promise.resolve(existing) : registration.pushManager.subscribe({
             userVisibleOnly: true,
             applicationServerKey: urlBase64ToUint8Array(vapidKey),
-          }).then(function (sub) {
-            return postJson(subscribeUrl, sub.toJSON());
-          }).then(function () {
-            subscribeBtn.hidden = true;
-            unsubscribeBtn.hidden = false;
-          }).catch(function () {
-            // Раньше ошибка глоталась молча — кнопка «ничего не делала».
-            // Запрет — в настройках; иначе на Android обычно нет сервисов
-            // Google: браузеры доставляют web push через Firebase Cloud Messaging.
-            var denied = window.Notification && Notification.permission === "denied";
-            document.getElementById(denied ? "webpushDenied" : "webpushFailed").hidden = false;
           });
-        };
-      }
+          return ready.then(function (sub) { return postJson(subscribeUrl, sub.toJSON()); });
+        }
+        if (existing) {
+          var endpoint = existing.endpoint;
+          // Отписка — не повод не сохранять остальные настройки.
+          return existing.unsubscribe().then(function () {
+            return postJson(unsubscribeUrl, { endpoint: endpoint });
+          }).catch(function () {});
+        }
+      });
     });
-  }).catch(function () {
-    unsupported.hidden = false;
+  }
+
+  var busy = false;
+  form.addEventListener("submit", function (e) {
+    e.preventDefault();
+    if (busy) return;
+    busy = true;
+    showError(null);
+    syncSubscription().then(function () {
+      busy = false;
+      submitFormAjax(form);
+    }, function () {
+      // Запрет — в настройках; иначе на Android обычно нет сервисов
+      // Google: браузеры доставляют web push через Firebase Cloud Messaging.
+      busy = false;
+      var denied = window.Notification && Notification.permission === "denied";
+      showError(denied ? "webpushDenied" : "webpushFailed");
+    });
   });
 })();
 </script>

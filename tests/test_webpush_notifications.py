@@ -82,7 +82,8 @@ def test_notify_sends_to_all_subscriptions(app, db, monkeypatch):
     _make_webpush_settings(db)
     person = make_person(db, full_name="Много Устройств")
     user = make_user(db, "multidevice", "pass1234", role=RoleEnum.MEMBER, person=person)
-    user.notify_channel = NotificationChannel.WEBPUSH
+    user.notify_via_email = False
+    user.notify_via_webpush = True
     user.notify_charge = True
     db.commit()
     webpush.subscribe(user.id, "https://push.example.com/a", "p1", "a1")
@@ -104,7 +105,8 @@ def test_notify_removes_expired_subscription(app, db, monkeypatch):
     _make_webpush_settings(db)
     person = make_person(db, full_name="Просроченная Подписка")
     user = make_user(db, "expiredsub", "pass1234", role=RoleEnum.MEMBER, person=person)
-    user.notify_channel = NotificationChannel.WEBPUSH
+    user.notify_via_email = False
+    user.notify_via_webpush = True
     user.notify_charge = True
     db.commit()
     webpush.subscribe(user.id, "https://push.example.com/dead", "p", "a")
@@ -123,7 +125,8 @@ def test_notify_keeps_subscription_on_transient_error(app, db, monkeypatch):
     _make_webpush_settings(db)
     person = make_person(db, full_name="Временная Ошибка")
     user = make_user(db, "transienterr", "pass1234", role=RoleEnum.MEMBER, person=person)
-    user.notify_channel = NotificationChannel.WEBPUSH
+    user.notify_via_email = False
+    user.notify_via_webpush = True
     user.notify_charge = True
     db.commit()
     webpush.subscribe(user.id, "https://push.example.com/flaky", "p", "a")
@@ -178,7 +181,8 @@ def test_notify_never_raises(app, db, monkeypatch):
     _make_webpush_settings(db)
     person = make_person(db, full_name="Не Ронять")
     user = make_user(db, "noraise", "pass1234", role=RoleEnum.MEMBER, person=person)
-    user.notify_channel = NotificationChannel.WEBPUSH
+    user.notify_via_email = False
+    user.notify_via_webpush = True
     user.notify_payment = True
     db.commit()
     webpush.subscribe(user.id, "https://push.example.com/x", "p", "a")

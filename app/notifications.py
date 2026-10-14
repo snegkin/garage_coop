@@ -1,7 +1,8 @@
 """
 Уведомления о событиях сайта по подписке пользователя (настройки — см.
-app/cabinet.py: notification_settings, шаблон cabinet/profile.html). Один
-канал доставки на человека (User.notify_channel) и отдельные подписки на
+app/cabinet.py: notification_settings, шаблон cabinet/profile.html).
+Способы доставки — независимые галочки, можно несколько сразу
+(User.notify_via_email/notify_via_telegram/notify_via_webpush), и отдельные подписки на
 события (User.notify_charge/notify_payment/notify_news/notify_forum/
 notify_vote/notify_meeting/notify_my_requests/notify_documents/notify_board_chat).
 Правлению, кроме того, — уведомления о действиях на сайте по группам
@@ -19,6 +20,9 @@ notify_vote/notify_meeting/notify_my_requests/notify_documents/notify_board_chat
     готовность — хотя бы одна WebPushSubscription (в отличие от email/
     telegram, подписок может быть несколько — разные браузеры/устройства,
     рассылается во все разом, а не в одну).
+
+Уведомление уходит по КАЖДОМУ отмеченному и готовому каналу; отмеченный,
+но не готовый (контакт стёрли, привязку сбросили) просто пропускается.
 
 VK/MAX убраны из списка каналов (по решению пользователя) — Bot API VK
 не позволяет писать первым произвольным пользователям без их явного
@@ -52,6 +56,16 @@ def user_for_person(person_id: int | None) -> User | None:
     if person_id is None:
         return None
     return database.db_session.query(User).filter_by(person_id=person_id).first()
+
+
+def enabled_channels(user: User) -> list[NotificationChannel]:
+    """Отмеченные в профиле способы доставки (без проверки готовности)."""
+    flags = {
+        NotificationChannel.EMAIL: user.notify_via_email,
+        NotificationChannel.TELEGRAM: user.notify_via_telegram,
+        NotificationChannel.WEBPUSH: user.notify_via_webpush,
+    }
+    return [channel for channel, on in flags.items() if on]
 
 
 def channel_is_ready(user: User, channel: NotificationChannel) -> bool:
@@ -131,26 +145,26 @@ def notify(user: User | None, event: str, subject: str, body_text: str) -> None:
 
 
 def _deliver(user: User, event: str, subject: str, body_text: str) -> None:
-    """Отправка по выбранному каналу без проверки подписки на событие —
-    её делает вызывающий код: notify() по колонке notify_<event>,
-    _dispatch_board_event() по группе в notify_board_events."""
-    if user.notify_channel is None:
-        return
-    if not channel_is_ready(user, user.notify_channel):
-        return
-    # Страховка поверх перехвата ошибок конкретных каналов ниже: любое
-    # непредвиденное исключение (кривой ключ VAPID давал ValueError из
-    # pywebpush) иначе откатывало загрузку выписки целиком.
-    try:
-        _send(user, event, subject, body_text)
-    except Exception:
-        current_app.logger.exception(
-            "Не удалось отправить уведомление user_id=%s событие=%s", user.id, event,
-        )
+    """Отправка по всем отмеченным и готовым каналам без проверки подписки
+    на событие — её делает вызывающий код: notify() по колонке
+    notify_<event>, _dispatch_board_event() по группе в notify_board_events."""
+    for channel in enabled_channels(user):
+        if not channel_is_ready(user, channel):
+            continue
+        # Страховка поверх перехвата ошибок конкретных каналов ниже: любое
+        # непредвиденное исключение (кривой ключ VAPID давал ValueError из
+        # pywebpush) иначе откатывало загрузку выписки целиком — и не
+        # должно мешать доставке по остальным каналам.
+        try:
+            _send(user, channel, event, subject, body_text)
+        except Exception:
+            current_app.logger.exception(
+                "Не удалось отправить уведомление user_id=%s канал=%s событие=%s", user.id, channel.value, event,
+            )
 
 
-def _send(user: User, event: str, subject: str, body_text: str) -> None:
-    if user.notify_channel == NotificationChannel.EMAIL:
+def _send(user: User, channel: NotificationChannel, event: str, subject: str, body_text: str) -> None:
+    if channel == NotificationChannel.EMAIL:
         settings = database.db_session.query(MailboxSettings).first()
         if settings is None:
             return
@@ -160,7 +174,7 @@ def _send(user: User, event: str, subject: str, body_text: str) -> None:
             current_app.logger.exception(
                 "Не удалось отправить email-уведомление user_id=%s событие=%s", user.id, event,
             )
-    elif user.notify_channel == NotificationChannel.TELEGRAM:
+    elif channel == NotificationChannel.TELEGRAM:
         settings = database.db_session.query(TelegramSettings).first()
         if settings is None or not telegram_bot.is_configured(settings):
             return
@@ -170,7 +184,7 @@ def _send(user: User, event: str, subject: str, body_text: str) -> None:
             current_app.logger.exception(
                 "Не удалось отправить telegram-уведомление user_id=%s событие=%s", user.id, event,
             )
-    elif user.notify_channel == NotificationChannel.WEBPUSH:
+    elif channel == NotificationChannel.WEBPUSH:
         settings = database.db_session.query(WebPushSettings).first()
         if settings is None or not settings.public_key:
             return
@@ -188,40 +202,56 @@ def _send(user: User, event: str, subject: str, body_text: str) -> None:
                     )
 
 
+CHANNEL_LABELS = {
+    NotificationChannel.EMAIL: "Email",
+    NotificationChannel.TELEGRAM: "Telegram",
+    NotificationChannel.WEBPUSH: "Push",
+}
+
+
 def send_test_notification(user: User) -> tuple[bool, str]:
     """Тестовая отправка по кнопке «Проверить уведомления» (cabinet/profile.html) —
     тем же путём, что и notify(), но по ЯВНОМУ действию пользователя, а не
-    событию сайта: без проверки notify_<event> (тестируем сам канал, а не
+    событию сайта: без проверки notify_<event> (тестируем сами каналы, а не
     подписку на конкретное событие) и с пробросом результата вызывающему
     коду (notify() ошибки только логирует и работает молча — тут наоборот,
     ошибку нужно показать самому пользователю, зачем и звали кнопку).
-    Возвращает (успех, текст для flash)."""
-    if user is None or user.notify_channel is None:
-        return False, _("Сначала выберите канал уведомлений и сохраните настройки.")
-    if not channel_is_ready(user, user.notify_channel):
-        return False, _("Чтобы получать уведомления этим способом, сначала укажите и сохраните соответствующий контакт в профиле.")
+    Проверяет каждый отмеченный способ доставки по отдельности.
+    Возвращает (все ли дошли, текст для flash)."""
+    channels = enabled_channels(user) if user is not None else []
+    if not channels:
+        return False, _("Сначала отметьте хотя бы один способ доставки и сохраните настройки.")
 
     subject = _("Тестовое уведомление")
     body_text = _("Это тестовое уведомление от системы учёта кооператива — если оно дошло, значит канал настроен верно.")
+    results = [(channel, *_test_channel(user, channel, subject, body_text)) for channel in channels]
+    all_ok = all(ok for _channel, ok, _msg in results)
+    if len(results) == 1:
+        return all_ok, results[0][2]
+    return all_ok, " ".join(f"{CHANNEL_LABELS[channel]}: {msg}" for channel, _ok, msg in results)
 
+
+def _test_channel(user: User, channel: NotificationChannel, subject: str, body_text: str) -> tuple[bool, str]:
+    if not channel_is_ready(user, channel):
+        if channel == NotificationChannel.WEBPUSH:
+            return False, _("Нет ни одной подписки браузера на push-уведомления — отметьте push и сохраните настройки в нужном браузере.")
+        return False, _("Чтобы получать уведомления этим способом, сначала укажите и сохраните соответствующий контакт в профиле.")
     try:
-        if user.notify_channel == NotificationChannel.EMAIL:
+        if channel == NotificationChannel.EMAIL:
             settings = database.db_session.query(MailboxSettings).first()
             if settings is None:
                 return False, _("Почтовый ящик кооператива ещё не настроен — обратитесь в правление.")
             send_message(settings, [user.person.email], subject, body_text)
-        elif user.notify_channel == NotificationChannel.TELEGRAM:
+        elif channel == NotificationChannel.TELEGRAM:
             settings = database.db_session.query(TelegramSettings).first()
             if settings is None or not telegram_bot.is_configured(settings):
                 return False, _("Telegram-бот кооператива ещё не настроен — обратитесь в правление.")
             telegram_bot.send_message(settings, user.person.telegram_chat_id, f"{subject}\n\n{body_text}")
-        elif user.notify_channel == NotificationChannel.WEBPUSH:
+        elif channel == NotificationChannel.WEBPUSH:
             settings = database.db_session.query(WebPushSettings).first()
             if settings is None or not settings.public_key:
                 return False, _("Push-уведомления кооператива ещё не настроены — обратитесь в правление.")
             subscriptions = database.db_session.query(WebPushSubscription).filter_by(user_id=user.id).all()
-            if not subscriptions:
-                return False, _("Нет ни одной подписки браузера на push-уведомления — нажмите «Подписаться на push-уведомления» ниже.")
             sent = 0
             for subscription in subscriptions:
                 try:

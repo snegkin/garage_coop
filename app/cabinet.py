@@ -170,13 +170,18 @@ def notification_settings():
     контактные/паспортные данные и ждут одобрения председателя. Если
     держать это той же формой/кнопкой, что и «Отправить на рассмотрение»,
     выглядело бы так, будто и подписка на уведомления тоже ждёт одобрения
-    — это не так."""
+    — это не так.
+
+    Способы доставки — независимые галочки (notify_via_*), ни одной —
+    уведомления не приходят. Подписку ЭТОГО браузера на push оформляет (или
+    снимает) JS профиля прямо перед отправкой формы, по галочке push (см.
+    cabinet/profile.html) — к этому моменту подписка уже есть в базе."""
     f = request.form
-    notify_channel_raw = f.get("notify_channel") or None
-    try:
-        notify_channel = NotificationChannel(notify_channel_raw) if notify_channel_raw else None
-    except ValueError:
-        notify_channel = None
+    channels = {
+        NotificationChannel.EMAIL: bool(f.get("notify_via_email")),
+        NotificationChannel.TELEGRAM: bool(f.get("notify_via_telegram")),
+        NotificationChannel.WEBPUSH: bool(f.get("notify_via_webpush")),
+    }
     notify_events = {
         "notify_charge": bool(f.get("notify_charge")),
         "notify_payment": bool(f.get("notify_payment")),
@@ -192,11 +197,20 @@ def notification_settings():
         code for code in notifications.BOARD_EVENT_GROUPS
         if code in f.getlist("notify_board_events")
     ] if is_board() else []
-    wants_any = any(notify_events.values()) or bool(board_groups)
-    if notify_channel is not None and wants_any and not notifications.channel_is_ready(g.user, notify_channel):
-        flash(_("Чтобы получать уведомления этим способом, сначала укажите и сохраните соответствующий контакт в профиле."), "danger")
+    not_ready = [
+        channel for channel, on in channels.items()
+        if on and not notifications.channel_is_ready(g.user, channel)
+    ]
+    if NotificationChannel.EMAIL in not_ready:
+        flash(_("Для уведомлений по email нужен адрес почты в контактных данных — укажите его выше и дождитесь одобрения председателем."), "danger")
+    elif NotificationChannel.TELEGRAM in not_ready:
+        flash(_("Для уведомлений в Telegram сначала привяжите Telegram кнопкой рядом с галочкой."), "danger")
+    elif NotificationChannel.WEBPUSH in not_ready:
+        flash(_("Не удалось включить push-уведомления в этом браузере — снимите галочку push или выберите другой способ."), "danger")
     else:
-        g.user.notify_channel = notify_channel
+        g.user.notify_via_email = channels[NotificationChannel.EMAIL]
+        g.user.notify_via_telegram = channels[NotificationChannel.TELEGRAM]
+        g.user.notify_via_webpush = channels[NotificationChannel.WEBPUSH]
         for field, value in notify_events.items():
             setattr(g.user, field, value)
         if is_board():
@@ -210,7 +224,7 @@ def notification_settings():
 @login_required
 def test_notification():
     """Кнопка «Проверить уведомления» — реальная тестовая отправка по
-    текущему выбранному каналу (см. notifications.send_test_notification),
+    каждому отмеченному способу доставки (см. notifications.send_test_notification),
     результат — flash, а не молчаливый лог, как у обычной notify()."""
     ok, message = notifications.send_test_notification(g.user)
     flash(message, "success" if ok else "danger")

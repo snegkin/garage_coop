@@ -72,7 +72,7 @@ def web_manifest():
     from .models import Cooperative
 
     coop = database.db_session.query(Cooperative).first()
-    name = (coop.short_name or coop.full_name) if coop and (coop.short_name or coop.full_name) else "ГСК"
+    name = ((coop.short_name or coop.full_name) if coop and (coop.short_name or coop.full_name) else "ГСК").replace("'", "")
     icon = lambda filename, size, purpose: {  # noqa: E731
         "src": url_for("static", filename=filename), "sizes": f"{size}x{size}", "type": "image/png", "purpose": purpose,
     }

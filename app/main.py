@@ -21,6 +21,17 @@ from .mail_client import MailError, DEFAULT_FOLDER
 
 bp = Blueprint("main", __name__)
 
+_APP_NAME_QUOTES = str.maketrans("", "", "\"'«»„“”‘’")
+
+
+def app_display_name(name: str | None) -> str:
+    """Название установленного приложения (PWA) — без кавычек: часть
+    Android-лаунчеров обрезает их у ярлыка, а Chrome, сверяя ярлык с
+    манифестом, снова и снова предлагал «переименовать» ГМ Восход в
+    ГМ "Восход". Тот же текст — в apple-mobile-web-app-title (base.html),
+    иначе на iPhone ярлык называется заголовком открытой страницы."""
+    return " ".join((name or "ГСК").translate(_APP_NAME_QUOTES).split()) or "ГСК"
+
 RECENT_ACTIVITY_LIMIT = 8  # последних записей журнала аудита на панели — сама панель, не замена /governance/audit-log
 MAIL_PREVIEW_LIMIT = 5  # последних писем во входящих для виджета на панели — сама панель, не замена /mailbox/
 
@@ -72,7 +83,7 @@ def web_manifest():
     from .models import Cooperative
 
     coop = database.db_session.query(Cooperative).first()
-    name = ((coop.short_name or coop.full_name) if coop and (coop.short_name or coop.full_name) else "ГСК").replace("'", "")
+    name = app_display_name(coop and (coop.short_name or coop.full_name))
     icon = lambda filename, size, purpose: {  # noqa: E731
         "src": url_for("static", filename=filename), "sizes": f"{size}x{size}", "type": "image/png", "purpose": purpose,
     }

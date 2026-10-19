@@ -107,6 +107,9 @@ def create_app(config_class=Config):
     # mail_client.decode_idn_address. Фильтр (не global), чтобы работал и
     # через |map('decode_idn_address') для списка адресов (mailbox/message.html: to_addrs).
     app.jinja_env.filters["decode_idn_address"] = mail_client.decode_idn_address
+    # Название установленного приложения без кавычек — см. main.app_display_name.
+    from .main import app_display_name
+    app.jinja_env.filters["app_display_name"] = app_display_name
 
     @app.before_request
     def _load_user():

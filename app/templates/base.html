@@ -1449,6 +1449,68 @@ function initActiveAccountsToggle(root) {
 }
 document.addEventListener("DOMContentLoaded", function () { initActiveAccountsToggle(document); });
 
+// Галка «все» в заголовке колонки таблицы: <th class="no-sort"><input
+// type="checkbox" class="form-check-input" data-check-column></th> отмечает/
+// снимает галки этой колонки во ВСЕХ ВИДИМЫХ строках (скрытые фильтром не
+// трогает) и не трогает недоступные (disabled). Сама показывает состояние
+// видимых: все отмечены — отмечена, лишь некоторые — промежуточное (indeterminate).
+// Строкам рассылается change, чтобы срабатывали счётчики конкретных страниц.
+// Делегирование на document — работает и после AJAX-подмены #mainContent;
+// initCheckColumns(root) только выставляет начальное состояние заголовков.
+function checkColumnBoxes(head) {
+  var th = head.closest("th");
+  var table = head.closest("table");
+  if (!th || !table) return [];
+  var index = th.cellIndex;
+  var boxes = [];
+  Array.from(table.tBodies).forEach(function (tbody) {
+    Array.from(tbody.rows).forEach(function (row) {
+      var cell = row.cells[index];
+      var box = cell && cell.querySelector('input[type="checkbox"]');
+      if (box && !box.disabled && row.offsetParent !== null) boxes.push(box);
+    });
+  });
+  return boxes;
+}
+function syncCheckColumn(head) {
+  var boxes = checkColumnBoxes(head);
+  var checked = boxes.filter(function (b) { return b.checked; }).length;
+  head.checked = boxes.length > 0 && checked === boxes.length;
+  head.indeterminate = checked > 0 && checked < boxes.length;
+}
+function initCheckColumns(root) {
+  root.querySelectorAll("th input[data-check-column]").forEach(syncCheckColumn);
+}
+document.addEventListener("change", function (e) {
+  var target = e.target;
+  if (!(target instanceof HTMLInputElement) || target.type !== "checkbox") return;
+  if (target.matches("th input[data-check-column]")) {
+    // Значение — заранее: change строк ниже пересчитывает этот же заголовок
+    // (ветка для строк), и target.checked посреди цикла уже другой.
+    var value = target.checked;
+    checkColumnBoxes(target).forEach(function (box) {
+      if (box.checked === value) return;
+      box.checked = value;
+      box.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    syncCheckColumn(target);
+    return;
+  }
+  var cell = target.closest("td");
+  var table = cell && cell.closest("table");
+  if (!table) return;
+  var head = table.querySelector("thead tr th:nth-child(" + (cell.cellIndex + 1) + ") input[data-check-column]");
+  if (head) syncCheckColumn(head);
+});
+// Фильтр строк по вводу меняет видимость — пересчитать состояние заголовков.
+// Галки — мимо: клик по галке шлёт input раньше change, и пересчёт успевал
+// вернуть заголовку прежнее состояние до того, как change его применит.
+document.addEventListener("input", function (e) {
+  if (e.target instanceof HTMLInputElement && e.target.type === "checkbox") return;
+  initCheckColumns(document);
+});
+document.addEventListener("DOMContentLoaded", function () { initCheckColumns(document); });
+
 // CSRF: подставляем скрытое поле csrf_token в каждую POST-форму на странице.
 // Централизованно здесь, а не руками в 40+ шаблонах — новые формы получают
 // защиту автоматически, без риска забыть добавить поле в конкретном шаблоне.
@@ -1664,6 +1726,7 @@ function submitFormAjax(form, opts) {
       initSearchableSelects(mainContent);
       initUtcDatetimes(mainContent);
       initBackLinks(mainContent);
+      initCheckColumns(mainContent);
       runContentScripts(mainContent);
       window.scrollTo(0, scrollY);
     })

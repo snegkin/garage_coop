@@ -373,7 +373,7 @@ def test_list_links_names_and_row_forms_are_not_nested(db, client):
 
     html = client.get("/postal-letters/").get_data(as_text=True)
     assert f'href="/persons/{person.id}"' in html
-    assert 'id="postalSelectAll"' in html and 'id="postalClear"' in html
+    assert "data-check-column" in html  # галка «все» в заголовке колонки (base.html)
     # групповая форма пустая (чекбоксы привязаны через form=), строки — свои формы
     bulk = html[html.index('id="postalBulkForm"'):]
     assert bulk.index("</form>") < bulk.index("mark-sent")

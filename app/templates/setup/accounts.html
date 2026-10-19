@@ -18,12 +18,10 @@
 <form method="post" action="{{ url_for('setup_wizard.accounts_create') }}">
   <div class="d-flex gap-2 mb-2">
     <input type="text" class="form-control form-control-sm" id="accountsPickerFilter" placeholder="{{ _('Поиск по ФИО…') }}">
-    <button type="button" class="btn btn-sm btn-primary text-nowrap" id="accountsPickerSelectAll">{{ _("Выбрать все") }}</button>
-    <button type="button" class="btn btn-sm btn-primary text-nowrap" id="accountsPickerClear">{{ _("Снять все") }}</button>
   </div>
   <div class="border rounded bg-body-tertiary" style="max-height:480px; overflow-y:auto">
     <table class="table table-sm mb-0">
-      <thead><tr><th style="width:2rem"></th><th>{{ _("ФИО") }}</th><th>{{ _("Логин") }}</th></tr></thead>
+      <thead><tr><th class="no-sort" style="width:2rem"><input type="checkbox" class="form-check-input" data-check-column title="{{ _('Отметить все / снять все') }}"></th><th>{{ _("ФИО") }}</th><th>{{ _("Логин") }}</th></tr></thead>
       <tbody>
         {% for row in rows %}
         <tr class="accounts-picker-row" data-search="{{ row.person.full_name|lower }}">
@@ -46,8 +44,6 @@
 document.addEventListener("DOMContentLoaded", function () {
   const rows = Array.from(document.querySelectorAll(".accounts-picker-row"));
   const filter = document.getElementById("accountsPickerFilter");
-  const selectAllBtn = document.getElementById("accountsPickerSelectAll");
-  const clearBtn = document.getElementById("accountsPickerClear");
   const countEl = document.getElementById("accountsPickerCount");
   if (!rows.length) return;
   const checkboxes = rows.map(function (row) { return row.querySelector("input[type=checkbox]"); });
@@ -62,17 +58,7 @@ document.addEventListener("DOMContentLoaded", function () {
       row.style.display = (!q || hay.indexOf(q) !== -1) ? "" : "none";
     });
   });
-  selectAllBtn.addEventListener("click", function () {
-    rows.forEach(function (row) {
-      if (row.style.display === "none") return;
-      row.querySelector("input[type=checkbox]").checked = true;
-    });
-    updateCount();
-  });
-  clearBtn.addEventListener("click", function () {
-    checkboxes.forEach(function (cb) { cb.checked = false; });
-    updateCount();
-  });
+  // «Отметить все / снять все» — галка в заголовке (base.html, data-check-column).
   checkboxes.forEach(function (cb) { cb.addEventListener("change", updateCount); });
   updateCount();
 });

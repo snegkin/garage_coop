@@ -485,6 +485,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "наименование банка получателя платежа": "name of the payee's bank",
         "руб": "rub",
         "Скачать PDF": "Download PDF",
+        "Скачать PDF выбранных": "Download PDF of selected",
+        "Отметить все / снять все": "Select all / clear all",
         "Для скачивания PDF нужна библиотека weasyprint. Установите: pip install weasyprint":
             "The weasyprint library is required to download PDF. Install it: pip install weasyprint",
         "Бухгалтер": "Accountant",

@@ -22,15 +22,11 @@
    к ней атрибутом form="…": в строках свои формы («Загружено в ЛК»), а
    вложенные <form> браузер игнорирует — кнопка строки отправляла бы эту. #}
 <form method="post" action="{{ url_for('postal_letters.export') }}" id="postalBulkForm"></form>
-<div class="d-flex gap-2 mb-2 flex-wrap">
-  <button type="button" class="btn btn-sm btn-primary" id="postalSelectAll">{{ _("Выбрать все") }}</button>
-  <button type="button" class="btn btn-sm btn-primary" id="postalClear">{{ _("Снять все") }}</button>
-  <span class="text-muted small align-self-center">{{ _("Отмечать можно черновики и выгруженные письма.") }} {{ _("Выбрано:") }} <span id="postalSelectedCount">0</span></span>
-</div>
+<p class="text-muted small mb-2">{{ _("Отмечать можно черновики и выгруженные письма (галка в заголовке — все сразу).") }} {{ _("Выбрано:") }} <span id="postalSelectedCount">0</span></p>
 <table class="table table-bordered bg-body align-middle">
   <thead>
     <tr>
-      <th class="no-sort"></th>
+      <th class="no-sort"><input type="checkbox" class="form-check-input" data-check-column title="{{ _('Отметить все / снять все') }}"></th>
       <th>{{ _("Получатель") }}</th>
       <th>{{ _("Номер") }}</th>
       <th>{{ _("Статус") }}</th>
@@ -83,13 +79,8 @@
   var boxes = Array.from(document.querySelectorAll(".postal-select"));
   var countEl = document.getElementById("postalSelectedCount");
   function update() { countEl.textContent = boxes.filter(function (b) { return b.checked; }).length; }
-  // Только строки, видимые сейчас (фильтр таблицы и т.п.).
-  function setVisible(value) {
-    boxes.forEach(function (b) { if (b.offsetParent !== null) b.checked = value; });
-    update();
-  }
-  document.getElementById("postalSelectAll").addEventListener("click", function () { setVisible(true); });
-  document.getElementById("postalClear").addEventListener("click", function () { setVisible(false); });
+  // Галка «все» в заголовке — общий механизм base.html (data-check-column),
+  // строкам он рассылает change — счётчик обновится сам.
   boxes.forEach(function (b) { b.addEventListener("change", update); });
   update();
 })();

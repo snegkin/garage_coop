@@ -286,6 +286,19 @@ def test_web_manifest_is_public_and_names_cooperative(db, client):
     assert 'rel="manifest"' in client.get("/").get_data(as_text=True)
 
 
+def test_web_manifest_name_has_no_quotes(db, client):
+    """Кавычки в названии ярлыка часть Android-лаунчеров обрезает, и Chrome
+    снова и снова предлагал «переименовать» приложение — в манифесте и в
+    apple-mobile-web-app-title название без кавычек любого вида."""
+    from app.models import Cooperative
+    db.add(Cooperative(full_name="Гаражный массив «Восход»", short_name='ГМ  "Восход"', inn="7610037501", kpp="761001001", ogrn="1027600000000"))
+    db.commit()
+
+    data = client.get("/manifest.webmanifest").get_json(force=True)
+    assert data["name"] == data["short_name"] == "ГМ Восход"
+    assert '<meta name="apple-mobile-web-app-title" content="ГМ Восход">' in client.get("/").get_data(as_text=True)
+
+
 def test_privacy_page_is_public_and_linked_from_login(db, client):
     from app.models import Cooperative
     db.add(Cooperative(full_name="ГСК «Тест»", inn="7610037501", kpp="761001001", ogrn="1027600000000", email="board@example.com"))

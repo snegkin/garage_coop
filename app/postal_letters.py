@@ -42,6 +42,7 @@ list_debtor_persons). Письма произвольного содержани
 """
 import datetime as dt
 import io
+import json
 import os
 import uuid
 import zipfile
@@ -53,8 +54,13 @@ from . import audit
 from .i18n import translate as _
 from .auth import roles_required
 from .persons import build_statement
-from .legal_docs import build_yearly_debt_breakdown, parse_selected_categories
-from .models import Person, Cooperative, RoleEnum, Document, DocumentType, PostalDispatch, PostalDispatchStatus
+from .legal_docs import (
+    build_yearly_debt_breakdown, parse_selected_categories, debt_notice_default_intro, debt_notice_default_closing,
+    default_debt_categories,
+)
+from .models import (
+    Person, Cooperative, RoleEnum, Document, DocumentType, PostalDispatch, PostalDispatchStatus, PostalLetterCounter,
+)
 
 bp = Blueprint("postal_letters", __name__, url_prefix="/postal-letters")
 
@@ -101,6 +107,7 @@ def _selected_persons_or_redirect():
 
 def _render_debt_notice_pdf(
     person: Person, coop: Cooperative | None, chairman: Person | None, today: dt.date, categories: set[str],
+    intro_text: str | None = None, closing_text: str | None = None,
 ) -> bytes | None:
     """PDF на одного получателя — переиспользует тот же шаблон/макрос, что
     и app.legal_docs.debt_notice (legal_docs/debt_notice_pdf.html поддерживает
@@ -115,6 +122,7 @@ def _render_debt_notice_pdf(
     docs = [{
         "person": person, "summary": build_statement(person, categories=categories),
         "years": build_yearly_debt_breakdown(person, categories),
+        "intro_text": intro_text, "closing_text": closing_text,
     }]
     html_str = render_template(
         "legal_docs/debt_notice_pdf.html", docs=docs, coop=coop, chairman=chairman, today=today, hide_chat_widgets=True,
@@ -132,6 +140,75 @@ def _save_generated_pdf(pdf_bytes: bytes) -> str:
     with open(os.path.join(current_app.config["UPLOAD_FOLDER"], stored_name), "wb") as f:
         f.write(pdf_bytes)
     return stored_name
+
+
+def next_reg_number(year: int) -> str:
+    """Номер нового письма — «<год>-<порядковый номер в этом году>». Счётчик
+    — в PostalLetterCounter, а не по уже существующим письмам: удалённое
+    письмо могло уйти в ЛК Почты под своим номером, повторять его нельзя.
+    Без commit — номер «тратится» вместе с созданием письма в той же
+    транзакции. Если счётчика за год ещё нет — начинаем после самого
+    большого номера этого года среди писем (на случай писем, созданных до
+    появления счётчика)."""
+    counter = database.db_session.get(PostalLetterCounter, year)
+    if counter is None:
+        prefix = f"{year}-"
+        existing = [
+            int(reg[len(prefix):]) for (reg,) in
+            database.db_session.query(PostalDispatch.reg_number).filter(PostalDispatch.reg_number.like(f"{prefix}%"))
+            if reg[len(prefix):].isdigit()
+        ]
+        counter = PostalLetterCounter(year=year, last_number=max(existing, default=0))
+        database.db_session.add(counter)
+    counter.last_number += 1
+    return f"{year}-{counter.last_number}"
+
+
+def dispatch_categories(dispatch: PostalDispatch) -> set[str]:
+    """Виды задолженности, на которые формировалось письмо; у писем,
+    созданных до появления поля, — набор по умолчанию."""
+    if dispatch.categories:
+        try:
+            return set(json.loads(dispatch.categories))
+        except ValueError:
+            pass
+    return default_debt_categories()
+
+
+def _regenerate_pdf(dispatch: PostalDispatch) -> bool:
+    """Пересобирает PDF письма (после правки текста) на сегодняшнюю дату —
+    старый файл удаляется, Document переписывается на новый."""
+    coop, chairman = _coop_and_chairman()
+    today = dt.date.today()
+    pdf_bytes = _render_debt_notice_pdf(
+        dispatch.person, coop, chairman, today, dispatch_categories(dispatch),
+        dispatch.intro_text, dispatch.closing_text,
+    )
+    if pdf_bytes is None:
+        return False
+    stored_name = _save_generated_pdf(pdf_bytes)
+    document = dispatch.document
+    if document is None:
+        document = Document(
+            doc_type=DocumentType.LETTER, date=today, title=dispatch.title,
+            file_path=stored_name, file_name=f"{dispatch.reg_number}.pdf", is_internal=True,
+        )
+        database.db_session.add(document)
+        database.db_session.flush()
+        dispatch.document_id = document.id
+    else:
+        _remove_upload(document.file_path)
+        document.file_path = stored_name
+        document.date = today
+    return True
+
+
+def _remove_upload(stored_name: str | None) -> None:
+    if not stored_name:
+        return
+    path = os.path.join(current_app.config["UPLOAD_FOLDER"], stored_name)
+    if os.path.exists(path):
+        os.remove(path)
 
 
 def build_registry_workbook(dispatches: list[PostalDispatch], coop: Cooperative | None) -> bytes:
@@ -223,12 +300,12 @@ def new():
 
         title = _("Уведомление о задолженности — {name}", name=person.full_name)
         dispatch = PostalDispatch(
-            person_id=person.id, reg_number="", title=title,
+            person_id=person.id, reg_number=next_reg_number(today.year), title=title,
             status=PostalDispatchStatus.DRAFT, created_by_user_id=g.user.id,
+            categories=json.dumps(sorted(selected)),
         )
         database.db_session.add(dispatch)
         database.db_session.flush()
-        dispatch.reg_number = f"ГСК-{dispatch.id}"
 
         stored_name = _save_generated_pdf(pdf_bytes)
         document = Document(
@@ -246,26 +323,36 @@ def new():
         created += 1
 
     database.db_session.commit()
-    flash(_("Сформировано писем: {n}. Теперь скачайте пакет и загрузите его в otpravka.pochta.ru.", n=created), "success")
+    flash(_("Сформировано писем: {n}. Проверьте текст черновиков, затем скачайте пакет и загрузите его в otpravka.pochta.ru.", n=created), "success")
     return redirect(url_for("postal_letters.list_view"))
+
+
+# Пакет можно скачать и повторно — для уже выгруженных писем (файлы
+# потерялись при подписи и т.п.); отправленные/доставленные в пакет больше
+# не попадают — они уже ушли через Почту.
+EXPORTABLE_STATUSES = (PostalDispatchStatus.DRAFT, PostalDispatchStatus.EXPORTED)
+# Удалить/вернуть в черновики можно, пока письмо не загружено в ЛК Почты.
+EDITABLE_STATUSES = (PostalDispatchStatus.DRAFT, PostalDispatchStatus.EXPORTED)
+
+
+def _selected_dispatches(statuses) -> list[PostalDispatch]:
+    dispatch_ids = [int(x) for x in request.form.getlist("dispatch_id") if x.isdigit()]
+    if not dispatch_ids:
+        return []
+    return (
+        database.db_session.query(PostalDispatch)
+        .filter(PostalDispatch.id.in_(dispatch_ids), PostalDispatch.status.in_(statuses))
+        .order_by(PostalDispatch.id)
+        .all()
+    )
 
 
 @bp.route("/export", methods=["POST"])
 @roles_required(RoleEnum.BOARD)
 def export():
-    dispatch_ids = [int(x) for x in request.form.getlist("dispatch_id")]
-    if not dispatch_ids:
-        flash(_("Выберите хотя бы одно письмо для выгрузки."), "danger")
-        return redirect(url_for("postal_letters.list_view"))
-
-    dispatches = (
-        database.db_session.query(PostalDispatch)
-        .filter(PostalDispatch.id.in_(dispatch_ids), PostalDispatch.status == PostalDispatchStatus.DRAFT)
-        .order_by(PostalDispatch.id)
-        .all()
-    )
+    dispatches = _selected_dispatches(EXPORTABLE_STATUSES)
     if not dispatches:
-        flash(_("Среди выбранного нет писем в статусе «черновик» — возможно, они уже выгружены."), "danger")
+        flash(_("Отметьте письма в статусе «черновик» или «выгружено» — для них можно скачать пакет."), "danger")
         return redirect(url_for("postal_letters.list_view"))
 
     coop = database.db_session.query(Cooperative).first()
@@ -273,11 +360,13 @@ def export():
 
     now = dt.datetime.utcnow()
     for dispatch in dispatches:
+        again = dispatch.status == PostalDispatchStatus.EXPORTED
         dispatch.status = PostalDispatchStatus.EXPORTED
         dispatch.exported_at = now
         audit.record(
             "postal_letter.export", entity_type="postal_dispatch", entity_id=dispatch.id,
-            summary=f"Письмо «{dispatch.title}» включено в пакет для otpravka.pochta.ru",
+            summary=f"Письмо {dispatch.reg_number} «{dispatch.title}» "
+                    f"{'повторно включено' if again else 'включено'} в пакет для otpravka.pochta.ru",
         )
     database.db_session.commit()
 
@@ -340,3 +429,97 @@ def mark_failed(dispatch_id):
     database.db_session.commit()
     flash(_("Отмечено как неудачное."), "success")
     return redirect(url_for("postal_letters.list_view"))
+
+
+@bp.route("/to-draft", methods=["POST"])
+@roles_required(RoleEnum.BOARD)
+def to_draft():
+    """Выгруженные письма — обратно в черновики (поправить текст и выгрузить
+    заново). Скачанный раньше пакет с ними после этого использовать не надо."""
+    dispatches = _selected_dispatches((PostalDispatchStatus.EXPORTED,))
+    if not dispatches:
+        flash(_("Отметьте выгруженные письма, которые нужно вернуть в черновики."), "danger")
+        return redirect(url_for("postal_letters.list_view"))
+    for dispatch in dispatches:
+        dispatch.status = PostalDispatchStatus.DRAFT
+        dispatch.exported_at = None
+        audit.record(
+            "postal_letter.to_draft", entity_type="postal_dispatch", entity_id=dispatch.id,
+            summary=f"Письмо {dispatch.reg_number} «{dispatch.title}» возвращено в черновики",
+        )
+    database.db_session.commit()
+    flash(_("Возвращено в черновики: {n}.", n=len(dispatches)), "success")
+    return redirect(url_for("postal_letters.list_view"))
+
+
+@bp.route("/delete", methods=["POST"])
+@roles_required(RoleEnum.BOARD)
+def delete():
+    """Удаление черновиков и выгруженных писем — вместе с PDF. Загруженные в
+    ЛК Почты, доставленные и недоставленные не удаляются: это след реально
+    отправленного письма."""
+    dispatches = _selected_dispatches(EDITABLE_STATUSES)
+    if not dispatches:
+        flash(_("Удалить можно только черновики и выгруженные письма — отметьте их."), "danger")
+        return redirect(url_for("postal_letters.list_view"))
+    for dispatch in dispatches:
+        audit.record(
+            "postal_letter.delete", entity_type="postal_dispatch", entity_id=dispatch.id,
+            summary=f"Удалено письмо {dispatch.reg_number} «{dispatch.title}»",
+        )
+        document = dispatch.document
+        database.db_session.delete(dispatch)
+        if document is not None:
+            _remove_upload(document.file_path)
+            database.db_session.delete(document)
+    database.db_session.commit()
+    flash(_("Удалено писем: {n}.", n=len(dispatches)), "success")
+    return redirect(url_for("postal_letters.list_view"))
+
+
+@bp.route("/<int:dispatch_id>/edit", methods=["GET", "POST"])
+@roles_required(RoleEnum.BOARD)
+def edit(dispatch_id):
+    """Текст черновика письма — вводный и заключительный абзацы (таблицы с
+    расчётом долга не редактируются — они считаются). Сохранение пересобирает
+    PDF на сегодняшнюю дату. Только черновики: выгруженное письмо сначала
+    вернуть в черновики (to_draft) — иначе разошлось бы со скачанным пакетом."""
+    dispatch = database.db_session.get(PostalDispatch, dispatch_id)
+    if dispatch is None:
+        abort(404)
+    if dispatch.status != PostalDispatchStatus.DRAFT:
+        flash(_("Править можно только черновик — выгруженное письмо сначала верните в черновики."), "warning")
+        return redirect(url_for("postal_letters.list_view"))
+
+    coop, _chairman = _coop_and_chairman()
+    today = dt.date.today()
+    default_intro = debt_notice_default_intro(coop, today)
+    default_closing = debt_notice_default_closing()
+
+    if request.method == "POST":
+        if request.form.get("reset"):
+            dispatch.intro_text = dispatch.closing_text = None
+        else:
+            intro = (request.form.get("intro_text") or "").strip()
+            closing = (request.form.get("closing_text") or "").strip()
+            # Совпадает со стандартным (или пусто) — храним NULL: стандартный
+            # текст подставляется на дату пересборки, а не застывает.
+            dispatch.intro_text = intro if intro and intro != default_intro else None
+            dispatch.closing_text = closing if closing and closing != default_closing else None
+        if not _regenerate_pdf(dispatch):
+            database.db_session.rollback()
+            return redirect(url_for("postal_letters.edit", dispatch_id=dispatch.id))
+        audit.record(
+            "postal_letter.edit", entity_type="postal_dispatch", entity_id=dispatch.id,
+            summary=f"Изменён текст письма {dispatch.reg_number} «{dispatch.title}»",
+        )
+        database.db_session.commit()
+        flash(_("Текст письма сохранён, PDF пересобран."), "success")
+        return redirect(url_for("postal_letters.list_view"))
+
+    return render_template(
+        "postal_letters/edit.html", dispatch=dispatch,
+        intro_text=dispatch.intro_text or default_intro, closing_text=dispatch.closing_text or default_closing,
+        is_custom=bool(dispatch.intro_text or dispatch.closing_text),
+    )
+

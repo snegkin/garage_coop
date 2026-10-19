@@ -12,7 +12,10 @@
 {% endmacro %}
 
 
-{% macro debt_notice_doc(person, summary, years, coop, chairman, today) %}
+{# intro_text/closing_text — свой текст вводного и заключительного абзацев
+   (черновик заказного письма, postal_letters.edit); None — стандартный
+   (legal_docs.debt_notice_default_intro/_closing). #}
+{% macro debt_notice_doc(person, summary, years, coop, chairman, today, intro_text=None, closing_text=None) %}
 <div class="legal-doc">
   <div class="legal-header-columns">
     <div class="legal-header-left">
@@ -44,9 +47,7 @@
     {{ _("Уважаемый(ая)") }} {{ person.full_name }}{% if person.residence_address or person.registration_address %},<br>
     {{ person.residence_address or person.registration_address }}{% else %}!{% endif %}
   </p>
-  <p class="legal-p">
-    {{ _("Настоящим уведомляем Вас о наличии задолженности перед {coop} по взносам, предусмотренным уставом кооператива. Ниже приведён полный расчёт по всем Вашим лицевым счетам по состоянию на {date}.", coop=(coop.short_name or coop.full_name) if coop else "", date=fmt_date(today)) }}
-  </p>
+  {{ (intro_text or debt_notice_default_intro(coop, today))|legal_paragraphs }}
 
   {% if years %}
   <table class="print-table">
@@ -98,9 +99,7 @@
     </tbody>
   </table>
 
-  <p class="legal-p">
-    {{ _("Просим погасить указанную задолженность в кратчайшие сроки. В случае неисполнения кооператив будет вынужден обратиться за взысканием задолженности, пени и понесённых судебных расходов в судебном порядке.") }}
-  </p>
+  {{ (closing_text or debt_notice_default_closing())|legal_paragraphs }}
 
   {{ signature_block(chairman, today) }}
 </div>

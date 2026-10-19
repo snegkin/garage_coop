@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Текст письма") }} {{ dispatch.reg_number }}{% endblock %}
+{% block content %}
+<a href="{{ url_for('postal_letters.list_view') }}" data-back-link>&larr; {{ _("К заказным письмам") }}</a>
+<h3 class="mt-2">{{ _("Текст письма") }} {{ dispatch.reg_number }}</h3>
+<p class="text-muted">
+  {{ _("Получатель") }}: <a href="{{ url_for('persons.detail', person_id=dispatch.person_id) }}">{{ dispatch.person.full_name }}</a>.
+  {{ _("Обращение, расчёт задолженности по годам и итоговые суммы подставляются автоматически — правится текст до и после таблиц. Пустая строка — новый абзац. После сохранения PDF пересобирается на сегодняшнюю дату.") }}
+</p>
+<form method="post" class="bg-body p-4 rounded border">
+  <div class="mb-3">
+    <label class="form-label fw-semibold" for="introText">{{ _("Текст перед расчётом задолженности") }}</label>
+    <textarea class="form-control" id="introText" name="intro_text" rows="5">{{ intro_text }}</textarea>
+  </div>
+  <div class="mb-3">
+    <label class="form-label fw-semibold" for="closingText">{{ _("Текст после расчёта") }}</label>
+    <textarea class="form-control" id="closingText" name="closing_text" rows="5">{{ closing_text }}</textarea>
+  </div>
+  <div class="d-flex gap-2 flex-wrap">
+    <button class="btn btn-primary">{{ _("Сохранить и пересобрать PDF") }}</button>
+    {% if is_custom %}
+    <button class="btn btn-outline-secondary" name="reset" value="1">{{ _("Вернуть стандартный текст") }}</button>
+    {% endif %}
+    {% if dispatch.document_id %}
+    <a class="btn btn-outline-secondary" href="{{ url_for('cooperative.download_document', doc_id=dispatch.document_id) }}">{{ _("Текущий PDF") }}</a>
+    {% endif %}
+  </div>
+</form>
+{% endblock %}

@@ -1871,7 +1871,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Telegram отмечен, но не привязан": "Telegram is ticked, but not linked",
         "Push отмечен, но нет подписки ни в одном браузере": "Push is ticked, but no browser is subscribed",
         "Нет учётной записи для входа": "No sign-in account",
-        "не получает": "none",
+        "Не отмечен ни один способ доставки — уведомления не получает": "No delivery method ticked — receives no notifications",
         "Push-уведомления": "Push notifications",
         "Адрес почты не указан в контактных данных выше.": "No email address in the contact details above.",
         "Push-уведомления в этом браузере": "Push notifications in this browser",

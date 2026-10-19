@@ -85,7 +85,7 @@
         {% if channels is none %}
           <span class="text-muted" title="{{ _('Нет учётной записи для входа') }}">—</span>
         {% elif not channels %}
-          <span class="text-muted small">{{ _("не получает") }}</span>
+          <span class="text-muted" title="{{ _('Не отмечен ни один способ доставки — уведомления не получает') }}">—</span>
         {% else %}
           {% for channel in channels %}{{ notify_icon(channel) }}{% endfor %}
         {% endif %}

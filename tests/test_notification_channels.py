@@ -144,6 +144,6 @@ def test_persons_list_shows_notification_channels(app, db, client):
     assert 'class="bi bi-telegram notify-icon notify-icon-off" title="Telegram отмечен, но не привязан"' in row
 
     silent = html[html.index("Тихий Человек"):]
-    assert "не получает" in silent[:silent.index("</tr>")]
+    assert "Не отмечен ни один способ доставки" in silent[:silent.index("</tr>")]
     nobody = html[html.index("Без Учётки Человек"):]
     assert "Нет учётной записи для входа" in nobody[:nobody.index("</tr>")]

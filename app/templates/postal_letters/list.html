@@ -6,7 +6,7 @@
   <a href="{{ url_for('legal_docs.debtors') }}" class="btn btn-primary">+ {{ _("Новые письма должникам") }}</a>
 </div>
 <p class="text-muted">
-  {{ _("Письма готовятся здесь, но отправляются вручную: скачайте пакет для писем в статусе «черновик», подпишите PDF в КриптоПро и загрузите пакет в личный кабинет otpravka.pochta.ru, затем отметьте письма как загруженные/доставленные по данным того же личного кабинета.") }}
+  {{ _("Письма готовятся здесь, но отправляются вручную: при необходимости поправьте текст черновиков, скачайте пакет, подпишите PDF в КриптоПро и загрузите пакет в личный кабинет otpravka.pochta.ru, затем отметьте письма как загруженные/доставленные по данным того же личного кабинета. Пакет для уже выгруженных писем можно скачать повторно, а выгруженные — вернуть в черновики или удалить.") }}
 </p>
 
 <form method="get" class="mb-3">
@@ -18,11 +18,19 @@
   </select>
 </form>
 
-<form method="post" action="{{ url_for('postal_letters.export') }}">
+{# Групповые действия — отдельная пустая форма, чекбоксы и кнопки привязаны
+   к ней атрибутом form="…": в строках свои формы («Загружено в ЛК»), а
+   вложенные <form> браузер игнорирует — кнопка строки отправляла бы эту. #}
+<form method="post" action="{{ url_for('postal_letters.export') }}" id="postalBulkForm"></form>
+<div class="d-flex gap-2 mb-2 flex-wrap">
+  <button type="button" class="btn btn-sm btn-primary" id="postalSelectAll">{{ _("Выбрать все") }}</button>
+  <button type="button" class="btn btn-sm btn-primary" id="postalClear">{{ _("Снять все") }}</button>
+  <span class="text-muted small align-self-center">{{ _("Отмечать можно черновики и выгруженные письма.") }} {{ _("Выбрано:") }} <span id="postalSelectedCount">0</span></span>
+</div>
 <table class="table table-bordered bg-body align-middle">
   <thead>
     <tr>
-      <th></th>
+      <th class="no-sort"></th>
       <th>{{ _("Получатель") }}</th>
       <th>{{ _("Номер") }}</th>
       <th>{{ _("Статус") }}</th>
@@ -34,8 +42,8 @@
   <tbody>
     {% for d in dispatches %}
     <tr>
-      <td>{% if d.status.value == "draft" %}<input type="checkbox" name="dispatch_id" value="{{ d.id }}">{% endif %}</td>
-      <td>{{ d.person.full_name }}</td>
+      <td>{% if d.status.value in ("draft", "exported") %}<input type="checkbox" class="form-check-input postal-select" name="dispatch_id" value="{{ d.id }}" form="postalBulkForm">{% endif %}</td>
+      <td><a href="{{ url_for('persons.detail', person_id=d.person_id) }}">{{ d.person.full_name }}</a>{% if d.intro_text or d.closing_text %} <span class="badge bg-light text-dark border" title="{{ _('Текст письма изменён вручную') }}"><i class="bi bi-pencil" aria-hidden="true"></i></span>{% endif %}</td>
       <td>{{ d.reg_number }}</td>
       <td>
         <span class="badge {{ status_badge(d.status) }}">{{ status_label(d.status) }}</span>
@@ -44,6 +52,7 @@
       <td>{{ d.tracking_number or "—" }}</td>
       <td>{{ fmt_date(d.created_at.date()) }}</td>
       <td class="text-nowrap">
+        {% if d.status.value == "draft" %}<a class="btn btn-sm btn-outline-primary" href="{{ url_for('postal_letters.edit', dispatch_id=d.id) }}"><i class="bi bi-pencil" aria-hidden="true"></i> {{ _("Текст") }}</a>{% endif %}
         {% if d.document_id %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('cooperative.download_document', doc_id=d.document_id) }}">PDF</a>{% endif %}
         {% if d.status.value == "exported" %}
         <form method="post" action="{{ url_for('postal_letters.mark_sent', dispatch_id=d.id) }}" class="d-inline" data-ajax>
@@ -61,8 +70,30 @@
     {% endfor %}
   </tbody>
 </table>
-<button class="btn btn-primary" {{ "disabled" if not dispatches }}>{{ _("Скачать пакет для отмеченных черновиков (.zip)") }}</button>
-</form>
+<div class="d-flex gap-2 flex-wrap">
+  <button class="btn btn-primary" form="postalBulkForm" formaction="{{ url_for('postal_letters.export') }}" {{ "disabled" if not dispatches }}>{{ _("Скачать пакет для отмеченных (.zip)") }}</button>
+  <button class="btn btn-outline-secondary" form="postalBulkForm" formaction="{{ url_for('postal_letters.to_draft') }}" {{ "disabled" if not dispatches }}
+          title="{{ _('Только для выгруженных: поправить текст и выгрузить заново') }}">{{ _("Вернуть в черновики") }}</button>
+  <button class="btn btn-outline-danger" form="postalBulkForm" formaction="{{ url_for('postal_letters.delete') }}" {{ "disabled" if not dispatches }}
+          onclick="return confirm('{{ _('Удалить отмеченные письма вместе с PDF?') }}')">{{ _("Удалить отмеченные") }}</button>
+</div>
+
+<script>
+(function () {
+  var boxes = Array.from(document.querySelectorAll(".postal-select"));
+  var countEl = document.getElementById("postalSelectedCount");
+  function update() { countEl.textContent = boxes.filter(function (b) { return b.checked; }).length; }
+  // Только строки, видимые сейчас (фильтр таблицы и т.п.).
+  function setVisible(value) {
+    boxes.forEach(function (b) { if (b.offsetParent !== null) b.checked = value; });
+    update();
+  }
+  document.getElementById("postalSelectAll").addEventListener("click", function () { setVisible(true); });
+  document.getElementById("postalClear").addEventListener("click", function () { setVisible(false); });
+  boxes.forEach(function (b) { b.addEventListener("change", update); });
+  update();
+})();
+</script>
 
 {% for d in dispatches %}
 {% if d.status.value in ("exported", "sent") %}

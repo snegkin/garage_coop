@@ -2940,7 +2940,15 @@ class PostalDispatch(Base):
     кооператива — чтобы письмо было видно и в общем списке документов.
     reg_number — свой внутренний номер (LETTER_REG_NUMBER в реестре Почты,
     не более 30 символов, см. temp/Инструкция.docx) — Почта не требует
-    реальной регистрации, годится произвольный уникальный номер.
+    реальной регистрации, годится произвольный уникальный номер; у новых
+    писем «<год>-<порядковый номер письма в этом году>» (2026-1, 2026-2…,
+    см. postal_letters.next_reg_number), у ранних — «ГСК-<id>».
+
+    intro_text/closing_text — свой текст вводного и заключительного абзацев
+    письма, если правление поправило черновик (NULL — стандартный текст, см.
+    legal_docs/_macros.html: debt_notice_doc); categories — JSON-список видов
+    задолженности, на которые формировалось письмо (legal_docs.debt_categories),
+    чтобы PDF после правки текста пересобирался на ту же задолженность.
     """
     __tablename__ = "postal_dispatch"
 
@@ -2957,10 +2965,24 @@ class PostalDispatch(Base):
     delivered_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
     comment: Mapped[str | None] = mapped_column(Text)  # причина FAILED и т.п.
     created_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("user.id", ondelete="SET NULL"))
+    intro_text: Mapped[str | None] = mapped_column(Text)
+    closing_text: Mapped[str | None] = mapped_column(Text)
+    categories: Mapped[str | None] = mapped_column(Text)
 
     person: Mapped["Person"] = relationship()
     document: Mapped["Document | None"] = relationship()
     created_by: Mapped["User | None"] = relationship()
+
+
+class PostalLetterCounter(Base):
+    """Последний выданный порядковый номер заказного письма за год (см.
+    postal_letters.next_reg_number) — отдельно от самих писем: удалённое
+    письмо могло уже уйти в личный кабинет Почты под своим номером, и
+    «максимальный номер среди оставшихся + 1» выдал бы его повторно."""
+    __tablename__ = "postal_letter_counter"
+
+    year: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
+    last_number: Mapped[int] = mapped_column(Integer, default=0)
 
 
 class FailureNotification(Base):

@@ -30,7 +30,7 @@ from . import database
 from . import audit
 from . import penalty
 from . import name_declension
-from .i18n import translate as _
+from .i18n import translate as _, format_date
 from .auth import roles_required
 from .accounting import balance, reallocate_member_charges, charge_paid_amount
 from .persons import build_statement
@@ -40,6 +40,42 @@ from .models import (
 )
 
 bp = Blueprint("legal_docs", __name__, url_prefix="/legal-docs")
+
+
+# ---------------------------------------------------------------------------
+# Текст уведомления о задолженности — стандартные абзацы
+# ---------------------------------------------------------------------------
+# Вводный и заключительный абзацы уведомления (legal_docs/_macros.html:
+# debt_notice_doc) — здесь, а не прямо в шаблоне: тот же текст нужен и
+# форме правки черновика заказного письма (postal_letters.edit), где
+# правление может его поменять для конкретного получателя.
+
+@bp.app_template_global()
+def debt_notice_default_intro(coop, today) -> str:
+    return _(
+        "Настоящим уведомляем Вас о наличии задолженности перед {coop} по взносам, предусмотренным уставом кооператива. "
+        "Ниже приведён полный расчёт по всем Вашим лицевым счетам по состоянию на {date}.",
+        coop=(coop.short_name or coop.full_name) if coop else "", date=format_date(today),
+    )
+
+
+@bp.app_template_global()
+def debt_notice_default_closing() -> str:
+    return _(
+        "Просим погасить указанную задолженность в кратчайшие сроки. В случае неисполнения кооператив будет "
+        "вынужден обратиться за взысканием задолженности, пени и понесённых судебных расходов в судебном порядке."
+    )
+
+
+@bp.app_template_filter("legal_paragraphs")
+def legal_paragraphs(text: str | None) -> Markup:
+    """Текст из формы → абзацы письма: пустая строка — новый абзац, перенос
+    строки внутри абзаца — <br>. Сам текст экранируется."""
+    paragraphs = [p.strip() for p in (text or "").replace("\r\n", "\n").split("\n\n") if p.strip()]
+    return Markup("").join(
+        Markup('<p class="legal-p">{}</p>').format(Markup("<br>").join(escape(line) for line in p.split("\n")))
+        for p in paragraphs
+    )
 
 
 # ---------------------------------------------------------------------------

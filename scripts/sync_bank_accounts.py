@@ -1,28 +1,23 @@
 #!/usr/bin/env python3
 """
 Автоматическая синхронизация всех расчётных счетов кооператива с API
-банка — баланс и выписка за последние STATEMENT_SYNC_DAYS дней, а заодно
-(в одном прогоне, по прямой просьбе — не отдельным cron-джобом) баланс
-личного кабинета контрагентов с настроенным API (см.
-app/counterparty_api/, пока только SMS Aero) — для запуска по cron в
-рабочие дни (см. scripts/sync_bank_accounts.sh и docs/deployment.md, раздел
+банка — баланс и выписка за последние STATEMENT_SYNC_DAYS дней — для
+запуска по cron в рабочие дни (см. scripts/sync_bank_accounts.sh и docs/deployment.md, раздел
 «Автоматизация»).
 
 По аналогии с scripts/update_key_rate.py: отдельный скрипт, а не фоновый
 поток внутри веб-процесса. Использует ту же логику, что и кнопки
 «Обновить баланс»/«Загрузить из банка» на странице расчётных счетов
-(app/bank_sync.py: sync_account_balance/sync_account_statement) и кнопку
-«Обновить баланс» на карточке контрагента
-(app/counterparty_sync.py: sync_counterparty_balance) — не дублирует их,
-чтобы поведение не расходилось.
+(app/bank_sync.py: sync_account_balance/sync_account_statement) — не
+дублирует их, чтобы поведение не расходилось. Баланс личного кабинета
+контрагентов обновляет отдельный scripts/sync_counterparty_balances.py.
 
 Окно выписки — последние 7 дней, а не только «со вчера»: banki иногда
 проводят операции с задержкой на выходные/праздники, и повторная
 загрузка уже известных операций безвредна (дедуп по external_uid внутри
 sync_account_statement — см. её докстринг). Дни без выписки (пока у
 счёта не настроена интеграция) просто пропускаются — это ожидаемое
-состояние, не ошибка. Контрагенты без выбранного api_provider (баланс их
-личного кабинета не отслеживается) — тем же принципом, молча пропускаются.
+состояние, не ошибка.
 
 Запуск вручную:
     cd /path/to/project && python3 scripts/sync_bank_accounts.py
@@ -34,9 +29,8 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app import create_app, database, notifications
-from app.models import BankAccount, Counterparty, CounterpartyApiProvider
+from app.models import BankAccount
 from app.bank_sync import sync_account_balance, sync_account_statement
-from app.counterparty_sync import balance_sync_due, sync_counterparty_balance
 
 STATEMENT_SYNC_DAYS = 7
 
@@ -48,12 +42,11 @@ def _log(message: str) -> None:
 def main() -> int:
     app = create_app()
     with app.app_context():
-        had_bank_errors = _sync_bank_accounts()
-        had_counterparty_errors = _sync_counterparties()
+        had_errors = _sync_bank_accounts()
         # Уведомления правлению о загруженной выписке (bank_api.statement_sync
         # в журнале) — вне запроса after_request их не отправит.
         notifications.dispatch_after_commit()
-        return 1 if (had_bank_errors or had_counterparty_errors) else 0
+        return 1 if had_errors else 0
 
 
 def _sync_bank_accounts() -> bool:
@@ -101,41 +94,6 @@ def _sync_bank_accounts() -> bool:
 
     if configured == 0:
         _log("Ни у одного счёта не настроена интеграция с API банка — синхронизировать нечего.")
-    return had_errors
-
-
-def _sync_counterparties() -> bool:
-    """Возвращает True, если хотя бы одна синхронизация завершилась ошибкой."""
-    counterparties = (
-        database.db_session.query(Counterparty)
-        .filter(Counterparty.api_provider != CounterpartyApiProvider.NONE)
-        .order_by(Counterparty.id)
-        .all()
-    )
-    if not counterparties:
-        _log("Контрагентов с настроенным API нет — баланс личного кабинета синхронизировать нечего.")
-        return False
-
-    had_errors = False
-    for counterparty in counterparties:
-        if not balance_sync_due(counterparty):
-            # Интервал обновления (balance_sync_interval_days) ещё не
-            # прошёл — молча, как и ненастроенные: иначе лог каждого
-            # прогона состоял бы из строк «пропущено».
-            continue
-        status, message = sync_counterparty_balance(counterparty)
-        if status == "unsupported":
-            # Провайдер выбран, но не настроен (например, не заполнены
-            # SmsSettings) — не ошибка, молча пропускаем, как и у банков.
-            continue
-        if status == "error":
-            had_errors = True
-            _log(f"{counterparty.name}: баланс личного кабинета — ОШИБКА: {message}")
-            notifications.notify_failure(
-                f"counterparty_api:{counterparty.id}", f"баланс личного кабинета {counterparty.name}", message,
-            )
-        else:
-            _log(f"{counterparty.name}: баланс личного кабинета — {message}")
     return had_errors
 
 

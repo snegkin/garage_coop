@@ -476,7 +476,7 @@ class Counterparty(Base):
     external_balance: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
     external_balance_updated_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
     external_balance_error: Mapped[str | None] = mapped_column(Text)
-    # Как часто cron (scripts/sync_bank_accounts.py) обновляет этот баланс,
+    # Как часто cron (scripts/sync_counterparty_balances.py) обновляет этот баланс,
     # в днях — см. BALANCE_SYNC_INTERVAL_CHOICES. У SMS Aero и т.п. баланс
     # меняется почти каждый день, и ежедневный синк давал запись в журнале
     # аудита на каждый день. Кнопка «Обновить баланс» на карточке — всегда.

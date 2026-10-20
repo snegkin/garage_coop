@@ -121,3 +121,20 @@ def test_alembic_noise_hidden_by_default(app, db, client, log_dir):
     assert "баланс обновлён" in html and "setup plugin" not in html and "Context impl" not in html
     html = client.get("/system-logs/poll.log?noise=1").get_data(as_text=True)
     assert "setup plugin" in html and "Context impl" in html
+
+
+def test_gzip_archive_viewed_and_downloaded(app, db, client, log_dir):
+    import gzip
+    with gzip.open(log_dir / "poll_ewelink.log.2.gz", "wt", encoding="utf-8") as f:
+        f.write("".join(f"строка {i}\n" for i in range(1000)) + "[2026-10-09T02:53:13] Ошибка подключения к eWeLink\n")
+    _chairman(db, client)
+    assert "poll_ewelink.log.2.gz" in client.get("/system-logs/").get_data(as_text=True)
+
+    html = client.get("/system-logs/poll_ewelink.log.2.gz?lines=200&noise=1").get_data(as_text=True)
+    assert "строка 999" in html and "строка 801<" in html and "строка 800<" not in html
+    html = client.get("/system-logs/poll_ewelink.log.2.gz?errors=1").get_data(as_text=True)
+    assert "Ошибка подключения" in html and "строка 999" not in html
+
+    resp = client.get("/system-logs/poll_ewelink.log.2.gz/download")
+    assert resp.mimetype == "application/gzip"
+    assert gzip.decompress(resp.data).decode().startswith("строка 0\n")

@@ -87,6 +87,9 @@
           {% if is_board() %}
           <td>
             <div class="d-flex gap-1 justify-content-end">
+              {% if is_chairman() %}
+              <a class="btn btn-sm btn-outline-secondary btn-icon-square" href="{{ url_for('certificates.create', owner=o.person_id ~ ':' ~ garage.id) }}" title="{{ _('Справка о владении гаражом') }}"><i class="bi bi-file-earmark-check" aria-hidden="true"></i></a>
+              {% endif %}
               <button type="button" class="btn btn-sm btn-outline-primary btn-icon-square" data-bs-toggle="modal" data-bs-target="#editShareModal-{{ o.id }}" title="{{ _('Изменить долю') }}"><i class="bi bi-pencil" aria-hidden="true"></i></button>
               <button type="button" class="btn btn-sm btn-outline-danger btn-icon-square" data-bs-toggle="modal" data-bs-target="#removeOwnerModal-{{ o.id }}" title="{{ _('Удалить собственника') }}"><i class="bi bi-trash" aria-hidden="true"></i></button>
               {% if not o.person.is_archived %}
@@ -475,6 +478,11 @@
 {% else %}
 <p class="text-muted">{{ _("Заявлений по гаражу нет.") }}</p>
 {% endif %}
+{% endif %}
+
+{% if certificates %}
+<h5 class="mt-4">{{ _("Справки о владении гаражом") }}</h5>
+{% include "certificates/_list_table.html" %}
 {% endif %}
 {% endif %}
 

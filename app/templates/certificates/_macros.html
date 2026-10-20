@@ -1,0 +1,24 @@
+{% import "legal_docs/_macros.html" as legal %}
+
+{# Справка на бланке. body — HTML текста (из журнала или редактора);
+   editable_id — если задан, текст редактируемый (contenteditable). #}
+{% macro certificate_doc(coop, number, issued_at, body, signer, editable_id=None) %}
+<div class="legal-doc">
+  <div class="legal-header-columns">
+    <div class="legal-header-left">
+      {% include "legal_docs/_letterhead.html" %}
+    </div>
+    <div class="legal-header-right">
+      <p>{{ _("по месту требования") }}</p>
+    </div>
+  </div>
+  <p class="print-title">{{ _("СПРАВКА") }}</p>
+  <p class="print-meta">№ {{ number }} {{ _("от") }} {{ fmt_date(issued_at) if issued_at else "" }}</p>
+  {% if editable_id %}
+  <div class="application-body" id="{{ editable_id }}" contenteditable="true" data-sheet-editor data-input="{{ editable_id }}Input" spellcheck="true">{{ body|safe }}</div>
+  {% else %}
+  <div class="application-body">{{ body|safe }}</div>
+  {% endif %}
+  {{ legal.signature_block(signer, issued_at) }}
+</div>
+{% endmacro %}

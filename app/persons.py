@@ -308,11 +308,13 @@ def detail(person_id):
     )
     # Локальный импорт: applications тянет legal_docs, а тот — persons.
     from .applications import visible_applications
+    from .certificates import visible_certificates
     return render_template(
         "persons/detail.html", person=person, account=account, member_accounts=member_accounts,
         has_unpaid_penalty=has_unpaid_penalty, ownerships=ownerships, contact_links=contact_links,
         revision_rows=revision_rows, court_sections=court_sections, today=dt.date.today(),
         applications=visible_applications(person_id=person.id),
+        certificates=visible_certificates(person_id=person.id),
     )
 
 

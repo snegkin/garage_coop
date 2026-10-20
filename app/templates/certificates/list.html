@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Справки о владении гаражом") }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <h3 class="mb-0">{{ _("Справки о владении гаражом") }}</h3>
+  {% if is_chairman() %}
+  <a class="btn btn-primary" href="{{ url_for('certificates.create') }}"><i class="bi bi-file-earmark-plus" aria-hidden="true"></i> {{ _("Выдать справку") }}</a>
+  {% endif %}
+</div>
+<p class="text-muted small">{{ _("Справки правления за подписью председателя о том, что член кооператива владеет гаражом, — для оформления гаража в собственность по «гаражной амнистии». Журнал хранит текст каждой справки в том виде, в каком она выдана.") }}</p>
+{% if certificates %}
+{% include "certificates/_list_table.html" %}
+{% else %}
+<p class="text-muted">{{ _("Справок пока не выдавалось.") }}</p>
+{% endif %}
+{% endblock %}

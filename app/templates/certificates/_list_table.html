@@ -1,0 +1,15 @@
+{# Таблица справок о владении гаражом — журнал и блоки на карточках. #}
+<table class="table table-sm bg-body sortable align-middle">
+  <thead><tr><th>№</th><th>{{ _("Дата") }}</th><th>{{ _("Кому") }}</th><th>{{ _("Гараж") }}</th><th>{{ _("Подписал") }}</th></tr></thead>
+  <tbody>
+    {% for c in certificates %}
+    <tr>
+      <td><a href="{{ url_for('certificates.detail', certificate_id=c.id) }}">{{ c.number }}</a></td>
+      <td data-sort-value="{{ c.issued_at.isoformat() }}">{{ fmt_date(c.issued_at) }}</td>
+      <td>{{ c.person.full_name }}</td>
+      <td>{{ c.garage_number }}</td>
+      <td>{{ c.issued_by.short_name if c.issued_by else "—" }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>

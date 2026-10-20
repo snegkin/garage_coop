@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% import "certificates/_macros.html" as m %}
+{% block title %}{{ _("Справка") }} № {{ certificate.number }}{% endblock %}
+{% block content %}
+{% include "applications/_sheet_style.html" %}
+<div class="d-flex justify-content-between align-items-start mb-3 no-print flex-wrap gap-2">
+  <div>
+    <h3 class="mb-1">{{ _("Справка о владении гаражом") }} № {{ certificate.number }}</h3>
+    <div class="text-muted small">
+      {% if is_board() %}<a href="{{ url_for('persons.detail', person_id=certificate.person_id) }}">{{ certificate.person.full_name }}</a>{% else %}{{ certificate.person.full_name }}{% endif %}
+      {% if certificate.garage_id %} · <a href="{{ url_for('garages.detail', garage_id=certificate.garage_id) }}">{{ _("гараж") }} № {{ certificate.garage_number }}</a>{% endif %}
+      · {{ fmt_date(certificate.issued_at) }}
+    </div>
+  </div>
+  <div class="d-flex gap-2">
+    <button class="btn btn-primary btn-sm" onclick="window.print()"><i class="bi bi-printer" aria-hidden="true"></i> {{ _("Печать") }}</button>
+    <a class="btn btn-outline-primary btn-sm" href="{{ url_for('certificates.pdf', certificate_id=certificate.id) }}">{{ _("Скачать PDF") }}</a>
+    <a data-back-link data-back-label="&larr; {{ _('Назад') }}" class="btn btn-outline-secondary btn-sm" href="{{ url_for('certificates.list_certificates') if is_board() else url_for('cabinet.garages') }}">{{ _("Назад") }}</a>
+  </div>
+</div>
+<div class="legal-print">
+  {{ m.certificate_doc(coop, certificate.number, certificate.issued_at, certificate.body_html, certificate.issued_by) }}
+</div>
+{% endblock %}

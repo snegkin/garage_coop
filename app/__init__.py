@@ -304,6 +304,7 @@ def create_app(config_class=Config):
     from .voting import bp as voting_bp
     from .proposals import bp as proposals_bp
     from .applications import bp as applications_bp
+    from .certificates import bp as certificates_bp
     from .news import bp as news_bp
     from .bulletin import bp as bulletin_bp
     from .forum import bp as forum_bp
@@ -340,6 +341,7 @@ def create_app(config_class=Config):
     app.register_blueprint(voting_bp)
     app.register_blueprint(proposals_bp)
     app.register_blueprint(applications_bp)
+    app.register_blueprint(certificates_bp)
     app.register_blueprint(news_bp)
     app.register_blueprint(bulletin_bp)
     app.register_blueprint(forum_bp)

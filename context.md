@@ -420,6 +420,12 @@ relationship-коллекции» выше — тот же класс пробл
 `extra_attachments`); `attachment_file?inline=1` отдаёт картинку/PDF для
 встроенного просмотра (svg/html загрузить нельзя — DEFAULT_ALLOWED_EXT).
 
+## Справки о владении гаражом (`app/certificates.py`, `GarageCertificate`)
+Редактор/санитизация — из applications (`_editor.html`, `sanitize_html`).
+В стартовом тексте — только то, что знает реестр; название кооператива —
+краткое (полное в «на территории …» пришлось бы склонять), без краткого —
+«кооператива». Род для «он/она» — `name_declension.gender` по отчеству.
+
 ## Крон-скрипты пени: ставка ЦБ + начисление
 `scripts/update_key_rate.py` — standalone (сам `create_app()`+
 `app_context()`), тянет с cbr.ru от дня после последней записи (или с

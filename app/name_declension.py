@@ -53,6 +53,16 @@ def decline(full_name: str, case: "Case") -> str:
         return full_name
 
 
+def gender(full_name: str) -> str | None:
+    """"male"/"female" по отчеству, None — не определился (для согласования
+    «являющийся/являющаяся» в тексте документов)."""
+    parts = (full_name or "").split()
+    if len(parts) != 3:
+        return None
+    detected = _detect_gender(parts[2])
+    return {Gender.MALE: "male", Gender.FEMALE: "female"}.get(detected)
+
+
 def genitive(full_name: str) -> str:
     """«кого/чего» — напр. «взыскать с Иванова Ивана Ивановича»."""
     return decline(full_name, Case.GENITIVE)

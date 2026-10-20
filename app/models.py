@@ -1199,6 +1199,40 @@ class ApplicationRead(Base):
     )
 
 
+class GarageCertificate(Base):
+    """
+    Справка правления о владении гаражом (для оформления гаража в
+    собственность по «гаражной амнистии», ст. 3.7 Федерального закона
+    № 137-ФЗ) — выдаёт председатель (app/certificates.py). Журнал выданных
+    справок: номер «<год>-<N>» (CertificateCounter), текст на момент выдачи
+    (body_html — из редактора на бланке, санитизирован как у заявлений),
+    повторная печать — того же текста. Подшивается к человеку и гаражу.
+    """
+    __tablename__ = "garage_certificate"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    number: Mapped[str] = mapped_column(String(30), unique=True)
+    person_id: Mapped[int] = mapped_column(ForeignKey("person.id", ondelete="CASCADE"), index=True)
+    garage_id: Mapped[int | None] = mapped_column(ForeignKey("garage.id", ondelete="SET NULL"), index=True)
+    garage_number: Mapped[str] = mapped_column(String(20))
+    body_html: Mapped[str] = mapped_column(Text)
+    issued_at: Mapped[dt.date] = mapped_column(Date, index=True)
+    issued_by_person_id: Mapped[int | None] = mapped_column(ForeignKey("person.id", ondelete="SET NULL"))
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.now)
+
+    person: Mapped["Person"] = relationship(foreign_keys=[person_id])
+    garage: Mapped["Garage | None"] = relationship()
+    issued_by: Mapped["Person | None"] = relationship(foreign_keys=[issued_by_person_id])
+
+
+class CertificateCounter(Base):
+    """Последний номер справки за год — как ApplicationCounter."""
+    __tablename__ = "certificate_counter"
+
+    year: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
+    last_number: Mapped[int] = mapped_column(Integer, default=0)
+
+
 class ApplicationCounter(Base):
     """Последний выданный номер заявления за год — как PostalLetterCounter:
     номер не переиспользуется, даже если заявление потом удалят."""

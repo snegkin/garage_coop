@@ -422,7 +422,7 @@ BOARD_EVENT_GROUPS = {
         "label": "Документы, вики, новости, письма",
         "actions": (
             "document.*", "annual_report.*", "reconciliation_act.*", "postal_letter.*", "court_section.*",
-            "cooperative.default_court_section", "news.*", "wiki.*", "bulletin.*",
+            "cooperative.default_court_section", "news.*", "wiki.*", "bulletin.*", "certificate.*",
         ),
     },
     "counterparties": {

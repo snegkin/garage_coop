@@ -1,0 +1,13 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+{% include "applications/_sheet_style.html" %}
+</head>
+<body>
+{% import "certificates/_macros.html" as m %}
+<div class="legal-print">
+  {{ m.certificate_doc(coop, certificate.number, certificate.issued_at, certificate.body_html, certificate.issued_by) }}
+</div>
+</body>
+</html>

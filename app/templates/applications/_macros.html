@@ -1,0 +1,78 @@
+{% import "legal_docs/_macros.html" as legal %}
+
+{# Правая колонка шапки заявления: адресат (правление) и заявитель.
+   d — словарь/объект с applicant_name/_address/_passport/_phone (поданное
+   заявление или applications.applicant_snapshot для редактора).
+   garage_html — номер гаража (в редакторе — <span>, который меняется при
+   выборе другого гаража). editing — показывать незаполненные реквизиты
+   подсказкой, а не пропускать строку. #}
+{% macro applicant_header(d, coop, garage_html, editing=False) %}
+<div class="legal-header-columns">
+  <div class="legal-header-left">
+    {% include "legal_docs/_letterhead.html" %}
+  </div>
+  <div class="legal-header-right">
+    <p>{{ _("В правление") }} {% if coop %}{{ coop.short_name or coop.full_name }}{% else %}{{ _("кооператива") }}{% endif %}</p>
+    <p>{{ _("от") }} <strong>{{ fio_genitive(d.applicant_name) }}</strong></p>
+    {% for value, label, hint in [
+      (d.applicant_address, _("адрес"), _("адрес не указан в профиле")),
+      (d.applicant_passport, _("паспорт"), _("паспорт не указан в профиле")),
+      (d.applicant_phone, _("тел."), _("телефон не указан в профиле")),
+    ] %}
+    {% if value %}<p>{{ label }}: {{ value }}</p>
+    {% elif editing %}<p class="applicant-missing">{{ hint }}</p>{% endif %}
+    {% endfor %}
+    <p>{{ _("гараж") }} № {{ garage_html }}</p>
+  </div>
+</div>
+{% endmacro %}
+
+
+{% macro applicant_signature(name, date) %}
+<p class="application-sign">
+  <span>{{ fmt_date(date) }}</span>
+  <span><span class="sig-blank"></span> /{{ short_name(name) }}/</span>
+</p>
+{% endmacro %}
+
+
+{% macro application_doc(application, coop) %}
+<div class="legal-doc">
+  {{ applicant_header(application, coop, application.garage_number or "—") }}
+  <p class="print-title">{{ application_kind_heading(application.kind)|upper }}</p>
+  {% if application.title %}<p class="print-subtitle">{{ application.title }}</p>{% endif %}
+  <p class="print-meta">№ {{ application.number }} {{ _("от") }} {{ fmt_date(application.created_at.date()) }}</p>
+  <div class="application-body">{{ application.body_html|safe }}</div>
+  {{ applicant_signature(application.applicant_name, application.created_at.date()) }}
+</div>
+{% endmacro %}
+
+
+{# Шапка ответа правления: бланк кооператива слева, заявитель — справа
+   (как адресат уведомления о задолженности). #}
+{% macro response_header(application, coop) %}
+<div class="legal-header-columns">
+  <div class="legal-header-left">
+    {% include "legal_docs/_letterhead.html" %}
+  </div>
+  <div class="legal-header-right">
+    <p><strong>{{ fio_dative(application.applicant_name) }}</strong></p>
+    {% if application.applicant_address %}<p>{{ application.applicant_address }}</p>{% endif %}
+  </div>
+</div>
+{% endmacro %}
+
+
+{% macro response_doc(application, coop) %}
+<div class="legal-doc">
+  {{ response_header(application, coop) }}
+  <p class="print-title">{{ _("Ответ на") if application.status.value == 'answered' else _("Об отклонении:") }} {{ application_kind_accusative(application.kind) }}</p>
+  <p class="print-meta">№ {{ application.number }} {{ _("от") }} {{ fmt_date(application.created_at.date()) }}</p>
+  <div class="application-body">
+    {% if application.status.value == 'rejected' %}<p>{{ _("Правление рассмотрело Ваше заявление и отклонило его.") }}</p>{% endif %}
+    {{ (application.response_html or "")|safe }}
+  </div>
+  {{ legal.signature_block(application.decided_by, application.decided_at.date() if application.decided_at else None,
+                           role=_("Председатель") if application.decided_by and application.decided_by.is_chairman else _("Член правления")) }}
+</div>
+{% endmacro %}

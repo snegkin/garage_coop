@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+{% include "applications/_sheet_style.html" %}
+</head>
+<body>
+{% import "applications/_macros.html" as m %}
+<div class="legal-print">
+  {{ m.application_doc(application, coop) }}
+</div>
+{% if application.status.value != 'submitted' %}
+<div class="legal-print">
+  {{ m.response_doc(application, coop) }}
+</div>
+{% endif %}
+</body>
+</html>

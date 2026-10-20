@@ -105,4 +105,6 @@ def entity_url(entity_type: str | None, entity_id: int | None) -> str | None:
         return url_for("wiki.view", slug=page.slug) if page else None
     if entity_type == "proposal":
         return url_for("proposals.detail", proposal_id=entity_id)
+    if entity_type == "application":
+        return url_for("applications.detail", application_id=entity_id)
     return None

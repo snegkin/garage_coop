@@ -411,6 +411,9 @@ def detail(garage_id):
         .all()
     ) if is_board() else []
 
+    # Локальный импорт: applications тянет legal_docs → persons, а те — garages.
+    from .applications import visible_applications
+
     return render_template(
         "garages/detail.html",
         garage=garage,
@@ -437,6 +440,8 @@ def detail(garage_id):
         page_title=title,
         ownership_events=ownership_events,
         is_owner_or_board=is_owner_or_board(garage),
+        applications=visible_applications(garage_id=garage.id),
+        is_garage_owner=g.user.person_id is not None and g.user.person_id in {o.person_id for o in garage.ownerships},
     )
 
 

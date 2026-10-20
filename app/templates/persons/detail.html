@@ -214,6 +214,11 @@
 {% endif %}
 {% endif %}
 
+{% if applications %}
+<h5 class="mt-4">{{ _("Заявления в правление") }}</h5>
+{% include "applications/_list_table.html" %}
+{% endif %}
+
 {% if is_chairman() %}
 <h5 class="mt-4">
   <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse"

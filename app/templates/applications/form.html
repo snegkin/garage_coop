@@ -4,7 +4,7 @@
 {% block title %}{{ _("Заявление в правление") }}{% endblock %}
 {% block content %}
 {% include "applications/_sheet_style.html" %}
-<form method="post" action="{{ url_for('applications.create') }}" id="applicationForm" data-draft-key="application-draft-{{ person.id }}">
+<form method="post" action="{{ url_for('applications.create') }}" id="applicationForm" enctype="multipart/form-data" data-draft-key="application-draft-{{ person.id }}">
   <div class="d-flex justify-content-between align-items-center mb-3 no-print flex-wrap gap-2">
     <h3 class="mb-0">{{ _("Заявление в правление") }}</h3>
     <a data-back-link data-back-label="&larr; {{ _('Назад') }}" class="btn btn-outline-secondary btn-sm" href="{{ url_for('applications.list_applications') }}">{{ _("← к заявлениям") }}</a>
@@ -57,10 +57,32 @@
       </p>
       <p class="print-meta">№ <span class="text-muted">{{ _("(присваивается при подаче)") }}</span> {{ _("от") }} {{ fmt_date(today) }}</p>
       <div class="application-body" id="appBody" contenteditable="true" data-sheet-editor data-input="appBodyInput" spellcheck="true">{{ body_html|safe }}</div>
+      <div id="newOwnerBlock"{% if kind.value != 'ownership_change' %} hidden{% endif %}>
+        <p class="print-subtitle new-owner-caption"><strong>{{ _("Сведения о новом собственнике") }}</strong></p>
+        <table class="print-table new-owner-table">
+          <tbody>
+            {% for key, label in new_owner_fields %}
+            <tr>
+              <th><label for="no_{{ key }}">{{ label }}{% if key == 'full_name' %} *{% endif %}</label></th>
+              <td><input id="no_{{ key }}" name="no_{{ key }}" value="{{ new_owner.get(key, '') }}" data-new-owner
+                         {% if key in date_fields %}type="date"{% elif key == 'email' %}type="email"{% elif key == 'phone' %}type="tel"{% endif %}
+                         {% if key == 'passport_series' %}maxlength="4" inputmode="numeric" pattern="\d{4}"{% elif key == 'passport_number' %}maxlength="6" inputmode="numeric" pattern="\d{6}"{% else %}maxlength="255"{% endif %}
+                         {% if key == 'basis' %}placeholder="{{ _('например: договор купли-продажи от 01.10.2026') }}"{% endif %}></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
       {{ m.applicant_signature(snapshot.applicant_name, today) }}
     </div>
   </div>
   <input type="hidden" name="body_html" id="appBodyInput">
+
+  <div class="no-print mt-3" style="max-width: 210mm; margin: 0 auto;">
+    <label class="form-label" for="appAttachments">{{ _("Приложения (сканы документов)") }}</label>
+    <input class="form-control" type="file" name="attachments" id="appAttachments" multiple>
+    <div class="form-text" id="appAttachmentsHint">{{ _("Например, договор купли-продажи, дарения, свидетельство о праве на наследство, выписка из ЕГРН. До 10 файлов: PDF, изображения, документы.") }}</div>
+  </div>
 
   <div class="d-flex justify-content-end gap-2 my-3 no-print" style="max-width: 210mm; margin: 0 auto;">
     <button class="btn btn-primary" onclick="return confirm({{ _('Отправить заявление правлению? После отправки изменить его будет нельзя.')|tojson|forceescape }})">
@@ -91,7 +113,18 @@
   body.addEventListener("sheet-change", function () { pristine = false; saveDraft(); });
   title.addEventListener("input", saveDraft);
 
+  var newOwnerBlock = document.getElementById("newOwnerBlock");
+  var newOwnerInputs = Array.prototype.slice.call(document.querySelectorAll("[data-new-owner]"));
+  function toggleNewOwner() {
+    var on = kind.value === "ownership_change";
+    newOwnerBlock.hidden = !on;
+    document.getElementById("no_full_name").required = on;
+  }
+  toggleNewOwner();
+  newOwnerInputs.forEach(function (el) { el.addEventListener("input", function () { pristine = false; saveDraft(); }); });
+
   kind.addEventListener("change", function () {
+    toggleNewOwner();
     heading.textContent = templates[kind.value].heading.toUpperCase();
     if (pristine) {
       title.value = templates[kind.value].title;
@@ -113,6 +146,7 @@
     try {
       localStorage.setItem(draftKey, JSON.stringify({
         kind: kind.value, garage: garage.value, title: title.value, body: body.innerHTML,
+        newOwner: newOwnerInputs.reduce(function (acc, el) { acc[el.name] = el.value; return acc; }, {}),
       }));
     } catch (e) {}
   }
@@ -127,6 +161,8 @@
     body.innerHTML = draft.body;
     heading.textContent = templates[kind.value].heading.toUpperCase();
     garageNumber.textContent = currentGarageNumber();
+    newOwnerInputs.forEach(function (el) { if (draft.newOwner && draft.newOwner[el.name]) el.value = draft.newOwner[el.name]; });
+    toggleNewOwner();
     pristine = false;
     document.getElementById("draftRestored").classList.remove("d-none");
   }
@@ -135,6 +171,7 @@
     pristine = true;
     title.value = templates[kind.value].title;
     body.innerHTML = templateBody(kind.value, currentGarageNumber());
+    newOwnerInputs.forEach(function (el) { el.value = ""; });
     document.getElementById("draftRestored").classList.add("d-none");
   });
   form.addEventListener("submit", function () {

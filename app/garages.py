@@ -631,6 +631,94 @@ def _remove_owner_and_redistribute(garage: Garage, ownership: GarageOwnership, r
     database.db_session.delete(ownership)
 
 
+def transfer_owner(garage: Garage, ownership: GarageOwnership, new_person_id: int, carry_balance: bool,
+                   comment: str | None, user_id: int) -> None:
+    """
+    Смена собственника: доля ownership целиком переходит new_person_id
+    (продажа, дарение, наследство — см. applications.transfer, смена по
+    заявлению). В отличие от «удалить + добавить» руками, доля не делится
+    между оставшимися содольщиками (_remove_owner_and_redistribute), а
+    уходит именно новому собственнику.
+
+    Лицевые счета прежнего собственника по гаражу:
+    - carry_balance=True — остаток (долг/переплата) переходит на счета
+      нового собственника, старые счета архивируются. Если прежний был
+      единственным — новый получает те же номера счетов (как при обычном
+      добавлении собственника в гараж без собственников,
+      _archive_owner_accounts_and_reuse); если были содольщики — новые
+      номера (next_owner_index).
+    - carry_balance=False — счета прежнего остаются за ним как есть
+      (активными, с долгом/историей — как при выбытии единственного
+      собственника), новому заводятся свои, с новыми номерами.
+    Если новый собственник уже совладелец этого гаража — доли
+    складываются, остаток переносится на его существующие счета.
+    Не коммитит.
+    """
+    old_person = ownership.person
+    share = ownership.share
+    sole = len(garage.ownerships) == 1
+    old_accounts = (
+        database.db_session.query(MemberAccount)
+        .filter_by(garage_id=garage.id, person_id=old_person.id, is_archived=False)
+        .all()
+    )
+    existing_new = next((o for o in garage.ownerships if o.person_id == new_person_id), None)
+    new_person = database.db_session.get(Person, new_person_id)
+
+    database.db_session.add(GarageOwnershipEvent(
+        garage_id=garage.id, person_id=old_person.id, event_type=GarageOwnershipEventType.REMOVED,
+        share=None, comment=comment, created_by_user_id=user_id,
+    ))
+    garage.ownerships.remove(ownership)
+    database.db_session.delete(ownership)
+    database.db_session.flush()
+
+    if existing_new is not None:
+        existing_new.share = existing_new.share + share
+        database.db_session.add(GarageOwnershipEvent(
+            garage_id=garage.id, person_id=new_person_id, event_type=GarageOwnershipEventType.SHARE_CHANGED,
+            share=existing_new.share, comment=comment, created_by_user_id=user_id,
+        ))
+    else:
+        database.db_session.add(GarageOwnership(garage_id=garage.id, person_id=new_person_id, share=share))
+        database.db_session.add(GarageOwnershipEvent(
+            garage_id=garage.id, person_id=new_person_id, event_type=GarageOwnershipEventType.ADDED,
+            share=share, comment=comment, created_by_user_id=user_id,
+        ))
+    database.db_session.flush()
+
+    if carry_balance and sole:
+        # Гараж формально остался без собственников — тот же путь, что и
+        # add_owner в этом случае: архив старых счетов, те же номера новому,
+        # перенос остатка.
+        _archive_owner_accounts_and_reuse(garage, new_person_id)
+    else:
+        if existing_new is None:
+            _ensure_member_accounts(garage, new_person_id, next_owner_index(garage.id))
+            database.db_session.flush()
+        if carry_balance:
+            for old_account in old_accounts:
+                new_account = (
+                    database.db_session.query(MemberAccount)
+                    .filter_by(garage_id=garage.id, person_id=new_person_id,
+                               fee_type_id=old_account.fee_type_id, is_archived=False)
+                    .first()
+                )
+                if new_account is None:
+                    continue
+                transfer_member_account_balance(old_account, new_account)
+                old_account.is_archived = True
+    ensure_personal_member_accounts(new_person_id)
+
+    audit.record(
+        "garage_owner.transfer",
+        f"Гараж №{garage.number}: доля {share} перешла от {old_person.full_name} к {new_person.full_name}"
+        + (", остаток счетов перенесён" if carry_balance else ", остаток счетов остался за прежним собственником")
+        + (f" ({comment})" if comment else ""),
+        entity_type="garage", entity_id=garage.id,
+    )
+
+
 @bp.route("/<int:garage_id>/owners/<int:ownership_id>/remove", methods=["POST"])
 @roles_required(RoleEnum.BOARD)
 def remove_owner(garage_id, ownership_id):

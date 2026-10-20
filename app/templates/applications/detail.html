@@ -40,6 +40,21 @@
     {% elif not is_board() %}
     <div class="mt-1 text-muted">{{ _("Правление рассмотрит заявление; об ответе придёт уведомление.") }}</div>
     {% endif %}
+    {% if application.transferred_at %}
+    <div class="mt-1">
+      <strong>{{ _("Смена собственника проведена") }}:</strong> {{ application.transferred_at.strftime('%d.%m.%Y %H:%M') }}
+      {% if application.new_owner %} · {{ _("новый собственник") }}
+      {% if is_board() %}<a href="{{ url_for('persons.detail', person_id=application.new_owner_person_id) }}">{{ application.new_owner.full_name }}</a>{% else %}{{ application.new_owner.full_name }}{% endif %}{% endif %}
+    </div>
+    {% endif %}
+    {% if application.attachments %}
+    <div class="mt-1">
+      <strong>{{ _("Приложения") }}:</strong>
+      {% for att in application.attachments %}
+      <a href="{{ url_for('applications.attachment_file', attachment_id=att.id) }}"><i class="bi bi-paperclip" aria-hidden="true"></i>{{ att.original_filename }}</a>{% if not loop.last %}, {% endif %}
+      {% endfor %}
+    </div>
+    {% endif %}
   </div>
 </div>
 
@@ -50,6 +65,81 @@
 {% if application.status.value != 'submitted' %}
 <div class="legal-print">
   {{ m.response_doc(application, coop) }}
+</div>
+{% endif %}
+
+{% if transfer %}
+<div class="card border-primary no-print mt-4" style="max-width: 210mm; margin: 0 auto;">
+  <div class="card-body">
+    <h5 class="card-title">{{ _("Смена собственника по заявлению") }}</h5>
+    {% if not transfer.ownership %}
+    <div class="alert alert-warning mb-0">{{ _("Заявитель уже не числится собственником гаража № {n} — смену нужно провести вручную на карточке гаража.", n=application.garage_number) }}</div>
+    {% else %}
+    <p class="small text-muted">
+      {{ _("Доля заявителя") }} <strong>{{ fmt2(transfer.ownership.share) }}</strong> {{ _("в гараже") }}
+      <a href="{{ url_for('garages.detail', garage_id=application.garage_id) }}">№ {{ application.garage_number }}</a>
+      {{ _("целиком перейдёт новому собственнику. Проверьте и при необходимости поправьте сведения из заявления.") }}
+    </p>
+    <form method="post" action="{{ url_for('applications.transfer', application_id=application.id) }}"
+          onsubmit="return confirm({{ _('Провести смену собственника гаража?')|tojson|forceescape }})">
+      <div class="mb-3">
+        <label class="form-label fw-semibold">{{ _("Новый собственник") }}</label>
+        {% for p in transfer.matches %}
+        <div class="form-check">
+          <input class="form-check-input" type="radio" name="target" id="target{{ p.id }}" value="{{ p.id }}"{% if loop.first %} checked{% endif %}>
+          <label class="form-check-label" for="target{{ p.id }}">
+            {{ _("Уже есть в реестре") }}: <a href="{{ url_for('persons.detail', person_id=p.id) }}" target="_blank">{{ p.full_name }}</a>
+            {% if p.birth_date %}<span class="text-muted">, {{ fmt_date(p.birth_date) }}</span>{% endif %}
+            {% if p.passport_series %}<span class="text-muted">, {{ _("паспорт") }} {{ p.passport_series }} {{ p.passport_number or "" }}</span>{% endif %}
+          </label>
+        </div>
+        {% endfor %}
+        <div class="form-check">
+          <input class="form-check-input" type="radio" name="target" id="targetNew" value="new"{% if not transfer.matches %} checked{% endif %}>
+          <label class="form-check-label" for="targetNew">{{ _("Завести новую карточку по сведениям из заявления") }}</label>
+        </div>
+        <div class="form-check d-flex align-items-center gap-2">
+          <input class="form-check-input" type="radio" name="target" id="targetOther" value="">
+          <label class="form-check-label text-nowrap" for="targetOther">{{ _("Другой человек из реестра") }}:</label>
+          <select class="form-select form-select-sm" id="targetOtherSelect" aria-label="{{ _('Человек из реестра') }}">
+            <option value="">—</option>
+            {% for p in transfer.persons %}{% if p.id != application.person_id %}<option value="{{ p.id }}">{{ p.full_name }}</option>{% endif %}{% endfor %}
+          </select>
+        </div>
+        <div class="form-text">{{ _("Для человека, уже записанного в реестре, сведения из заявления дополнят только пустые поля его карточки.") }}</div>
+      </div>
+      <div class="row g-2 mb-3">
+        {% for key, label in transfer.fields %}
+        <div class="col-md-6">
+          <label class="form-label small mb-0" for="tr_{{ key }}">{{ label }}{% if key == 'full_name' %} *{% endif %}</label>
+          <input class="form-control form-control-sm" id="tr_{{ key }}" name="no_{{ key }}" value="{{ transfer.data.get(key, '') }}"
+                 {% if key in transfer.date_fields %}type="date"{% endif %}{% if key == 'full_name' %} required{% endif %}>
+        </div>
+        {% endfor %}
+      </div>
+      <div class="form-check mb-2">
+        <input class="form-check-input" type="checkbox" name="carry_balance" id="carryBalance" value="1" checked>
+        <label class="form-check-label" for="carryBalance">{{ _("Перенести остаток лицевых счетов (долг или переплату) заявителя по этому гаражу на нового собственника") }}</label>
+        <div class="form-text">{{ _("Если снять — счета с долгом останутся за прежним собственником, новому заведутся свои.") }}</div>
+      </div>
+      <div class="mb-3">
+        <label class="form-label small mb-0" for="transferComment">{{ _("Комментарий в истории собственников") }}</label>
+        <input class="form-control form-control-sm" name="comment" id="transferComment" value="{{ transfer.comment }}" maxlength="500">
+      </div>
+      {% if application.attachments %}
+      <p class="small text-muted">{{ _("Приложения к заявлению будут скопированы в документы гаража.") }}</p>
+      {% endif %}
+      <button class="btn btn-primary"><i class="bi bi-arrow-left-right" aria-hidden="true"></i> {{ _("Провести смену собственника") }}</button>
+    </form>
+    <script>
+    (function () {
+      var radio = document.getElementById("targetOther");
+      var select = document.getElementById("targetOtherSelect");
+      select.addEventListener("change", function () { radio.value = select.value; radio.checked = !!select.value; });
+    })();
+    </script>
+    {% endif %}
+  </div>
 </div>
 {% endif %}
 
@@ -65,7 +155,7 @@
       {{ m.response_header(application, coop) }}
       <p class="print-title">{{ _("Ответ на") }} {{ application_kind_accusative(application.kind) }}</p>
       <p class="print-meta">№ {{ application.number }} {{ _("от") }} {{ fmt_date(application.created_at.date()) }}</p>
-      <div class="application-body" id="responseBody" contenteditable="true" data-sheet-editor data-input="responseBodyInput" spellcheck="true"><p>{{ _("Правление рассмотрело Ваше заявление.") }}</p><p><br></p></div>
+      <div class="application-body" id="responseBody" contenteditable="true" data-sheet-editor data-input="responseBodyInput" spellcheck="true">{{ response_prefill|safe }}</div>
     </div>
   </div>
   <input type="hidden" name="response_html" id="responseBodyInput">

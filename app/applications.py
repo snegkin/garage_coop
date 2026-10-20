@@ -23,12 +23,23 @@ textarea; на сервере HTML чистится bleach'ем (sanitize_html) 
   Можно и ничего не делать — заявление остаётся «на рассмотрении».
 - Поданное заявление не редактируется — это документ; реквизиты заявителя
   сохраняются на момент подачи (Application.applicant_*).
+- Заявление о смене собственника: заявитель прямо на бланке заполняет
+  сведения о новом собственнике (NEW_OWNER_FIELDS) и прикладывает сканы
+  документов. Член правления проверяет/поправляет данные и проводит смену
+  (transfer): новая карточка человека или уже существующий человек, доля
+  заявителя целиком переходит к нему (garages.transfer_owner), приложения
+  копируются в документы гаража.
 """
 import datetime as dt
+import json
+import os
+import shutil
+import uuid
 
 import bleach
 from bleach.css_sanitizer import CSSSanitizer
-from flask import Blueprint, render_template, request, redirect, url_for, flash, g, abort
+from markupsafe import escape
+from flask import Blueprint, render_template, request, redirect, url_for, flash, g, abort, current_app, send_file
 
 from . import audit
 from . import database
@@ -37,9 +48,10 @@ from .i18n import translate as _
 from .auth import login_required, roles_required
 from .legal_docs import _render_pdf_or_fallback, _coop_and_chairman
 from .permissions import is_board
+from .uploads import save_upload
 from .models import (
-    Application, ApplicationRead, ApplicationCounter, ApplicationKind, ApplicationStatus,
-    Garage, GarageOwnership, Person, RoleEnum, short_name_of,
+    Application, ApplicationAttachment, ApplicationRead, ApplicationCounter, ApplicationKind, ApplicationStatus,
+    Garage, GarageDocumentPhoto, GarageDocumentType, GarageOwnership, Person, Phone, RoleEnum, short_name_of,
 )
 
 bp = Blueprint("applications", __name__, url_prefix="/applications")
@@ -74,11 +86,9 @@ DEFAULT_TITLES = {
 # пока текст не трогали), и здесь — default_body().
 DEFAULT_BODIES = {
     ApplicationKind.OWNERSHIP_CHANGE: (
-        "<p>Прошу переоформить членство в кооперативе и лицевые счета по гаражу № {garage} "
-        "на нового собственника — ____________________ (ФИО) в связи с ____________________ "
-        "(продажей, дарением, наследованием и т.п.).</p>"
-        "<p>Копии документов, подтверждающих переход права собственности на гараж, прилагаю.</p>"
-        "<p>Приложения:</p><ol><li>&nbsp;</li></ol>"
+        "<p>Прошу в связи с переходом права собственности на гараж № {garage} исключить меня из "
+        "собственников гаража и внести в реестр нового собственника, сведения о котором приведены ниже.</p>"
+        "<p>Копии документов, подтверждающих переход права собственности, прилагаю.</p>"
     ),
     ApplicationKind.CLAIM: (
         "<p>Настоящим заявляю претензию по следующему вопросу: ____________________.</p>"
@@ -88,6 +98,74 @@ DEFAULT_BODIES = {
     ),
     ApplicationKind.OTHER: "<p>Прошу ____________________.</p>",
 }
+
+
+# Сведения о новом собственнике (заявление о смене собственника) — поля
+# таблицы на бланке; ключи совпадают с полями Person, кроме phone (→ Phone)
+# и basis (основание перехода права — только в тексте заявления/журнале).
+NEW_OWNER_FIELDS = [
+    ("full_name", "ФИО"),
+    ("birth_date", "Дата рождения"),
+    ("passport_series", "Паспорт: серия"),
+    ("passport_number", "Паспорт: номер"),
+    ("passport_issue_date", "Паспорт: дата выдачи"),
+    ("registration_address", "Адрес регистрации"),
+    ("residence_address", "Адрес проживания"),
+    ("phone", "Телефон"),
+    ("email", "Email"),
+    ("basis", "Основание перехода права"),
+]
+NEW_OWNER_DATE_FIELDS = {"birth_date", "passport_issue_date"}
+NEW_OWNER_PERSON_FIELDS = (
+    "birth_date", "passport_series", "passport_number", "passport_issue_date",
+    "registration_address", "residence_address", "email",
+)
+
+
+def parse_new_owner(form, prefix: str = "no_") -> tuple[dict, str | None]:
+    """Сведения о новом собственнике из формы (поля <prefix><ключ>) →
+    (словарь непустых значений, ошибка или None). Даты — ГГГГ-ММ-ДД
+    (input type=date), в словаре хранятся так же."""
+    data = {}
+    for key, _label in NEW_OWNER_FIELDS:
+        value = (form.get(prefix + key) or "").strip()[:255]
+        if value:
+            data[key] = value
+    if not data.get("full_name"):
+        return data, _("Укажите ФИО нового собственника.")
+    for key in NEW_OWNER_DATE_FIELDS:
+        if key in data:
+            try:
+                dt.date.fromisoformat(data[key])
+            except ValueError:
+                return data, _("Неверная дата в сведениях о новом собственнике.")
+    if "passport_series" in data and not (data["passport_series"].isdigit() and len(data["passport_series"]) == 4):
+        return data, _("Серия паспорта — 4 цифры.")
+    if "passport_number" in data and not (data["passport_number"].isdigit() and len(data["passport_number"]) == 6):
+        return data, _("Номер паспорта — 6 цифр.")
+    return data, None
+
+
+def new_owner_rows(data: dict) -> list[tuple[str, str]]:
+    """(подпись, значение) для таблицы на бланке — даты в ДД.ММ.ГГГГ."""
+    rows = []
+    for key, label in NEW_OWNER_FIELDS:
+        value = data.get(key)
+        if value and key in NEW_OWNER_DATE_FIELDS:
+            value = dt.date.fromisoformat(value).strftime("%d.%m.%Y")
+        rows.append((label, value or ""))
+    return rows
+
+
+def matching_persons(full_name: str) -> list[Person]:
+    """Люди из реестра с тем же ФИО (без учёта регистра и «ё») — кандидаты,
+    что новый собственник уже есть в базе. Сравнение в Python: SQLite
+    lower()/ILIKE не понимают кириллицу."""
+    key = " ".join(full_name.lower().replace("ё", "е").split())
+    return [
+        p for p in database.db_session.query(Person).order_by(Person.full_name).all()
+        if " ".join(p.full_name.lower().replace("ё", "е").split()) == key
+    ]
 
 
 def kind_label(kind: ApplicationKind) -> str:
@@ -139,6 +217,7 @@ ALLOWED_CSS = [
 _css_sanitizer = CSSSanitizer(allowed_css_properties=ALLOWED_CSS)
 
 MAX_HTML_LENGTH = 200_000
+MAX_ATTACHMENTS = 10
 
 
 def sanitize_html(raw: str | None) -> str:
@@ -230,6 +309,7 @@ bp.add_app_template_global(kind_label, "application_kind_label")
 bp.add_app_template_global(lambda kind: KIND_HEADINGS[kind], "application_kind_heading")
 bp.add_app_template_global(lambda kind: KIND_ACCUSATIVE[kind], "application_kind_accusative")
 bp.add_app_template_global(short_name_of, "short_name")
+bp.add_app_template_global(new_owner_rows, "application_new_owner_rows")
 
 
 # ---------------------------------------------------------------------------
@@ -287,16 +367,35 @@ def create():
             error = _("Текст заявления слишком длинный.")
         elif not has_text(body_html):
             error = _("Напишите текст заявления.")
+        new_owner = {}
+        if error is None and kind == ApplicationKind.OWNERSHIP_CHANGE:
+            new_owner, error = parse_new_owner(f)
+        uploads = [u for u in request.files.getlist("attachments") if u and u.filename]
+        if error is None and len(uploads) > MAX_ATTACHMENTS:
+            error = _("Не больше {n} файлов-приложений.", n=MAX_ATTACHMENTS)
+        stored = []
+        if error is None:
+            for upload in uploads:
+                name = save_upload(upload, current_app.config["UPLOAD_FOLDER"])
+                if name is None:
+                    error = _("Недопустимый тип файла: {name}", name=upload.filename)
+                    break
+                stored.append((upload.filename[:255], name))
         if error:
+            _remove_files(name for _orig, name in stored)
             flash(error, "danger")
-            return _render_editor(person, garages, kind=kind, garage=garage, title=title, body_html=body_html)
+            return _render_editor(person, garages, kind=kind, garage=garage, title=title, body_html=body_html,
+                                  new_owner=parse_new_owner(f)[0])
 
         today = dt.date.today()
         application = Application(
             number=next_number(today), kind=kind, title=title, body_html=body_html,
             person_id=person.id, garage_id=garage.id, garage_number=garage.number,
             created_at=dt.datetime.now(), **applicant_snapshot(person),
+            new_owner_data=json.dumps(new_owner, ensure_ascii=False) if new_owner else None,
         )
+        for original, name in stored:
+            application.attachments.append(ApplicationAttachment(original_filename=original, file_path=name))
         database.db_session.add(application)
         database.db_session.flush()
         audit.record(
@@ -313,7 +412,14 @@ def create():
     return _render_editor(person, garages, kind=ApplicationKind.OWNERSHIP_CHANGE, garage=garage)
 
 
-def _render_editor(person, garages, kind, garage, title=None, body_html=None):
+def _remove_files(names) -> None:
+    for name in names:
+        path = os.path.join(current_app.config["UPLOAD_FOLDER"], name)
+        if os.path.exists(path):
+            os.remove(path)
+
+
+def _render_editor(person, garages, kind, garage, title=None, body_html=None, new_owner=None):
     coop, _chairman = _coop_and_chairman()
     templates = {
         k.value: {"heading": KIND_HEADINGS[k], "title": DEFAULT_TITLES[k], "body": DEFAULT_BODIES[k],
@@ -329,6 +435,7 @@ def _render_editor(person, garages, kind, garage, title=None, body_html=None):
         "applications/form.html", person=person, snapshot=applicant_snapshot(person), garages=garages,
         kind=kind, garage=garage, title=title or "", body_html=body_html, templates=templates,
         coop=coop, today=dt.date.today(), kinds=list(ApplicationKind),
+        new_owner=new_owner or {}, new_owner_fields=NEW_OWNER_FIELDS, date_fields=NEW_OWNER_DATE_FIELDS,
     )
 
 
@@ -348,8 +455,48 @@ def detail(application_id):
     can_decide = is_board() and application.status == ApplicationStatus.SUBMITTED
     return render_template(
         "applications/detail.html", application=application, coop=coop, can_decide=can_decide,
-        today=dt.date.today(),
+        today=dt.date.today(), transfer=_transfer_context(application) if can_decide else None,
+        response_prefill=_response_prefill(application),
     )
+
+
+def _applicant_ownership(application: Application) -> GarageOwnership | None:
+    if application.garage_id is None:
+        return None
+    return (
+        database.db_session.query(GarageOwnership)
+        .filter_by(garage_id=application.garage_id, person_id=application.person_id)
+        .first()
+    )
+
+
+def _transfer_context(application: Application) -> dict | None:
+    """Данные для формы «Провести смену собственника» на карточке
+    заявления — только для заявления о смене собственника, ещё не
+    проведённого."""
+    if application.kind != ApplicationKind.OWNERSHIP_CHANGE or application.transferred_at:
+        return None
+    data = application.new_owner_dict
+    ownership = _applicant_ownership(application)
+    return {
+        "data": data, "ownership": ownership,
+        "matches": matching_persons(data["full_name"]) if data.get("full_name") else [],
+        "persons": database.db_session.query(Person).filter(Person.is_archived.is_(False))
+                   .order_by(Person.full_name).all(),
+        "fields": NEW_OWNER_FIELDS, "date_fields": NEW_OWNER_DATE_FIELDS,
+        "comment": f"По заявлению № {application.number} от {application.created_at.strftime('%d.%m.%Y')}"
+                   + (f"; основание: {data['basis']}" if data.get("basis") else ""),
+    }
+
+
+def _response_prefill(application: Application) -> str:
+    if application.transferred_at and application.new_owner:
+        return (
+            f"<p>Правление рассмотрело Ваше заявление. Смена собственника гаража № {escape(application.garage_number)} "
+            f"произведена {application.transferred_at.strftime('%d.%m.%Y')}: собственником гаража внесён(а) "
+            f"{escape(application.new_owner.full_name)}.</p>"
+        )
+    return "<p>Правление рассмотрело Ваше заявление.</p><p><br></p>"
 
 
 @bp.route("/<int:application_id>/decide", methods=["POST"])
@@ -397,6 +544,98 @@ def decide(application_id):
     database.db_session.commit()
     flash(_("Ответ отправлен заявителю.") if decision == "answer" else _("Заявление отклонено."), "success")
     return redirect(url_for("applications.detail", application_id=application.id))
+
+
+@bp.route("/<int:application_id>/transfer", methods=["POST"])
+@roles_required(RoleEnum.BOARD)
+def transfer(application_id):
+    """Провести смену собственника по заявлению: человек — новая карточка
+    по (поправленным правлением) сведениям из заявления или уже
+    существующий в реестре (пустые поля его карточки дополняются из
+    заявления, заполненные не трогаются); доля заявителя целиком переходит
+    к нему (garages.transfer_owner); приложения заявления копируются в
+    документы гаража."""
+    from .garages import transfer_owner
+
+    application = _get_or_404(application_id)
+    back = redirect(url_for("applications.detail", application_id=application.id))
+    if application.kind != ApplicationKind.OWNERSHIP_CHANGE or application.status != ApplicationStatus.SUBMITTED:
+        flash(_("Смену собственника можно провести только по заявлению о смене собственника, ожидающему решения."), "danger")
+        return back
+    if application.transferred_at:
+        flash(_("Смена собственника по этому заявлению уже проведена."), "warning")
+        return back
+    ownership = _applicant_ownership(application)
+    if ownership is None:
+        flash(_("Заявитель уже не числится собственником этого гаража — смену нужно провести вручную на карточке гаража."), "danger")
+        return back
+
+    f = request.form
+    data, error = parse_new_owner(f)
+    if error:
+        flash(error, "danger")
+        return back
+    target = f.get("target") or "new"
+    if target == "new":
+        new_person = Person(full_name=data["full_name"])
+        database.db_session.add(new_person)
+    else:
+        new_person = database.db_session.get(Person, int(target)) if target.isdigit() else None
+        if new_person is None:
+            flash(_("Выберите человека из реестра."), "danger")
+            return back
+    if new_person.id is not None and new_person.id == application.person_id:
+        flash(_("Новый собственник совпадает с заявителем."), "danger")
+        return back
+    for key in NEW_OWNER_PERSON_FIELDS:
+        if data.get(key) and not getattr(new_person, key):
+            value = dt.date.fromisoformat(data[key]) if key in NEW_OWNER_DATE_FIELDS else data[key]
+            setattr(new_person, key, value)
+    database.db_session.flush()
+    phone = data.get("phone")
+    if phone and phone not in {p.number for p in new_person.phones}:
+        database.db_session.add(Phone(person_id=new_person.id, number=phone[:30]))
+
+    garage = application.garage
+    comment = (f.get("comment") or "").strip()[:500] or None
+    transfer_owner(garage, ownership, new_person.id, carry_balance=bool(f.get("carry_balance")),
+                   comment=comment, user_id=g.user.id)
+
+    for att in application.attachments:
+        src = os.path.join(current_app.config["UPLOAD_FOLDER"], att.file_path)
+        if not os.path.exists(src):
+            continue
+        copy_name = f"{uuid.uuid4().hex}{os.path.splitext(att.file_path)[1]}"
+        shutil.copyfile(src, os.path.join(current_app.config["UPLOAD_FOLDER"], copy_name))
+        database.db_session.add(GarageDocumentPhoto(
+            garage_id=garage.id, doc_type=GarageDocumentType.OTHER, original_filename=att.original_filename,
+            file_path=copy_name, comment=f"К заявлению № {application.number}", author_id=g.user.id,
+        ))
+
+    application.new_owner_person_id = new_person.id
+    application.new_owner_data = json.dumps(data, ensure_ascii=False)
+    application.transferred_at = dt.datetime.now()
+    audit.record(
+        "application.transfer", entity_type="application", entity_id=application.id,
+        summary=f"По заявлению № {application.number} проведена смена собственника гаража № {garage.number}: "
+                f"{application.applicant_name} → {new_person.full_name}",
+    )
+    database.db_session.commit()
+    flash(_("Смена собственника проведена. Осталось отправить заявителю ответ."), "success")
+    return back
+
+
+@bp.route("/attachments/<int:attachment_id>")
+@login_required
+def attachment_file(attachment_id):
+    att = database.db_session.get(ApplicationAttachment, attachment_id)
+    if att is None:
+        abort(404)
+    _get_or_404(att.application_id)
+    return send_file(
+        os.path.join(current_app.config["UPLOAD_FOLDER"], att.file_path),
+        as_attachment=True, download_name=att.original_filename,
+    )
 
 
 @bp.route("/<int:application_id>/pdf")

@@ -392,3 +392,83 @@ def test_transfer_forbidden_for_member_and_other_kinds(db, client):
 def dt_dec(value):
     from decimal import Decimal
     return Decimal(value)
+
+
+# ---------------------------------------------------------------------------
+# Бумажное заявление, заведённое правлением
+# ---------------------------------------------------------------------------
+
+def _register(client, person, garage, scan=True, **extra):
+    data = {
+        "owner": f"{person.id}:{garage.id}", "kind": "ownership_change", "paper_date": "2026-10-15",
+        "title": "о смене собственника гаража", **extra,
+    }
+    if scan:
+        data["scan"] = [(io.BytesIO(b"%PDF-1.4 signed"), "заявление.pdf")]
+    return client.post("/applications/register", data=data, content_type="multipart/form-data")
+
+
+def test_board_registers_paper_application(db, client):
+    person, garage = _owner(db)
+    board = _board(db)
+    login(client, "board1", "pass1234")
+
+    form = client.get(f"/applications/register?garage_id={garage.id}").get_data(as_text=True)
+    assert f'value="{person.id}:{garage.id}" selected' in form
+
+    resp = _register(client, person, garage, attachments=[(io.BytesIO(b"contract"), "договор.pdf")])
+    assert resp.status_code == 302
+    application = db.query(Application).one()
+    assert application.is_paper and application.body_html == ""
+    assert application.number == "2026-1" and application.created_at.date() == dt.date(2026, 10, 15)
+    assert application.applicant_address == "г. Город, ул. Улица, 1"
+    assert [(a.original_filename, a.is_scan) for a in application.attachments] == [("заявление.pdf", True), ("договор.pdf", False)]
+    assert db.query(ApplicationRead).filter_by(application_id=application.id, person_id=board.id).count() == 1
+    assert db.query(AuditLog).filter_by(action="application.register").count() == 1
+
+    page = client.get(f"/applications/{application.id}").get_data(as_text=True)
+    assert "Подано на бумаге" in page and "<iframe" in page
+    assert "Провести смену собственника" in page  # дальше — как обычное заявление
+    scan_id = application.scans[0].id
+    inline = client.get(f"/applications/attachments/{scan_id}?inline=1")
+    assert inline.data == b"%PDF-1.4 signed" and "inline" in inline.headers["Content-Disposition"]
+
+    # Заявитель видит своё бумажное заявление.
+    client.get("/auth/logout")
+    login(client, "owner", "pass1234")
+    assert client.get(f"/applications/{application.id}").status_code == 200
+    assert client.get(f"/applications/attachments/{scan_id}").status_code == 200
+
+
+def test_paper_application_requires_scan_and_valid_owner(db, client):
+    person, garage = _owner(db)
+    _board(db)
+    stranger = make_person(db, full_name="Не Собственник")
+    db.commit()
+    login(client, "board1", "pass1234")
+
+    assert _register(client, person, garage, scan=False).status_code == 200
+    assert _register(client, stranger, garage).status_code == 200
+    assert _register(client, person, garage, paper_date="2999-01-01").status_code == 200
+    assert db.query(Application).count() == 0
+
+
+def test_member_cannot_register_paper_application(db, client):
+    person, garage = _owner(db)
+    login(client, "owner", "pass1234")
+    resp = _register(client, person, garage)
+    assert resp.status_code in (302, 403)
+    assert db.query(Application).count() == 0
+
+
+def test_paper_transfer_copies_scan_to_garage_documents(db, client):
+    person, garage = _owner(db)
+    _board(db)
+    login(client, "board1", "pass1234")
+    _register(client, person, garage)
+    application = db.query(Application).one()
+    client.post(f"/applications/{application.id}/transfer", data={**NEW_OWNER_FORM, "target": "new", "carry_balance": "1"})
+    assert db.query(GarageDocumentPhoto).filter_by(garage_id=garage.id, original_filename="заявление.pdf").count() == 1
+    client.post(f"/applications/{application.id}/decide", data={"decision": "answer", "response_html": "<p>Готово.</p>"})
+    resp = client.get(f"/applications/{application.id}/pdf")
+    assert resp.data[:4] == b"%PDF"

@@ -18,7 +18,9 @@
   </div>
   <div class="d-flex gap-2">
     <button class="btn btn-primary btn-sm" onclick="window.print()"><i class="bi bi-printer" aria-hidden="true"></i> {{ _("Печать") }}</button>
-    <a class="btn btn-outline-primary btn-sm" href="{{ url_for('applications.pdf', application_id=application.id) }}">{{ _("Скачать PDF") }}</a>
+    {% if not (application.is_paper and application.status.value == 'submitted') %}
+    <a class="btn btn-outline-primary btn-sm" href="{{ url_for('applications.pdf', application_id=application.id) }}">{{ _("Скачать PDF") }}{% if application.is_paper %} ({{ _("ответ") }}){% endif %}</a>
+    {% endif %}
     <a data-back-link data-back-label="&larr; {{ _('Назад') }}" class="btn btn-outline-secondary btn-sm" href="{{ url_for('applications.list_applications') }}">{{ _("← к заявлениям") }}</a>
   </div>
 </div>
@@ -47,10 +49,18 @@
       {% if is_board() %}<a href="{{ url_for('persons.detail', person_id=application.new_owner_person_id) }}">{{ application.new_owner.full_name }}</a>{% else %}{{ application.new_owner.full_name }}{% endif %}{% endif %}
     </div>
     {% endif %}
-    {% if application.attachments %}
+    {% if application.is_paper %}
+    <div class="mt-1">
+      <strong>{{ _("Подано на бумаге") }}</strong> · {{ _("зарегистрировал(а)") }}
+      {{ application.registered_by.person.short_name if application.registered_by and application.registered_by.person else (application.registered_by.username if application.registered_by else "—") }}
+      · {{ _("скан") }}:
+      {% for att in application.scans %}<a href="{{ url_for('applications.attachment_file', attachment_id=att.id) }}"><i class="bi bi-file-earmark-text" aria-hidden="true"></i>{{ att.original_filename }}</a>{% if not loop.last %}, {% endif %}{% endfor %}
+    </div>
+    {% endif %}
+    {% if application.extra_attachments %}
     <div class="mt-1">
       <strong>{{ _("Приложения") }}:</strong>
-      {% for att in application.attachments %}
+      {% for att in application.extra_attachments %}
       <a href="{{ url_for('applications.attachment_file', attachment_id=att.id) }}"><i class="bi bi-paperclip" aria-hidden="true"></i>{{ att.original_filename }}</a>{% if not loop.last %}, {% endif %}
       {% endfor %}
     </div>
@@ -58,9 +68,25 @@
   </div>
 </div>
 
+{% if application.is_paper %}
+{% for scan in application.scans %}
+{% set scan_url = url_for('applications.attachment_file', attachment_id=scan.id, inline=1) %}
+<div class="legal-print paper-scan">
+  {% if scan.is_image %}
+  <img src="{{ scan_url }}" alt="{{ scan.original_filename }}" style="width: 100%; height: auto; display: block;">
+  {% elif scan.is_pdf %}
+  <iframe src="{{ scan_url }}" title="{{ scan.original_filename }}" class="no-print" style="width: 100%; height: 260mm; border: 0;"></iframe>
+  <p class="no-print small mt-2 mb-0"><a href="{{ url_for('applications.attachment_file', attachment_id=scan.id) }}">{{ _("Скачать") }} {{ scan.original_filename }}</a></p>
+  {% else %}
+  <p class="mb-0"><a href="{{ url_for('applications.attachment_file', attachment_id=scan.id) }}">{{ scan.original_filename }}</a></p>
+  {% endif %}
+</div>
+{% endfor %}
+{% else %}
 <div class="legal-print">
   {{ m.application_doc(application, coop) }}
 </div>
+{% endif %}
 
 {% if application.status.value != 'submitted' %}
 <div class="legal-print">

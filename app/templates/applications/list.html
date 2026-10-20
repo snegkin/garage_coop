@@ -3,9 +3,14 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
   <h3 class="mb-0">{{ _("Заявления в правление") }}</h3>
-  {% if can_submit %}
-  <a class="btn btn-primary" href="{{ url_for('applications.create') }}"><i class="bi bi-pencil-square" aria-hidden="true"></i> {{ _("Написать заявление") }}</a>
-  {% endif %}
+  <div class="d-flex gap-2">
+    {% if is_board() %}
+    <a class="btn btn-outline-primary" href="{{ url_for('applications.register_paper') }}"><i class="bi bi-box-arrow-in-down" aria-hidden="true"></i> {{ _("Зарегистрировать бумажное") }}</a>
+    {% endif %}
+    {% if can_submit %}
+    <a class="btn btn-primary" href="{{ url_for('applications.create') }}"><i class="bi bi-pencil-square" aria-hidden="true"></i> {{ _("Написать заявление") }}</a>
+    {% endif %}
+  </div>
 </div>
 <p class="text-muted small">
   {% if is_board() %}

@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import enum
+import os
 import datetime as dt
 import json
 from decimal import Decimal
@@ -1117,6 +1118,11 @@ class Application(Base):
     # new_owner_person_id (кто стал собственником — новая карточка или уже
     # существующий человек) и transferred_at.
     new_owner_data: Mapped[str | None] = mapped_column(Text)
+    # Заявление подано на бумаге и заведено членом правления (applications.
+    # register_paper): текста нет (body_html пустой), документ — скан
+    # подписанного бланка (ApplicationAttachment.is_scan). NULL — написано
+    # самим заявителем в редакторе на сайте.
+    registered_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("user.id", ondelete="SET NULL"))
     new_owner_person_id: Mapped[int | None] = mapped_column(ForeignKey("person.id", ondelete="SET NULL"))
     transferred_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
 
@@ -1124,6 +1130,7 @@ class Application(Base):
     garage: Mapped["Garage | None"] = relationship()
     decided_by: Mapped["Person | None"] = relationship(foreign_keys=[decided_by_person_id])
     new_owner: Mapped["Person | None"] = relationship(foreign_keys=[new_owner_person_id])
+    registered_by: Mapped["User | None"] = relationship(foreign_keys=[registered_by_user_id])
     reads: Mapped[list["ApplicationRead"]] = relationship(
         back_populates="application", cascade="all, delete-orphan", order_by="ApplicationRead.read_at",
     )
@@ -1134,6 +1141,18 @@ class Application(Base):
     @property
     def new_owner_dict(self) -> dict:
         return json.loads(self.new_owner_data) if self.new_owner_data else {}
+
+    @property
+    def is_paper(self) -> bool:
+        return self.registered_by_user_id is not None
+
+    @property
+    def scans(self) -> list["ApplicationAttachment"]:
+        return [a for a in self.attachments if a.is_scan]
+
+    @property
+    def extra_attachments(self) -> list["ApplicationAttachment"]:
+        return [a for a in self.attachments if not a.is_scan]
 
 
 class ApplicationAttachment(Base):
@@ -1147,8 +1166,18 @@ class ApplicationAttachment(Base):
     application_id: Mapped[int] = mapped_column(ForeignKey("application.id", ondelete="CASCADE"), index=True)
     original_filename: Mapped[str] = mapped_column(String(255))
     file_path: Mapped[str] = mapped_column(String(500))
+    # Скан самого подписанного бланка бумажного заявления (не приложение к нему).
+    is_scan: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("0"))
 
     application: Mapped["Application"] = relationship(back_populates="attachments")
+
+    @property
+    def is_image(self) -> bool:
+        return os.path.splitext(self.original_filename)[1].lower() in {".jpg", ".jpeg", ".png", ".gif", ".webp"}
+
+    @property
+    def is_pdf(self) -> bool:
+        return self.original_filename.lower().endswith(".pdf")
 
 
 class ApplicationRead(Base):

@@ -370,19 +370,10 @@ def create():
         new_owner = {}
         if error is None and kind == ApplicationKind.OWNERSHIP_CHANGE:
             new_owner, error = parse_new_owner(f)
-        uploads = [u for u in request.files.getlist("attachments") if u and u.filename]
-        if error is None and len(uploads) > MAX_ATTACHMENTS:
-            error = _("Не больше {n} файлов-приложений.", n=MAX_ATTACHMENTS)
         stored = []
         if error is None:
-            for upload in uploads:
-                name = save_upload(upload, current_app.config["UPLOAD_FOLDER"])
-                if name is None:
-                    error = _("Недопустимый тип файла: {name}", name=upload.filename)
-                    break
-                stored.append((upload.filename[:255], name))
+            stored, error = _save_uploads("attachments")
         if error:
-            _remove_files(name for _orig, name in stored)
             flash(error, "danger")
             return _render_editor(person, garages, kind=kind, garage=garage, title=title, body_html=body_html,
                                   new_owner=parse_new_owner(f)[0])
@@ -412,11 +403,116 @@ def create():
     return _render_editor(person, garages, kind=ApplicationKind.OWNERSHIP_CHANGE, garage=garage)
 
 
+def _save_uploads(field: str) -> tuple[list[tuple[str, str]], str | None]:
+    """Файлы из поля формы → [(исходное имя, имя на диске)], ошибка. При
+    ошибке уже сохранённые файлы этого вызова удаляются."""
+    uploads = [u for u in request.files.getlist(field) if u and u.filename]
+    if len(uploads) > MAX_ATTACHMENTS:
+        return [], _("Не больше {n} файлов-приложений.", n=MAX_ATTACHMENTS)
+    stored = []
+    for upload in uploads:
+        name = save_upload(upload, current_app.config["UPLOAD_FOLDER"])
+        if name is None:
+            _remove_files(n for _orig, n in stored)
+            return [], _("Недопустимый тип файла: {name}", name=upload.filename)
+        stored.append((upload.filename[:255], name))
+    return stored, None
+
+
 def _remove_files(names) -> None:
     for name in names:
         path = os.path.join(current_app.config["UPLOAD_FOLDER"], name)
         if os.path.exists(path):
             os.remove(path)
+
+
+@bp.route("/register", methods=["GET", "POST"])
+@roles_required(RoleEnum.BOARD)
+def register_paper():
+    """Завести заявление, поданное на бумаге: член правления выбирает
+    заявителя-собственника и гараж, вид, дату на бланке и загружает скан
+    подписанного бланка — текст не набирается. Дальше — как с любым
+    заявлением (ознакомление, ответ/отклонение, смена собственника)."""
+    ownerships = sorted(
+        database.db_session.query(GarageOwnership).all(),
+        key=lambda o: (o.person.full_name.lower(), o.garage.number),
+    )
+    form = request.form if request.method == "POST" else request.args
+    if request.method == "POST":
+        ownership = next((o for o in ownerships if f"{o.person_id}:{o.garage_id}" == form.get("owner")), None)
+        try:
+            kind = ApplicationKind(form.get("kind"))
+        except ValueError:
+            kind = None
+        try:
+            paper_date = dt.date.fromisoformat(form.get("paper_date") or "")
+        except ValueError:
+            paper_date = None
+        title = (form.get("title") or "").strip()[:255]
+
+        error = None
+        if ownership is None:
+            error = _("Выберите заявителя и гараж.")
+        elif kind is None:
+            error = _("Выберите вид заявления.")
+        elif paper_date is None or paper_date > dt.date.today():
+            error = _("Укажите дату заявления (не позже сегодняшней).")
+        scans, extras = [], []
+        if error is None:
+            scans, error = _save_uploads("scan")
+            if error is None and not scans:
+                error = _("Загрузите скан подписанного заявления.")
+        if error is None:
+            extras, error = _save_uploads("attachments")
+        if error:
+            _remove_files(n for _o, n in scans)
+            flash(error, "danger")
+            return _render_register(ownerships, form)
+
+        person, garage = ownership.person, ownership.garage
+        application = Application(
+            number=next_number(paper_date), kind=kind, title=title, body_html="",
+            person_id=person.id, garage_id=garage.id, garage_number=garage.number,
+            created_at=dt.datetime.combine(paper_date, dt.datetime.now().time()),
+            registered_by_user_id=g.user.id, **applicant_snapshot(person),
+        )
+        for original, name in scans:
+            application.attachments.append(ApplicationAttachment(original_filename=original, file_path=name, is_scan=True))
+        for original, name in extras:
+            application.attachments.append(ApplicationAttachment(original_filename=original, file_path=name))
+        database.db_session.add(application)
+        database.db_session.flush()
+        if g.user.person_id:
+            database.db_session.add(ApplicationRead(
+                application_id=application.id, person_id=g.user.person_id, read_at=dt.datetime.now(),
+            ))
+        audit.record(
+            "application.register", entity_type="application", entity_id=application.id,
+            summary=f"Зарегистрировано бумажное {application_heading(application).lower()} "
+                    f"№ {application.number} от {person.full_name} по гаражу № {garage.number}",
+        )
+        database.db_session.commit()
+        flash(_("Заявление № {number} зарегистрировано.", number=application.number), "success")
+        return redirect(url_for("applications.detail", application_id=application.id))
+
+    return _render_register(ownerships, form)
+
+
+def _render_register(ownerships, form):
+    selected = form.get("owner")
+    if not selected:
+        person_id = form.get("person_id", type=int)
+        garage_id = form.get("garage_id", type=int)
+        match = next((o for o in ownerships
+                      if (person_id is None or o.person_id == person_id) and (garage_id is None or o.garage_id == garage_id)
+                      and (person_id or garage_id)), None)
+        selected = f"{match.person_id}:{match.garage_id}" if match else ""
+    return render_template(
+        "applications/register.html", ownerships=ownerships, selected=selected,
+        kinds=list(ApplicationKind), kind=form.get("kind") or ApplicationKind.OWNERSHIP_CHANGE.value,
+        title=form.get("title") or "", paper_date=form.get("paper_date") or dt.date.today().isoformat(),
+        default_titles={k.value: DEFAULT_TITLES[k] for k in ApplicationKind}, today_iso=dt.date.today().isoformat(),
+    )
 
 
 def _render_editor(person, garages, kind, garage, title=None, body_html=None, new_owner=None):
@@ -628,13 +724,16 @@ def transfer(application_id):
 @bp.route("/attachments/<int:attachment_id>")
 @login_required
 def attachment_file(attachment_id):
+    """?inline=1 — показать в браузере (скан на карточке заявления:
+    картинка/PDF во встроенном просмотре), иначе — скачать."""
     att = database.db_session.get(ApplicationAttachment, attachment_id)
     if att is None:
         abort(404)
     _get_or_404(att.application_id)
+    inline = bool(request.args.get("inline")) and (att.is_image or att.is_pdf)
     return send_file(
         os.path.join(current_app.config["UPLOAD_FOLDER"], att.file_path),
-        as_attachment=True, download_name=att.original_filename,
+        as_attachment=not inline, download_name=att.original_filename,
     )
 
 
@@ -642,6 +741,9 @@ def attachment_file(attachment_id):
 @login_required
 def pdf(application_id):
     application = _get_or_404(application_id)
+    if application.is_paper and application.status == ApplicationStatus.SUBMITTED:
+        # Сам документ — скан, печатной формы нет; в PDF пошёл бы только ответ.
+        return redirect(url_for("applications.detail", application_id=application.id))
     coop, _chairman = _coop_and_chairman()
     return _render_pdf_or_fallback(
         "applications/pdf.html", f"application-{application.number}.pdf", "applications/detail.html",

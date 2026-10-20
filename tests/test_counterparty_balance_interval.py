@@ -1,7 +1,7 @@
 """
 Интервал автоматического обновления баланса личного кабинета контрагента
 (Counterparty.balance_sync_interval_days, app/counterparty_sync.py:
-balance_sync_due, scripts/sync_bank_accounts.py) — чтобы ежедневный cron
+balance_sync_due, scripts/sync_counterparty_balances.py) — чтобы ежедневный cron
 не давал запись в журнале аудита на каждый день у контрагентов, чей баланс
 меняется постоянно (SMS Aero).
 """
@@ -40,8 +40,8 @@ def test_weekly_waits_seven_days():
 
 
 def _load_sync_script():
-    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts", "sync_bank_accounts.py")
-    spec = importlib.util.spec_from_file_location("sync_bank_accounts_script", path)
+    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts", "sync_counterparty_balances.py")
+    spec = importlib.util.spec_from_file_location("sync_counterparty_balances_script", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module

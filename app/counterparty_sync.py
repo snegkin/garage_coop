@@ -4,8 +4,7 @@
 accounting.counterparty_balance()). Тот же приём, что app/bank_sync.py для
 расчётных счетов: sync_counterparty_balance() ничего не знает про
 flash/redirect и вызывается и роутом (кнопка «Обновить баланс»), и
-cron-скриптом scripts/sync_bank_accounts.py — вместе с банковскими
-счетами, одним прогоном.
+cron-скриптом scripts/sync_counterparty_balances.py.
 """
 import datetime as dt
 

@@ -1110,12 +1110,45 @@ class Application(Base):
     decided_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
     decided_by_person_id: Mapped[int | None] = mapped_column(ForeignKey("person.id", ondelete="SET NULL"))
 
+    # Только для OWNERSHIP_CHANGE: сведения о новом собственнике, как их
+    # указал заявитель — JSON-словарь (ключи — applications.NEW_OWNER_FIELDS),
+    # печатаются на бланке таблицей. По ним правление проводит смену
+    # собственника (applications.transfer) — тогда заполняются
+    # new_owner_person_id (кто стал собственником — новая карточка или уже
+    # существующий человек) и transferred_at.
+    new_owner_data: Mapped[str | None] = mapped_column(Text)
+    new_owner_person_id: Mapped[int | None] = mapped_column(ForeignKey("person.id", ondelete="SET NULL"))
+    transferred_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
+
     person: Mapped["Person"] = relationship(foreign_keys=[person_id])
     garage: Mapped["Garage | None"] = relationship()
     decided_by: Mapped["Person | None"] = relationship(foreign_keys=[decided_by_person_id])
+    new_owner: Mapped["Person | None"] = relationship(foreign_keys=[new_owner_person_id])
     reads: Mapped[list["ApplicationRead"]] = relationship(
         back_populates="application", cascade="all, delete-orphan", order_by="ApplicationRead.read_at",
     )
+    attachments: Mapped[list["ApplicationAttachment"]] = relationship(
+        back_populates="application", cascade="all, delete-orphan", order_by="ApplicationAttachment.id",
+    )
+
+    @property
+    def new_owner_dict(self) -> dict:
+        return json.loads(self.new_owner_data) if self.new_owner_data else {}
+
+
+class ApplicationAttachment(Base):
+    """Приложенный к заявлению файл (скан договора, свидетельства и т.п.).
+    При смене собственника по заявлению копируется в документы гаража
+    (GarageDocumentPhoto) — отдельным файлом, чтобы удаление документа
+    гаража не задело заявление."""
+    __tablename__ = "application_attachment"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    application_id: Mapped[int] = mapped_column(ForeignKey("application.id", ondelete="CASCADE"), index=True)
+    original_filename: Mapped[str] = mapped_column(String(255))
+    file_path: Mapped[str] = mapped_column(String(500))
+
+    application: Mapped["Application"] = relationship(back_populates="attachments")
 
 
 class ApplicationRead(Base):

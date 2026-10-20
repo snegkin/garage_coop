@@ -407,6 +407,14 @@ relationship-коллекции» выше — тот же класс пробл
 (не context_processor): нужны в импортируемых макросах без `with context`.
 Импорт `applications` в garages/persons — локальный (цикл через legal_docs).
 `signature_block` в legal_docs/_macros.html получил параметр `role`.
+Смена собственника по заявлению — `garages.transfer_owner` (доля целиком
+одному получателю, не `_remove_owner_and_redistribute`, который поделил бы
+её между содольщиками); при `carry_balance` и единственном собственнике —
+`_archive_owner_accounts_and_reuse` (те же номера), иначе новые номера и
+`transfer_member_account_balance` по видам взноса. `matching_persons` —
+сравнение ФИО в Python (SQLite lower()/ILIKE не работают с кириллицей).
+Приложения копируются в GarageDocumentPhoto отдельным файлом (удаление
+документа гаража стирает файл с диска).
 
 ## Крон-скрипты пени: ставка ЦБ + начисление
 `scripts/update_key_rate.py` — standalone (сам `create_app()`+

@@ -226,3 +226,169 @@ def test_pdf(db, client):
     resp = client.get(f"/applications/{application.id}/pdf")
     assert resp.status_code == 200
     assert resp.data[:4] == b"%PDF"
+
+
+# ---------------------------------------------------------------------------
+# Смена собственника по заявлению
+# ---------------------------------------------------------------------------
+
+import io
+
+from app.models import (
+    FeeType, GarageDocumentPhoto, GarageOwnership, GarageOwnershipEvent, MemberAccount, Charge, Person,
+)
+from app.accounting import balance
+
+
+NEW_OWNER_FORM = {
+    "no_full_name": "Новиков Николай Николаевич", "no_birth_date": "1980-02-03",
+    "no_passport_series": "4321", "no_passport_number": "123456", "no_passport_issue_date": "2010-01-01",
+    "no_registration_address": "г. Город, ул. Новая, 5", "no_phone": "+79007654321",
+    "no_basis": "договор купли-продажи от 01.10.2026",
+}
+
+
+def _submit_ownership_change(client, garage, extra=None, files=None):
+    data = {
+        "kind": "ownership_change", "garage_id": str(garage.id), "title": "о смене собственника гаража",
+        "body_html": "<p>Прошу сменить собственника.</p>", **NEW_OWNER_FORM, **(extra or {}),
+    }
+    if files:
+        data["attachments"] = files
+    return client.post("/applications/new", data=data, content_type="multipart/form-data")
+
+
+def _fee_type_with_debt(db, person, garage, amount="500"):
+    fee_type = FeeType(code="membership", name="Членский взнос", type_code="1")
+    db.add(fee_type)
+    db.flush()
+    account = MemberAccount(person_id=person.id, garage_id=garage.id, fee_type_id=fee_type.id, account_number="10420")
+    db.add(account)
+    db.flush()
+    db.add(Charge(account_id=account.id, year=2026, amount=amount))
+    db.commit()
+    return fee_type, account
+
+
+def test_ownership_change_requires_new_owner_name(db, client):
+    _person, garage = _owner(db)
+    login(client, "owner", "pass1234")
+    resp = _submit_ownership_change(client, garage, extra={"no_full_name": ""})
+    assert resp.status_code == 200
+    assert db.query(Application).count() == 0
+
+    resp = _submit_ownership_change(client, garage, extra={"no_passport_series": "12ab"})
+    assert resp.status_code == 200
+    assert db.query(Application).count() == 0
+
+
+def test_ownership_change_stores_new_owner_and_attachments(db, client):
+    _person, garage = _owner(db)
+    login(client, "owner", "pass1234")
+    resp = _submit_ownership_change(client, garage, files=[(io.BytesIO(b"%PDF-1.4 test"), "договор.pdf")])
+    assert resp.status_code == 302
+
+    application = db.query(Application).one()
+    assert application.new_owner_dict["full_name"] == "Новиков Николай Николаевич"
+    assert [a.original_filename for a in application.attachments] == ["договор.pdf"]
+    page = client.get(f"/applications/{application.id}").get_data(as_text=True)
+    assert "Сведения о новом собственнике" in page and "03.02.1980" in page
+    file_resp = client.get(f"/applications/attachments/{application.attachments[0].id}")
+    assert file_resp.data == b"%PDF-1.4 test"
+
+
+def test_board_transfers_sole_owner_to_new_person(db, client):
+    person, garage = _owner(db)
+    _board(db)
+    _fee_type, old_account = _fee_type_with_debt(db, person, garage)
+    login(client, "owner", "pass1234")
+    _submit_ownership_change(client, garage, files=[(io.BytesIO(b"scan"), "договор.pdf")])
+    application = db.query(Application).one()
+    client.get("/auth/logout")
+
+    login(client, "board1", "pass1234")
+    page = client.get(f"/applications/{application.id}").get_data(as_text=True)
+    assert "Провести смену собственника" in page
+    form = {**NEW_OWNER_FORM, "target": "new", "carry_balance": "1", "comment": "По заявлению"}
+    resp = client.post(f"/applications/{application.id}/transfer", data=form)
+    assert resp.status_code == 302
+
+    db.expire_all()
+    new_person = db.query(Person).filter_by(full_name="Новиков Николай Николаевич").one()
+    assert new_person.passport_number == "123456" and new_person.birth_date == dt.date(1980, 2, 3)
+    assert [p.number for p in new_person.phones] == ["+79007654321"]
+    owners = db.query(GarageOwnership).filter_by(garage_id=garage.id).all()
+    assert [(o.person_id, o.share) for o in owners] == [(new_person.id, 1)]
+
+    # Долг перешёл на счёт нового собственника с тем же номером, старый — в архиве.
+    db.refresh(old_account)
+    assert old_account.is_archived and balance(old_account) == 0
+    new_account = db.query(MemberAccount).filter_by(person_id=new_person.id, garage_id=garage.id).one()
+    assert new_account.account_number == "10420" and balance(new_account) == -500
+
+    application = db.get(Application, application.id)
+    assert application.new_owner_person_id == new_person.id and application.transferred_at
+    assert application.status == ApplicationStatus.SUBMITTED  # ответ — отдельным шагом
+    assert db.query(GarageDocumentPhoto).filter_by(garage_id=garage.id, original_filename="договор.pdf").count() == 1
+    assert db.query(GarageOwnershipEvent).filter_by(garage_id=garage.id).count() == 2
+
+    page = client.get(f"/applications/{application.id}").get_data(as_text=True)
+    assert "Провести смену собственника" not in page
+    assert "Смена собственника гаража № 42" in page  # заготовка ответа
+
+    resp = client.post(f"/applications/{application.id}/transfer", data=form)
+    assert db.query(GarageOwnership).filter_by(garage_id=garage.id).count() == 1
+
+
+def test_transfer_share_to_existing_person_without_carrying_debt(db, client):
+    person, garage = _owner(db)
+    _board(db)
+    co_owner = make_person(db, full_name="Совладелец Второй")
+    db.query(GarageOwnership).filter_by(person_id=person.id).one().share = "0.5"
+    make_ownership(db, garage, co_owner, share="0.5")
+    existing = make_person(db, full_name="новиков николай николаевич", email="old@example.com")
+    _fee_type, old_account = _fee_type_with_debt(db, person, garage)
+    login(client, "owner", "pass1234")
+    _submit_ownership_change(client, garage)
+    application = db.query(Application).one()
+    client.get("/auth/logout")
+
+    login(client, "board1", "pass1234")
+    page = client.get(f"/applications/{application.id}").get_data(as_text=True)
+    assert f'value="{existing.id}"' in page  # найден по ФИО без учёта регистра
+    client.post(f"/applications/{application.id}/transfer", data={
+        **NEW_OWNER_FORM, "no_email": "new@example.com", "target": str(existing.id), "comment": "",
+    })
+
+    db.expire_all()
+    shares = {o.person_id: o.share for o in db.query(GarageOwnership).filter_by(garage_id=garage.id)}
+    assert shares == {co_owner.id: dt_dec("0.5"), existing.id: dt_dec("0.5")}
+    existing = db.get(Person, existing.id)
+    assert existing.email == "old@example.com"  # заполненное не перезаписывается
+    assert existing.passport_series == "4321"   # пустое дополнено
+    old_account = db.get(MemberAccount, old_account.id)
+    assert not old_account.is_archived and balance(old_account) == -500  # долг остался за прежним
+    new_account = db.query(MemberAccount).filter_by(person_id=existing.id, garage_id=garage.id).one()
+    assert new_account.account_number != "10420" and balance(new_account) == 0
+
+
+def test_transfer_forbidden_for_member_and_other_kinds(db, client):
+    _person, garage = _owner(db)
+    _board(db)
+    login(client, "owner", "pass1234")
+    _submit_ownership_change(client, garage)
+    application = db.query(Application).one()
+    client.post(f"/applications/{application.id}/transfer", data={**NEW_OWNER_FORM, "target": "new"})
+    assert db.query(GarageOwnership).filter_by(garage_id=garage.id).one().person_id == application.person_id
+
+    _submit(client, garage)
+    other = db.query(Application).filter_by(kind=ApplicationKind.OTHER).one()
+    client.get("/auth/logout")
+    login(client, "board1", "pass1234")
+    client.post(f"/applications/{other.id}/transfer", data={**NEW_OWNER_FORM, "target": "new"})
+    assert db.query(GarageOwnership).filter_by(garage_id=garage.id).one().person_id == application.person_id
+
+
+def dt_dec(value):
+    from decimal import Decimal
+    return Decimal(value)

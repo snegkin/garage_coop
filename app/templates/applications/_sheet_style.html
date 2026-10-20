@@ -25,9 +25,16 @@
   text-align: center; font: inherit; padding: 0; outline: none;
 }
 .legal-print .application-title-input:focus { border-bottom-color: #0d6efd; }
+.legal-print .new-owner-caption { margin-top: 5mm; }
+.legal-print .new-owner-table th { width: 35%; font-weight: normal; background: #f4f4f4; }
+.legal-print .new-owner-table input {
+  width: 100%; border: 0; background: transparent; color: #000; font: inherit; padding: 0; outline: none;
+}
+.legal-print .new-owner-table input:focus { background: #eef4ff; }
+.legal-print .application-attachments { margin-top: 4mm; font-size: 12pt; }
 .legal-print .applicant-missing { color: #b02a37; font-style: italic; }
 .legal-print .application-body[contenteditable] {
-  min-height: 110mm; outline: 1px dashed transparent; outline-offset: 2mm; caret-color: #000;
+  min-height: 60mm; outline: 1px dashed transparent; outline-offset: 2mm; caret-color: #000;
 }
 .legal-print .application-body[contenteditable]:hover { outline-color: #ccc; }
 .legal-print .application-body[contenteditable]:focus { outline-color: #0d6efd; }

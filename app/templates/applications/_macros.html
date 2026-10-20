@@ -28,6 +28,21 @@
 {% endmacro %}
 
 
+{# Сведения о новом собственнике — таблица на бланке заявления о смене
+   собственника. rows — applications.new_owner_rows; в редакторе вместо
+   значений — поля ввода (см. form.html). #}
+{% macro new_owner_table(rows) %}
+<p class="print-subtitle new-owner-caption"><strong>{{ _("Сведения о новом собственнике") }}</strong></p>
+<table class="print-table new-owner-table">
+  <tbody>
+    {% for label, value in rows %}
+    <tr><th style="width: 35%">{{ label }}</th><td>{{ value or "—" }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endmacro %}
+
+
 {% macro applicant_signature(name, date) %}
 <p class="application-sign">
   <span>{{ fmt_date(date) }}</span>
@@ -43,6 +58,15 @@
   {% if application.title %}<p class="print-subtitle">{{ application.title }}</p>{% endif %}
   <p class="print-meta">№ {{ application.number }} {{ _("от") }} {{ fmt_date(application.created_at.date()) }}</p>
   <div class="application-body">{{ application.body_html|safe }}</div>
+  {% if application.new_owner_data %}
+  {{ new_owner_table(application_new_owner_rows(application.new_owner_dict)) }}
+  {% endif %}
+  {% if application.attachments %}
+  <div class="application-body application-attachments">
+    <p>{{ _("Приложения") }}:</p>
+    <ol>{% for att in application.attachments %}<li>{{ att.original_filename }}</li>{% endfor %}</ol>
+  </div>
+  {% endif %}
   {{ applicant_signature(application.applicant_name, application.created_at.date()) }}
 </div>
 {% endmacro %}

@@ -9,7 +9,13 @@
   <a data-back-link data-back-label="&larr; {{ _('Назад') }}" class="btn btn-outline-secondary btn-sm" href="{{ url_for('certificates.list_certificates') }}">{{ _("← к журналу справок") }}</a>
 </div>
 
-<form method="get" action="{{ url_for('certificates.create') }}" class="no-print mb-3" style="max-width: 210mm; margin: 0 auto;">
+{% if cert_request %}
+<div class="alert alert-info no-print" style="max-width: 210mm; margin: 0 auto 1rem;">
+  {{ _("Справка по запросу от {date}", date=cert_request.created_at.strftime('%d.%m.%Y')) }}{% if cert_request.comment %}: «{{ cert_request.comment }}»{% endif %}.
+  {{ _("После выдачи собственнику придёт уведомление, что справку можно забрать у председателя.") }}
+</div>
+{% endif %}
+<form method="get" action="{{ url_for('certificates.create') }}" class="no-print mb-3{% if cert_request %} d-none{% endif %}" style="max-width: 210mm; margin: 0 auto;">
   <label class="form-label small mb-1" for="certOwner">{{ _("Собственник и гараж") }}</label>
   <select class="form-select" name="owner" id="certOwner" onchange="this.form.submit()">
     <option value="">—</option>
@@ -34,6 +40,7 @@
 </div>
 <form method="post" action="{{ url_for('certificates.create') }}">
   <input type="hidden" name="owner" value="{{ ownership.person_id }}:{{ ownership.garage_id }}">
+  {% if cert_request %}<input type="hidden" name="request_id" value="{{ cert_request.id }}">{% endif %}
   <div class="no-print d-flex align-items-end gap-3 mb-2" style="max-width: 210mm; margin: 0 auto;">
     <div>
       <label class="form-label small mb-1" for="certDate">{{ _("Дата справки") }}</label>
@@ -48,7 +55,7 @@
   </div>
   <input type="hidden" name="body_html" id="certBodyInput">
   <div class="d-flex justify-content-end gap-2 my-3 no-print" style="max-width: 210mm; margin: 0 auto;">
-    <a class="btn btn-outline-secondary" href="{{ url_for('certificates.create', owner=ownership.person_id ~ ':' ~ ownership.garage_id) }}">{{ _("Вернуть стандартный текст") }}</a>
+    <a class="btn btn-outline-secondary" href="{{ url_for('certificates.create', request_id=cert_request.id) if cert_request else url_for('certificates.create', owner=ownership.person_id ~ ':' ~ ownership.garage_id) }}">{{ _("Вернуть стандартный текст") }}</a>
     <button class="btn btn-primary"><i class="bi bi-check2-square" aria-hidden="true"></i> {{ _("Выдать справку") }}</button>
   </div>
 </form>

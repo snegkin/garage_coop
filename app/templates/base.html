@@ -163,6 +163,9 @@
               {% if pending_proposals_count > 0 %}
               <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-warning text-dark" style="font-size:0.55em; margin-left: 1.2em;">{{ pending_proposals_count }}</span>
               {% endif %}
+              {% if pending_certificate_requests_count > 0 %}
+              <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-warning text-dark" style="font-size:0.55em; margin-left: 1.2em;">{{ pending_certificate_requests_count }}</span>
+              {% endif %}
               {% if pending_applications_count > 0 %}
               <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-warning text-dark" style="font-size:0.55em; margin-left: 1.2em;">{{ pending_applications_count }}</span>
               {% endif %}
@@ -182,6 +185,9 @@
             {% if pending_proposals_count > 0 %}
             <li><a class="dropdown-item" href="{{ url_for('proposals.list_proposals') }}"><span class="dropdown-icon"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i></span>{{ _("Предложения ждут решения") }} {{ pending_proposals_count }}</a></li>
             {% endif %}
+            {% if pending_certificate_requests_count > 0 %}
+            <li><a class="dropdown-item" href="{{ url_for('certificates.list_certificates') }}"><span class="dropdown-icon"><i class="bi bi-file-earmark-check" aria-hidden="true"></i></span>{{ _("Запрошены справки") }} {{ pending_certificate_requests_count }}</a></li>
+            {% endif %}
             {% if pending_applications_count > 0 %}
             <li><a class="dropdown-item" href="{{ url_for('applications.list_applications', status='submitted') }}"><span class="dropdown-icon"><i class="bi bi-file-earmark-text" aria-hidden="true"></i></span>{{ _("Заявления ждут решения") }} {{ pending_applications_count }}</a></li>
             {% endif %}
@@ -189,6 +195,7 @@
             <li><a class="dropdown-item" href="{{ url_for('mailbox.inbox') }}"><span class="dropdown-icon"><i class="bi bi-envelope" aria-hidden="true"></i></span>{{ _("Непрочитанные письма") }} {{ mailbox_unread_count }}</a></li>
             {% endif %}
             <li><a class="dropdown-item" href="{{ url_for('cabinet.garages') }}"><span class="dropdown-icon"><i class="bi bi-house-door" aria-hidden="true"></i></span>{{ _("Мой гараж") }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('certificates.my_certificates') }}"><span class="dropdown-icon"><i class="bi bi-file-earmark-check" aria-hidden="true"></i></span>{{ _("Справки о владении гаражом") }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('pd4.select') }}"><span class="dropdown-icon"><i class="bi bi-receipt" aria-hidden="true"></i></span>{{ _("Квитанции (по форме ПД-4)") }}</a></li>
             <li><hr class="dropdown-divider"></li>
             <li><a class="dropdown-item" href="{{ url_for('auth.logout') }}"><span class="dropdown-icon"><i class="bi bi-box-arrow-right" aria-hidden="true"></i></span>{{ _("Выйти") }}</a></li>

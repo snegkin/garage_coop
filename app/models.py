@@ -1225,6 +1225,39 @@ class GarageCertificate(Base):
     issued_by: Mapped["Person | None"] = relationship(foreign_keys=[issued_by_person_id])
 
 
+class CertificateRequestStatus(str, enum.Enum):
+    REQUESTED = "requested"        # член кооператива запросил, ждёт председателя
+    READY = "ready"                # справка выдана в журнале, распечатана — забрать у председателя
+    HANDED_OVER = "handed_over"    # отдана на руки
+    REJECTED = "rejected"          # председатель отказал (причина — reject_reason)
+
+
+class CertificateRequest(Base):
+    """Запрос справки о владении гаражом из личного кабинета собственника
+    (certificates.request_certificate). Председатель оформляет по нему
+    справку (GarageCertificate, certificate_id) → READY, собственнику
+    уведомление «заберите»; потом отмечает выдачу на руки → HANDED_OVER."""
+    __tablename__ = "certificate_request"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    person_id: Mapped[int] = mapped_column(ForeignKey("person.id", ondelete="CASCADE"), index=True)
+    garage_id: Mapped[int | None] = mapped_column(ForeignKey("garage.id", ondelete="SET NULL"), index=True)
+    garage_number: Mapped[str] = mapped_column(String(20))
+    comment: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[CertificateRequestStatus] = mapped_column(
+        Enum(CertificateRequestStatus), default=CertificateRequestStatus.REQUESTED, index=True
+    )
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.now)
+    certificate_id: Mapped[int | None] = mapped_column(ForeignKey("garage_certificate.id", ondelete="SET NULL"))
+    ready_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
+    handed_over_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
+    reject_reason: Mapped[str | None] = mapped_column(Text)
+
+    person: Mapped["Person"] = relationship()
+    garage: Mapped["Garage | None"] = relationship()
+    certificate: Mapped["GarageCertificate | None"] = relationship()
+
+
 class CertificateCounter(Base):
     """Последний номер справки за год — как ApplicationCounter."""
     __tablename__ = "certificate_counter"

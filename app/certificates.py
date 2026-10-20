@@ -10,6 +10,13 @@
 номер «<год>-<N>», текст сохраняется в журнале как выдан (повторная
 печать — того же текста, не пересобранного по изменившимся данным).
 
+Собственник может запросить справку из личного кабинета
+(request_certificate, CertificateRequest): председателю — уведомление и
+бейдж; оформление справки по запросу (create?request_id=…) переводит
+запрос в «готова — заберите у председателя» с уведомлением собственнику;
+после выдачи на руки председатель отмечает handed_over. Можно отказать
+с причиной (reject_request) — тоже с уведомлением.
+
 Ничего, чего система не знает (например, выплату паевого взноса), в
 стартовый текст не утверждается — это председатель дописывает сам.
 """
@@ -23,6 +30,7 @@ from markupsafe import escape
 from . import audit
 from . import database
 from . import name_declension
+from . import notifications
 from .accounting import balance
 from .applications import sanitize_html, has_text, MAX_HTML_LENGTH
 from .auth import login_required, roles_required
@@ -30,7 +38,8 @@ from .i18n import translate as _
 from .legal_docs import _render_pdf_or_fallback, _coop_and_chairman
 from .permissions import is_board
 from .models import (
-    CertificateCounter, Garage, GarageCertificate, GarageOwnership, MemberAccount, Person, RoleEnum,
+    CertificateCounter, CertificateRequest, CertificateRequestStatus, Garage, GarageCertificate, GarageOwnership,
+    MemberAccount, Person, RoleEnum,
 )
 
 bp = Blueprint("certificates", __name__, url_prefix="/certificates")
@@ -158,7 +167,144 @@ def list_certificates():
         .order_by(GarageCertificate.issued_at.desc(), GarageCertificate.id.desc())
         .all()
     )
-    return render_template("certificates/list.html", certificates=certificates)
+    open_requests = (
+        database.db_session.query(CertificateRequest)
+        .filter(CertificateRequest.status.in_([CertificateRequestStatus.REQUESTED, CertificateRequestStatus.READY]))
+        .order_by(CertificateRequest.created_at)
+        .all()
+    )
+    return render_template("certificates/list.html", certificates=certificates, open_requests=open_requests)
+
+
+REQUEST_STATUS_BADGES = {
+    CertificateRequestStatus.REQUESTED: ("запрошена", "text-bg-warning"),
+    CertificateRequestStatus.READY: ("готова — заберите у председателя", "text-bg-success"),
+    CertificateRequestStatus.HANDED_OVER: ("выдана на руки", "text-bg-secondary"),
+    CertificateRequestStatus.REJECTED: ("отказано", "text-bg-danger"),
+}
+
+
+@bp.app_template_global("certificate_request_badge")
+def request_badge(req: CertificateRequest) -> tuple[str, str]:
+    text, css = REQUEST_STATUS_BADGES[req.status]
+    return _(text), css
+
+
+def _own_ownerships() -> list[GarageOwnership]:
+    if g.user.person_id is None:
+        return []
+    return sorted(
+        database.db_session.query(GarageOwnership).filter_by(person_id=g.user.person_id).all(),
+        key=lambda o: o.garage.number,
+    )
+
+
+def _notify_requester(req: CertificateRequest, subject: str, body: str) -> None:
+    user = notifications.user_for_person(req.person_id)
+    if user is not None:
+        link = request.host_url.rstrip("/") + url_for("certificates.my_certificates")
+        notifications.after_commit(notifications.notify_user_id, user.id, "my_requests", subject, f"{body}\n\n{link}")
+
+
+@bp.route("/my", methods=["GET", "POST"])
+@login_required
+def my_certificates():
+    """Личный кабинет: запросить справку по своему гаражу, статусы своих
+    запросов и выданные справки."""
+    ownerships = _own_ownerships()
+    if request.method == "POST":
+        ownership = next((o for o in ownerships if str(o.garage_id) == request.form.get("garage_id")), None)
+        if ownership is None:
+            flash(_("Справку можно запросить только по своему гаражу."), "danger")
+            return redirect(url_for("certificates.my_certificates"))
+        pending = (
+            database.db_session.query(CertificateRequest)
+            .filter_by(person_id=ownership.person_id, garage_id=ownership.garage_id)
+            .filter(CertificateRequest.status.in_([CertificateRequestStatus.REQUESTED, CertificateRequestStatus.READY]))
+            .first()
+        )
+        if pending is not None:
+            flash(_("По этому гаражу справка уже запрошена — дождитесь её."), "warning")
+            return redirect(url_for("certificates.my_certificates"))
+        req = CertificateRequest(
+            person_id=ownership.person_id, garage_id=ownership.garage_id, garage_number=ownership.garage.number,
+            comment=(request.form.get("comment") or "").strip()[:1000] or None, created_at=dt.datetime.now(),
+        )
+        database.db_session.add(req)
+        database.db_session.flush()
+        audit.record(
+            "certificate.request", entity_type="certificate_request", entity_id=req.id,
+            summary=f"{ownership.person.full_name} запросил(а) справку о владении гаражом № {req.garage_number}"
+                    + (f" ({req.comment})" if req.comment else ""),
+        )
+        database.db_session.commit()
+        flash(_("Запрос отправлен председателю. Когда справка будет готова, придёт уведомление."), "success")
+        return redirect(url_for("certificates.my_certificates"))
+
+    requests_ = []
+    certificates = []
+    if g.user.person_id is not None:
+        requests_ = (
+            database.db_session.query(CertificateRequest).filter_by(person_id=g.user.person_id)
+            .order_by(CertificateRequest.created_at.desc()).all()
+        )
+        certificates = (
+            database.db_session.query(GarageCertificate).filter_by(person_id=g.user.person_id)
+            .order_by(GarageCertificate.issued_at.desc()).all()
+        )
+    return render_template(
+        "certificates/my.html", ownerships=ownerships, requests=requests_, certificates=certificates,
+        preselect=request.args.get("garage_id", type=int),
+    )
+
+
+def _get_request_or_404(request_id: int) -> CertificateRequest:
+    req = database.db_session.get(CertificateRequest, request_id)
+    if req is None:
+        abort(404)
+    return req
+
+
+@bp.route("/requests/<int:request_id>/handed-over", methods=["POST"])
+@roles_required(RoleEnum.CHAIRMAN)
+def request_handed_over(request_id):
+    req = _get_request_or_404(request_id)
+    if req.status != CertificateRequestStatus.READY:
+        flash(_("Отметить выдачу можно только у готовой справки."), "warning")
+        return redirect(url_for("certificates.list_certificates"))
+    req.status = CertificateRequestStatus.HANDED_OVER
+    req.handed_over_at = dt.datetime.now()
+    audit.record(
+        "certificate.handed_over", entity_type="certificate_request", entity_id=req.id,
+        summary=f"Справка о владении гаражом № {req.garage_number} выдана на руки: {req.person.full_name}",
+    )
+    database.db_session.commit()
+    flash(_("Отмечено: справка выдана на руки."), "success")
+    return redirect(url_for("certificates.list_certificates"))
+
+
+@bp.route("/requests/<int:request_id>/reject", methods=["POST"])
+@roles_required(RoleEnum.CHAIRMAN)
+def reject_request(request_id):
+    req = _get_request_or_404(request_id)
+    if req.status != CertificateRequestStatus.REQUESTED:
+        flash(_("По этому запросу решение уже принято."), "warning")
+        return redirect(url_for("certificates.list_certificates"))
+    req.status = CertificateRequestStatus.REJECTED
+    req.reject_reason = (request.form.get("reason") or "").strip()[:1000] or None
+    audit.record(
+        "certificate.request_reject", entity_type="certificate_request", entity_id=req.id,
+        summary=f"Отказано в справке о владении гаражом № {req.garage_number}: {req.person.full_name}"
+                + (f" ({req.reject_reason})" if req.reject_reason else ""),
+    )
+    _notify_requester(
+        req, f"Справка по гаражу № {req.garage_number}: отказано",
+        "Председатель отказал в выдаче справки о владении гаражом."
+        + (f" Причина: {req.reject_reason}" if req.reject_reason else ""),
+    )
+    database.db_session.commit()
+    flash(_("Запрос отклонён."), "success")
+    return redirect(url_for("certificates.list_certificates"))
 
 
 @bp.route("/new", methods=["GET", "POST"])
@@ -170,6 +316,13 @@ def create():
     )
     form = request.form if request.method == "POST" else request.args
     owner = form.get("owner")
+    cert_request = None
+    if form.get("request_id"):
+        cert_request = database.db_session.get(CertificateRequest, form.get("request_id", type=int))
+        if cert_request is None or cert_request.status != CertificateRequestStatus.REQUESTED:
+            flash(_("Запрос не найден или уже обработан."), "warning")
+            return redirect(url_for("certificates.list_certificates"))
+        owner = f"{cert_request.person_id}:{cert_request.garage_id}"
     if not owner and (form.get("person_id") or form.get("garage_id")):
         owner = next((
             f"{o.person_id}:{o.garage_id}" for o in ownerships
@@ -198,7 +351,7 @@ def create():
         if error:
             flash(error, "danger")
             return _render_form(ownerships, ownership, coop, chairman, body_html=body_html,
-                                issued_at=issued_at or dt.date.today())
+                                issued_at=issued_at or dt.date.today(), cert_request=cert_request)
 
         certificate = GarageCertificate(
             number=next_number(issued_at), person_id=ownership.person_id, garage_id=ownership.garage_id,
@@ -212,14 +365,25 @@ def create():
             summary=f"Выдана справка № {certificate.number} о владении гаражом № {certificate.garage_number}: "
                     f"{ownership.person.full_name}",
         )
+        if cert_request is not None:
+            cert_request.status = CertificateRequestStatus.READY
+            cert_request.certificate_id = certificate.id
+            cert_request.ready_at = dt.datetime.now()
+            _notify_requester(
+                cert_request, f"Справка по гаражу № {cert_request.garage_number} готова",
+                f"Справка № {certificate.number} о владении гаражом № {cert_request.garage_number} готова — "
+                "заберите подписанный экземпляр у председателя.",
+            )
         database.db_session.commit()
         flash(_("Справка № {number} выдана.", number=certificate.number), "success")
         return redirect(url_for("certificates.detail", certificate_id=certificate.id))
 
-    return _render_form(ownerships, ownership, coop, chairman)
+    if cert_request is not None and ownership is None:
+        flash(_("Заявитель уже не числится собственником этого гаража."), "warning")
+    return _render_form(ownerships, ownership, coop, chairman, cert_request=cert_request)
 
 
-def _render_form(ownerships, ownership, coop, chairman, body_html=None, issued_at=None):
+def _render_form(ownerships, ownership, coop, chairman, body_html=None, issued_at=None, cert_request=None):
     debt = None
     if ownership is not None:
         debt = debt_total(ownership.person, ownership.garage)
@@ -227,7 +391,7 @@ def _render_form(ownerships, ownership, coop, chairman, body_html=None, issued_a
             body_html = default_body(ownership.person, ownership.garage, ownership, coop)
     return render_template(
         "certificates/form.html", ownerships=ownerships, ownership=ownership, coop=coop, chairman=chairman,
-        body_html=body_html or "", issued_at=issued_at or dt.date.today(), debt=debt,
+        body_html=body_html or "", issued_at=issued_at or dt.date.today(), debt=debt, cert_request=cert_request,
     )
 
 

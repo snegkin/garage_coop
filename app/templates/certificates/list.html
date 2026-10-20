@@ -8,6 +8,45 @@
   {% endif %}
 </div>
 <p class="text-muted small">{{ _("Справки правления за подписью председателя о том, что член кооператива владеет гаражом, — для оформления гаража в собственность по «гаражной амнистии». Журнал хранит текст каждой справки в том виде, в каком она выдана.") }}</p>
+{% if open_requests %}
+<h5>{{ _("Запросы от членов кооператива") }}</h5>
+<table class="table table-sm bg-body align-middle mb-4">
+  <thead><tr><th>{{ _("Дата") }}</th><th>{{ _("Кто") }}</th><th>{{ _("Гараж") }}</th><th>{{ _("Комментарий") }}</th><th>{{ _("Статус") }}</th><th class="no-sort"></th></tr></thead>
+  <tbody>
+    {% for r in open_requests %}
+    {% set badge = certificate_request_badge(r) %}
+    <tr>
+      <td>{{ r.created_at.strftime('%d.%m.%Y') }}</td>
+      <td><a href="{{ url_for('persons.detail', person_id=r.person_id) }}">{{ r.person.full_name }}</a></td>
+      <td>{% if r.garage_id %}<a href="{{ url_for('garages.detail', garage_id=r.garage_id) }}">№ {{ r.garage_number }}</a>{% else %}№ {{ r.garage_number }}{% endif %}</td>
+      <td class="small">{{ r.comment or "" }}</td>
+      <td><span class="badge {{ badge[1] }}">{{ _("готова, ждёт получения") if r.status.value == 'ready' else badge[0] }}</span></td>
+      <td class="text-end">
+        {% if is_chairman() %}
+        <div class="d-flex gap-1 justify-content-end flex-wrap">
+          {% if r.status.value == 'requested' %}
+          <a class="btn btn-sm btn-primary" href="{{ url_for('certificates.create', request_id=r.id) }}">{{ _("Оформить справку") }}</a>
+          <form method="post" action="{{ url_for('certificates.reject_request', request_id=r.id) }}" class="d-flex gap-1"
+                onsubmit="return confirm({{ _('Отказать в справке?')|tojson|forceescape }})">
+            <input class="form-control form-control-sm" name="reason" placeholder="{{ _('причина отказа') }}" style="width: 12rem;">
+            <button class="btn btn-sm btn-outline-danger">{{ _("Отказать") }}</button>
+          </form>
+          {% else %}
+          <a class="btn btn-sm btn-outline-primary" href="{{ url_for('certificates.detail', certificate_id=r.certificate_id) }}"><i class="bi bi-printer" aria-hidden="true"></i> № {{ r.certificate.number if r.certificate else "" }}</a>
+          <form method="post" action="{{ url_for('certificates.request_handed_over', request_id=r.id) }}">
+            <button class="btn btn-sm btn-success">{{ _("Выдана на руки") }}</button>
+          </form>
+          {% endif %}
+        </div>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+<h5>{{ _("Журнал выданных справок") }}</h5>
 {% if certificates %}
 {% include "certificates/_list_table.html" %}
 {% else %}

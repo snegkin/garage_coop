@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Справки о владении гаражом") }}{% endblock %}
+{% block content %}
+<h3 class="mb-3">{{ _("Справки о владении гаражом") }}</h3>
+<p class="text-muted small" style="max-width: 760px;">
+  {{ _("Справка правления за подписью председателя о том, что вы владеете гаражом в кооперативе, — нужна для оформления гаража в собственность по «гаражной амнистии». Запросите её здесь: председатель подготовит и подпишет справку, а вам придёт уведомление, что её можно забрать.") }}
+</p>
+
+{% if ownerships %}
+<form method="post" class="bg-body border rounded p-3 mb-4" style="max-width: 760px;">
+  <div class="row g-2 align-items-end">
+    <div class="col-sm-4">
+      <label class="form-label small mb-1" for="reqGarage">{{ _("Гараж") }}</label>
+      <select class="form-select" name="garage_id" id="reqGarage">
+        {% for o in ownerships %}
+        <option value="{{ o.garage_id }}"{% if o.garage_id == preselect %} selected{% endif %}>№ {{ o.garage.number }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-sm-8">
+      <label class="form-label small mb-1" for="reqComment">{{ _("Комментарий (необязательно)") }}</label>
+      <input class="form-control" name="comment" id="reqComment" maxlength="1000" placeholder="{{ _('например: нужно 2 экземпляра, к пятнице') }}">
+    </div>
+  </div>
+  <button class="btn btn-primary mt-3"><i class="bi bi-send" aria-hidden="true"></i> {{ _("Запросить справку") }}</button>
+</form>
+{% else %}
+<p class="text-muted">{{ _("За вами не числится гаражей — запросить справку нельзя.") }}</p>
+{% endif %}
+
+{% if requests %}
+<h5>{{ _("Мои запросы") }}</h5>
+<table class="table table-sm bg-body align-middle mb-4">
+  <thead><tr><th>{{ _("Дата") }}</th><th>{{ _("Гараж") }}</th><th>{{ _("Статус") }}</th><th>{{ _("Справка") }}</th></tr></thead>
+  <tbody>
+    {% for r in requests %}
+    {% set badge = certificate_request_badge(r) %}
+    <tr>
+      <td>{{ r.created_at.strftime('%d.%m.%Y') }}</td>
+      <td>№ {{ r.garage_number }}</td>
+      <td><span class="badge {{ badge[1] }}">{{ badge[0] }}</span>{% if r.reject_reason %} <span class="small text-muted">{{ r.reject_reason }}</span>{% endif %}</td>
+      <td>{% if r.certificate %}<a href="{{ url_for('certificates.detail', certificate_id=r.certificate_id) }}">№ {{ r.certificate.number }}</a>{% else %}—{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+{% if certificates %}
+<h5>{{ _("Выданные справки") }}</h5>
+{% include "certificates/_list_table.html" %}
+{% endif %}
+{% endblock %}

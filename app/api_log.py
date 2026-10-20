@@ -15,15 +15,18 @@
 
 Файл на каждый день, а не RotatingFileHandler: в него пишут несколько
 воркеров gunicorn и cron-скрипты одновременно, а ротация переименованием
-из нескольких процессов теряет строки. Старше API_LOG_KEEP_DAYS дней —
-удаляются при старте.
+из нескольких процессов теряет строки. При старте файлы за позавчера и
+раньше сжимаются gzip (за вчера — нет: в него ещё может дописывать запрос,
+начатый до полуночи), старше API_LOG_KEEP_DAYS дней — удаляются.
 """
 import datetime as dt
 import glob
+import gzip
 import json
 import logging
 import os
 import re
+import shutil
 import time
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
@@ -176,13 +179,34 @@ def install(log_dir: str, keep_days: int = 7, max_body: int = 200_000) -> None:
 
 
 def _cleanup(log_dir: str, keep_days: int, prefix: str) -> None:
-    border = (dt.date.today() - dt.timedelta(days=keep_days)).isoformat()
-    for path in glob.glob(os.path.join(log_dir, f"{prefix}-*.log")):
-        day = os.path.basename(path)[len(prefix) + 1:-len(".log")]
+    today = dt.date.today()
+    border = (today - dt.timedelta(days=keep_days)).isoformat()
+    compress_before = (today - dt.timedelta(days=1)).isoformat()
+    for path in glob.glob(os.path.join(log_dir, f"{prefix}-*.log")) + glob.glob(os.path.join(log_dir, f"{prefix}-*.log.gz")):
+        name = os.path.basename(path)
+        day = name[len(prefix) + 1:].split(".", 1)[0]
         if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day):
             continue
-        if day < border:
-            try:
+        try:
+            if day < border:
                 os.remove(path)
-            except OSError:
-                pass
+            elif day < compress_before and not name.endswith(".gz"):
+                _compress(path)
+        except OSError:
+            pass
+
+
+def _compress(path: str) -> None:
+    """path → path.gz. Через временный файл со своим pid: несколько
+    процессов (воркеры gunicorn, cron-скрипты) стартуют одновременно и
+    могут сжимать один и тот же файл — каждый пишет своё, os.replace
+    атомарен, итог одинаковый; исходник удаляется только после."""
+    tmp = f"{path}.gz.{os.getpid()}.tmp"
+    try:
+        with open(path, "rb") as raw, gzip.open(tmp, "wb", compresslevel=6) as packed:
+            shutil.copyfileobj(raw, packed)
+        os.replace(tmp, path + ".gz")
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+    os.remove(path)

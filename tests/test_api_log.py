@@ -92,6 +92,23 @@ def test_old_files_are_removed(tmp_path):
     assert not old.exists()
 
 
+def test_files_before_yesterday_are_compressed(tmp_path):
+    import gzip
+    today = dt.date.today()
+    def day(n):
+        return tmp_path / f"external_api-{(today - dt.timedelta(days=n)).isoformat()}.log"
+    for n in (0, 1, 2):
+        day(n).write_text(f"день {n}\n", encoding="utf-8")
+    old_gz = tmp_path / f"external_api-{(today - dt.timedelta(days=30)).isoformat()}.log.gz"
+    old_gz.write_bytes(gzip.compress(b"x"))
+    api_log.install(str(tmp_path), keep_days=14)
+    assert day(0).exists() and day(1).exists()  # во вчерашний ещё может дописываться запрос
+    assert not day(2).exists()
+    assert gzip.decompress((tmp_path / (day(2).name + ".gz")).read_bytes()).decode() == "день 2\n"
+    assert not old_gz.exists()
+    assert not list(tmp_path.glob("*.tmp"))
+
+
 def test_app_log_writes_warnings_with_traceback(tmp_path):
     import logging
     api_log.install_app_log(str(tmp_path))

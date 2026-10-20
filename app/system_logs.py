@@ -10,10 +10,15 @@
 
 Логи бывают большими (poll_ewelink — десятки МБ), поэтому читается только
 хвост файла: последние N строк, а при поиске — последние SEARCH_TAIL_BYTES.
+Сжатые архивы (*.gz — rotate_log в scripts/_common.sh, дневные журналы в
+app/api_log.py) с конца не прочитать — они читаются потоком целиком, но в
+памяти держатся только последние N подходящих строк.
 """
 import datetime as dt
+import gzip
 import os
 import re
+from collections import deque
 
 from flask import Blueprint, render_template, request, abort, current_app, send_file
 
@@ -22,7 +27,7 @@ from .models import RoleEnum
 
 bp = Blueprint("system_logs", __name__, url_prefix="/system-logs")
 
-_LOG_NAME_RE = re.compile(r"^[\w.-]+\.log(\.\d+)?$")
+_LOG_NAME_RE = re.compile(r"^[\w.-]+\.log(\.\d+)?(\.gz)?$")
 LINE_CHOICES = (200, 500, 2000, 10000)
 DEFAULT_LINES = 500
 SEARCH_TAIL_BYTES = 20 * 1024 * 1024
@@ -84,6 +89,8 @@ def read_tail(path: str, max_lines: int, query: str | None = None, keep=None) ->
     """Последние max_lines строк файла (с фильтром по подстроке без учёта
     регистра и/или функцией keep(line) — среди последних SEARCH_TAIL_BYTES).
     Второе значение — файл прочитан не целиком (есть более ранние строки)."""
+    if path.endswith(".gz"):
+        return _read_tail_gzip(path, max_lines, query, keep)
     size = os.path.getsize(path)
     with open(path, "rb") as f:
         if query or keep:
@@ -112,6 +119,22 @@ def read_tail(path: str, max_lines: int, query: str | None = None, keep=None) ->
         lines = lines[-max_lines:]
         truncated = True
     return lines, truncated
+
+
+def _read_tail_gzip(path: str, max_lines: int, query: str | None, keep) -> tuple[list[str], bool]:
+    q = query.lower() if query else None
+    tail = deque(maxlen=max_lines)
+    matched = 0
+    with gzip.open(path, "rt", encoding="utf-8", errors="replace") as f:
+        for line in f:
+            line = line.rstrip("\r\n")
+            if q and q not in line.lower():
+                continue
+            if keep and not keep(line):
+                continue
+            matched += 1
+            tail.append(line)
+    return list(tail), matched > max_lines
 
 
 def line_level(line: str) -> str | None:
@@ -170,4 +193,5 @@ def view(name):
 @bp.route("/<name>/download")
 @roles_required(RoleEnum.CHAIRMAN)
 def download(name):
-    return send_file(_resolve(name), mimetype="text/plain", as_attachment=True, download_name=name)
+    mimetype = "application/gzip" if name.endswith(".gz") else "text/plain"
+    return send_file(_resolve(name), mimetype=mimetype, as_attachment=True, download_name=name)

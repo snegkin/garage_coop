@@ -389,7 +389,7 @@ def notify_user_id(user_id: int | None, event: str, subject: str, body_text: str
 BOARD_EVENT_GROUPS = {
     "approvals": {
         "label": "Ждёт решения правления",
-        "actions": ("person.revision_submit", "proposal.create", "application.submit"),
+        "actions": ("person.revision_submit", "proposal.create", "application.submit", "application.register"),
     },
     "bank": {
         "label": "Банк и выписки",

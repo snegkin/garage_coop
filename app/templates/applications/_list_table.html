@@ -17,7 +17,7 @@
     <tr{% if unread %} class="fw-semibold"{% endif %}>
       <td>{{ a.number }}</td>
       <td data-sort-value="{{ a.created_at.isoformat() }}">{{ a.created_at.strftime('%d.%m.%Y') }}</td>
-      <td><a href="{{ url_for('applications.detail', application_id=a.id) }}">{{ application_heading(a) }}</a>{% if unread %} <span class="badge text-bg-primary">{{ _("новое") }}</span>{% endif %}</td>
+      <td><a href="{{ url_for('applications.detail', application_id=a.id) }}">{{ application_heading(a) }}</a>{% if a.is_paper %} <i class="bi bi-file-earmark-text text-muted" title="{{ _('Подано на бумаге') }}" aria-label="{{ _('Подано на бумаге') }}"></i>{% endif %}{% if unread %} <span class="badge text-bg-primary">{{ _("новое") }}</span>{% endif %}</td>
       <td>{{ a.applicant_name }}</td>
       <td>{{ a.garage_number or "—" }}</td>
       <td><span class="badge {{ badge[1] }}">{{ badge[0] }}</span></td>

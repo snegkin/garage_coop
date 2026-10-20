@@ -61,10 +61,10 @@
   {% if application.new_owner_data %}
   {{ new_owner_table(application_new_owner_rows(application.new_owner_dict)) }}
   {% endif %}
-  {% if application.attachments %}
+  {% if application.extra_attachments %}
   <div class="application-body application-attachments">
     <p>{{ _("Приложения") }}:</p>
-    <ol>{% for att in application.attachments %}<li>{{ att.original_filename }}</li>{% endfor %}</ol>
+    <ol>{% for att in application.extra_attachments %}<li>{{ att.original_filename }}</li>{% endfor %}</ol>
   </div>
   {% endif %}
   {{ applicant_signature(application.applicant_name, application.created_at.date()) }}

@@ -458,12 +458,17 @@
 </form>
 {% endif %}
 
-{% if applications or is_garage_owner %}
-<div class="d-flex justify-content-between align-items-center mt-4 mb-2">
+{% if applications or is_garage_owner or (is_board() and garage.ownerships) %}
+<div class="d-flex justify-content-between align-items-center mt-4 mb-2 flex-wrap gap-2">
   <h5 class="mb-0">{{ _("Заявления в правление") }}</h5>
-  {% if is_garage_owner %}
-  <a class="btn btn-sm btn-outline-primary" href="{{ url_for('applications.create', garage_id=garage.id) }}"><i class="bi bi-pencil-square" aria-hidden="true"></i> {{ _("Написать заявление") }}</a>
-  {% endif %}
+  <div class="d-flex gap-2">
+    {% if is_board() and garage.ownerships %}
+    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('applications.register_paper', garage_id=garage.id) }}"><i class="bi bi-box-arrow-in-down" aria-hidden="true"></i> {{ _("Зарегистрировать бумажное") }}</a>
+    {% endif %}
+    {% if is_garage_owner %}
+    <a class="btn btn-sm btn-outline-primary" href="{{ url_for('applications.create', garage_id=garage.id) }}"><i class="bi bi-pencil-square" aria-hidden="true"></i> {{ _("Написать заявление") }}</a>
+    {% endif %}
+  </div>
 </div>
 {% if applications %}
 {% include "applications/_list_table.html" %}

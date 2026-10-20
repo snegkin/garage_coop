@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Зарегистрировать бумажное заявление") }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <h3 class="mb-0">{{ _("Зарегистрировать бумажное заявление") }}</h3>
+  <a data-back-link data-back-label="&larr; {{ _('Назад') }}" class="btn btn-outline-secondary btn-sm" href="{{ url_for('applications.list_applications') }}">{{ _("← к заявлениям") }}</a>
+</div>
+<p class="text-muted small" style="max-width: 720px;">
+  {{ _("Для заявления, которое собственник подал на бумаге: загрузите скан подписанного бланка — текст набирать не нужно. Дальше оно рассматривается как любое заявление: правление ответит или отклонит, по заявлению о смене собственника можно провести смену; заявителю придут уведомления, если у него есть учётная запись.") }}
+</p>
+
+<form method="post" enctype="multipart/form-data" class="bg-body border rounded p-3" style="max-width: 720px;">
+  <div class="mb-3">
+    <label class="form-label" for="regOwner">{{ _("Заявитель и гараж") }} *</label>
+    <select class="form-select" name="owner" id="regOwner" required>
+      <option value="">—</option>
+      {% for o in ownerships %}
+      {% set value = o.person_id ~ ":" ~ o.garage_id %}
+      <option value="{{ value }}"{% if value == selected %} selected{% endif %}>{{ o.person.full_name }} — {{ _("гараж") }} № {{ o.garage.number }}{% if o.share != 1 %} ({{ _("доля") }} {{ fmt2(o.share) }}){% endif %}</option>
+      {% endfor %}
+    </select>
+    <div class="form-text">{{ _("Только действующие собственники. Реквизиты заявителя для карточки заявления берутся из его карточки в реестре.") }}</div>
+  </div>
+  <div class="row g-3 mb-3">
+    <div class="col-sm-7">
+      <label class="form-label" for="regKind">{{ _("Вид заявления") }} *</label>
+      <select class="form-select" name="kind" id="regKind">
+        {% for k in kinds %}
+        <option value="{{ k.value }}"{% if k.value == kind %} selected{% endif %}>{{ application_kind_label(k) }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-sm-5">
+      <label class="form-label" for="regDate">{{ _("Дата на бланке") }} *</label>
+      <input class="form-control" type="date" name="paper_date" id="regDate" value="{{ paper_date }}" max="{{ today_iso }}" required>
+    </div>
+  </div>
+  <div class="mb-3">
+    <label class="form-label" for="regTitle">{{ _("Тема") }}</label>
+    <input class="form-control" name="title" id="regTitle" value="{{ title }}" maxlength="255" placeholder="{{ _('например: о замене счётчика') }}">
+  </div>
+  <div class="mb-3">
+    <label class="form-label" for="regScan">{{ _("Скан подписанного заявления") }} *</label>
+    <input class="form-control" type="file" name="scan" id="regScan" multiple required>
+    <div class="form-text">{{ _("PDF или фото страниц; если страниц несколько — можно выбрать несколько файлов.") }}</div>
+  </div>
+  <div class="mb-3">
+    <label class="form-label" for="regAttachments">{{ _("Приложения (необязательно)") }}</label>
+    <input class="form-control" type="file" name="attachments" id="regAttachments" multiple>
+    <div class="form-text">{{ _("Договор, свидетельство о праве на наследство, выписка из ЕГРН и т.п.") }}</div>
+  </div>
+  <button class="btn btn-primary"><i class="bi bi-box-arrow-in-down" aria-hidden="true"></i> {{ _("Зарегистрировать") }}</button>
+</form>
+<script>
+(function () {
+  var titles = {{ default_titles|tojson }};
+  var kind = document.getElementById("regKind");
+  var title = document.getElementById("regTitle");
+  var auto = !title.value || Object.values(titles).indexOf(title.value) !== -1;
+  if (auto) title.value = titles[kind.value];
+  title.addEventListener("input", function () { auto = false; });
+  kind.addEventListener("change", function () { if (auto) title.value = titles[kind.value]; });
+})();
+</script>
+{% endblock %}

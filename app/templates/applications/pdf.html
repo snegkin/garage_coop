@@ -6,9 +6,11 @@
 </head>
 <body>
 {% import "applications/_macros.html" as m %}
+{% if not application.is_paper %}
 <div class="legal-print">
   {{ m.application_doc(application, coop) }}
 </div>
+{% endif %}
 {% if application.status.value != 'submitted' %}
 <div class="legal-print">
   {{ m.response_doc(application, coop) }}

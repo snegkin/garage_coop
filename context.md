@@ -415,6 +415,10 @@ relationship-коллекции» выше — тот же класс пробл
 сравнение ФИО в Python (SQLite lower()/ILIKE не работают с кириллицей).
 Приложения копируются в GarageDocumentPhoto отдельным файлом (удаление
 документа гаража стирает файл с диска).
+Бумажное заявление — `Application.registered_by_user_id` не NULL, `body_html`
+пустой, скан — `ApplicationAttachment.is_scan` (свойства `scans`/
+`extra_attachments`); `attachment_file?inline=1` отдаёт картинку/PDF для
+встроенного просмотра (svg/html загрузить нельзя — DEFAULT_ALLOWED_EXT).
 
 ## Крон-скрипты пени: ставка ЦБ + начисление
 `scripts/update_key_rate.py` — standalone (сам `create_app()`+

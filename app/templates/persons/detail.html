@@ -214,9 +214,18 @@
 {% endif %}
 {% endif %}
 
+{% if applications or (is_board() and ownerships) %}
+<div class="d-flex justify-content-between align-items-center mt-4 mb-2 flex-wrap gap-2">
+  <h5 class="mb-0">{{ _("Заявления в правление") }}</h5>
+  {% if is_board() and ownerships %}
+  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('applications.register_paper', person_id=person.id) }}"><i class="bi bi-box-arrow-in-down" aria-hidden="true"></i> {{ _("Зарегистрировать бумажное") }}</a>
+  {% endif %}
+</div>
 {% if applications %}
-<h5 class="mt-4">{{ _("Заявления в правление") }}</h5>
 {% include "applications/_list_table.html" %}
+{% else %}
+<p class="text-muted">{{ _("Заявлений нет.") }}</p>
+{% endif %}
 {% endif %}
 
 {% if is_chairman() %}

@@ -193,6 +193,14 @@ def create_app(config_class=Config):
                 Application.status == ApplicationStatus.SUBMITTED,
             ).count()
 
+        # для председателя — запросы справок о владении гаражом
+        pending_certificate_requests = 0
+        if user and user.role == RoleEnum.CHAIRMAN:
+            from .models import CertificateRequest, CertificateRequestStatus
+            pending_certificate_requests = database.db_session.query(CertificateRequest).filter(
+                CertificateRequest.status == CertificateRequestStatus.REQUESTED,
+            ).count()
+
         # непрочитанные сообщения чата правления (см. app/board_chat.py) —
         # свои сообщения не считаются непрочитанными; порог "прочитано по"
         # общий на все сообщения, не по каждому (User.board_chat_read_at)
@@ -277,6 +285,7 @@ def create_app(config_class=Config):
             "revision_chat_unread_count": revision_chat_unread,
             "pending_proposals_count": pending_proposals,
             "pending_applications_count": pending_applications,
+            "pending_certificate_requests_count": pending_certificate_requests,
             "mailbox_unread_count": mailbox_unread,
             "login_next_url": login_next_url,
             "webpush_prompt": webpush_prompt,

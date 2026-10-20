@@ -389,7 +389,10 @@ def notify_user_id(user_id: int | None, event: str, subject: str, body_text: str
 BOARD_EVENT_GROUPS = {
     "approvals": {
         "label": "Ждёт решения правления",
-        "actions": ("person.revision_submit", "proposal.create", "application.submit", "application.register"),
+        "actions": (
+            "person.revision_submit", "proposal.create", "application.submit", "application.register",
+            "certificate.request",
+        ),
     },
     "bank": {
         "label": "Банк и выписки",
@@ -470,7 +473,7 @@ IGNORED_BOARD_ACTIONS = frozenset({
 
 # Действия, решение по которым принимает только председатель — остальным
 # членам правления о них не сообщаем, даже если группа включена.
-CHAIRMAN_ONLY_BOARD_ACTIONS = frozenset({"person.revision_submit"})
+CHAIRMAN_ONLY_BOARD_ACTIONS = frozenset({"person.revision_submit", "certificate.request"})
 
 
 def board_group_for_action(action: str) -> str | None:

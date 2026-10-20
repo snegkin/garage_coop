@@ -108,3 +108,77 @@ def test_board_member_cannot_issue_and_stranger_cannot_view(db, client):
 
     login(client, "stranger", "pass1234")
     assert client.get(f"/certificates/{certificate.id}").status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# Запрос справки из личного кабинета
+# ---------------------------------------------------------------------------
+
+from app import notifications
+from app.models import CertificateRequest, CertificateRequestStatus
+
+
+def test_member_requests_and_chairman_issues(db, client, monkeypatch):
+    owner, garage, _chairman = _setup(db)
+    sent = []
+    monkeypatch.setattr(notifications, "notify", lambda user, event, subject, body: sent.append((user.person_id, subject)))
+
+    login(client, "owner", "pass1234")
+    resp = client.post("/certificates/my", data={"garage_id": str(garage.id), "comment": "2 экземпляра"})
+    assert resp.status_code == 302
+    req = db.query(CertificateRequest).one()
+    assert req.status == CertificateRequestStatus.REQUESTED and req.comment == "2 экземпляра"
+    assert db.query(AuditLog).filter_by(action="certificate.request").count() == 1
+
+    # Повторный запрос по тому же гаражу, пока первый не закрыт, — не создаётся.
+    client.post("/certificates/my", data={"garage_id": str(garage.id)})
+    assert db.query(CertificateRequest).count() == 1
+    client.get("/auth/logout")
+
+    login(client, "chair", "pass1234")
+    assert "Запрошены справки" in client.get("/").get_data(as_text=True)
+    page = client.get(f"/certificates/new?request_id={req.id}").get_data(as_text=True)
+    assert "2 экземпляра" in page and "Выдана Петровой Анне Ивановне" in page
+    client.post("/certificates/new", data={
+        "request_id": str(req.id), "issued_at": "2026-10-20", "body_html": "<p>Справка.</p>",
+    })
+    db.refresh(req)
+    assert req.status == CertificateRequestStatus.READY and req.certificate.person_id == owner.id
+    assert (owner.id, "Справка по гаражу № 42 готова") in sent
+
+    client.post(f"/certificates/requests/{req.id}/handed-over")
+    db.refresh(req)
+    assert req.status == CertificateRequestStatus.HANDED_OVER and req.handed_over_at
+    client.get("/auth/logout")
+
+    login(client, "owner", "pass1234")
+    page = client.get("/certificates/my").get_data(as_text=True)
+    assert "выдана на руки" in page and f"/certificates/{req.certificate_id}" in page
+
+
+def test_request_only_own_garage_and_reject(db, client, monkeypatch):
+    owner, garage, _chairman = _setup(db)
+    other_garage = make_garage(db, number="77")
+    db.commit()
+    sent = []
+    monkeypatch.setattr(notifications, "notify", lambda user, event, subject, body: sent.append((user.person_id, body)))
+
+    login(client, "owner", "pass1234")
+    client.post("/certificates/my", data={"garage_id": str(other_garage.id)})
+    assert db.query(CertificateRequest).count() == 0
+    client.post("/certificates/my", data={"garage_id": str(garage.id)})
+    req = db.query(CertificateRequest).one()
+    # Сам себе не отказывает и справку по запросу не оформляет.
+    client.post(f"/certificates/requests/{req.id}/reject", data={"reason": "x"})
+    db.refresh(req)
+    assert req.status == CertificateRequestStatus.REQUESTED
+    client.get("/auth/logout")
+
+    login(client, "chair", "pass1234")
+    client.post(f"/certificates/requests/{req.id}/reject", data={"reason": "гараж в споре"})
+    db.refresh(req)
+    assert req.status == CertificateRequestStatus.REJECTED and req.reject_reason == "гараж в споре"
+    assert any(pid == owner.id and "гараж в споре" in body for pid, body in sent)
+    # Обработанный запрос не оформляется повторно.
+    resp = client.get(f"/certificates/new?request_id={req.id}")
+    assert resp.status_code == 302

@@ -109,4 +109,6 @@ def entity_url(entity_type: str | None, entity_id: int | None) -> str | None:
         return url_for("applications.detail", application_id=entity_id)
     if entity_type == "certificate":
         return url_for("certificates.detail", certificate_id=entity_id)
+    if entity_type == "certificate_request":
+        return url_for("certificates.list_certificates")
     return None

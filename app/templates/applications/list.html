@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Заявления в правление") }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <h3 class="mb-0">{{ _("Заявления в правление") }}</h3>
+  {% if can_submit %}
+  <a class="btn btn-primary" href="{{ url_for('applications.create') }}"><i class="bi bi-pencil-square" aria-hidden="true"></i> {{ _("Написать заявление") }}</a>
+  {% endif %}
+</div>
+<p class="text-muted small">
+  {% if is_board() %}
+  {{ _("Заявления членов кооператива: о смене собственника гаража, претензии и прочие. Открытие заявления отмечает вас как ознакомившегося; ответить или отклонить может любой член правления.") }}
+  {% else %}
+  {{ _("Ваши заявления в правление. Заявление оформляется на бланке кооператива и подшивается к вашей карточке и к гаражу; об ответе правления придёт уведомление.") }}
+  {% endif %}
+</p>
+
+<ul class="nav nav-pills mb-3">
+  {% for value, label in [("", _("Все")), ("submitted", _("Ждут решения")), ("answered", _("С ответом")), ("rejected", _("Отклонённые"))] %}
+  <li class="nav-item"><a class="nav-link{% if status == value %} active{% endif %}" href="{{ url_for('applications.list_applications', status=value or None) }}">{{ label }}</a></li>
+  {% endfor %}
+</ul>
+
+{% if applications %}
+{% include "applications/_list_table.html" %}
+{% else %}
+<p class="text-muted">{{ _("Заявлений пока нет.") }}</p>
+{% endif %}
+{% endblock %}

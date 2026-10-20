@@ -1,8 +1,8 @@
-{% macro signature_block(chairman, date=None) %}
+{% macro signature_block(chairman, date=None, role=None) %}
 <div class="print-signatures">
   <div class="signature-rows">
     <div class="signature-line">
-      <span class="sig-role">{{ _("Председатель") }}</span><span class="sig-blank"></span>
+      <span class="sig-role">{{ role or _("Председатель") }}</span><span class="sig-blank"></span>
       {% if chairman %}<span class="sig-name">/{{ chairman.short_name }}/</span>{% endif %}
       {% if date %}<span class="sig-date">{{ fmt_date(date) }}</span>{% endif %}
     </div>

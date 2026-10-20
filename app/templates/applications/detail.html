@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% import "applications/_macros.html" as m %}
+{% import "applications/_editor.html" as editor %}
+{% block title %}{{ application_heading(application) }} № {{ application.number }}{% endblock %}
+{% block content %}
+{% include "applications/_sheet_style.html" %}
+{% set badge = application_status_badge(application) %}
+<div class="d-flex justify-content-between align-items-start mb-3 no-print flex-wrap gap-2">
+  <div>
+    <h3 class="mb-1">{{ application_heading(application) }} № {{ application.number }}</h3>
+    <div class="text-muted small">
+      {{ application_kind_label(application.kind) }} ·
+      {% if is_board() %}<a href="{{ url_for('persons.detail', person_id=application.person_id) }}">{{ application.applicant_name }}</a>{% else %}{{ application.applicant_name }}{% endif %}
+      {% if application.garage_id %} · <a href="{{ url_for('garages.detail', garage_id=application.garage_id) }}">{{ _("гараж") }} № {{ application.garage_number }}</a>{% endif %}
+      · {{ application.created_at.strftime('%d.%m.%Y %H:%M') }}
+      · <span class="badge {{ badge[1] }}">{{ badge[0] }}</span>
+    </div>
+  </div>
+  <div class="d-flex gap-2">
+    <button class="btn btn-primary btn-sm" onclick="window.print()"><i class="bi bi-printer" aria-hidden="true"></i> {{ _("Печать") }}</button>
+    <a class="btn btn-outline-primary btn-sm" href="{{ url_for('applications.pdf', application_id=application.id) }}">{{ _("Скачать PDF") }}</a>
+    <a data-back-link data-back-label="&larr; {{ _('Назад') }}" class="btn btn-outline-secondary btn-sm" href="{{ url_for('applications.list_applications') }}">{{ _("← к заявлениям") }}</a>
+  </div>
+</div>
+
+<div class="card bg-body mb-3 no-print">
+  <div class="card-body py-2 small">
+    <div>
+      <strong>{{ _("Ознакомились из правления") }}:</strong>
+      {% for r in application.reads %}
+      {{ r.person.short_name }} <span class="text-muted">({{ r.read_at.strftime('%d.%m.%Y %H:%M') }})</span>{% if not loop.last %}, {% endif %}
+      {% else %}
+      <span class="text-muted">{{ _("пока никто") }}</span>
+      {% endfor %}
+    </div>
+    {% if application.decided_at %}
+    <div class="mt-1">
+      <strong>{{ _("Решение") }}:</strong> {{ badge[0] }} · {{ application.decided_at.strftime('%d.%m.%Y %H:%M') }}{% if application.decided_by %} · {{ application.decided_by.short_name }}{% endif %}
+    </div>
+    {% elif not is_board() %}
+    <div class="mt-1 text-muted">{{ _("Правление рассмотрит заявление; об ответе придёт уведомление.") }}</div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="legal-print">
+  {{ m.application_doc(application, coop) }}
+</div>
+
+{% if application.status.value != 'submitted' %}
+<div class="legal-print">
+  {{ m.response_doc(application, coop) }}
+</div>
+{% endif %}
+
+{% if can_decide %}
+<form method="post" action="{{ url_for('applications.decide', application_id=application.id) }}" class="no-print mt-4">
+  <h5 style="max-width: 210mm; margin: 0 auto 0.75rem;">{{ _("Ответ правления") }}</h5>
+  <p class="text-muted small" style="max-width: 210mm; margin: 0 auto 0.75rem;">{{ _("Ответ оформляется на бланке кооператива и придёт заявителю уведомлением. При отклонении текст — причина, необязателен.") }}</p>
+  <div style="max-width: 210mm; margin: 0 auto;">
+    {{ editor.toolbar("responseBody") }}
+  </div>
+  <div class="legal-print">
+    <div class="legal-doc">
+      {{ m.response_header(application, coop) }}
+      <p class="print-title">{{ _("Ответ на") }} {{ application_kind_accusative(application.kind) }}</p>
+      <p class="print-meta">№ {{ application.number }} {{ _("от") }} {{ fmt_date(application.created_at.date()) }}</p>
+      <div class="application-body" id="responseBody" contenteditable="true" data-sheet-editor data-input="responseBodyInput" spellcheck="true"><p>{{ _("Правление рассмотрело Ваше заявление.") }}</p><p><br></p></div>
+    </div>
+  </div>
+  <input type="hidden" name="response_html" id="responseBodyInput">
+  <div class="d-flex justify-content-end gap-2 my-3" style="max-width: 210mm; margin: 0 auto;">
+    <button class="btn btn-outline-danger" name="decision" value="reject" onclick="return confirm({{ _('Отклонить заявление?')|tojson|forceescape }})">{{ _("Отклонить") }}</button>
+    <button class="btn btn-primary" name="decision" value="answer" onclick="return confirm({{ _('Отправить ответ заявителю?')|tojson|forceescape }})"><i class="bi bi-send" aria-hidden="true"></i> {{ _("Отправить ответ") }}</button>
+  </div>
+</form>
+{{ editor.script() }}
+{% endif %}
+{% endblock %}

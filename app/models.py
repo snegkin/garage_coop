@@ -1053,8 +1053,113 @@ class VoteProposalBoardBallot(Base):
 
 
 # ---------------------------------------------------------------------------
+# Заявления членов кооператива правлению
+# ---------------------------------------------------------------------------
+
+class ApplicationKind(str, enum.Enum):
+    OWNERSHIP_CHANGE = "ownership_change"  # о смене собственника гаража
+    CLAIM = "claim"                        # официальная претензия
+    OTHER = "other"                        # иное заявление
+
+
+class ApplicationStatus(str, enum.Enum):
+    SUBMITTED = "submitted"  # подано, ждёт решения правления
+    ANSWERED = "answered"    # правление дало ответ
+    REJECTED = "rejected"    # правление отклонило
+
+
+class Application(Base):
+    """
+    Заявление члена кооператива в правление — документ на бланке (см.
+    app/applications.py). Подшивается и к заявителю (person_id), и к
+    гаражу, по которому подано (garage_id) — видно на карточках обоих.
+
+    body_html — текст из редактора на бланке, уже санитизированный
+    (applications.sanitize_html) — шрифт/размер/выравнивание сохраняются
+    inline-стилями. applicant_* — реквизиты заявителя НА МОМЕНТ ПОДАЧИ
+    (ФИО, адрес, паспорт, телефон, номер гаража): заявление — документ,
+    его шапка не должна меняться задним числом, когда человек потом
+    поправит профиль или гараж перейдёт к другому собственнику.
+
+    number — «<год>-<порядковый номер в году>», см. ApplicationCounter.
+    Ответ правления (response_html) — тоже из редактора; при отклонении
+    необязателен (причина).
+    """
+    __tablename__ = "application"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    number: Mapped[str] = mapped_column(String(30), unique=True)
+    kind: Mapped[ApplicationKind] = mapped_column(Enum(ApplicationKind), index=True)
+    title: Mapped[str] = mapped_column(String(255))
+    body_html: Mapped[str] = mapped_column(Text)
+    status: Mapped[ApplicationStatus] = mapped_column(
+        Enum(ApplicationStatus), default=ApplicationStatus.SUBMITTED, index=True
+    )
+
+    person_id: Mapped[int] = mapped_column(ForeignKey("person.id", ondelete="CASCADE"), index=True)
+    garage_id: Mapped[int | None] = mapped_column(ForeignKey("garage.id", ondelete="SET NULL"), index=True)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.now, index=True)
+
+    applicant_name: Mapped[str] = mapped_column(String(255))
+    applicant_address: Mapped[str | None] = mapped_column(Text)
+    applicant_passport: Mapped[str | None] = mapped_column(String(255))
+    applicant_phone: Mapped[str | None] = mapped_column(String(255))
+    garage_number: Mapped[str | None] = mapped_column(String(20))
+
+    response_html: Mapped[str | None] = mapped_column(Text)
+    decided_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
+    decided_by_person_id: Mapped[int | None] = mapped_column(ForeignKey("person.id", ondelete="SET NULL"))
+
+    person: Mapped["Person"] = relationship(foreign_keys=[person_id])
+    garage: Mapped["Garage | None"] = relationship()
+    decided_by: Mapped["Person | None"] = relationship(foreign_keys=[decided_by_person_id])
+    reads: Mapped[list["ApplicationRead"]] = relationship(
+        back_populates="application", cascade="all, delete-orphan", order_by="ApplicationRead.read_at",
+    )
+
+
+class ApplicationRead(Base):
+    """Отметка «ознакомлен» члена правления с заявлением — ставится
+    автоматически при первом открытии карточки заявления членом правления
+    (applications.detail), заявитель и правление видят, кто уже прочитал."""
+    __tablename__ = "application_read"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    application_id: Mapped[int] = mapped_column(ForeignKey("application.id", ondelete="CASCADE"), index=True)
+    person_id: Mapped[int] = mapped_column(ForeignKey("person.id", ondelete="CASCADE"), index=True)
+    read_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.now)
+
+    application: Mapped["Application"] = relationship(back_populates="reads")
+    person: Mapped["Person"] = relationship()
+
+    __table_args__ = (
+        UniqueConstraint("application_id", "person_id", name="uq_application_read_application_person"),
+    )
+
+
+class ApplicationCounter(Base):
+    """Последний выданный номер заявления за год — как PostalLetterCounter:
+    номер не переиспользуется, даже если заявление потом удалят."""
+    __tablename__ = "application_counter"
+
+    year: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
+    last_number: Mapped[int] = mapped_column(Integer, default=0)
+
+
+# ---------------------------------------------------------------------------
 # Люди
 # ---------------------------------------------------------------------------
+
+def short_name_of(full_name: str) -> str:
+    """«Иванов И.И.» из полного ФИО — см. Person.short_name; отдельной
+    функцией для ФИО, сохранённого строкой (Application.applicant_name)."""
+    parts = full_name.strip().split()
+    if not parts:
+        return full_name
+    surname = parts[0]
+    initials = ".".join(p[0] for p in parts[1:3]) + "." if len(parts) > 1 else ""
+    return f"{surname} {initials}" if initials else surname
+
 
 class Person(Base):
     """
@@ -1091,12 +1196,7 @@ class Person(Base):
         """Фамилия и инициалы: «Иванов И.И.» — для официальных документов
         (подписи на печатных формах, подписи собственников под номером
         гаража и т.п.), где полное ФИО избыточно."""
-        parts = self.full_name.strip().split()
-        if not parts:
-            return self.full_name
-        surname = parts[0]
-        initials = ".".join(p[0] for p in parts[1:3]) + "." if len(parts) > 1 else ""
-        return f"{surname} {initials}" if initials else surname
+        return short_name_of(self.full_name)
 
     birth_date: Mapped[dt.date | None] = mapped_column(Date)
 

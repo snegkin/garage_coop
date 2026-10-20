@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+{% import "applications/_macros.html" as m %}
+{% import "applications/_editor.html" as editor %}
+{% block title %}{{ _("Заявление в правление") }}{% endblock %}
+{% block content %}
+{% include "applications/_sheet_style.html" %}
+<form method="post" action="{{ url_for('applications.create') }}" id="applicationForm" data-draft-key="application-draft-{{ person.id }}">
+  <div class="d-flex justify-content-between align-items-center mb-3 no-print flex-wrap gap-2">
+    <h3 class="mb-0">{{ _("Заявление в правление") }}</h3>
+    <a data-back-link data-back-label="&larr; {{ _('Назад') }}" class="btn btn-outline-secondary btn-sm" href="{{ url_for('applications.list_applications') }}">{{ _("← к заявлениям") }}</a>
+  </div>
+
+  <div class="row g-2 mb-3 no-print" style="max-width: 210mm; margin: 0 auto;">
+    <div class="col-sm-6">
+      <label class="form-label small mb-1" for="appKind">{{ _("Вид заявления") }}</label>
+      <select class="form-select" name="kind" id="appKind">
+        {% for k in kinds %}
+        <option value="{{ k.value }}"{% if k == kind %} selected{% endif %}>{{ templates[k.value].label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-sm-6">
+      <label class="form-label small mb-1" for="appGarage">{{ _("Гараж") }}</label>
+      <select class="form-select" name="garage_id" id="appGarage">
+        {% for gar in garages %}
+        <option value="{{ gar.id }}" data-number="{{ gar.number }}"{% if gar.id == garage.id %} selected{% endif %}>№ {{ gar.number }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    {% if not (snapshot.applicant_address and snapshot.applicant_passport and snapshot.applicant_phone) %}
+    <div class="col-12">
+      <div class="alert alert-warning small mb-0">
+        {{ _("В вашем профиле заполнены не все реквизиты для шапки заявления (выделены красным на бланке). Их можно дополнить в") }}
+        <a href="{{ url_for('cabinet.profile') }}">{{ _("профиле") }}</a>{{ _(", изменения вступят в силу после одобрения председателем. Заявление можно подать и без них.") }}
+      </div>
+    </div>
+    {% endif %}
+    <div class="col-12 d-none" id="draftRestored">
+      <div class="alert alert-info small mb-0 d-flex justify-content-between align-items-center gap-2">
+        <span>{{ _("Восстановлен неотправленный черновик.") }}</span>
+        <button type="button" class="btn btn-sm btn-outline-secondary" id="draftDiscard">{{ _("Начать заново") }}</button>
+      </div>
+    </div>
+  </div>
+
+  <div style="max-width: 210mm; margin: 0 auto;">
+    {{ editor.toolbar("appBody") }}
+  </div>
+
+  <div class="legal-print">
+    <div class="legal-doc">
+      {{ m.applicant_header(snapshot, coop, '<span id="appGarageNumber">'|safe ~ garage.number ~ '</span>'|safe, editing=True) }}
+      <p class="print-title" id="appHeading">{{ templates[kind.value].heading|upper }}</p>
+      <p class="print-subtitle">
+        <input class="application-title-input" name="title" id="appTitle" value="{{ title }}" maxlength="255"
+               placeholder="{{ _('о чём (необязательно), например: о замене счётчика') }}" aria-label="{{ _('Тема') }}">
+      </p>
+      <p class="print-meta">№ <span class="text-muted">{{ _("(присваивается при подаче)") }}</span> {{ _("от") }} {{ fmt_date(today) }}</p>
+      <div class="application-body" id="appBody" contenteditable="true" data-sheet-editor data-input="appBodyInput" spellcheck="true">{{ body_html|safe }}</div>
+      {{ m.applicant_signature(snapshot.applicant_name, today) }}
+    </div>
+  </div>
+  <input type="hidden" name="body_html" id="appBodyInput">
+
+  <div class="d-flex justify-content-end gap-2 my-3 no-print" style="max-width: 210mm; margin: 0 auto;">
+    <button class="btn btn-primary" onclick="return confirm({{ _('Отправить заявление правлению? После отправки изменить его будет нельзя.')|tojson|forceescape }})">
+      <i class="bi bi-send" aria-hidden="true"></i> {{ _("Отправить правлению") }}
+    </button>
+  </div>
+</form>
+
+{{ editor.script() }}
+<script>
+(function () {
+  var templates = {{ templates|tojson }};
+  var form = document.getElementById("applicationForm");
+  var body = document.getElementById("appBody");
+  var kind = document.getElementById("appKind");
+  var garage = document.getElementById("appGarage");
+  var title = document.getElementById("appTitle");
+  var heading = document.getElementById("appHeading");
+  var garageNumber = document.getElementById("appGarageNumber");
+  var draftKey = form.dataset.draftKey;
+
+  function currentGarageNumber() { return garage.options[garage.selectedIndex].dataset.number; }
+  function templateBody(k, number) { return templates[k].body.split("{garage}").join(number); }
+
+  // Пока текст не трогали — смена вида/гаража подставляет стартовый текст
+  // заново; после правки текста — только шапка и заголовок.
+  var pristine = {{ 'true' if not request.form else 'false' }};
+  body.addEventListener("sheet-change", function () { pristine = false; saveDraft(); });
+  title.addEventListener("input", saveDraft);
+
+  kind.addEventListener("change", function () {
+    heading.textContent = templates[kind.value].heading.toUpperCase();
+    if (pristine) {
+      title.value = templates[kind.value].title;
+      body.innerHTML = templateBody(kind.value, currentGarageNumber());
+    }
+    saveDraft();
+  });
+  garage.addEventListener("change", function () {
+    garageNumber.textContent = currentGarageNumber();
+    if (pristine) body.innerHTML = templateBody(kind.value, currentGarageNumber());
+    saveDraft();
+  });
+
+  // Черновик в localStorage — на случай закрытой вкладки/обрыва связи до
+  // отправки; после успешной отправки стирается (см. submit ниже — сервер
+  // при ошибке вернёт эту же форму с введённым текстом).
+  function saveDraft() {
+    if (pristine) return;
+    try {
+      localStorage.setItem(draftKey, JSON.stringify({
+        kind: kind.value, garage: garage.value, title: title.value, body: body.innerHTML,
+      }));
+    } catch (e) {}
+  }
+  function loadDraft() {
+    try { return JSON.parse(localStorage.getItem(draftKey) || "null"); } catch (e) { return null; }
+  }
+  var draft = pristine ? loadDraft() : null;
+  if (draft && draft.body) {
+    kind.value = draft.kind;
+    if (garage.querySelector('option[value="' + draft.garage + '"]')) garage.value = draft.garage;
+    title.value = draft.title || "";
+    body.innerHTML = draft.body;
+    heading.textContent = templates[kind.value].heading.toUpperCase();
+    garageNumber.textContent = currentGarageNumber();
+    pristine = false;
+    document.getElementById("draftRestored").classList.remove("d-none");
+  }
+  document.getElementById("draftDiscard").addEventListener("click", function () {
+    try { localStorage.removeItem(draftKey); } catch (e) {}
+    pristine = true;
+    title.value = templates[kind.value].title;
+    body.innerHTML = templateBody(kind.value, currentGarageNumber());
+    document.getElementById("draftRestored").classList.add("d-none");
+  });
+  form.addEventListener("submit", function () {
+    try { localStorage.removeItem(draftKey); } catch (e) {}
+  });
+})();
+</script>
+{% endblock %}

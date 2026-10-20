@@ -183,6 +183,16 @@ def create_app(config_class=Config):
                     ).exists(),
                 ).count()
 
+        # для правления — заявления членов кооператива, по которым ещё нет
+        # решения (см. app/applications.py) — любой член правления может
+        # ответить, поэтому счёт общий, не «не прочитанные мной»
+        pending_applications = 0
+        if user and is_board():
+            from .models import Application, ApplicationStatus
+            pending_applications = database.db_session.query(Application).filter(
+                Application.status == ApplicationStatus.SUBMITTED,
+            ).count()
+
         # непрочитанные сообщения чата правления (см. app/board_chat.py) —
         # свои сообщения не считаются непрочитанными; порог "прочитано по"
         # общий на все сообщения, не по каждому (User.board_chat_read_at)
@@ -266,6 +276,7 @@ def create_app(config_class=Config):
             "is_revision_commission_member": is_revision_member,
             "revision_chat_unread_count": revision_chat_unread,
             "pending_proposals_count": pending_proposals,
+            "pending_applications_count": pending_applications,
             "mailbox_unread_count": mailbox_unread,
             "login_next_url": login_next_url,
             "webpush_prompt": webpush_prompt,
@@ -292,6 +303,7 @@ def create_app(config_class=Config):
     from .penalty import bp as penalty_bp
     from .voting import bp as voting_bp
     from .proposals import bp as proposals_bp
+    from .applications import bp as applications_bp
     from .news import bp as news_bp
     from .bulletin import bp as bulletin_bp
     from .forum import bp as forum_bp
@@ -327,6 +339,7 @@ def create_app(config_class=Config):
     app.register_blueprint(penalty_bp)
     app.register_blueprint(voting_bp)
     app.register_blueprint(proposals_bp)
+    app.register_blueprint(applications_bp)
     app.register_blueprint(news_bp)
     app.register_blueprint(bulletin_bp)
     app.register_blueprint(forum_bp)

@@ -394,6 +394,20 @@ relationship-коллекции» выше — тот же класс пробл
 `resolve_if_due`/`proposal_tally` всегда бьют в БД напрямую
 (`db_session.query(...)`), не через relationship.
 
+## Заявления в правление (`app/applications.py`, `Application`)
+Текст — HTML из contenteditable (`applications/_editor.html`, execCommand),
+не markdown: нужен шрифт/размер/выравнивание на фрагменте. Сервер чистит
+`bleach` + `CSSSanitizer` (`ALLOWED_TAGS`/`ALLOWED_CSS` — только оформление
+текста, без img/a/позиционирования). Размер шрифта: execCommand умеет только
+1–7 → `fontSize 7` как маркер, затем `<font size=7>` → `<span style=font-size:Npt>`
+(`normalize()` в редакторе); `<font face>` тоже переводится в span — сервер
+`font` не пропускает. Выделение сохраняется на `selectionchange` и
+восстанавливается перед командой (селекты уводят фокус). `applicant_*` —
+снимок реквизитов на момент подачи. Хелперы шаблона — app_template_global
+(не context_processor): нужны в импортируемых макросах без `with context`.
+Импорт `applications` в garages/persons — локальный (цикл через legal_docs).
+`signature_block` в legal_docs/_macros.html получил параметр `role`.
+
 ## Крон-скрипты пени: ставка ЦБ + начисление
 `scripts/update_key_rate.py` — standalone (сам `create_app()`+
 `app_context()`), тянет с cbr.ru от дня после последней записи (или с

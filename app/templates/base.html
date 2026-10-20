@@ -74,6 +74,7 @@
           <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">{{ _("Правление") }}</a>
           <ul class="dropdown-menu">
             <li><a class="dropdown-item" href="{{ url_for('governance.contacts') }}">{{ _("Контакты") }}</a></li>
+            <li><a class="dropdown-item d-flex justify-content-between align-items-center gap-2" href="{{ url_for('applications.list_applications') }}">{{ _("Заявления в правление") }}{% if pending_applications_count > 0 %}<span class="badge bg-warning text-dark rounded-pill">{{ pending_applications_count }}</span>{% endif %}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('governance.view') }}">{{ _("Созывы") }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('meetings.list_meetings') }}">{{ _("Собрания") }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('annual_reports.list_reports') }}">{{ _("Отчёты") }}</a></li>
@@ -161,6 +162,9 @@
               {% if pending_proposals_count > 0 %}
               <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-warning text-dark" style="font-size:0.55em; margin-left: 1.2em;">{{ pending_proposals_count }}</span>
               {% endif %}
+              {% if pending_applications_count > 0 %}
+              <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-warning text-dark" style="font-size:0.55em; margin-left: 1.2em;">{{ pending_applications_count }}</span>
+              {% endif %}
               {% if mailbox_unread_count > 0 %}
               <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-primary" style="font-size:0.55em; margin-left: 1.2em;">{{ mailbox_unread_count }}</span>
               {% endif %}
@@ -176,6 +180,9 @@
             {% endif %}
             {% if pending_proposals_count > 0 %}
             <li><a class="dropdown-item" href="{{ url_for('proposals.list_proposals') }}"><span class="dropdown-icon"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i></span>{{ _("Предложения ждут решения") }} {{ pending_proposals_count }}</a></li>
+            {% endif %}
+            {% if pending_applications_count > 0 %}
+            <li><a class="dropdown-item" href="{{ url_for('applications.list_applications', status='submitted') }}"><span class="dropdown-icon"><i class="bi bi-file-earmark-text" aria-hidden="true"></i></span>{{ _("Заявления ждут решения") }} {{ pending_applications_count }}</a></li>
             {% endif %}
             {% if mailbox_unread_count > 0 %}
             <li><a class="dropdown-item" href="{{ url_for('mailbox.inbox') }}"><span class="dropdown-icon"><i class="bi bi-envelope" aria-hidden="true"></i></span>{{ _("Непрочитанные письма") }} {{ mailbox_unread_count }}</a></li>

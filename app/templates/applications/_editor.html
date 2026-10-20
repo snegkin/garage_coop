@@ -1,0 +1,240 @@
+{#
+  Редактор текста прямо на бланке — contenteditable внутри листа
+  (.legal-print), а не textarea: что видно на экране, то и будет в печати
+  и PDF. toolbar(target) — панель над листом, target — id редактируемого
+  элемента ([data-sheet-editor], у него data-input — id скрытого поля
+  формы, куда при отправке кладётся HTML). Сервер всё равно чистит HTML
+  (applications.sanitize_html) — здесь только удобство.
+
+  Шрифт и размер — inline-стилями на фрагменте (span style), красная
+  строка и интервал — на абзацах. Вставка из буфера — только текстом
+  (Word тащит свою разметку, документ должен остаться строгим), абзацы по
+  переносам строк. Подключать: {% import "applications/_editor.html" as editor %},
+  {{ editor.toolbar("id") }}, и один раз на страницу {{ editor.script() }}.
+#}
+{% macro toolbar(target) %}
+<div class="sheet-toolbar no-print bg-body border rounded p-2 mb-3 d-flex flex-wrap gap-2 align-items-center" data-sheet-toolbar="{{ target }}" role="toolbar" aria-label="{{ _('Форматирование') }}">
+  <div class="btn-group btn-group-sm">
+    <button type="button" class="btn btn-outline-secondary" data-cmd="undo" title="{{ _('Отменить') }} (Ctrl+Z)"><i class="bi bi-arrow-counterclockwise" aria-hidden="true"></i></button>
+    <button type="button" class="btn btn-outline-secondary" data-cmd="redo" title="{{ _('Повторить') }} (Ctrl+Y)"><i class="bi bi-arrow-clockwise" aria-hidden="true"></i></button>
+  </div>
+  <select class="form-select form-select-sm" data-font-name title="{{ _('Шрифт') }}" aria-label="{{ _('Шрифт') }}">
+    <option value="'Times New Roman', 'Liberation Serif', serif">Times New Roman</option>
+    <option value="Arial, 'Liberation Sans', sans-serif">Arial</option>
+    <option value="Georgia, serif">Georgia</option>
+    <option value="Verdana, sans-serif">Verdana</option>
+    <option value="'Courier New', 'Liberation Mono', monospace">Courier New</option>
+  </select>
+  <select class="form-select form-select-sm" data-font-size title="{{ _('Размер шрифта') }}" aria-label="{{ _('Размер шрифта') }}">
+    {% for pt in [8, 9, 10, 11, 12, 13, 14, 16, 18, 20, 24] %}
+    <option value="{{ pt }}"{% if pt == 14 %} selected{% endif %}>{{ pt }}</option>
+    {% endfor %}
+  </select>
+  <div class="btn-group btn-group-sm">
+    <button type="button" class="btn btn-outline-secondary fw-bold" data-cmd="bold" data-state title="{{ _('Жирный') }} (Ctrl+B)">B</button>
+    <button type="button" class="btn btn-outline-secondary fst-italic" data-cmd="italic" data-state title="{{ _('Курсив') }} (Ctrl+I)">I</button>
+    <button type="button" class="btn btn-outline-secondary text-decoration-underline" data-cmd="underline" data-state title="{{ _('Подчёркнутый') }} (Ctrl+U)">U</button>
+    <button type="button" class="btn btn-outline-secondary text-decoration-line-through" data-cmd="strikeThrough" data-state title="{{ _('Зачёркнутый') }}">S</button>
+    <button type="button" class="btn btn-outline-secondary" data-cmd="superscript" data-state title="{{ _('Верхний индекс') }}">x²</button>
+    <button type="button" class="btn btn-outline-secondary" data-cmd="subscript" data-state title="{{ _('Нижний индекс') }}">x₂</button>
+  </div>
+  <div class="btn-group btn-group-sm">
+    <button type="button" class="btn btn-outline-secondary" data-cmd="justifyLeft" data-state title="{{ _('По левому краю') }}"><i class="bi bi-text-left" aria-hidden="true"></i></button>
+    <button type="button" class="btn btn-outline-secondary" data-cmd="justifyCenter" data-state title="{{ _('По центру') }}"><i class="bi bi-text-center" aria-hidden="true"></i></button>
+    <button type="button" class="btn btn-outline-secondary" data-cmd="justifyRight" data-state title="{{ _('По правому краю') }}"><i class="bi bi-text-right" aria-hidden="true"></i></button>
+    <button type="button" class="btn btn-outline-secondary" data-cmd="justifyFull" data-state title="{{ _('По ширине') }}"><i class="bi bi-justify" aria-hidden="true"></i></button>
+  </div>
+  <div class="btn-group btn-group-sm">
+    <button type="button" class="btn btn-outline-secondary" data-cmd="insertUnorderedList" data-state title="{{ _('Маркированный список') }}"><i class="bi bi-list-ul" aria-hidden="true"></i></button>
+    <button type="button" class="btn btn-outline-secondary" data-cmd="insertOrderedList" data-state title="{{ _('Нумерованный список') }}"><i class="bi bi-list-ol" aria-hidden="true"></i></button>
+    <button type="button" class="btn btn-outline-secondary" data-cmd="outdent" title="{{ _('Уменьшить отступ') }}"><i class="bi bi-text-indent-right" aria-hidden="true"></i></button>
+    <button type="button" class="btn btn-outline-secondary" data-cmd="indent" title="{{ _('Увеличить отступ') }}"><i class="bi bi-text-indent-left" aria-hidden="true"></i></button>
+    <button type="button" class="btn btn-outline-secondary" data-red-line title="{{ _('Красная строка') }}"><i class="bi bi-paragraph" aria-hidden="true"></i></button>
+  </div>
+  <select class="form-select form-select-sm" data-line-height title="{{ _('Межстрочный интервал') }}" aria-label="{{ _('Межстрочный интервал') }}">
+    <option value="1">{{ _("Интервал") }} 1,0</option>
+    <option value="1.15">{{ _("Интервал") }} 1,15</option>
+    <option value="1.5" selected>{{ _("Интервал") }} 1,5</option>
+    <option value="2">{{ _("Интервал") }} 2,0</option>
+  </select>
+  <div class="btn-group btn-group-sm">
+    <button type="button" class="btn btn-outline-secondary" data-insert-table title="{{ _('Вставить таблицу') }}"><i class="bi bi-table" aria-hidden="true"></i></button>
+    <button type="button" class="btn btn-outline-secondary" data-cmd="insertHorizontalRule" title="{{ _('Горизонтальная линия') }}"><i class="bi bi-hr" aria-hidden="true"></i></button>
+    <button type="button" class="btn btn-outline-secondary" data-cmd="removeFormat" title="{{ _('Очистить форматирование') }}"><i class="bi bi-eraser" aria-hidden="true"></i></button>
+  </div>
+</div>
+{% endmacro %}
+
+
+{% macro script() %}
+<script>
+(function () {
+  var BLOCK_RE = /^(P|DIV|LI|BLOCKQUOTE|TD|TH)$/;
+
+  function initEditor(editor, toolbar) {
+    var savedRange = null;
+    var pendingSizePt = null;
+
+    try { document.execCommand("defaultParagraphSeparator", false, "p"); } catch (e) {}
+
+    // Выбор в <select> уводит фокус из редактора и сбрасывает выделение —
+    // запоминаем его при каждом изменении и восстанавливаем перед командой.
+    document.addEventListener("selectionchange", function () {
+      var sel = window.getSelection();
+      if (sel.rangeCount && editor.contains(sel.getRangeAt(0).commonAncestorContainer)) {
+        savedRange = sel.getRangeAt(0).cloneRange();
+        updateState();
+      }
+    });
+
+    function restoreSelection() {
+      editor.focus();
+      if (savedRange) {
+        var sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(savedRange);
+      }
+    }
+
+    function exec(cmd, value) {
+      restoreSelection();
+      document.execCommand(cmd, false, value === undefined ? null : value);
+      normalize();
+      updateState();
+    }
+
+    // <font> (что даёт execCommand без styleWithCSS) → <span style>: сервер
+    // пропускает только span со стилями. size="7" — служебный маркер
+    // команды размера (execCommand понимает только размеры 1–7).
+    function normalize() {
+      editor.querySelectorAll("font").forEach(function (font) {
+        var span = document.createElement("span");
+        if (font.getAttribute("face")) span.style.fontFamily = font.getAttribute("face");
+        if (font.getAttribute("size") === "7" && pendingSizePt) span.style.fontSize = pendingSizePt + "pt";
+        while (font.firstChild) span.appendChild(font.firstChild);
+        font.replaceWith(span);
+      });
+      editor.querySelectorAll("span").forEach(function (span) {
+        if (/xxx-large/.test(span.style.fontSize) && pendingSizePt) span.style.fontSize = pendingSizePt + "pt";
+      });
+    }
+
+    function selectedBlocks() {
+      restoreSelection();
+      var sel = window.getSelection();
+      if (!sel.rangeCount) return [];
+      var range = sel.getRangeAt(0);
+      var blocks = Array.prototype.filter.call(editor.querySelectorAll("p,div,li,blockquote,td,th"), function (el) {
+        return range.intersectsNode(el) && !el.querySelector("p,div,li,blockquote,td,th");
+      });
+      if (!blocks.length) {
+        document.execCommand("formatBlock", false, "p");
+        var node = window.getSelection().anchorNode;
+        while (node && node !== editor && !(node.nodeType === 1 && BLOCK_RE.test(node.tagName))) node = node.parentNode;
+        if (node && node !== editor) blocks = [node];
+      }
+      return blocks;
+    }
+
+    function updateState() {
+      toolbar.querySelectorAll("[data-state]").forEach(function (btn) {
+        var on = false;
+        try { on = document.queryCommandState(btn.dataset.cmd); } catch (e) {}
+        btn.classList.toggle("active", on);
+      });
+      var sel = window.getSelection();
+      var node = sel.rangeCount ? sel.anchorNode : null;
+      if (node && node.nodeType !== 1) node = node.parentNode;
+      if (!node || !editor.contains(node)) return;
+      var style = window.getComputedStyle(node);
+      var pt = Math.round(parseFloat(style.fontSize) * 0.75);
+      var sizeSelect = toolbar.querySelector("[data-font-size]");
+      if (sizeSelect.querySelector('option[value="' + pt + '"]')) sizeSelect.value = String(pt);
+      var family = style.fontFamily.split(",")[0].replace(/["']/g, "").trim().toLowerCase();
+      var fontSelect = toolbar.querySelector("[data-font-name]");
+      Array.prototype.forEach.call(fontSelect.options, function (opt) {
+        if (opt.textContent.toLowerCase() === family) fontSelect.value = opt.value;
+      });
+    }
+
+    toolbar.querySelectorAll("[data-cmd]").forEach(function (btn) {
+      btn.addEventListener("mousedown", function (e) { e.preventDefault(); });
+      btn.addEventListener("click", function () { exec(btn.dataset.cmd); });
+    });
+
+    toolbar.querySelector("[data-font-name]").addEventListener("change", function (e) {
+      restoreSelection();
+      document.execCommand("styleWithCSS", false, true);
+      document.execCommand("fontName", false, e.target.value);
+      document.execCommand("styleWithCSS", false, false);
+      normalize();
+    });
+
+    toolbar.querySelector("[data-font-size]").addEventListener("change", function (e) {
+      pendingSizePt = e.target.value;
+      restoreSelection();
+      document.execCommand("styleWithCSS", false, false);
+      document.execCommand("fontSize", false, "7");
+      normalize();
+    });
+
+    toolbar.querySelector("[data-line-height]").addEventListener("change", function (e) {
+      selectedBlocks().forEach(function (block) { block.style.lineHeight = e.target.value; });
+    });
+
+    toolbar.querySelector("[data-red-line]").addEventListener("mousedown", function (e) { e.preventDefault(); });
+    toolbar.querySelector("[data-red-line]").addEventListener("click", function () {
+      var blocks = selectedBlocks();
+      var hasIndent = blocks.some(function (b) { return parseFloat(window.getComputedStyle(b).textIndent) > 0; });
+      blocks.forEach(function (b) { b.style.textIndent = hasIndent ? "0" : "1.25cm"; });
+    });
+
+    toolbar.querySelector("[data-insert-table]").addEventListener("mousedown", function (e) { e.preventDefault(); });
+    toolbar.querySelector("[data-insert-table]").addEventListener("click", function () {
+      var spec = window.prompt({{ _("Таблица: столбцов × строк (например, 3x2)")|tojson }}, "2x2");
+      var m = spec && spec.match(/^\s*(\d+)\s*[xх×*]\s*(\d+)\s*$/i);
+      if (!m) return;
+      var cols = Math.min(+m[1], 10), rows = Math.min(+m[2], 50);
+      var html = '<table style="border-collapse: collapse; width: 100%">';
+      for (var r = 0; r < rows; r++) {
+        html += "<tr>";
+        for (var c = 0; c < cols; c++) html += '<td style="border: 1px solid #000; padding: 1mm 2mm">&nbsp;</td>';
+        html += "</tr>";
+      }
+      exec("insertHTML", html + "</table><p><br></p>");
+    });
+
+    editor.addEventListener("paste", function (e) {
+      e.preventDefault();
+      var text = (e.clipboardData || window.clipboardData).getData("text/plain").replace(/\r\n?/g, "\n");
+      var lines = text.split("\n");
+      if (lines.length === 1) {
+        document.execCommand("insertText", false, text);
+        return;
+      }
+      var esc = function (s) { return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); };
+      document.execCommand("insertHTML", false, lines.map(function (l) { return "<p>" + (esc(l) || "<br>") + "</p>"; }).join(""));
+    });
+
+    editor.addEventListener("input", function () {
+      normalize();
+      editor.dispatchEvent(new CustomEvent("sheet-change", { bubbles: true }));
+    });
+
+    var input = document.getElementById(editor.dataset.input);
+    var form = input && input.form;
+    if (form) {
+      form.addEventListener("submit", function () {
+        normalize();
+        input.value = editor.innerHTML;
+      });
+    }
+  }
+
+  document.querySelectorAll("[data-sheet-editor]").forEach(function (editor) {
+    var toolbar = document.querySelector('[data-sheet-toolbar="' + editor.id + '"]');
+    if (toolbar) initEditor(editor, toolbar);
+  });
+})();
+</script>
+{% endmacro %}

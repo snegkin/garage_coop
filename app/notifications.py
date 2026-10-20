@@ -389,7 +389,7 @@ def notify_user_id(user_id: int | None, event: str, subject: str, body_text: str
 BOARD_EVENT_GROUPS = {
     "approvals": {
         "label": "Ждёт решения правления",
-        "actions": ("person.revision_submit", "proposal.create"),
+        "actions": ("person.revision_submit", "proposal.create", "application.submit"),
     },
     "bank": {
         "label": "Банк и выписки",
@@ -430,8 +430,8 @@ BOARD_EVENT_GROUPS = {
         "actions": ("counterparty.*", "counterparty_payment.*", "expense.*", "counterparty_api.*"),
     },
     "governance": {
-        "label": "Собрания, голосования, предложения, состав правления",
-        "actions": ("meeting.*", "vote.*", "proposal.*", "board_term.*", "revision_commission.*"),
+        "label": "Собрания, голосования, предложения, заявления, состав правления",
+        "actions": ("meeting.*", "vote.*", "proposal.*", "application.*", "board_term.*", "revision_commission.*"),
     },
     "settings": {
         "label": "Почта и настройки",

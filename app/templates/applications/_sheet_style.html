@@ -1,0 +1,42 @@
+{# Стиль заявления/ответа на бланке — поверх общего стиля печатных форм
+   (legal_docs/_print_style.html, его включает сам этот файл). Текст
+   документа по умолчанию — Times New Roman 14 пт, полуторный интервал,
+   красная строка и выравнивание по ширине (ГОСТ Р 7.0.97-2016) — всё это
+   можно переопределить для фрагмента в редакторе (_editor.html), стили
+   фрагмента приходят inline (см. applications.ALLOWED_CSS). Одинаково на
+   экране, в редакторе и в PDF. #}
+{% include "legal_docs/_print_style.html" %}
+<style>
+.legal-print .application-body {
+  font-family: "Times New Roman", "Liberation Serif", serif;
+  font-size: 14pt; line-height: 1.5; text-align: justify; color: #000;
+}
+.legal-print .application-body p { margin: 0; text-indent: 1.25cm; }
+.legal-print .application-body li, .legal-print .application-body li p,
+.legal-print .application-body td p, .legal-print .application-body th p { text-indent: 0; }
+.legal-print .application-body ul, .legal-print .application-body ol { margin: 0; padding-left: 1.25cm; }
+.legal-print .application-body table { border-collapse: collapse; width: 100%; margin: 2mm 0; }
+.legal-print .application-body td, .legal-print .application-body th { border: 1px solid #000; padding: 1mm 2mm; vertical-align: top; }
+.legal-print .application-body blockquote { margin: 0 0 0 1.25cm; }
+.legal-print .application-sign { margin-top: 12mm; display: flex; justify-content: space-between; align-items: flex-end; font-size: 13px; }
+.legal-print .application-sign .sig-blank { display: inline-block; width: 45mm; border-bottom: 1px solid #000; margin: 0 2mm; }
+.legal-print .application-title-input {
+  display: block; width: 100%; border: 0; border-bottom: 1px dashed #bbb; background: transparent; color: #000;
+  text-align: center; font: inherit; padding: 0; outline: none;
+}
+.legal-print .application-title-input:focus { border-bottom-color: #0d6efd; }
+.legal-print .applicant-missing { color: #b02a37; font-style: italic; }
+.legal-print .application-body[contenteditable] {
+  min-height: 110mm; outline: 1px dashed transparent; outline-offset: 2mm; caret-color: #000;
+}
+.legal-print .application-body[contenteditable]:hover { outline-color: #ccc; }
+.legal-print .application-body[contenteditable]:focus { outline-color: #0d6efd; }
+.sheet-toolbar { position: sticky; top: 0; z-index: 10; }
+.sheet-toolbar .form-select { width: auto; }
+.sheet-toolbar .btn.active { background: var(--bs-secondary-bg); border-color: var(--bs-primary); }
+.legal-print + .legal-print { margin-top: 8mm; }
+@media print {
+  .legal-print + .legal-print { margin-top: 0 !important; page-break-before: always; }
+  .legal-print .application-title-input { border: 0 !important; }
+}
+</style>

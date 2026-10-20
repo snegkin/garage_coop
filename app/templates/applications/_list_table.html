@@ -1,0 +1,27 @@
+{# Таблица заявлений — список /applications/ и блоки на карточках человека
+   и гаража. Ожидает applications; read_ids (необязательно) — id заявлений,
+   с которыми текущий член правления уже ознакомился (непрочитанные
+   выделяются). #}
+{% set read_ids = read_ids|default(none) %}
+<table class="table table-sm bg-body sortable align-middle">
+  <thead>
+    <tr>
+      <th>№</th><th>{{ _("Дата") }}</th><th>{{ _("Заявление") }}</th>
+      <th>{{ _("Заявитель") }}</th><th>{{ _("Гараж") }}</th><th>{{ _("Статус") }}</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for a in applications %}
+    {% set badge = application_status_badge(a) %}
+    {% set unread = read_ids is not none and a.id not in read_ids and a.person_id != g.user.person_id %}
+    <tr{% if unread %} class="fw-semibold"{% endif %}>
+      <td>{{ a.number }}</td>
+      <td data-sort-value="{{ a.created_at.isoformat() }}">{{ a.created_at.strftime('%d.%m.%Y') }}</td>
+      <td><a href="{{ url_for('applications.detail', application_id=a.id) }}">{{ application_heading(a) }}</a>{% if unread %} <span class="badge text-bg-primary">{{ _("новое") }}</span>{% endif %}</td>
+      <td>{{ a.applicant_name }}</td>
+      <td>{{ a.garage_number or "—" }}</td>
+      <td><span class="badge {{ badge[1] }}">{{ badge[0] }}</span></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>

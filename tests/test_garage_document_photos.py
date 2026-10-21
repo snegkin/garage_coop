@@ -148,3 +148,47 @@ def test_unrelated_member_cannot_download_garage_document(db, client):
 
     resp = client.get(f"/garages/documents/{doc.id}/doc.txt")
     assert resp.status_code == 403
+
+
+def test_pdf_document_served_inline_for_preview(app, db, client):
+    """?inline=1 — миниатюра/просмотр PDF на карточке гаража (без него — скачивание)."""
+    owner = make_person(db, full_name="Владелец Седьмой")
+    garage = make_garage(db, number="609")
+    make_ownership(db, garage, owner)
+    doc = GarageDocumentPhoto(garage_id=garage.id, doc_type=GarageDocumentType.TECHNICAL_PLAN,
+                              original_filename="plan.pdf", file_path="stored5.pdf")
+    db.add(doc)
+    make_user(db, "owner503", "pass12345", role=RoleEnum.MEMBER, person=owner)
+    db.commit()
+    with open(f"{app.config['UPLOAD_FOLDER']}/stored5.pdf", "wb") as fh:
+        fh.write(b"%PDF-1.4 fake")
+    login(client, "owner503", "pass12345")
+
+    resp = client.get(f"/garages/documents/{doc.id}/plan.pdf?inline=1")
+    assert resp.status_code == 200
+    assert resp.headers["Content-Disposition"].startswith("inline")
+    assert resp.mimetype == "application/pdf"
+
+    resp = client.get(f"/garages/documents/{doc.id}/plan.pdf")
+    assert resp.headers["Content-Disposition"].startswith("attachment")
+
+    page = client.get(f"/garages/{garage.id}").get_data(as_text=True)
+    assert 'type="application/pdf"' in page
+    assert f"/garages/documents/{doc.id}/plan.pdf?inline=1" in page
+
+
+def test_non_previewable_document_never_served_inline(app, db, client):
+    owner = make_person(db, full_name="Владелец Восьмой")
+    garage = make_garage(db, number="610")
+    make_ownership(db, garage, owner)
+    doc = GarageDocumentPhoto(garage_id=garage.id, doc_type=GarageDocumentType.OTHER,
+                              original_filename="page.html", file_path="stored6.html")
+    db.add(doc)
+    make_user(db, "owner504", "pass12345", role=RoleEnum.MEMBER, person=owner)
+    db.commit()
+    with open(f"{app.config['UPLOAD_FOLDER']}/stored6.html", "wb") as fh:
+        fh.write(b"<script>alert(1)</script>")
+    login(client, "owner504", "pass12345")
+
+    resp = client.get(f"/garages/documents/{doc.id}/page.html?inline=1")
+    assert resp.headers["Content-Disposition"].startswith("attachment")

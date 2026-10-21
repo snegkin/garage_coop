@@ -1958,6 +1958,10 @@ class GarageDocumentPhoto(Base):
         ext = self.original_filename.rsplit(".", 1)[-1].lower() if "." in self.original_filename else ""
         return ext in {"jpg", "jpeg", "png", "gif", "webp"}
 
+    @property
+    def is_pdf(self) -> bool:
+        return self.original_filename.lower().endswith(".pdf")
+
 
 class GarageOwnership(Base):
     """Доля владения гаражом (сумма долей по гаражу должна = 1)."""

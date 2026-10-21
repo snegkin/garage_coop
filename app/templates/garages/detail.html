@@ -423,9 +423,21 @@
   {% for doc in garage.document_photos %}
   <div class="col-md-3 col-sm-4 col-6">
     <div class="card">
+      {% set doc_inline_url = url_for('garages.document_photo_file', document_id=doc.id, original_filename=doc.original_filename, inline=1) %}
+      {% if doc.is_image or doc.is_pdf %}
+      <a href="{{ doc_inline_url }}" target="_blank" rel="noopener">
+      {% else %}
       <a href="{{ url_for('garages.document_photo_file', document_id=doc.id, original_filename=doc.original_filename) }}">
+      {% endif %}
         {% if doc.is_image %}
-        <img src="{{ url_for('garages.document_photo_file', document_id=doc.id, original_filename=doc.original_filename) }}" class="card-img-top" style="height:150px;object-fit:cover">
+        <img src="{{ doc_inline_url }}" class="card-img-top" style="height:150px;object-fit:cover">
+        {% elif doc.is_pdf %}
+        {# Первая страница во встроенном просмотрщике браузера; pointer-events:none —
+           чтобы клик уходил ссылке (открыть целиком), а не в просмотрщик. Где
+           встроенного просмотра PDF нет (мобильные браузеры), — иконка-заглушка. #}
+        <object data="{{ doc_inline_url }}#page=1&toolbar=0&navpanes=0&scrollbar=0&view=FitH" type="application/pdf" class="card-img-top d-block" style="height:150px;width:100%;pointer-events:none;background:var(--bs-secondary-bg)" aria-label="{{ doc.original_filename }}">
+          <div class="d-flex align-items-center justify-content-center text-muted" style="height:150px;font-size:2.5rem"><i class="bi bi-file-earmark-pdf" aria-hidden="true"></i></div>
+        </object>
         {% else %}
         <div class="card-img-top d-flex align-items-center justify-content-center text-muted" style="height:150px;background:var(--bs-secondary-bg);font-size:2.5rem"><i class="bi bi-file-earmark-text" aria-hidden="true"></i></div>
         {% endif %}

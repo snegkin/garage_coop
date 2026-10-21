@@ -1,3 +1,12 @@
+{# Номер и дата документа — дата отдельной строкой под номером (справки,
+   заявления, ответы на них). number — уже готовый текст (может быть
+   «(присваивается при выдаче)»). #}
+{% macro number_and_date(number, date) %}
+<p class="print-meta print-meta-number">№ {{ number }}</p>
+<p class="print-meta">{{ fmt_date(date) if date else "" }}</p>
+{% endmacro %}
+
+
 {% macro signature_block(chairman, date=None, role=None) %}
 <div class="print-signatures">
   <div class="signature-rows">

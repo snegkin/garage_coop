@@ -55,7 +55,8 @@
         <input class="application-title-input" name="title" id="appTitle" value="{{ title }}" maxlength="255"
                placeholder="{{ _('о чём (необязательно), например: о замене счётчика') }}" aria-label="{{ _('Тема') }}">
       </p>
-      <p class="print-meta">№ <span class="text-muted">{{ _("(присваивается при подаче)") }}</span> {{ _("от") }} {{ fmt_date(today) }}</p>
+      <p class="print-meta print-meta-number">№ <span class="text-muted">{{ _("(присваивается при подаче)") }}</span></p>
+      <p class="print-meta">{{ fmt_date(today) }}</p>
       <div class="application-body" id="appBody" contenteditable="true" data-sheet-editor data-input="appBodyInput" spellcheck="true">{{ body_html|safe }}</div>
       <div id="newOwnerBlock"{% if kind.value != 'ownership_change' %} hidden{% endif %}>
         <p class="print-subtitle new-owner-caption"><strong>{{ _("Сведения о новом собственнике") }}</strong></p>

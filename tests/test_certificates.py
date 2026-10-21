@@ -40,7 +40,8 @@ def test_default_body_from_registry(db):
     assert "владеет гаражом № 42, расположенным на территории" in html
     assert "61:44:0000000:1" in html and "паспорт серия 1234 № 567890" in html
     assert "Задолженности по взносам и платежам перед кооперативом не имеет." in html
-    assert "статьёй 3.7 Федерального закона от 25.10.2001 № 137-ФЗ" in html
+    assert "Справка выдана для предъявления по месту требования." in html
+    assert "137-ФЗ" not in html
 
 
 def test_default_body_share_and_debt(db):

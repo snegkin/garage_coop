@@ -1001,14 +1001,17 @@ def remove_document_photo(garage_id, document_id):
 @bp.route("/documents/<int:document_id>/<original_filename>")
 @login_required
 def document_photo_file(document_id, original_filename):
+    """?inline=1 — показать в браузере (миниатюра/просмотр картинки или PDF
+    на карточке гаража), иначе — скачать."""
     doc = database.db_session.get(GarageDocumentPhoto, document_id)
     if doc is None:
         abort(404)
     if not is_owner_or_board(doc.garage):
         abort(403)
+    inline = bool(request.args.get("inline")) and (doc.is_image or doc.is_pdf)
     return send_file(
         os.path.join(current_app.config["UPLOAD_FOLDER"], doc.file_path),
-        as_attachment=True,
+        as_attachment=not inline,
         download_name=doc.original_filename,
     )
 

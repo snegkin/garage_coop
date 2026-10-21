@@ -586,29 +586,36 @@ class ImapMailClient(IncomingMailClient):
         uid_bytes = data[0].split() if data and data[0] else []
         uid_bytes = list(reversed(uid_bytes))  # новые первыми (UID растут по мере поступления) — базовый порядок и тай-брейк при сортировке
 
-        messages: list[MessageSummary] = []
-        for uid in uid_bytes:
-            try:
-                typ, fdata = self.conn.uid("fetch", uid, "(FLAGS BODYSTRUCTURE BODY.PEEK[HEADER.FIELDS (SUBJECT FROM TO DATE)])")
-            except imaplib.IMAP4.error as exc:
-                raise MailError(f"IMAP FETCH: {exc}") from exc
-            if typ != "OK" or not fdata or not isinstance(fdata[0], tuple):
-                continue
-            meta_line, header_bytes = fdata[0]
-            flags_match = _FLAGS_RE.search(meta_line)
-            flags = flags_match.group(1).split() if flags_match else []
-            seen = b"\\Seen" in flags
-            flagged = b"\\Flagged" in flags
-            has_attachments = bool(_ATTACHMENT_DISPOSITION_RE.search(meta_line))
-            msg = email.message_from_bytes(header_bytes, policy=email.policy.default)
-            from_name, from_addr = _address_from_header(msg, "from")
-            to_addrs = _addr_list_from_header(msg, "to")
-            messages.append(MessageSummary(
-                uid=uid.decode(), subject=_subject(msg),
-                from_name=from_name, from_addr=from_addr, to_addr=(to_addrs[0] if to_addrs else None),
-                date=_parse_date(msg), seen=seen, flagged=flagged, has_attachments=has_attachments,
-            ))
+        messages = [m for m in (self._fetch_summary(uid) for uid in uid_bytes) if m is not None]
         return _filter_sort_paginate(messages, page, page_size, search, sort, sort_dir)
+
+    def _fetch_summary(self, uid: bytes) -> MessageSummary | None:
+        """Заголовки одного письма для списка — BODY.PEEK, чтобы сам просмотр
+        списка (и cron-опрос новых писем) не помечал письмо прочитанным."""
+        try:
+            typ, fdata = self.conn.uid("fetch", uid, "(FLAGS BODYSTRUCTURE BODY.PEEK[HEADER.FIELDS (SUBJECT FROM TO DATE)])")
+        except imaplib.IMAP4.error as exc:
+            raise MailError(f"IMAP FETCH: {exc}") from exc
+        if typ != "OK" or not fdata or not isinstance(fdata[0], tuple):
+            return None
+        meta_line, header_bytes = fdata[0]
+        flags_match = _FLAGS_RE.search(meta_line)
+        flags = flags_match.group(1).split() if flags_match else []
+        msg = email.message_from_bytes(header_bytes, policy=email.policy.default)
+        from_name, from_addr = _address_from_header(msg, "from")
+        to_addrs = _addr_list_from_header(msg, "to")
+        return MessageSummary(
+            uid=uid.decode(), subject=_subject(msg),
+            from_name=from_name, from_addr=from_addr, to_addr=(to_addrs[0] if to_addrs else None),
+            date=_parse_date(msg), seen=b"\\Seen" in flags, flagged=b"\\Flagged" in flags,
+            has_attachments=bool(_ATTACHMENT_DISPOSITION_RE.search(meta_line)),
+        )
+
+    def message_summaries(self, uids, folder: str = DEFAULT_FOLDER) -> list[MessageSummary]:
+        """Заголовки конкретных писем по UID — для уведомления о новых
+        письмах (mailbox.refresh_unread_counts), без выборки всей папки."""
+        self._ensure_selected(folder)
+        return [m for m in (self._fetch_summary(str(uid).encode()) for uid in uids) if m is not None]
 
     def _fetch_raw(self, uid: str, folder: str) -> bytes:
         self._ensure_selected(folder)
@@ -687,14 +694,19 @@ class ImapMailClient(IncomingMailClient):
             raise MailError(f"IMAP: {exc}") from exc
 
     def count_unread(self, folder: str = DEFAULT_FOLDER) -> int:
+        return len(self.search_uids("UNSEEN", folder))
+
+    def search_uids(self, criterion: str = "ALL", folder: str = DEFAULT_FOLDER) -> set[str]:
+        """UID писем папки по критерию SEARCH ("ALL"/"UNSEEN") — один запрос,
+        без заголовков."""
         self._ensure_selected(folder)
         try:
-            typ, data = self.conn.uid("search", None, "UNSEEN")
+            typ, data = self.conn.uid("search", None, criterion)
         except imaplib.IMAP4.error as exc:
             raise MailError(f"IMAP SEARCH: {exc}") from exc
         if typ != "OK":
-            raise MailError("IMAP: не удалось получить число непрочитанных писем")
-        return len(data[0].split()) if data and data[0] else 0
+            raise MailError("IMAP: не удалось получить список писем")
+        return {uid.decode() for uid in data[0].split()} if data and data[0] else set()
 
 
 class Pop3MailClient(IncomingMailClient):
@@ -776,27 +788,34 @@ class Pop3MailClient(IncomingMailClient):
         uidl_map = self.get_uidl_map()
         self.supports_message_state = uidl_map is not None
 
-        messages: list[MessageSummary] = []
-        for num in numbers:
-            header_bytes = None
-            if self._supports_top:
-                try:
-                    _resp, lines, _octets = self.conn.top(num, 0)
-                    header_bytes = b"\r\n".join(lines)
-                except poplib.error_proto:
-                    self._supports_top = False  # сервер не поддерживает TOP — дальше сразу RETR
-            if header_bytes is None:
-                header_bytes = self._fetch_raw(num)
-            msg = email.message_from_bytes(header_bytes, policy=email.policy.default)
-            from_name, from_addr = _address_from_header(msg, "from")
-            to_addrs = _addr_list_from_header(msg, "to")
-            messages.append(MessageSummary(
-                uid=str(num), subject=_subject(msg),
-                from_name=from_name, from_addr=from_addr, to_addr=(to_addrs[0] if to_addrs else None),
-                date=_parse_date(msg), seen=None, flagged=None, has_attachments=None,
-                uidl=(uidl_map.get(num) if uidl_map else None),
-            ))
+        messages = [self._fetch_summary(num, uidl_map.get(num) if uidl_map else None) for num in numbers]
         return _filter_sort_paginate(messages, page, page_size, search, sort, sort_dir)
+
+    def _fetch_summary(self, num: int, uidl: str | None) -> MessageSummary:
+        header_bytes = None
+        if self._supports_top:
+            try:
+                _resp, lines, _octets = self.conn.top(num, 0)
+                header_bytes = b"\r\n".join(lines)
+            except poplib.error_proto:
+                self._supports_top = False  # сервер не поддерживает TOP — дальше сразу RETR
+        if header_bytes is None:
+            header_bytes = self._fetch_raw(num)
+        msg = email.message_from_bytes(header_bytes, policy=email.policy.default)
+        from_name, from_addr = _address_from_header(msg, "from")
+        to_addrs = _addr_list_from_header(msg, "to")
+        return MessageSummary(
+            uid=str(num), subject=_subject(msg),
+            from_name=from_name, from_addr=from_addr, to_addr=(to_addrs[0] if to_addrs else None),
+            date=_parse_date(msg), seen=None, flagged=None, has_attachments=None, uidl=uidl,
+        )
+
+    def message_summaries(self, uidls, folder: str = DEFAULT_FOLDER) -> list[MessageSummary]:
+        """Заголовки конкретных писем по UIDL — для уведомления о новых
+        письмах (mailbox.refresh_unread_counts)."""
+        self._check_folder(folder)
+        num_by_uidl = {uidl: num for num, uidl in (self.get_uidl_map() or {}).items()}
+        return [self._fetch_summary(num_by_uidl[uidl], uidl) for uidl in uidls if uidl in num_by_uidl]
 
     def get_message(self, uid: str, folder: str = DEFAULT_FOLDER) -> MessageDetail:
         self._check_folder(folder)

@@ -448,6 +448,11 @@ BOARD_EVENT_GROUPS = {
         "label": "Неудачные попытки входа",
         "actions": ("auth.login_failed",),
     },
+    # Не действия журнала, а письма, найденные cron-опросом почты — см. notify_new_mail.
+    "mail": {
+        "label": "Новые письма в почте правления",
+        "actions": (),
+    },
     # Не действия журнала, а сбои cron-синхронизаций — см. notify_failure.
     "failures": {
         "label": "Сбои синхронизации с банком, eWeLink, регистратором; фаза электропитания не на связи",
@@ -589,6 +594,34 @@ def notify_failure(source: str, title: str, error: str, threshold: int = 1) -> b
     body_text += "\n\nСледующее сообщение об этом сбое — не раньше чем через сутки."
     _send_to_board("failures", f"failure:{source}", f"Сбой: {title}", body_text)
     return True
+
+
+NEW_MAIL_LISTED_LIMIT = 5
+
+
+def notify_new_mail(messages, total: int) -> int:
+    """Сообщить правлению (группа «mail») о новых письмах во «Входящих» —
+    вызывается из mailbox.refresh_unread_counts (cron), сразу, без
+    after_commit, как и notify_failure. messages — сводки
+    (mail_client.MessageSummary) не более чем NEW_MAIL_LISTED_LIMIT писем,
+    total — сколько новых всего (заголовки могли не прочитаться).
+    Возвращает число получателей."""
+    if total <= 0:
+        return 0
+    if total == 1 and messages:
+        sender = messages[0].from_name or messages[0].from_addr or "неизвестного отправителя"
+        subject = f"Новое письмо от {sender}: «{messages[0].subject or 'без темы'}»"
+    else:
+        subject = f"Новых писем в почте правления: {total}"
+    if len(subject) > 120:
+        subject = subject[:119] + "…"
+    lines = []
+    for message in messages[:NEW_MAIL_LISTED_LIMIT]:
+        sender = message.from_name or message.from_addr or "—"
+        lines.append(f"• {sender}: «{message.subject or 'без темы'}»")
+    if total > len(lines):
+        lines.append(f"…и ещё {total - len(lines)}" if lines else f"Новых писем: {total}")
+    return _send_to_board("mail", "mail:new", subject, "\n".join(lines))
 
 
 def reset_failure(source: str) -> None:

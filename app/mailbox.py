@@ -17,6 +17,7 @@ HTML-тело письма рендерится в песочнице (iframe sa
 import datetime as dt
 import html as html_module
 import io
+import json
 import re
 from html.parser import HTMLParser
 from sqlalchemy.exc import IntegrityError
@@ -25,6 +26,7 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 
 from . import database
 from . import audit
+from . import notifications
 from .i18n import translate as _
 from .auth import roles_required, ROLE_LEVEL
 from .models import RoleEnum, MailboxSettings, MailProtocol, MailEncryption, MailboxPop3MessageState, User
@@ -337,33 +339,80 @@ def _board_plus_users() -> list[User]:
     return database.db_session.query(User).filter(User.role.in_(qualifying_roles)).all()
 
 
+def _new_message_ids(settings: MailboxSettings, current_ids: set[str], candidate_ids: set[str]) -> set[str]:
+    """Какие из candidate_ids появились после прошлого опроса — по
+    MailboxSettings.known_message_ids, который тут же заменяется текущим
+    составом ящика (удалённые письма из списка выпадают, он не растёт
+    бесконечно). Первый опрос (NULL) — бутстрап: новых нет."""
+    known = None
+    if settings.known_message_ids is not None:
+        try:
+            known = set(json.loads(settings.known_message_ids))
+        except ValueError:
+            known = None
+    settings.known_message_ids = json.dumps(sorted(current_ids))
+    if known is None:
+        return set()
+    return candidate_ids - known
+
+
+def _sort_ids(ids):
+    """Новые первыми: IMAP UID растут по мере поступления, POP3 UIDL — просто строки."""
+    return sorted(ids, key=lambda value: (len(value), value) if value.isdigit() else (0, value), reverse=True)
+
+
+def _new_mail_summaries(client, new_ids: set[str]) -> list:
+    """Заголовки новых писем для текста уведомления — их недоступность не
+    повод не уведомлять вовсе: тогда только число."""
+    try:
+        return client.message_summaries(_sort_ids(new_ids)[:notifications.NEW_MAIL_LISTED_LIMIT], DEFAULT_FOLDER)
+    except MailError:
+        return []
+
+
 def _refresh_imap_unread_count(settings: MailboxSettings) -> str:
     try:
         with mail_client.get_incoming_client(settings) as client:
-            unread = client.count_unread(DEFAULT_FOLDER)
+            unread_ids = client.search_uids("UNSEEN", DEFAULT_FOLDER)
+            # Уведомляем только о ещё непрочитанных: письмо, которое кто-то
+            # из правления уже открыл через сайт до опроса, — не новость.
+            new_ids = _new_message_ids(settings, client.search_uids("ALL", DEFAULT_FOLDER), unread_ids)
+            summaries = _new_mail_summaries(client, new_ids) if new_ids else []
     except MailError as exc:
         _record_connection_error(settings, exc)
         settings.last_checked_at = dt.datetime.utcnow()
         database.db_session.commit()
         return f"Ошибка подключения к почте: {exc}"
 
-    settings.unread_count = unread
+    settings.unread_count = len(unread_ids)
     settings.last_error = None
     settings.last_checked_at = dt.datetime.utcnow()
     database.db_session.commit()
-    return f"Непрочитанных писем: {unread}."
+    # После commit: known_message_ids уже сохранён — сбой рассылки не
+    # приведёт к повторному уведомлению о тех же письмах на следующем опросе.
+    notifications.notify_new_mail(summaries, len(new_ids))
+    return f"Непрочитанных писем: {len(unread_ids)}." + (f" Новых: {len(new_ids)}." if new_ids else "")
 
 
 def _refresh_pop3_unread_counts(settings: MailboxSettings) -> str:
     try:
         with mail_client.get_incoming_client(settings) as client:
             current_uidls = client.list_current_uidls(DEFAULT_FOLDER)
+            new_ids: set[str] = set()
+            summaries = []
+            if current_uidls is not None:
+                # У POP3 нет общего «прочитано» (статус — свой у каждого
+                # члена правления), поэтому новое — просто не виденное прошлым опросом.
+                new_ids = _new_message_ids(settings, current_uidls, current_uidls)
+                summaries = _new_mail_summaries(client, new_ids) if new_ids else []
     except MailError as exc:
         _record_connection_error(settings, exc)
         settings.last_checked_at = dt.datetime.utcnow()
         database.db_session.commit()
         return f"Ошибка подключения к почте: {exc}"
 
+    # Сразу, до бутстрапа ниже — его rollback при гонке откатил бы и known_message_ids.
+    database.db_session.commit()
     users = _board_plus_users()
     if current_uidls is None:
         for user in users:
@@ -408,7 +457,10 @@ def _refresh_pop3_unread_counts(settings: MailboxSettings) -> str:
     settings.last_error = None
     settings.last_checked_at = dt.datetime.utcnow()
     database.db_session.commit()
-    return f"Писем в ящике: {len(current_uidls)}, пользователей обновлено: {len(users)}."
+    notifications.notify_new_mail(summaries, len(new_ids))
+    return f"Писем в ящике: {len(current_uidls)}, пользователей обновлено: {len(users)}." + (
+        f" Новых: {len(new_ids)}." if new_ids else ""
+    )
 
 
 def refresh_unread_counts() -> str:
@@ -416,7 +468,10 @@ def refresh_unread_counts() -> str:
     (cron, раз в 5 минут) и mailbox.inbox()/view_message()/set_message_state()
     (опортунистически). IMAP — общий MailboxSettings.unread_count; POP3 —
     персональный User.pop3_mailbox_unread_count (сам протокол флагов не
-    хранит, см. MailboxPop3MessageState). Возвращает строку для лога
+    хранит, см. MailboxPop3MessageState). Заодно рассылает правлению
+    уведомление о новых письмах (_new_message_ids, notify_new_mail) —
+    только из этой функции, не из опортунистических обновлений бейджа в
+    роутах. Возвращает строку для лога
     вызывающего кода — не поднимает исключений (ошибка подключения тоже
     успешно обработанный, просто неудачный, результат)."""
     settings = _get_or_create_settings()

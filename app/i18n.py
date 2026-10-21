@@ -1895,6 +1895,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Персональные данные обрабатываются на основании устава —": "Personal data is processed under the cooperative's charter —",
         "условия обработки": "processing terms",
         "Обработка персональных данных": "Processing of personal data",
+        "Новые письма в почте правления": "New mail in the board mailbox",
         "Сбои синхронизации с банком, eWeLink, регистратором; фаза электропитания не на связи": "Bank, eWeLink and video recorder sync failures; a power phase is offline",
         "Чтобы получать уведомления этим способом, сначала укажите и сохраните соответствующий контакт в профиле.":
             "To receive notifications this way, first fill in and save the matching contact field in your profile.",

@@ -2908,6 +2908,13 @@ class MailboxSettings(Base):
     # у POP3 нет флага "прочитано" протокольно, там всегда 0.
     unread_count: Mapped[int] = mapped_column(Integer, default=0)
 
+    # JSON-список идентификаторов писем «Входящих» (IMAP UID / POP3 UIDL),
+    # которые уже были в ящике на прошлом cron-опросе — уведомление
+    # правлению о новом письме уходит только по тем, которых тут ещё нет
+    # (см. mailbox._new_message_ids). NULL — опроса ещё не было: вся
+    # история на этот момент считается известной, без шквала уведомлений.
+    known_message_ids: Mapped[str | None] = mapped_column(Text)
+
     last_error: Mapped[str | None] = mapped_column(Text)
     last_checked_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
 

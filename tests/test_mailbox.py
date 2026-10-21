@@ -9,11 +9,12 @@ message_sent пишутся, неудачные попытки и test-connectio
 """
 import base64
 import io
+import json
 import re
 from email.message import EmailMessage
 import email.policy
 
-from app import database, mail_client
+from app import database, mail_client, notifications
 from app.mailbox import refresh_unread_counts
 from app.models import RoleEnum, MailboxSettings, MailProtocol, MailEncryption, AuditLog, Charge, Expense, MailboxPop3MessageState, User
 from app.bank_api import crypto
@@ -1486,6 +1487,96 @@ def test_refresh_unread_counts_pop3_uidl_unsupported(db, monkeypatch):
 
     message = refresh_unread_counts()
     assert "не поддерживает UIDL" in message
+
+
+# ---------------------------------------------------------------------------
+# Уведомление правлению о новых письмах (refresh_unread_counts →
+# notifications.notify_new_mail)
+# ---------------------------------------------------------------------------
+
+def _capture_new_mail(monkeypatch):
+    calls = []
+    monkeypatch.setattr(notifications, "notify_new_mail", lambda messages, total: calls.append((list(messages), total)))
+    return calls
+
+
+def test_refresh_imap_first_poll_bootstraps_without_notification(db, monkeypatch):
+    _make_settings(db)
+    _mock_imap(monkeypatch, {1: _test_email().as_bytes(), 2: _test_email().as_bytes()})
+    calls = _capture_new_mail(monkeypatch)
+
+    refresh_unread_counts()
+
+    assert calls == [([], 0)]
+    db.expire_all()
+    assert json.loads(db.query(MailboxSettings).first().known_message_ids) == ["1", "2"]
+
+
+def test_refresh_imap_notifies_about_new_unread_mail_once(db, monkeypatch):
+    _make_settings(db)
+    fake = _mock_imap(monkeypatch, {1: _test_email().as_bytes()})
+    calls = _capture_new_mail(monkeypatch)
+    refresh_unread_counts()  # бутстрап
+
+    fake.mailboxes["INBOX"][2] = _test_email(subject="Запрос из администрации").as_bytes()
+    message = refresh_unread_counts()
+    refresh_unread_counts()  # то же письмо повторно не объявляется
+
+    assert "Новых: 1" in message
+    assert [total for _messages, total in calls] == [0, 1, 0]
+    summaries = calls[1][0]
+    assert [m.subject for m in summaries] == ["Запрос из администрации"]
+    assert summaries[0].from_addr == "sender@example.com"
+    assert "\\Seen" not in fake.flags.get(2, set())  # опрос не пометил письмо прочитанным
+
+
+def test_refresh_imap_skips_new_mail_already_read(db, monkeypatch):
+    """Письмо, которое кто-то из правления успел открыть на сайте до опроса, — не новость."""
+    _make_settings(db)
+    fake = _mock_imap(monkeypatch, {1: _test_email().as_bytes()})
+    calls = _capture_new_mail(monkeypatch)
+    refresh_unread_counts()
+
+    fake.mailboxes["INBOX"][2] = _test_email().as_bytes()
+    fake.flags[2] = {"\\Seen"}
+    refresh_unread_counts()
+
+    assert calls[-1] == ([], 0)
+
+
+def test_refresh_pop3_notifies_about_new_mail(db, monkeypatch):
+    _make_board(db)
+    _make_pop3_settings(db)
+    _mock_pop3(monkeypatch, [_test_email().as_bytes()])
+    calls = _capture_new_mail(monkeypatch)
+    refresh_unread_counts()  # бутстрап
+
+    _mock_pop3(monkeypatch, [_test_email().as_bytes(), _test_email(subject="Новое").as_bytes()], uidls=["uidl-1", "uidl-2"])
+    refresh_unread_counts()
+
+    assert calls[0] == ([], 0)
+    assert calls[1][1] == 1
+    assert [m.subject for m in calls[1][0]] == ["Новое"]
+
+
+def test_notify_new_mail_reaches_board_subscribed_to_mail_group(db, monkeypatch):
+    board1 = _make_board(db, username="board1")
+    board2 = _make_board(db, username="board2")
+    member1 = _make_member(db)
+    board2.notify_board_events = json.dumps(["finance"])
+    db.commit()
+    delivered = []
+    monkeypatch.setattr(notifications, "_deliver", lambda user, event, subject, body: delivered.append((user.id, subject, body)))
+
+    summary = mail_client.MessageSummary(
+        uid="2", subject="Запрос", from_name="Администрация", from_addr="adm@example.com", to_addr=None,
+        date=None, seen=False, flagged=False, has_attachments=False,
+    )
+    assert notifications.notify_new_mail([summary], 1) == 1
+
+    assert [user_id for user_id, _s, _b in delivered] == [board1.id]
+    assert delivered[0][1] == "Новое письмо от Администрация: «Запрос»"
+    assert member1.id not in [user_id for user_id, _s, _b in delivered]
 
 
 def test_compose_send_renders_markdown_as_html_alternative(db, client, monkeypatch):

@@ -17,9 +17,13 @@
    выпиской по счетам) и ему тесно на книжном листе. #}
 {% set legal_orientation = legal_orientation|default("portrait") %}
 <style>
+/* Межстрочный интервал 1,5 — для всех печатных документов (справки,
+   заявления, уведомления, иски): на экране его и так давал Bootstrap, а в
+   PDF (weasyprint, без Bootstrap) строки шли по умолчанию, плотнее. */
 .legal-print {
   font-family: Arial, Helvetica, sans-serif;
   font-size: 13px;
+  line-height: 1.5;
   color: #000;
   background: #fff;
   max-width: {{ "297mm" if legal_orientation == "landscape" else "210mm" }};
@@ -48,6 +52,8 @@
 .legal-print .print-title { font-size: 15px; font-weight: bold; text-align: center; margin: 0 0 2mm; }
 .legal-print .print-subtitle { text-align: center; margin: 0 0 1mm; }
 .legal-print .print-meta { text-align: center; color: #333; font-size: 11px; margin: 0 0 6mm; }
+/* Номер — над датой, дата отдельной строкой (legal_docs/_macros.html: number_and_date). */
+.legal-print .print-meta-number { margin-bottom: 0; }
 
 .legal-print .print-table { width: 100%; border-collapse: collapse; margin: 0 0 6mm; font-size: 11px; }
 .legal-print .print-table th, .legal-print .print-table td { border: 1px solid #000; padding: 1mm 2mm; }

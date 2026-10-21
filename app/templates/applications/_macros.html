@@ -56,7 +56,7 @@
   {{ applicant_header(application, coop, application.garage_number or "—") }}
   <p class="print-title">{{ application_kind_heading(application.kind)|upper }}</p>
   {% if application.title %}<p class="print-subtitle">{{ application.title }}</p>{% endif %}
-  <p class="print-meta">№ {{ application.number }} {{ _("от") }} {{ fmt_date(application.created_at.date()) }}</p>
+  {{ legal.number_and_date(application.number, application.created_at.date()) }}
   <div class="application-body">{{ application.body_html|safe }}</div>
   {% if application.new_owner_data %}
   {{ new_owner_table(application_new_owner_rows(application.new_owner_dict)) }}
@@ -91,7 +91,7 @@
 <div class="legal-doc">
   {{ response_header(application, coop) }}
   <p class="print-title">{{ _("Ответ на") if application.status.value == 'answered' else _("Об отклонении:") }} {{ application_kind_accusative(application.kind) }}</p>
-  <p class="print-meta">№ {{ application.number }} {{ _("от") }} {{ fmt_date(application.created_at.date()) }}</p>
+  {{ legal.number_and_date(application.number, application.created_at.date()) }}
   <div class="application-body">
     {% if application.status.value == 'rejected' %}<p>{{ _("Правление рассмотрело Ваше заявление и отклонило его.") }}</p>{% endif %}
     {{ (application.response_html or "")|safe }}

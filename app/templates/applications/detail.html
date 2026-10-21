@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% import "applications/_macros.html" as m %}
 {% import "applications/_editor.html" as editor %}
+{% import "legal_docs/_macros.html" as legal %}
 {% block title %}{{ application_heading(application) }} № {{ application.number }}{% endblock %}
 {% block content %}
 {% include "applications/_sheet_style.html" %}
@@ -180,7 +181,7 @@
     <div class="legal-doc">
       {{ m.response_header(application, coop) }}
       <p class="print-title">{{ _("Ответ на") }} {{ application_kind_accusative(application.kind) }}</p>
-      <p class="print-meta">№ {{ application.number }} {{ _("от") }} {{ fmt_date(application.created_at.date()) }}</p>
+      {{ legal.number_and_date(application.number, application.created_at.date()) }}
       <div class="application-body" id="responseBody" contenteditable="true" data-sheet-editor data-input="responseBodyInput" spellcheck="true">{{ response_prefill|safe }}</div>
     </div>
   </div>

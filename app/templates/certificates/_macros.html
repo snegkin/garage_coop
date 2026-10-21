@@ -13,7 +13,7 @@
     </div>
   </div>
   <p class="print-title">{{ _("СПРАВКА") }}</p>
-  <p class="print-meta">№ {{ number }} {{ _("от") }} {{ fmt_date(issued_at) if issued_at else "" }}</p>
+  {{ legal.number_and_date(number, issued_at) }}
   {% if editable_id %}
   <div class="application-body" id="{{ editable_id }}" contenteditable="true" data-sheet-editor data-input="{{ editable_id }}Input" spellcheck="true">{{ body|safe }}</div>
   {% else %}

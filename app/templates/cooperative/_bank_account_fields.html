@@ -33,6 +33,11 @@
   </div>
 </div>
 <div class="mb-3">
+  <label class="form-label">{{ _("% банка за зачисление") }}</label>
+  <input class="form-control" type="text" inputmode="decimal" name="bank_fee_percent" value="{{ (account.bank_fee_percent if account.bank_fee_percent is not none else '') if account else '' }}">
+  <div class="form-text">{{ _("Комиссия банка с поступлений на этот счёт (напр. 1.6 — Сбербанк, 1 — ВТБ «Простой процент»). Добавляется к сумме к оплате, если платёж придёт на этот счёт.") }}</div>
+</div>
+<div class="mb-3">
   <label class="form-label">{{ _("Комментарий") }}</label>
   <textarea class="form-control" name="comment">{{ (account.comment or '') if account else '' }}</textarea>
 </div>

@@ -526,7 +526,6 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Сумма рассчитывается автоматически: (новые показания − предыдущие) × тариф, действующий на месяц оплаты.":
             "The amount is calculated automatically: (new reading − previous) × the tariff in effect for the billing month.",
         "Нет тарифа, действующего на этот месяц — сначала добавьте тариф.": "No tariff is in effect for this month — add a tariff first.",
-        "% банка за обслуживание": "Bank service fee, %",
         "Баланс, ₽": "Balance, ₽",
         "Баланс на дату": "Balance as of",
         "сумма по лицевым счетам членов": "sum across members' personal accounts",
@@ -537,7 +536,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Фактический баланс (счета + касса), вносится вручную. Не путать с внутренним учётным балансом на дашборде — тот считается автоматически как сумма лицевых счетов.":
             "Actual balance (bank accounts + cash on hand), entered manually. Not to be confused with the internal accounting balance on the dashboard, which is calculated automatically as the sum of personal accounts.",
         "Вносится вручную, нет интеграции с банком.": "Entered manually, no bank integration.",
-        "Добавляется ко всем автоматическим начислениям (напр. 1.6 для Сбербанка).": "Added to all automatic charges (e.g. 1.6 for Sberbank).",
+        "Комиссия банка с поступлений на этот счёт (напр. 1.6 — Сбербанк, 1 — ВТБ «Простой процент»). Добавляется к сумме к оплате, если платёж придёт на этот счёт.": "Bank fee on incoming payments to this account (e.g. 1.6 for Sberbank, 1 for VTB \"Simple percent\"). Added to the amount due when the payment goes to this account.",
+        "% банка": "Bank fee %",
         "Стандартная площадь под гараж, м²": "Standard garage land plot, m²",
         "Для расчёта налога на землю под неприватизированным гаражом. По умолчанию 30 м².": "Used to calculate land tax for a non-privatized garage. Default is 30 m².",
         "Ставка налога, % от кадастровой стоимости": "Tax rate, % of cadastral value",

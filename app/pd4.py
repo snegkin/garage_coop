@@ -269,8 +269,9 @@ def _build_mixed_slips(member_account_ids: list[int], electricity_garage_ids: li
             # добавляется только здесь, в сумму К ОПЛАТЕ именно этим
             # переводом (см. accounting.amount_with_bank_fee), иначе после
             # удержания банком комиссии на счёт кооператива поступит
-            # меньше, чем реальный долг.
-            amount = amount_with_bank_fee(-debt, coop)
+            # меньше, чем реальный долг. Процент — того счёта, чьи
+            # реквизиты на платёжке (bank_account).
+            amount = amount_with_bank_fee(-debt, bank_account)
             qr_payload = pd4_qr_payload_electricity(coop, bank_account, garage, account, amount)
             qr_data_uri = _qr_data_uri(qr_payload)
             database.db_session.add(PD4Document(

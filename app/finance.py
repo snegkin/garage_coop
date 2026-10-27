@@ -21,7 +21,7 @@ from .bank_sync import is_aggregate_registry_payment
 from .accounting import (
     get_settings, electricity_account_number, member_account_number, person_member_account_number,
     owner_index_for, balance as _balance,
-    compute_land_tax, reallocate_member_charges, dues_due_date,
+    compute_land_tax, reallocate_member_charges, dues_due_date, get_primary_bank_account,
 )
 
 bp = Blueprint("finance", __name__, url_prefix="/finance")
@@ -1762,6 +1762,9 @@ def mass_charge():
         FeeType.type_code.isnot(None), FeeType.is_penalty.is_(False), FeeType.per_garage.is_(True)
     ).order_by(FeeType.name).all()
     coop = database.db_session.query(Cooperative).first()
+    # % банка для предпросмотра земельного налога — как в compute_land_tax:
+    # основного счёта, на который выставляются ПД-4.
+    primary_bank_account = get_primary_bank_account()
     all_garages = database.db_session.query(Garage).order_by(Garage.number).all()
     person_names = {
         garage.id: ", ".join(o.person.full_name for o in garage.ownerships)
@@ -1789,14 +1792,14 @@ def mass_charge():
             fee_type = database.db_session.query(FeeType).filter_by(code="land_tax").first()
             if fee_type is None:
                 flash(_("Не найден вид взноса «land_tax» — проверьте справочник видов взносов."), "danger")
-                return render_template("finance/mass_charge.html", fee_types=fee_types_list, results=None, coop=coop, garages=all_garages, person_names=person_names)
+                return render_template("finance/mass_charge.html", fee_types=fee_types_list, results=None, coop=coop, garages=all_garages, person_names=person_names, primary_bank_account=primary_bank_account)
 
             garage_amounts = compute_land_tax(year)
             if garage_amounts is None:
                 flash(_(
                     "Недостаточно данных для расчёта: заполните текущую площадь и кадастровую стоимость кооператива в его карточке.",
                 ), "danger")
-                return render_template("finance/mass_charge.html", fee_types=fee_types_list, results=None, coop=coop, garages=all_garages, person_names=person_names)
+                return render_template("finance/mass_charge.html", fee_types=fee_types_list, results=None, coop=coop, garages=all_garages, person_names=person_names, primary_bank_account=primary_bank_account)
         elif strategy == "coefficient":
             fee_type_id = int(f["fee_type_id"])
             fee_type = database.db_session.get(FeeType, fee_type_id)
@@ -1902,4 +1905,4 @@ def mass_charge():
                 n=len(skipped_rows),
             ), "warning")
 
-    return render_template("finance/mass_charge.html", fee_types=fee_types_list, results=results, coop=coop, garages=all_garages, person_names=person_names)
+    return render_template("finance/mass_charge.html", fee_types=fee_types_list, results=results, coop=coop, garages=all_garages, person_names=person_names, primary_bank_account=primary_bank_account)

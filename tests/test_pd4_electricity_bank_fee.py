@@ -1,5 +1,6 @@
 """
-Комиссия банка (Cooperative.bank_fee_percent) добавляется к сумме
+Комиссия банка (BankAccount.bank_fee_percent основного счёта — его
+реквизиты на ПД-4) добавляется к сумме
 QR-кода/квитанции ПД-4 на оплату ЭЛЕКТРОЭНЕРГИИ (app/pd4.py:
 _build_mixed_slips) — сам долг за электричество считается по факту
 потребления, без комиссии (см. accounting.amount_with_bank_fee), комиссия
@@ -14,20 +15,31 @@ from decimal import Decimal
 
 from app.accounting import amount_with_bank_fee, bank_fee_multiplier
 from app.models import (
-    Cooperative, RoleEnum, Garage, GarageOwnership, PersonalAccount, Charge,
+    BankAccount, Cooperative, RoleEnum, Garage, GarageOwnership, PersonalAccount, Charge,
     MemberAccount, FeeType, PD4Document,
 )
 
 from tests.conftest import make_person, make_garage, make_ownership, make_user, login
 
 
+def _make_bank_account(db, bank_fee_percent=Decimal("1.6"), is_primary=True, bank_name="ПАО СБЕРБАНК"):
+    account = BankAccount(
+        bank_name=bank_name, bik="043304609", checking_account="40703810777030002079",
+        is_primary=is_primary, bank_fee_percent=bank_fee_percent,
+    )
+    db.add(account)
+    db.flush()
+    return account
+
+
 def _make_coop(db, bank_fee_percent=Decimal("1.6")):
+    """Кооператив и его основной расчётный счёт с заданным % банка."""
     coop = Cooperative(
         full_name="Тестовый кооператив", inn="1234567890", kpp="123456789", ogrn="1234567890123",
-        bank_fee_percent=bank_fee_percent,
     )
     db.add(coop)
     db.flush()
+    _make_bank_account(db, bank_fee_percent)
     return coop
 
 
@@ -36,19 +48,19 @@ def _make_coop(db, bank_fee_percent=Decimal("1.6")):
 # ---------------------------------------------------------------------------
 
 def test_bank_fee_multiplier_default_percent(db):
-    coop = _make_coop(db, bank_fee_percent=Decimal("1.6"))
+    bank_account = _make_bank_account(db, bank_fee_percent=Decimal("1.6"))
     # банк берёт % с оплаченной суммы → 1 / (1 − 0,016), а не 1,016
-    assert bank_fee_multiplier(coop) == Decimal("100") / Decimal("98.4")
+    assert bank_fee_multiplier(bank_account) == Decimal("100") / Decimal("98.4")
 
 
 def test_bank_fee_multiplier_zero_percent(db):
-    coop = _make_coop(db, bank_fee_percent=Decimal("0"))
-    assert bank_fee_multiplier(coop) == Decimal("1")
+    bank_account = _make_bank_account(db, bank_fee_percent=Decimal("0"))
+    assert bank_fee_multiplier(bank_account) == Decimal("1")
 
 
 def test_bank_fee_multiplier_unset_percent(db):
-    coop = _make_coop(db, bank_fee_percent=None)
-    assert bank_fee_multiplier(coop) == Decimal("1")
+    bank_account = _make_bank_account(db, bank_fee_percent=None)
+    assert bank_fee_multiplier(bank_account) == Decimal("1")
 
 
 # ---------------------------------------------------------------------------
@@ -59,21 +71,21 @@ def test_amount_with_bank_fee_matches_sberbank_registry(db):
     """Реальная строка реестра платежей Сбербанка: оплачено 1432,56,
     комиссия 1,60% = 22,92, зачислено 1409,64 — к оплате при долге 1409,64
     должно выйти ровно 1432,56 (а не 1409,64 × 1,016 = 1432,19)."""
-    coop = _make_coop(db, bank_fee_percent=Decimal("1.6"))
-    assert amount_with_bank_fee(Decimal("1409.64"), coop) == Decimal("1432.56")
+    bank_account = _make_bank_account(db, bank_fee_percent=Decimal("1.6"))
+    assert amount_with_bank_fee(Decimal("1409.64"), bank_account) == Decimal("1432.56")
 
 
 def test_amount_with_bank_fee_credited_equals_debt(db):
-    coop = _make_coop(db, bank_fee_percent=Decimal("1.6"))
+    bank_account = _make_bank_account(db, bank_fee_percent=Decimal("1.6"))
     for kopecks in range(1, 200001, 7):
         debt = Decimal(kopecks) / 100
-        paid = amount_with_bank_fee(debt, coop)
+        paid = amount_with_bank_fee(debt, bank_account)
         fee = (paid * Decimal("0.016")).quantize(Decimal("0.01"), "ROUND_HALF_UP")
         assert paid - fee == debt, debt
 
 
 def test_amount_with_bank_fee_without_percent(db):
-    assert amount_with_bank_fee(Decimal("777.00"), _make_coop(db, bank_fee_percent=None)) == Decimal("777.00")
+    assert amount_with_bank_fee(Decimal("777.00"), _make_bank_account(db, bank_fee_percent=None)) == Decimal("777.00")
 
 
 # ---------------------------------------------------------------------------

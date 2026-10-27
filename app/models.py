@@ -71,8 +71,6 @@ class Cooperative(Base):
     standard_garage_land_area: Mapped[Decimal | None] = mapped_column(Numeric(8, 2), default=Decimal("30"))
     land_tax_rate_percent: Mapped[Decimal] = mapped_column(Numeric(5, 3), default=Decimal("1.5"))  # % от кадастровой стоимости
 
-    bank_fee_percent: Mapped[Decimal | None] = mapped_column(Numeric(5, 3))  # % банка за обслуживание счёта, напр. 1.6
-
     # Единый по уставу срок оплаты взносов — день и месяц в году (напр. 1 июня).
     # После этой даты по неоплаченным начислениям начинает считаться пеня
     # (см. accounting.penalty). Пока не заполнено — расчёт пени недоступен.
@@ -161,6 +159,12 @@ class BankAccount(Base):
     # по всем счетам, см. accounting.cooperative_balance().
     balance: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
     balance_updated_at: Mapped[dt.date | None] = mapped_column(Date)
+
+    # % банка за зачисление поступлений на ЭТОТ счёт (напр. 1.6 — Сбербанк,
+    # 1 — ВТБ «Простой процент») — у каждого банка свой, поэтому здесь, а не
+    # у кооператива. Надбавка на него входит в сумму к оплате, если платёж
+    # придёт на этот счёт (см. accounting.bank_fee_multiplier).
+    bank_fee_percent: Mapped[Decimal | None] = mapped_column(Numeric(5, 3))
 
     api_credential: Mapped["BankApiCredential | None"] = relationship(
         back_populates="bank_account", uselist=False, cascade="all, delete-orphan"

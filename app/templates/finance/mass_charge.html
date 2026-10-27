@@ -113,7 +113,7 @@ var coopData = {
   cadastral_value: {{ coop.cadastral_value if coop and coop.cadastral_value else 'null' }},
   common_area: {{ coop.common_area if coop and coop.common_area else 'null' }},
   land_tax_rate: {{ coop.land_tax_rate_percent if coop and coop.land_tax_rate_percent else 'null' }},
-  bank_fee_percent: {{ coop.bank_fee_percent if coop and coop.bank_fee_percent else 'null' }},
+  bank_fee_percent: {{ primary_bank_account.bank_fee_percent if primary_bank_account and primary_bank_account.bank_fee_percent else 'null' }},
   standard_garage_land_area: {{ coop.standard_garage_land_area if coop and coop.standard_garage_land_area else '30' }},
 };
 

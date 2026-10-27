@@ -2,8 +2,11 @@
 {% block title %}{{ _("Оплата взносов по гаражам") }}{% endblock %}
 {% block content %}
 {# Пара колонок «Начислено | Оплачено» по одному виду взноса (или итого).
-   Цвет статуса — на «Оплачено»; там же data-debt (остаток) — по нему
-   кнопка «Кандидаты» ищет совпадение с суммой неразнесённого платежа. #}
+   Статус — цветом текста суммы «Оплачено» (dues-paid/partial/unpaid, см.
+   <style> ниже), не фоном: штатные table-success/warning/danger у
+   Bootstrap 5.3 зашиты светлыми цветами и в тёмной теме не меняются.
+   data-debt (остаток) — тоже на «Оплачено», по нему кнопка «Кандидаты»
+   ищет совпадение с суммой неразнесённого платежа. #}
 {% macro dues_cells(c, extra_class="") %}
 {% if c %}
 <td class="dues-cell dues-group-start {{ extra_class }}">{{ fmt2(c.charged) }}</td>
@@ -17,11 +20,16 @@
 <style>
   .dues-cell { white-space: nowrap; text-align: end; }
   #duesTable .dues-group-start { border-left: 2px solid var(--bs-secondary-color); }
-  .dues-paid { background: var(--bs-success-bg-subtle); }
-  .dues-partial { background: var(--bs-warning-bg-subtle); }
-  .dues-unpaid { background: var(--bs-danger-bg-subtle); }
   .dues-candidate { outline: 3px solid var(--bs-primary); outline-offset: -3px; font-weight: bold; }
-  .dues-legend span { display: inline-block; width: 1em; height: 1em; vertical-align: -0.15em; border: 1px solid var(--bs-border-color); }
+  /* #duesTable — чтобы перебить цвет текста, который .table задаёт ячейкам.
+     В тёмной теме — светлые *-text-emphasis: насыщенные --bs-success/
+     --bs-danger на тёмном фоне читаются плохо. */
+  #duesTable .dues-paid, .dues-legend .dues-paid { color: var(--bs-success); }
+  #duesTable .dues-partial, .dues-legend .dues-partial { color: #c25700; font-weight: 600; }
+  #duesTable .dues-unpaid, .dues-legend .dues-unpaid { color: var(--bs-danger); font-weight: 600; }
+  [data-bs-theme=dark] #duesTable .dues-paid, [data-bs-theme=dark] .dues-legend .dues-paid { color: var(--bs-success-text-emphasis); }
+  [data-bs-theme=dark] #duesTable .dues-partial, [data-bs-theme=dark] .dues-legend .dues-partial { color: var(--bs-warning-text-emphasis); }
+  [data-bs-theme=dark] #duesTable .dues-unpaid, [data-bs-theme=dark] .dues-legend .dues-unpaid { color: var(--bs-danger-text-emphasis); }
 </style>
 
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
@@ -87,10 +95,10 @@
     <span class="badge bg-primary" id="duesCandidatesLabel"></span>
     <button type="button" class="btn btn-sm btn-outline-secondary" id="duesCandidatesReset">{{ _("Показать все") }}</button>
   </div>
-  <div class="dues-legend small text-muted ms-auto">
-    <span class="dues-paid"></span> {{ _("оплачено") }}
-    <span class="dues-partial ms-2"></span> {{ _("частично") }}
-    <span class="dues-unpaid ms-2"></span> {{ _("не оплачено") }}
+  <div class="dues-legend small ms-auto">
+    <span class="dues-paid">{{ _("оплачено") }}</span>
+    <span class="dues-partial ms-2">{{ _("частично") }}</span>
+    <span class="dues-unpaid ms-2">{{ _("не оплачено") }}</span>
   </div>
 </div>
 
@@ -133,7 +141,7 @@
 </table>
 </div>
 <p class="text-muted small d-none" id="duesNoResults">{{ _("Ничего не найдено.") }}</p>
-<p class="text-muted small">{{ _("Суммы в рублях. Цвет «Оплачено» — оплачено полностью/частично/не оплачено, «—» — начислений не было. Наведите на «Оплачено», чтобы увидеть остаток долга.") }}</p>
+<p class="text-muted small">{{ _("Суммы в рублях. Цвет суммы «Оплачено» — оплачено полностью/частично/не оплачено, «—» — начислений не было. Наведите на «Оплачено», чтобы увидеть остаток долга.") }}</p>
 
 <script>
 (function () {

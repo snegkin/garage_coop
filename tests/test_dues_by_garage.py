@@ -1,16 +1,19 @@
 """
 Сводка «Оплата взносов по гаражам» (/finance/dues-by-garage,
 app/finance.py: _dues_by_garage/_unmatched_statement_credits) — по каждому
-гаражу и году начислено/погашено по счетам членов (вместе с архивными
-счетами прежних собственников), плюс неразнесённые зачисления из выписок
-для поиска гаражей-кандидатов по сумме.
+гаражу и виду взноса за выбранный год начислено/погашено по счетам членов
+(вместе с архивными счетами прежних собственников), плюс неразнесённые
+зачисления из выписок (без организаций и контрагентов) для поиска
+гаражей-кандидатов по сумме.
 """
 import datetime as dt
 from decimal import Decimal
 
 from app.accounting import reallocate_member_charges
-from app.finance import _dues_by_garage, _unmatched_statement_credits
-from app.models import RoleEnum, FeeType, MemberAccount, Charge, Payment, BankAccount, BankStatementLine, Phone
+from app.finance import _dues_by_garage, _dues_years, _unmatched_statement_credits
+from app.models import (
+    RoleEnum, FeeType, MemberAccount, Charge, Payment, BankAccount, BankStatementLine, Phone, Counterparty,
+)
 
 from tests.conftest import make_person, make_garage, make_ownership, make_user, login
 
@@ -47,14 +50,13 @@ def test_cells_statuses_by_year(db):
     reallocate_member_charges(acc)
     db.commit()
 
-    summary = _dues_by_garage(membership.id)
-    assert summary["years"] == [2024, 2025, 2026]
-    cells = _row(summary, garage)["cells"]
-    assert cells[2024]["status"] == "paid"  # FIFO — первым гасится самый старый год
-    assert cells[2025]["status"] == "partial"
-    assert cells[2025]["debt"] == Decimal("600.00")
-    assert cells[2026]["status"] == "unpaid"
-    assert _row(summary, garage)["total_debt"] == Decimal("1600.00")
+    assert _dues_years() == [2024, 2025, 2026]
+    # FIFO — первым гасится самый старый год
+    assert _row(_dues_by_garage(2024), garage)["cells"][membership.id]["status"] == "paid"
+    cell_2025 = _row(_dues_by_garage(2025), garage)["cells"][membership.id]
+    assert cell_2025["status"] == "partial"
+    assert cell_2025["debt"] == Decimal("600.00")
+    assert _row(_dues_by_garage(2026), garage)["total"]["status"] == "unpaid"
 
 
 def test_archived_previous_owner_accounts_count_for_garage(db):
@@ -72,12 +74,12 @@ def test_archived_previous_owner_accounts_count_for_garage(db):
     reallocate_member_charges(old_acc)
     db.commit()
 
-    row = _row(_dues_by_garage(membership.id), garage)
-    assert row["cells"][2025]["status"] == "paid"
+    row = _row(_dues_by_garage(2025), garage)
+    assert row["cells"][membership.id]["status"] == "paid"
     assert [p.full_name for p in row["owners"]] == ["Новый Собственник"]
 
 
-def test_fee_type_filter_and_penalty_excluded(db):
+def test_columns_by_fee_type_penalty_excluded(db):
     membership = _fee_type(db)
     land_tax = _fee_type(db, code="land_tax", name="Земельный налог")
     penalty = _fee_type(db, code="membership_penalty", name="Пеня", is_penalty=True)
@@ -89,8 +91,11 @@ def test_fee_type_filter_and_penalty_excluded(db):
         db.add(Charge(account_id=acc.id, year=2025, amount=Decimal(amount)))
     db.commit()
 
-    assert _row(_dues_by_garage(membership.id), garage)["cells"][2025]["charged"] == Decimal("100.00")
-    assert _row(_dues_by_garage(None), garage)["cells"][2025]["charged"] == Decimal("130.00")
+    summary = _dues_by_garage(2025)
+    assert [ft.name for ft in summary["fee_types"]] == ["Земельный налог", "Членский взнос"]
+    row = _row(summary, garage)
+    assert row["cells"][land_tax.id]["charged"] == Decimal("30.00")
+    assert row["total"]["charged"] == Decimal("130.00")
 
 
 def test_garages_sorted_numerically(db):
@@ -98,7 +103,7 @@ def test_garages_sorted_numerically(db):
     for number in ("10", "2", "1а"):
         make_garage(db, number=number)
     db.commit()
-    assert [r["garage"].number for r in _dues_by_garage(None)["rows"]] == ["1а", "2", "10"]
+    assert [r["garage"].number for r in _dues_by_garage(2025)["rows"]] == ["1а", "2", "10"]
 
 
 def test_unmatched_statement_credits(db):
@@ -110,10 +115,22 @@ def test_unmatched_statement_credits(db):
         operation_date=dt.date(2026, 3, 1), counterparty_name="Посторонний П.П.",
         payment_purpose="Членские взносы за гараж",
     )
+    unmatched.counterparty_inn = "761002318180"
     debit = BankStatementLine(
         bank_account_id=bank.id, direction="debit", amount=Decimal("50.00"), operation_date=dt.date(2026, 3, 2),
     )
-    db.add_all([unmatched, debit])
+    # возврат от организации (ИНН юрлица — 10 цифр) — не взнос члена
+    refund = BankStatementLine(
+        bank_account_id=bank.id, direction="credit", amount=Decimal("10287.00"), operation_date=dt.date(2025, 7, 31),
+        counterparty_name='ООО "ИНТЕРНЕТ РЕШЕНИЯ"', counterparty_inn="7704217370",
+    )
+    # ИП из справочника контрагентов (ИНН 12 цифр, как у физлица)
+    db.add(Counterparty(name="ИП Подрядчиков", inn="500100732259"))
+    from_counterparty = BankStatementLine(
+        bank_account_id=bank.id, direction="credit", amount=Decimal("300.00"), operation_date=dt.date(2026, 4, 1),
+        counterparty_name="ИП Подрядчиков", counterparty_inn="500100732259",
+    )
+    db.add_all([unmatched, debit, refund, from_counterparty])
     db.commit()
 
     assert _unmatched_statement_credits() == [unmatched]

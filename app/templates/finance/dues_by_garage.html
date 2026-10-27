@@ -1,6 +1,16 @@
 {% extends "base.html" %}
 {% block title %}{{ _("Оплата взносов по гаражам") }}{% endblock %}
 {% block content %}
+{% macro dues_cell(c, extra_class="") %}
+{% if c %}
+<td class="dues-cell dues-{{ c.status }} {{ extra_class }}" data-debt="{{ c.debt }}"
+    title="{{ _('Начислено {charged} ₽, оплачено {paid} ₽', charged=fmt2(c.charged), paid=fmt2(c.paid)) }}">
+  {% if c.status == "paid" %}✓{% else %}{{ fmt2(c.debt) }}{% endif %}
+</td>
+{% else %}
+<td class="dues-cell text-muted">—</td>
+{% endif %}
+{% endmacro %}
 <style>
   .dues-cell { white-space: nowrap; text-align: end; }
   .dues-paid { background: var(--bs-success-bg-subtle); }
@@ -13,22 +23,21 @@
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
   <h3 class="mb-0">{{ _("Оплата взносов по гаражам") }}</h3>
   <form method="get" class="d-flex align-items-center gap-2">
-    <label class="form-label mb-0 small text-muted" for="duesFeeType">{{ _("Вид взноса") }}</label>
-    <select class="form-select form-select-sm" style="width:auto" id="duesFeeType" name="fee_type" onchange="this.form.submit()">
-      {% for ft in fee_types %}
-      <option value="{{ ft.id }}" {{ "selected" if ft.id == fee_type_id }}>{{ ft.name }}</option>
+    <label class="form-label mb-0 small text-muted" for="duesYear">{{ _("Год") }}</label>
+    <select class="form-select form-select-sm" style="width:auto" id="duesYear" name="year" onchange="this.form.submit()">
+      {% for y in years %}
+      <option value="{{ y }}" {{ "selected" if y == summary.year }}>{{ y }}</option>
       {% endfor %}
-      <option value="0" {{ "selected" if not fee_type_id }}>{{ _("Все взносы (без пени)") }}</option>
     </select>
   </form>
 </div>
-<p class="text-muted small">{{ _("По каждому гаражу и году — сколько начислено и сколько из этого уже погашено (платежом любой даты). Включая счета прежних собственников: вопрос «оплачен ли гараж за год», а не «кем».") }}</p>
+<p class="text-muted small">{{ _("По каждому гаражу и виду взноса — сколько начислено за выбранный год и сколько из этого уже погашено (платежом любой даты). Включая счета прежних собственников: вопрос «оплачен ли гараж за год», а не «кем». Пеня не учитывается.") }}</p>
 
 {% if unmatched_lines %}
 <div class="card mb-4 border-warning">
   <div class="card-body">
     <h5 class="card-title">{{ _("Неразнесённые зачисления из выписок") }}</h5>
-    <p class="text-muted small">{{ _("Платёж не удалось отнести ни на один лицевой счёт (номер счёта не распознан, плательщика нет среди членов — напр. оплата с чужой карты). Кнопка «Кандидаты» оставит в таблице ниже только гаражи, у которых долг за какой-то год или общий долг ровно равен сумме платежа.") }}</p>
+    <p class="text-muted small">{{ _("Платёж не удалось отнести ни на один лицевой счёт (номер счёта не распознан, плательщика нет среди членов — напр. оплата с чужой карты). Кнопка «Кандидаты» оставит в таблице ниже только гаражи, у которых за выбранный год долг по какому-то виду взноса или итого ровно равен сумме платежа.") }}</p>
     <div class="table-responsive">
       <table class="table table-sm mb-0">
         <thead>
@@ -61,8 +70,8 @@
 </div>
 {% endif %}
 
-{% if not summary.years %}
-<p class="text-muted">{{ _("Начислений по этому виду взноса пока нет.") }}</p>
+{% if not summary.fee_types %}
+<p class="text-muted">{{ _("Начислений за этот год нет.") }}</p>
 {% else %}
 <div class="d-flex align-items-center gap-3 mb-2 flex-wrap">
   <input class="form-control" style="max-width:320px" id="duesSearch" placeholder="{{ _('Поиск по гаражу, ФИО или телефону...') }}">
@@ -87,14 +96,14 @@
     <tr>
       <th>{{ _("Гараж") }}</th>
       <th>{{ _("Собственники") }}</th>
-      {% for y in summary.years %}<th class="text-end">{{ y }}</th>{% endfor %}
-      <th class="text-end">{{ _("Долг") }}</th>
+      {% for ft in summary.fee_types %}<th class="text-end">{{ ft.name }}</th>{% endfor %}
+      <th class="text-end">{{ _("Итого") }}</th>
     </tr>
   </thead>
   <tbody>
     {% for row in summary.rows %}
     {% set garage = row.garage %}
-    <tr data-debt="{{ row.total_debt }}"
+    <tr data-debt="{{ row.total.debt if row.total else 0 }}"
         data-filter-text="{{ row.search_text }}">
       <td class="text-nowrap"><a href="{{ url_for('garages.detail', garage_id=garage.id) }}">№{{ garage.number }}</a></td>
       <td class="small">
@@ -104,25 +113,17 @@
         <span class="text-muted">—</span>
         {% endfor %}
       </td>
-      {% for y in summary.years %}
-      {% set c = row.cells.get(y) %}
-      {% if c %}
-      <td class="dues-cell dues-{{ c.status }}" data-debt="{{ c.debt }}"
-          title="{{ _('Начислено {charged} ₽, оплачено {paid} ₽', charged=fmt2(c.charged), paid=fmt2(c.paid)) }}">
-        {% if c.status == "paid" %}✓{% else %}{{ fmt2(c.debt) }}{% endif %}
-      </td>
-      {% else %}
-      <td class="dues-cell text-muted">—</td>
-      {% endif %}
+      {% for ft in summary.fee_types %}
+      {{ dues_cell(row.cells.get(ft.id)) }}
       {% endfor %}
-      <td class="dues-cell {{ 'text-danger fw-bold' if row.total_debt > 0 }}" data-debt="{{ row.total_debt }}">{{ fmt2(row.total_debt) if row.total_debt > 0 else "—" }}</td>
+      {{ dues_cell(row.total, "fw-bold") }}
     </tr>
     {% endfor %}
   </tbody>
 </table>
 </div>
 <p class="text-muted small d-none" id="duesNoResults">{{ _("Ничего не найдено.") }}</p>
-<p class="text-muted small">{{ _("В ячейке — остаток долга за год, ✓ — оплачено полностью, «—» — начислений не было. Наведите на ячейку, чтобы увидеть начислено/оплачено.") }}</p>
+<p class="text-muted small">{{ _("В ячейке — остаток долга, ✓ — оплачено полностью, «—» — начислений не было. Наведите на ячейку, чтобы увидеть начислено/оплачено.") }}</p>
 
 <script>
 (function () {

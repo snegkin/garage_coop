@@ -163,25 +163,32 @@ def _collection_progress(coop: Cooperative | None, year: int) -> dict | None:
     в проекте, ORM-объекты собираются и группируются на стороне
     приложения, как и everywhere else, напр. main._collection_rate).
 
+    by_type — та же сумма, разбитая по видам взноса (таблица под графиком):
+    начислено за год, собрано (теми же платежами в пределах года, что и
+    кривая — итог таблицы совпадает с последней точкой графика), долг =
+    начислено − собрано и процент собранного.
+
     None, если за этот год не было ни одного начисления — тогда графику
     нечего показывать. Даты в возвращаемых точках — уже ISO-строки (не
     date), чтобы результат можно было напрямую отдать в шаблон через
     |tojson.
     """
-    total_charged = (
-        database.db_session.query(func.sum(Charge.amount))
-        .join(MemberAccount, Charge.account_id == MemberAccount.id)
-        .join(FeeType, MemberAccount.fee_type_id == FeeType.id)
+    charged_by_type = (
+        database.db_session.query(FeeType.id, FeeType.name, func.sum(Charge.amount))
+        .join(MemberAccount, MemberAccount.fee_type_id == FeeType.id)
+        .join(Charge, Charge.account_id == MemberAccount.id)
         .filter(MemberAccount.is_archived.is_(False), FeeType.is_penalty.is_(False), Charge.year == year)
-        .scalar()
-    ) or Decimal("0")
+        .group_by(FeeType.id, FeeType.name)
+        .all()
+    )
+    total_charged = sum((amount for _id, _name, amount in charged_by_type), Decimal("0"))
     if total_charged == 0:
         return None
 
     year_start = dt.date(year, 1, 1)
     year_end = dt.date(year, 12, 31)
     allocations = (
-        database.db_session.query(ChargeAllocation.amount, Payment.date)
+        database.db_session.query(ChargeAllocation.amount, Payment.date, FeeType.id)
         .join(Charge, ChargeAllocation.charge_id == Charge.id)
         .join(MemberAccount, Charge.account_id == MemberAccount.id)
         .join(FeeType, MemberAccount.fee_type_id == FeeType.id)
@@ -193,11 +200,26 @@ def _collection_progress(coop: Cooperative | None, year: int) -> dict | None:
         .all()
     )
     paid_by_day: dict[dt.date, Decimal] = {}
-    for amount, payment_date in allocations:
+    paid_by_type: dict[int, Decimal] = {}
+    for amount, payment_date, fee_type_id in allocations:
         paid_by_day[payment_date] = paid_by_day.get(payment_date, Decimal("0")) + amount
+        paid_by_type[fee_type_id] = paid_by_type.get(fee_type_id, Decimal("0")) + amount
 
-    def _rate(amount: Decimal) -> float:
-        return float((amount / total_charged * 100).quantize(Decimal("0.1")))
+    def _rate(amount: Decimal, total: Decimal = total_charged) -> float:
+        return float((amount / total * 100).quantize(Decimal("0.1"))) if total else 0.0
+
+    def _type_row(name: str, charged: Decimal, collected: Decimal) -> dict:
+        return {
+            "name": name, "charged": float(charged), "collected": float(collected),
+            "debt": float(charged - collected), "rate": _rate(collected, charged),
+        }
+
+    by_type = sorted(
+        (_type_row(name, charged, paid_by_type.get(ft_id, Decimal("0")))
+         for ft_id, name, charged in charged_by_type),
+        key=lambda r: r["name"],
+    )
+    total_collected = sum(paid_by_type.values(), Decimal("0"))
 
     points = [{"date": year_start.isoformat(), "rate": 0.0}]
     running = Decimal("0")
@@ -216,6 +238,8 @@ def _collection_progress(coop: Cooperative | None, year: int) -> dict | None:
         "due_date_iso": due_date.isoformat() if due_date is not None else None,
         "due_date": format_date(due_date) if due_date is not None else None,
         "total_charged": float(total_charged),
+        "by_type": by_type,
+        "total": _type_row("", total_charged, total_collected),
     }
 
 
@@ -239,6 +263,28 @@ def member_accounts():
     # accounting.ensure_personal_member_accounts), эта форма всегда просит
     # выбрать гараж и для них не подходит.
     all_fee_types = database.db_session.query(FeeType).filter(FeeType.per_garage.is_(True)).order_by(FeeType.name).all()
+
+    return render_template(
+        "finance/member_accounts.html", rows=rows, has_unpaid_penalty=has_unpaid_penalty,
+        all_persons=all_persons, all_garages=all_garages, all_fee_types=all_fee_types,
+    )
+
+
+@bp.route("/member-accounts/stats")
+@roles_required(RoleEnum.BOARD)
+def member_account_stats():
+    """
+    Статистика взносов — отдельная страница (пункт «Статистика взносов» в
+    меню «Кооператив»), вынесена со списка счетов: статистика по видам
+    счетов на сегодня + график собираемости за выбранный год с разбивкой
+    по видам взноса под ним.
+    """
+    accs = (
+        database.db_session.query(MemberAccount)
+        .filter(MemberAccount.is_archived.is_(False))
+        .all()
+    )
+    rows = [(a, _balance(a)) for a in accs]
     coop = database.db_session.query(Cooperative).first()
 
     # Год для графика собираемости — из query-параметра (переключатель на
@@ -250,9 +296,8 @@ def member_accounts():
         collection_year = collection_years[-1] if collection_years else dt.date.today().year
 
     return render_template(
-        "finance/member_accounts.html", rows=rows, has_unpaid_penalty=has_unpaid_penalty,
-        all_persons=all_persons, all_garages=all_garages, all_fee_types=all_fee_types,
-        account_stats=_account_stats(rows), coop=coop,
+        "finance/member_account_stats.html",
+        account_stats=_account_stats(rows),
         collection_years=collection_years, collection_year=collection_year,
         collection_progress=_collection_progress(coop, collection_year),
     )

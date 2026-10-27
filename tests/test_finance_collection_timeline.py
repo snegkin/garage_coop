@@ -1,5 +1,5 @@
 """
-График «Собираемость взносов в течение года» на finance/member_accounts.html
+График «Собираемость взносов в течение года» на finance/member_account_stats.html
 (app/finance.py: _collection_years/_collection_progress) — по выбранному
 году считает % начислений (активные счета членов, без пени), собранных
 НАРАСТАЮЩИМ ИТОГОМ ПО ДНЯМ, плюс дату единого по уставу срока оплаты
@@ -48,7 +48,7 @@ def test_chart_absent_when_no_charges(db, client):
     _make_coop(db, dues_due_day=1, dues_due_month=6)
     _board_login(db, client)
 
-    resp = client.get("/finance/member-accounts")
+    resp = client.get("/finance/member-accounts/stats")
     assert resp.status_code == 200
     assert "collectionRateChart" not in resp.get_data(as_text=True)
 
@@ -215,7 +215,7 @@ def test_page_shows_chart_and_year_selector(db, client):
     reallocate_member_charges(account)
     _board_login(db, client)
 
-    resp = client.get("/finance/member-accounts")
+    resp = client.get("/finance/member-accounts/stats")
     assert resp.status_code == 200
     body = resp.get_data(as_text=True)
     assert "collectionRateChart" in body
@@ -224,7 +224,7 @@ def test_page_shows_chart_and_year_selector(db, client):
     # По умолчанию выбран последний год с начислениями
     assert '<option value="2025" selected' in body
 
-    resp2 = client.get("/finance/member-accounts?collection_year=2024")
+    resp2 = client.get("/finance/member-accounts/stats?collection_year=2024")
     body2 = resp2.get_data(as_text=True)
     assert '<option value="2024" selected' in body2
 
@@ -276,3 +276,68 @@ def test_collection_progress_data_endpoint_requires_board(db, client):
 
     resp = client.get("/finance/member-accounts/collection-progress?year=2024")
     assert resp.status_code == 302
+
+
+# ---------------------------------------------------------------------------
+# Разбивка по видам взноса под графиком и вынос на отдельную страницу
+# ---------------------------------------------------------------------------
+
+def test_collection_progress_by_type_breakdown(db):
+    """Итог разбивки совпадает с последней точкой графика: платежи
+    следующего года в «собрано» этого года не входят, остаются долгом."""
+    coop = _make_coop(db)
+    person = make_person(db, full_name="Разбивка По Видам")
+    garage = make_garage(db, number="88")
+    make_ownership(db, garage, person)
+    membership = _make_account(db, person, garage, "bt1")
+    land_tax_type = FeeType(code="bt2", name="Земельный налог")
+    db.add(land_tax_type)
+    db.flush()
+    land_tax = MemberAccount(
+        person_id=person.id, garage_id=garage.id, fee_type_id=land_tax_type.id, account_number="Cbt2",
+    )
+    db.add(land_tax)
+    db.flush()
+    db.add(Charge(account_id=membership.id, year=2025, amount=Decimal("1000.00")))
+    db.add(Payment(account_id=membership.id, date=dt.date(2025, 3, 1), amount=Decimal("600.00")))
+    db.add(Charge(account_id=land_tax.id, year=2025, amount=Decimal("200.00")))
+    db.add(Payment(account_id=land_tax.id, date=dt.date(2026, 1, 10), amount=Decimal("200.00")))
+    db.flush()
+    reallocate_member_charges(membership)
+    reallocate_member_charges(land_tax)
+    db.commit()
+
+    progress = _collection_progress(coop, 2025)
+    assert progress["by_type"] == [
+        {"name": "Земельный налог", "charged": 200.0, "collected": 0.0, "debt": 200.0, "rate": 0.0},
+        {"name": "Членский взнос", "charged": 1000.0, "collected": 600.0, "debt": 400.0, "rate": 60.0},
+    ]
+    assert progress["total"] == {"name": "", "charged": 1200.0, "collected": 600.0, "debt": 600.0, "rate": 50.0}
+    assert progress["points"][-1]["rate"] == progress["total"]["rate"]
+
+
+def test_stats_moved_off_member_accounts_list(db, client):
+    _make_coop(db)
+    person = make_person(db, full_name="Перенос Статистики")
+    garage = make_garage(db, number="87")
+    make_ownership(db, garage, person)
+    account = _make_account(db, person, garage, "mv1")
+    db.add(Charge(account_id=account.id, year=2025, amount=Decimal("100.00")))
+    db.flush()
+    reallocate_member_charges(account)
+    _board_login(db, client)
+
+    body = client.get("/finance/member-accounts").get_data(as_text=True)
+    assert "collectionRateChart" not in body
+    assert "Статистика по видам счетов" not in body
+
+    stats = client.get("/finance/member-accounts/stats").get_data(as_text=True)
+    assert 'id="collectionBreakdown"' in stats
+    assert "100,00" in stats.split('id="collectionBreakdown"')[1]
+
+
+def test_stats_page_requires_board(db, client):
+    make_user(db, "member2", "pass12345", role=RoleEnum.MEMBER)
+    db.commit()
+    login(client, "member2", "pass12345")
+    assert client.get("/finance/member-accounts/stats").status_code == 302

@@ -1,5 +1,5 @@
 """
-Блок статистики по видам счетов под таблицей на /finance/member-accounts
+Блок статистики по видам счетов на /finance/member-accounts/stats
 (app/finance.py:_account_stats) — число счетов, число с долгом, сумма долга
 и итоговый баланс по каждому виду взноса + строка "Итого".
 
@@ -25,7 +25,7 @@ def test_stats_block_absent_without_accounts(db, client):
     _board_user(db)
     login(client, "board1", "pass1234")
 
-    resp = client.get("/finance/member-accounts")
+    resp = client.get("/finance/member-accounts/stats")
     assert resp.status_code == 200
     assert "Статистика по видам счетов" not in resp.get_data(as_text=True)
 
@@ -63,7 +63,7 @@ def test_stats_grouped_by_fee_type_and_totals(db, client):
     login(client, "board1", "pass1234")
     db.commit()
 
-    resp = client.get("/finance/member-accounts")
+    resp = client.get("/finance/member-accounts/stats")
     html = resp.get_data(as_text=True)
     assert "Статистика по видам счетов" in html
     stats_html = html.split("Статистика по видам счетов")[1]
@@ -102,7 +102,7 @@ def test_archived_accounts_excluded_from_stats(db, client):
     login(client, "board1", "pass1234")
     db.commit()
 
-    resp = client.get("/finance/member-accounts")
+    resp = client.get("/finance/member-accounts/stats")
     html = resp.get_data(as_text=True)
     # архивный счёт — единственный в базе, значит статистика не показывается вовсе
     assert "Статистика по видам счетов" not in html

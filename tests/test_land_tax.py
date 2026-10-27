@@ -15,7 +15,7 @@ from decimal import Decimal
 
 from app import database
 from app.accounting import compute_land_tax
-from app.models import Cooperative, Garage, GarageOwnership, FeeType, Person, MemberAccount, Charge
+from app.models import BankAccount, Cooperative, Garage, GarageOwnership, FeeType, Person, MemberAccount, Charge
 
 from tests.conftest import make_person, make_garage
 
@@ -36,9 +36,14 @@ def _make_coop(db, **kwargs):
         cadastral_value=kwargs.get("cadastral_value", Decimal("5000000")),
         land_tax_rate_percent=kwargs.get("land_tax_rate_percent", Decimal("1.5")),
         standard_garage_land_area=kwargs.get("standard_garage_land_area", Decimal("30")),
-        bank_fee_percent=kwargs.get("bank_fee_percent", Decimal("1.6")),
     )
     db.add(coop)
+    db.flush()
+    # % банка — у основного расчётного счёта (compute_land_tax берёт его).
+    db.add(BankAccount(
+        bank_name="ПАО СБЕРБАНК", checking_account="40703810777030002079", is_primary=True,
+        bank_fee_percent=kwargs.get("bank_fee_percent", Decimal("1.6")),
+    ))
     db.flush()
     return coop
 

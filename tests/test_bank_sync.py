@@ -1085,7 +1085,7 @@ def test_charge_registry_items_includes_negative_balance_member_account(app, db)
     assert balance(account) == Decimal("-300.00")
 
     with app.app_context():
-        items = bank_sync._charge_registry_items()
+        items = bank_sync._charge_registry_items(make_bank_account(db))
     matching = [i for i in items if i.account_number == "10099"]
     assert len(matching) == 1
     assert matching[0].amount == Decimal("300.00")
@@ -1120,7 +1120,7 @@ def test_charge_registry_items_tolerates_accounts_without_garage(app, db):
     raw.close()
 
     with app.app_context():
-        items = bank_sync._charge_registry_items()
+        items = bank_sync._charge_registry_items(make_bank_account(db))
     assert not [i for i in items if i.account_number == "99990"]
     matching = [i for i in items if i.account_number == "30011"]
     assert len(matching) == 1
@@ -1157,7 +1157,7 @@ def test_charge_registry_items_include_zero_and_skip_archived(app, db):
     db.commit()
 
     with app.app_context():
-        items = bank_sync._charge_registry_items()
+        items = bank_sync._charge_registry_items(make_bank_account(db))
     by_number = {}
     for item in items:
         by_number.setdefault(item.account_number, []).append(item)
@@ -1788,7 +1788,8 @@ def test_charge_registry_filename_and_daily_numbering(app, db, client):
 def test_charge_registry_electricity_includes_bank_fee_like_pd4(app, db):
     """Электричество — как в ПД-4: к оплате долг / (1 − % банка) и пометка о
     комиссии в назначении; у взносов комиссия уже в начислении — не меняется."""
-    db.add(Cooperative(full_name="ГСК Тест", inn="7610037501", kpp="1", ogrn="1", bank_fee_percent=Decimal("1.6")))
+    db.add(Cooperative(full_name="ГСК Тест", inn="7610037501", kpp="1", ogrn="1"))
+    bank_account = make_bank_account(db, bank_fee_percent=Decimal("1.6"))
     person = make_person(db)
     garage = make_garage(db, number="7")
     idle_garage = make_garage(db, number="8")
@@ -1805,7 +1806,7 @@ def test_charge_registry_electricity_includes_bank_fee_like_pd4(app, db):
     db.commit()
 
     with app.app_context():
-        items = {i.account_number: i for i in bank_sync._charge_registry_items()}
+        items = {i.account_number: i for i in bank_sync._charge_registry_items(bank_account)}
     assert items["90070"].amount == Decimal("1016.26")
     assert items["90070"].purpose == "Электричество, гараж №7 (1,60% - комиссия банка)"
     assert items["90080"].amount == Decimal("0.00")

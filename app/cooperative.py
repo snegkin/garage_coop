@@ -69,14 +69,12 @@ def edit():
         coop.cadastral_value = _parse_decimal(f.get("cadastral_value"))
         coop.standard_garage_land_area = _parse_decimal(f.get("standard_garage_land_area")) or Decimal("30")
         coop.land_tax_rate_percent = _parse_decimal(f.get("land_tax_rate_percent")) or Decimal("1.5")
-        coop.bank_fee_percent = _parse_decimal(f.get("bank_fee_percent"))
         coop.dues_due_day = int(f["dues_due_day"]) if f.get("dues_due_day") else None
         coop.dues_due_month = int(f["dues_due_month"]) if f.get("dues_due_month") else None
         coop.comment = f.get("comment") or None
         audit.record(
             "cooperative.settings_edit",
-            f"Изменены реквизиты/настройки кооператива: ставка налога — {coop.land_tax_rate_percent}%, "
-            f"комиссия банка — {coop.bank_fee_percent if coop.bank_fee_percent is not None else '—'}%",
+            f"Изменены реквизиты/настройки кооператива: ставка налога — {coop.land_tax_rate_percent}%",
         )
         database.db_session.commit()
         flash(_("Реквизиты сохранены."), "success")
@@ -88,6 +86,10 @@ def edit():
 # ---------------------------------------------------------------------------
 # Расчётные счета (может быть несколько, в одном или разных банках)
 # ---------------------------------------------------------------------------
+
+def _fee_percent_label(percent: Decimal | None) -> str:
+    return f"{percent}%" if percent is not None else "—"
+
 
 @bp.route("/bank-accounts/new", methods=["POST"])
 @roles_required(RoleEnum.CHAIRMAN)
@@ -112,8 +114,13 @@ def create_bank_account():
         balance=_parse_decimal(f.get("balance")),
         balance_updated_at=dt.date.fromisoformat(f["balance_updated_at"]) if f.get("balance_updated_at") else None,
         api_provider=api_provider,
+        bank_fee_percent=_parse_decimal(f.get("bank_fee_percent")),
     ))
-    audit.record("bank_account.create", f"Добавлен расчётный счёт: {f['bank_name']}, {f['checking_account']}")
+    audit.record(
+        "bank_account.create",
+        f"Добавлен расчётный счёт: {f['bank_name']}, {f['checking_account']}, "
+        f"комиссия банка — {_fee_percent_label(_parse_decimal(f.get('bank_fee_percent')))}",
+    )
     database.db_session.commit()
     flash(_("Расчётный счёт добавлен."), "success")
     return redirect(url_for("finance.bank_accounts"))
@@ -139,11 +146,16 @@ def edit_bank_account(account_id):
     account.comment = f.get("comment") or None
     account.balance = _parse_decimal(f.get("balance"))
     account.balance_updated_at = dt.date.fromisoformat(f["balance_updated_at"]) if f.get("balance_updated_at") else None
+    account.bank_fee_percent = _parse_decimal(f.get("bank_fee_percent"))
     try:
         account.api_provider = BankApiProvider(f.get("api_provider", "none"))
     except ValueError:
         abort(400)
-    audit.record("bank_account.edit", f"Изменён расчётный счёт: {account.bank_name}, {account.checking_account}")
+    audit.record(
+        "bank_account.edit",
+        f"Изменён расчётный счёт: {account.bank_name}, {account.checking_account}, "
+        f"комиссия банка — {_fee_percent_label(account.bank_fee_percent)}",
+    )
     database.db_session.commit()
     flash(_("Расчётный счёт обновлён."), "success")
     return redirect(url_for("finance.bank_accounts"))

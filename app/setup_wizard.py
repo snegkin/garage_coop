@@ -145,6 +145,7 @@ def bank_account_step():
             comment=f.get("comment") or None,
             balance=_parse_decimal(f.get("balance")),
             balance_updated_at=dt.date.fromisoformat(f["balance_updated_at"]) if f.get("balance_updated_at") else None,
+            bank_fee_percent=_parse_decimal(f.get("bank_fee_percent")),
         ))
         database.db_session.commit()
         flash(_("Расчётный счёт добавлен."), "success")

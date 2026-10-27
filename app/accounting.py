@@ -812,30 +812,46 @@ def current_tariff(kind: ElectricityTariffKind, as_of: dt.date | None = None) ->
     )
 
 
-def bank_fee_multiplier(coop: Cooperative) -> Decimal:
-    """Множитель «надбавки на комиссию банка» (Cooperative.bank_fee_percent):
+def bank_fee_multiplier(bank_account) -> Decimal:
+    """Множитель «надбавки на комиссию банка» (BankAccount.bank_fee_percent
+    счёта, на который придёт платёж; у каждого банка свой процент):
     1 / (1 − %), а не 1 + % — банк (Сбербанк, реестр платежей) берёт
     комиссию с ОПЛАЧЕННОЙ суммы, а не с нужной кооперативу: оплачено
     1432,56 → комиссия 1,6% = 22,92 → зачислено 1409,64. С 1 + % на счёт
     поступало бы на ~0,026% меньше нужного (1409,64 × 1,016 = 1432,19 →
     зачислено 1409,28). Используется при начислении земельного налога
     (compute_land_tax — комиссия входит в само начисление) и через
-    amount_with_bank_fee — в сумме к оплате за электроэнергию."""
-    percent = coop.bank_fee_percent or Decimal("0")
+    amount_with_bank_fee — в сумме к оплате за электроэнергию. Без счёта
+    (None) — надбавки нет."""
+    percent = (bank_account.bank_fee_percent if bank_account is not None else None) or Decimal("0")
     return Decimal("100") / (Decimal("100") - percent)
 
 
-def amount_with_bank_fee(debt: Decimal, coop: Cooperative | None) -> Decimal:
+def amount_with_bank_fee(debt: Decimal, bank_account) -> Decimal:
     """Сумма К ОПЛАТЕ за электроэнергию (ПД-4/QR и реестр начислений) —
     долг считается по факту потребления, без комиссии; надбавка (см.
-    bank_fee_multiplier) — только в сумме этого перевода, чтобы после
-    удержания банком комиссии на счёт кооператива поступил ровно долг.
-    Округление до копейки half-up — при комиссии банка, тоже округлённой
-    half-up, зачисленная сумма совпадает с долгом копейка в копейку
-    (проверено перебором долгов 0,01–3000 ₽ при 1,6%)."""
-    if coop is None:
-        return debt.quantize(Decimal("0.01"), ROUND_HALF_UP)
-    return (debt * bank_fee_multiplier(coop)).quantize(Decimal("0.01"), ROUND_HALF_UP)
+    bank_fee_multiplier, процент счёта bank_account) — только в сумме этого
+    перевода, чтобы после удержания банком комиссии на счёт кооператива
+    поступил ровно долг. Округление до копейки half-up — при комиссии
+    банка, тоже округлённой half-up, зачисленная сумма совпадает с долгом
+    копейка в копейку (проверено перебором долгов 0,01–3000 ₽ при 1,6%)."""
+    return (debt * bank_fee_multiplier(bank_account)).quantize(Decimal("0.01"), ROUND_HALF_UP)
+
+
+def amount_without_bank_fee(amount: Decimal, bank_account) -> Decimal:
+    """Обратное к amount_with_bank_fee: сколько из поступившей на счёт
+    bank_account суммы остаётся кооперативу после комиссии банка (amount ×
+    (1 − %)). Нужно при разнесении строки выписки на электричество: банк,
+    который не удерживает комиссию из самого платежа (ВТБ списывает % с
+    поступлений отдельно), показывает в выписке полную оплаченную сумму —
+    вместе с надбавкой, и без вычета гаражу досталась бы переплата на её
+    размер. Реестр платежей Сбера передаёт уже сумму зачисления
+    (credited_amount) и сюда не попадает. Округляется, как у банка, сама
+    комиссия (half-up до копейки), а не остаток — на границе полкопейки
+    это даёт разные результаты."""
+    percent = (bank_account.bank_fee_percent if bank_account is not None else None) or Decimal("0")
+    fee = (amount * percent / Decimal("100")).quantize(Decimal("0.01"), ROUND_HALF_UP)
+    return amount - fee
 
 
 def compute_land_tax(year: int) -> dict[int, Decimal] | None:
@@ -898,7 +914,9 @@ def compute_land_tax(year: int) -> dict[int, Decimal] | None:
     # умножением на его coefficient при формировании garage_tax ниже.
     common_area_tax = price_per_sqm * (coop.common_area / total_coefficient)
     standard_area = coop.standard_garage_land_area or Decimal("30")
-    bank_multiplier = bank_fee_multiplier(coop)
+    # % банка — того счёта, на который выставляются ПД-4 (основного): туда
+    # и придёт оплата начисления.
+    bank_multiplier = bank_fee_multiplier(get_primary_bank_account())
 
     result = {}
     for garage in garages:

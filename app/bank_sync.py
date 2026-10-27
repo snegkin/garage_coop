@@ -29,7 +29,10 @@ from .models import (
     PaymentRegistryEntry, BankRegistryFormat, ChargeRegistryFile, Cooperative, Counterparty,
     MemberAccount, PersonalAccount, Payment, Person, Garage, GarageOwnership, GarageContact, CORE_FEE_TYPE_CODES,
 )
-from .accounting import balance as _balance, amount_with_bank_fee, reallocate_garage_charges, reallocate_member_charges
+from .accounting import (
+    balance as _balance, amount_with_bank_fee, amount_without_bank_fee, reallocate_garage_charges,
+    reallocate_member_charges,
+)
 from .bank_api import get_client, crypto, build_registry_format
 from .bank_api.base import BankApiError, ChargeRegistryItem
 from .bank_api import registry_file
@@ -507,6 +510,7 @@ def _save_fetched_statement(account: BankAccount, fetched, date_from: dt.date, d
             payment, resolved_number = _allocate_payment_to_account(
                 line.operation_date, line.amount, comment,
                 account_number=account_number, payer_name=line.counterparty_name, purpose=line.payment_purpose,
+                garage_amount=amount_without_bank_fee(line.amount, account),
             )
             if payment is not None:
                 row.matched_payment_id = payment.id
@@ -620,7 +624,7 @@ def allocate_statement_line(account_id, line_id):
     payment, resolved_number = _allocate_payment_to_account(
         line.operation_date, line.amount, comment,
         account_number=account_number, payer_name=line.counterparty_name, purpose=line.payment_purpose,
-        strict_account_number=strict,
+        strict_account_number=strict, garage_amount=amount_without_bank_fee(line.amount, account),
     )
     if payment is None:
         if strict:
@@ -718,6 +722,7 @@ def allocate_all_statement_lines(account_id):
         payment, resolved_number = _allocate_payment_to_account(
             line.operation_date, line.amount, comment,
             account_number=account_number, payer_name=line.counterparty_name, purpose=line.payment_purpose,
+            garage_amount=amount_without_bank_fee(line.amount, account),
         )
         if payment is not None:
             line.matched_payment_id = payment.id
@@ -757,7 +762,7 @@ def allocate_all_statement_lines(account_id):
 # лицевой счёт в приложении банка и платит по нему.
 # ---------------------------------------------------------------------------
 
-def _charge_registry_items() -> list[ChargeRegistryItem]:
+def _charge_registry_items(account: BankAccount) -> list[ChargeRegistryItem]:
     """Все ДЕЙСТВУЮЩИЕ лицевые счета (гаражные и членские), отсортированные
     по номеру. Сумма — текущий долг (см. accounting.balance()), у счетов
     без долга или с переплатой — 0: такие строки тоже нужны, иначе лицевой
@@ -779,11 +784,11 @@ def _charge_registry_items() -> list[ChargeRegistryItem]:
     (accounting.amount_with_bank_fee), с той же пометкой в назначении; иначе
     после удержания банком комиссии на счёт кооператива поступит меньше
     долга. У взносов комиссия уже в самом начислении (compute_land_tax) —
-    их сумма не меняется."""
-    coop = database.db_session.query(Cooperative).first()
+    их сумма не меняется. Процент комиссии — того счёта account, для
+    которого формируется реестр: плательщик заплатит именно на него."""
     fee_note = ""
-    if coop and coop.bank_fee_percent:
-        percent = f"{coop.bank_fee_percent.quantize(Decimal('0.01'))}".replace(".", ",")
+    if account.bank_fee_percent:
+        percent = f"{account.bank_fee_percent.quantize(Decimal('0.01'))}".replace(".", ",")
         fee_note = f" ({percent}% - комиссия банка)"
     items = []
     # Начисления/платежи/владельцы — пакетами (selectinload), а не по
@@ -810,7 +815,7 @@ def _charge_registry_items() -> list[ChargeRegistryItem]:
         items.append(ChargeRegistryItem(
             account_number=personal_account.account_number,
             payer_name=owners,
-            amount=amount_with_bank_fee(debt, coop),
+            amount=amount_with_bank_fee(debt, account),
             purpose=f"Электричество, гараж №{garage.number}{fee_note}",
         ))
     for member_account in member_accounts:
@@ -850,8 +855,8 @@ def charge_registry_staleness(account: BankAccount, items: list[ChargeRegistryIt
     ЧТО именно устарело, а не только сколько. Сравнение построчно по
     номеру лицевого счёта в том же формате, что и сам файл
     (разделитель/кодировка/позиция поля — из настроек формата счёта).
-    items — уже собранные _charge_registry_items(), чтобы не собирать
-    дважды (они одни на все счета)."""
+    items — уже собранные _charge_registry_items(account), чтобы не
+    собирать дважды."""
     last = (
         database.db_session.query(ChargeRegistryFile)
         .filter_by(bank_account_id=account.id)
@@ -862,7 +867,7 @@ def charge_registry_staleness(account: BankAccount, items: list[ChargeRegistryIt
         return None
     fmt = build_registry_format(account)
     if items is None:
-        items = _charge_registry_items()
+        items = _charge_registry_items(account)
     current = registry_file.build_charge_registry_file(items, fmt)
     if current == last.content:
         return {"last": last, "changed": 0, "changes": []}
@@ -921,7 +926,7 @@ def charge_registry(account_id):
     _charge_registry_items).
     """
     account = _get_account(account_id)
-    items = _charge_registry_items()
+    items = _charge_registry_items(account)
     fmt = build_registry_format(account)
     labels = {key: label for key, label, _required in registry_file.CHARGE_FIELD_CATALOG}
     files = (
@@ -949,7 +954,7 @@ def generate_charge_registry(account_id):
     **Кодировка — Windows-1251 (cp1251)**, порядок полей — настраиваемый
     формат счёта (см. app/bank_api/registry_file.py)."""
     account = _get_account(account_id)
-    items = _charge_registry_items()
+    items = _charge_registry_items(account)
     if not items:
         flash(_("Действующих лицевых счетов нет — реестр пуст."), "warning")
         return redirect(url_for("bank_sync.charge_registry", account_id=account.id))
@@ -1401,10 +1406,11 @@ def _allocate_payment_to_account(
 
     Исключение — garage_amount: сумма для гаражного счёта (электричество),
     если она своя. Реестр платежей передаёт сюда сумму ЗАЧИСЛЕНИЯ (за
-    вычетом комиссии банка): к оплате за электричество выставляется долг
-    уже с надбавкой на комиссию (реестр начислений и ПД-4, см.
-    accounting.amount_with_bank_fee), и полная сумма дала бы гаражу
-    переплату на размер этой надбавки."""
+    вычетом комиссии банка), строки выписки — полную сумму за вычетом %
+    комиссии своего расчётного счёта (accounting.amount_without_bank_fee):
+    к оплате за электричество выставляется долг уже с надбавкой на
+    комиссию (реестр начислений и ПД-4, см. accounting.amount_with_bank_fee),
+    и полная сумма дала бы гаражу переплату на размер этой надбавки."""
     kind, target = (None, None)
     resolved_account_number = account_number
     if account_number:

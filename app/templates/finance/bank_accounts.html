@@ -9,7 +9,7 @@
 </div>
 
 <table class="table table-bordered bg-body sortable">
-  <thead><tr><th>{{ _("Банк") }}</th><th>{{ _("БИК") }}</th><th>{{ _("Расчётный счёт") }}</th><th>{{ _("Корр. счёт") }}</th><th>{{ _("Баланс") }}</th><th>{{ _("Основной") }}</th><th>{{ _("API банка") }}</th><th>{{ _("Комментарий") }}</th><th class="no-sort"></th></tr></thead>
+  <thead><tr><th>{{ _("Банк") }}</th><th>{{ _("БИК") }}</th><th>{{ _("Расчётный счёт") }}</th><th>{{ _("Корр. счёт") }}</th><th>{{ _("Баланс") }}</th><th>{{ _("Основной") }}</th><th>{{ _("% банка") }}</th><th>{{ _("API банка") }}</th><th>{{ _("Комментарий") }}</th><th class="no-sort"></th></tr></thead>
   <tbody>
     {% for account in bank_accounts %}
     <tr>
@@ -24,6 +24,7 @@
         {% else %}—{% endif %}
       </td>
       <td>{% if account.is_primary %}<span class="badge bg-primary">{{ _("основной") }}</span>{% endif %}</td>
+      <td data-sort-value="{{ account.bank_fee_percent or 0 }}">{{ (fmt2(account.bank_fee_percent) ~ "%") if account.bank_fee_percent is not none else "—" }}</td>
       <td>
         {% if account.api_provider.value == "none" %}
           <span class="text-muted">{{ _("не используется") }}</span>

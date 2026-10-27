@@ -297,8 +297,8 @@ def dashboard():
 
     # Напоминание председателю перезалить реестр начислений в СберБизнес
     # Онлайн — по счетам, где реестр уже формировали и он устарел (см.
-    # bank_sync.charge_registry_staleness). Список строк реестра один на все
-    # счета — собираем один раз и только если есть что сравнивать.
+    # bank_sync.charge_registry_staleness). Строки реестра собираем только
+    # если есть что сравнивать.
     stale_registries = []
     if is_chairman():
         accounts_with_registry = (
@@ -307,8 +307,14 @@ def dashboard():
             .all()
         )
         if accounts_with_registry:
-            registry_items = bank_sync._charge_registry_items()
+            # Строки реестра зависят от счёта только через % комиссии банка
+            # (сумма к оплате за электричество) — собираем один раз на
+            # каждый различный процент, а не на каждый счёт.
+            items_by_fee = {}
             for bank_account in accounts_with_registry:
+                if bank_account.bank_fee_percent not in items_by_fee:
+                    items_by_fee[bank_account.bank_fee_percent] = bank_sync._charge_registry_items(bank_account)
+                registry_items = items_by_fee[bank_account.bank_fee_percent]
                 staleness = bank_sync.charge_registry_staleness(bank_account, registry_items)
                 if staleness and staleness["changed"]:
                     stale_registries.append((bank_account, staleness))

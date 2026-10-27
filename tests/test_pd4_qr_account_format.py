@@ -156,9 +156,8 @@ def test_print_page_copies_amount_with_kopecks_comma_separated(db, client):
     """Сумма с копейками (электричество с комиссией банка 1,6%: 700 / (1 − 0,016) =
     711,38) — для буфера обмена через запятую, как её ждёт поле суммы в
     приложении банка на русской раскладке."""
-    coop = _make_coop(db)
-    coop.bank_fee_percent = Decimal("1.6")
-    _make_bank_account_with_spaces(db)
+    _make_coop(db)
+    _make_bank_account_with_spaces(db).bank_fee_percent = Decimal("1.6")
     person = make_person(db, full_name="Копейкин Копейка Копейкович")
     garage = make_garage(db, number="505")
     make_ownership(db, garage, person)

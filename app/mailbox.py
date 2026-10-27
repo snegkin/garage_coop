@@ -482,6 +482,40 @@ def refresh_unread_counts() -> str:
     return _refresh_pop3_unread_counts(settings)
 
 
+def _refresh_badge(settings: MailboxSettings, client) -> int | None:
+    """Бейдж "непрочитано" в шапке сайта (см. app/__init__.py: _inject_user)
+    в норме обновляется cron-скриптом scripts/poll_mailbox.py
+    (refresh_unread_counts) — роуты почты освежают его же кэш заодно, раз
+    соединение и так открыто: список «Входящих», а главное — открытие письма,
+    смена точки и удаление, иначе прочитанное письмо висело бы в бейдже до
+    следующего прогона cron. НЕ refresh_unread_counts() — та открывает СВОЁ
+    соединение (и рассылает уведомления о новых письмах). Ошибка — не повод
+    ломать само действие, бейдж просто останется чуть устаревшим.
+    Возвращает новое значение для текущего пользователя (None — не
+    пересчитано)."""
+    try:
+        if client.supports_flags:
+            settings.unread_count = client.count_unread(DEFAULT_FOLDER)
+            settings.last_checked_at = dt.datetime.utcnow()
+            database.db_session.commit()
+            return settings.unread_count
+        if settings.incoming_protocol == MailProtocol.POP3:
+            current_uidls = client.list_current_uidls(DEFAULT_FOLDER)
+            if current_uidls is None:
+                return None
+            seen_uidls = {
+                row.message_uidl for row in database.db_session.query(MailboxPop3MessageState.message_uidl)
+                .filter(MailboxPop3MessageState.user_id == g.user.id, MailboxPop3MessageState.seen.is_(True))
+                .all()
+            }
+            g.user.pop3_mailbox_unread_count = len(current_uidls - seen_uidls)
+            database.db_session.commit()
+            return g.user.pop3_mailbox_unread_count
+    except MailError:
+        database.db_session.rollback()
+    return None
+
+
 @bp.route("/")
 @roles_required(RoleEnum.BOARD)
 def inbox():
@@ -513,34 +547,8 @@ def inbox():
             if pop3_tracked:
                 _overlay_pop3_states(g.user.id, page.messages)
 
-            # Бейдж "непрочитано" в шапке сайта (см. app/__init__.py:
-            # _inject_user) в норме обновляется cron-скриптом
-            # scripts/poll_mailbox.py (mailbox.refresh_unread_counts) — здесь
-            # просто освежаем его же кэш заодно, раз соединение с INBOX и
-            # так уже открыто; НЕ вызываем refresh_unread_counts() напрямую
-            # — та открывает СВОЁ соединение, что здесь удвоило бы поход на
-            # сервер вместо переиспользования уже открытого. Ошибка — не
-            # повод ломать обычный просмотр списка, бейдж просто останется
-            # чуть устаревшим до следующего прогона cron.
-            if folder == DEFAULT_FOLDER and supports_flags:
-                try:
-                    settings.unread_count = client.count_unread(folder)
-                    settings.last_checked_at = dt.datetime.utcnow()
-                    database.db_session.commit()
-                except MailError:
-                    database.db_session.rollback()
-            elif folder == DEFAULT_FOLDER and pop3_tracked:
-                try:
-                    current_uidls = client.list_current_uidls(folder)
-                    seen_uidls = {
-                        row.message_uidl for row in database.db_session.query(MailboxPop3MessageState.message_uidl)
-                        .filter(MailboxPop3MessageState.user_id == g.user.id, MailboxPop3MessageState.seen.is_(True))
-                        .all()
-                    }
-                    g.user.pop3_mailbox_unread_count = len(current_uidls - seen_uidls) if current_uidls is not None else 0
-                    database.db_session.commit()
-                except MailError:
-                    database.db_session.rollback()
+            if folder == DEFAULT_FOLDER:
+                _refresh_badge(settings, client)
     except MailError as exc:
         _record_connection_error(settings, exc)
         flash(_("Не удалось подключиться к почте: {error}", error=str(exc)), "danger")
@@ -585,6 +593,8 @@ def view_message(uid):
                 if message_uidl:
                     _mark_pop3_message_seen(g.user.id, message_uidl)
                     database.db_session.commit()
+            if folder == DEFAULT_FOLDER:
+                _refresh_badge(settings, client)
     except MailError as exc:
         _record_connection_error(settings, exc)
         flash(_("Не удалось открыть письмо: {error}", error=str(exc)), "danger")
@@ -643,6 +653,9 @@ def delete_message(uid):
                 client.move_message(uid, folder, settings.trash_folder)
             else:
                 client.delete_message(uid, folder=folder)
+            # POP3 удаляет письмо только при QUIT — пересчёт тут его ещё увидит.
+            if folder == DEFAULT_FOLDER and client.supports_flags:
+                _refresh_badge(settings, client)
     except MailError as exc:
         _record_connection_error(settings, exc)
         flash(_("Не удалось удалить письмо: {error}", error=str(exc)), "danger")
@@ -688,11 +701,12 @@ def set_message_state(uid):
                 database.db_session.commit()
             else:
                 return jsonify(ok=False, error=_("Этот протокол не поддерживает статусы писем.")), 400
+            unread = _refresh_badge(settings, client) if folder == DEFAULT_FOLDER else None
     except MailError as exc:
         _record_connection_error(settings, exc)
         return jsonify(ok=False, error=str(exc)), 400
 
-    return jsonify(ok=True, state=state)
+    return jsonify(ok=True, state=state, unread_count=unread)
 
 
 @bp.route("/compose", methods=["GET", "POST"])

@@ -1,0 +1,12 @@
+{# Содержимое выпадающего списка колокольчика в шапке (base.html) — и при
+   рендере страницы, и в JSON опроса /attention (main.attention), откуда
+   JS подменяет им список целиком. Пункты — app/attention.py: items(). #}
+<li><h6 class="dropdown-header">{{ _("Требует внимания") }}</h6></li>
+{% for item in attention_items %}
+{% if item.key == "mail" %}
+<li class="{{ 'd-none' if not item.count }}" data-mailbox-unread-item><a class="dropdown-item d-flex align-items-center" href="{{ item.url }}"><span class="dropdown-icon"><i class="bi bi-{{ item.icon }}" aria-hidden="true"></i></span><span class="me-auto">{{ item.label }}</span><span class="badge rounded-pill bg-danger ms-3" data-mailbox-unread>{{ item.count }}</span></a></li>
+{% else %}
+<li><a class="dropdown-item d-flex align-items-center" href="{{ item.url }}"><span class="dropdown-icon"><i class="bi bi-{{ item.icon }}" aria-hidden="true"></i></span><span class="me-auto">{{ item.label }}</span><span class="badge rounded-pill bg-danger ms-3">{{ item.count }}</span></a></li>
+{% endif %}
+{% endfor %}
+<li class="{{ 'd-none' if attention_total }}" data-attention-empty><span class="dropdown-item-text text-body-secondary"><i class="bi bi-check2-circle me-2" aria-hidden="true"></i>{{ _("Новых уведомлений нет") }}</span></li>

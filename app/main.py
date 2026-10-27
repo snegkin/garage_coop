@@ -2,9 +2,10 @@ import datetime as dt
 import json
 from decimal import Decimal
 
-from flask import Blueprint, render_template, redirect, url_for, Response, request
+from flask import Blueprint, render_template, redirect, url_for, Response, request, g, jsonify
 from sqlalchemy import func
 
+from . import attention as attention_counts
 from . import database
 from .auth import login_required
 from .permissions import is_board
@@ -237,6 +238,24 @@ def _collection_rate(year: int) -> Decimal | None:
         .scalar()
     ) or Decimal("0")
     return (total_paid / total_charged * 100).quantize(Decimal("0.1"))
+
+
+@bp.route("/attention")
+def attention():
+    """Опрос колокольчика «Требует внимания» (base.html, раз в минуту с
+    видимой вкладки): сумма для бейджа/заголовка вкладки/иконки приложения,
+    готовый HTML списка и счётчик почты для остальных её бейджей. Без
+    login_required: тот при истёкшей сессии редиректит с flash «войдите»,
+    и фоновый опрос оставил бы это сообщение на следующей странице."""
+    if g.user is None:
+        return jsonify(error="unauthorized"), 401
+    by_key = attention_counts.counts(g.user)
+    total = attention_counts.total(by_key)
+    html = render_template(
+        "_attention_menu.html",
+        attention_items=attention_counts.items(g.user, by_key), attention_total=total,
+    )
+    return jsonify(total=total, html=html, mailbox_unread=by_key["mail"])
 
 
 @bp.route("/dashboard")

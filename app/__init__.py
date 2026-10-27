@@ -136,70 +136,17 @@ def create_app(config_class=Config):
     def _inject_user():
         from . import database
         from .models import (
-            Cooperative, PersonDataRevision, PersonDataRevisionStatus, Vote, VoteQuestion, VoteBallot, VoteStatus,
-            RoleEnum, Person, VoteProposal, VoteProposalBoardBallot, ProposalStatus, BoardChatMessage,
-            RevisionChatMessage, MailboxSettings, MailProtocol,
+            Cooperative, BoardChatMessage, RevisionChatMessage,
         )
+        from . import attention
         from .accounting import balance as _balance
         from .permissions import is_board, is_chairman, is_privileged
         coop = database.db_session.query(Cooperative).first()
         coop_name = (coop.short_name or coop.full_name) if coop and (coop.short_name or coop.full_name) else "ГСК"
 
-        # уведомления для председателя — ожидающие одобрения изменений ПД
-        pending_pd = 0
+        # «Требует внимания» — колокольчик в шапке, дашборд (см. app/attention.py)
         user = g.get("user")
-        if user and user.role == RoleEnum.CHAIRMAN:
-            pending_pd = database.db_session.query(PersonDataRevision).filter(
-                PersonDataRevision.status == PersonDataRevisionStatus.PENDING
-            ).count()
-
-        # уведомления для всех — открытые голосования без бюллетеня пользователя
-        pending_votes = 0
-        if user and user.person_id:
-            person = database.db_session.get(Person, user.person_id)
-            if person:
-                # открытые голосования, где у пользователя нет ни одного бюллетеня
-                pending_votes = database.db_session.query(Vote).filter(
-                    Vote.status == VoteStatus.OPEN,
-                    Vote.closes_at > dt.datetime.utcnow(),
-                    ~database.db_session.query(VoteQuestion.id)
-                    .join(VoteBallot)
-                    .filter(
-                        VoteQuestion.vote_id == Vote.id,
-                        VoteBallot.person_id == person.id,
-                    ).exists(),
-                ).count()
-
-        # уведомления для правления — предложения членов кооператива, ждущие голоса этого человека
-        pending_proposals = 0
-        if user and user.person_id:
-            from .governance import current_board_member_ids
-            if user.person_id in current_board_member_ids():
-                pending_proposals = database.db_session.query(VoteProposal).filter(
-                    VoteProposal.status == ProposalStatus.PENDING,
-                    ~database.db_session.query(VoteProposalBoardBallot.id).filter(
-                        VoteProposalBoardBallot.proposal_id == VoteProposal.id,
-                        VoteProposalBoardBallot.person_id == user.person_id,
-                    ).exists(),
-                ).count()
-
-        # для правления — заявления членов кооператива, по которым ещё нет
-        # решения (см. app/applications.py) — любой член правления может
-        # ответить, поэтому счёт общий, не «не прочитанные мной»
-        pending_applications = 0
-        if user and is_board():
-            from .models import Application, ApplicationStatus
-            pending_applications = database.db_session.query(Application).filter(
-                Application.status == ApplicationStatus.SUBMITTED,
-            ).count()
-
-        # для председателя — запросы справок о владении гаражом
-        pending_certificate_requests = 0
-        if user and user.role == RoleEnum.CHAIRMAN:
-            from .models import CertificateRequest, CertificateRequestStatus
-            pending_certificate_requests = database.db_session.query(CertificateRequest).filter(
-                CertificateRequest.status == CertificateRequestStatus.REQUESTED,
-            ).count()
+        attention_counts = attention.counts(user)
 
         # непрочитанные сообщения чата правления (см. app/board_chat.py) —
         # свои сообщения не считаются непрочитанными; порог "прочитано по"
@@ -225,22 +172,6 @@ def create_app(config_class=Config):
                     RevisionChatMessage.created_at > since,
                     RevisionChatMessage.author_id != user.id,
                 ).count()
-
-        # Непрочитанные во "Входящих" почты правления — сам счёт НЕ идёт по
-        # IMAP/POP3 на каждый запрос (см. MailboxSettings.unread_count,
-        # докстринг там же), а один дешёвый SELECT, кэш которого обновляют
-        # scripts/poll_mailbox.py и mailbox.inbox() (опортунистически). IMAP
-        # — общий счётчик (настоящие серверные флаги, одни на всех); POP3 —
-        # свой у каждого пользователя (см. User.pop3_mailbox_unread_count,
-        # MailboxPop3MessageState) — сам протокол флагов не хранит вовсе.
-        mailbox_unread = 0
-        if user and is_board():
-            mailbox_settings = database.db_session.query(MailboxSettings).first()
-            if mailbox_settings:
-                if mailbox_settings.incoming_protocol == MailProtocol.POP3:
-                    mailbox_unread = user.pop3_mailbox_unread_count
-                else:
-                    mailbox_unread = mailbox_settings.unread_count
 
         # Куда возвращать пользователя после входа, если он воспользуется
         # формой входа (дропдаун «Войти» в шапке, доступен на любой
@@ -278,15 +209,17 @@ def create_app(config_class=Config):
         return {
             "current_user": user, "coop_name": coop_name, "balance": _balance,
             "is_board": is_board, "is_chairman": is_chairman, "is_privileged": is_privileged,
-            "pending_pd_count": pending_pd,
-            "pending_votes_count": pending_votes,
+            "pending_pd_count": attention_counts["pd"],
+            "pending_votes_count": attention_counts["votes"],
             "board_chat_unread_count": board_chat_unread,
             "is_revision_commission_member": is_revision_member,
             "revision_chat_unread_count": revision_chat_unread,
-            "pending_proposals_count": pending_proposals,
-            "pending_applications_count": pending_applications,
-            "pending_certificate_requests_count": pending_certificate_requests,
-            "mailbox_unread_count": mailbox_unread,
+            "pending_proposals_count": attention_counts["proposals"],
+            "pending_applications_count": attention_counts["applications"],
+            "pending_certificate_requests_count": attention_counts["certificates"],
+            "mailbox_unread_count": attention_counts["mail"],
+            "attention_items": attention.items(user, attention_counts),
+            "attention_total": attention.total(attention_counts),
             "login_next_url": login_next_url,
             "webpush_prompt": webpush_prompt,
             "webpush_public_key": webpush_public_key,

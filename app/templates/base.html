@@ -32,6 +32,23 @@
       <img src="{{ url_for('static', filename='favicon-32x32.png') }}" alt="" style="width:24px;height:24px;vertical-align:middle;margin-right:8px">
       {{ coop_name }}
     </a>
+    {# Колокольчик «Требует внимания» — ВНЕ .navbar-collapse: на телефоне
+       меню свёрнуто, и уведомления внутри него никто не видел. Здесь он
+       между логотипом и бургером; на десктопе order-lg-last уводит его в
+       конец строки, за профиль. Список — _attention_menu.html, счётчики —
+       app/attention.py; обновляется без перезагрузки (скрипт внизу). #}
+    {% if current_user %}
+    <div class="dropdown ms-auto me-2 order-lg-last ms-lg-2 me-lg-0" id="attentionBell">
+      <button type="button" class="btn attention-bell" data-bs-toggle="dropdown" aria-expanded="false"
+              title="{{ _('Уведомления') }}" aria-label="{{ _('Уведомления') }}">
+        <i class="bi bi-bell{{ '-fill' if attention_total }}" aria-hidden="true"></i>
+        <span class="attention-badge badge rounded-pill bg-danger {{ 'd-none' if not attention_total }}" data-attention-total>{{ attention_total }}</span>
+      </button>
+      <ul class="dropdown-menu dropdown-menu-end attention-menu" data-attention-menu>
+        {% include "_attention_menu.html" %}
+      </ul>
+    </div>
+    {% endif %}
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#nav">
       <span class="navbar-toggler-icon"></span>
     </button>
@@ -150,50 +167,14 @@
         </li>
         {% if current_user %}
         <li class="nav-item dropdown">
-          <a class="nav-link dropdown-toggle d-flex align-items-center py-1 position-relative" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-            <span class="d-flex flex-column text-center position-relative" style="line-height:1.15;">
+          <a class="nav-link dropdown-toggle d-flex align-items-center py-1" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+            <span class="d-flex flex-column text-center" style="line-height:1.15;">
               <span class="text-white">{{ current_user.username }}</span>
               <small class="text-secondary" style="font-size:0.7rem;">{{ role_label(current_user.role.value) }}</small>
-              {% if pending_votes_count > 0 %}
-              <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-info" style="font-size:0.55em; margin-left: 1.2em;">{{ pending_votes_count }}</span>
-              {% endif %}
-              {% if is_chairman() and pending_pd_count > 0 %}
-              <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" style="font-size:0.55em; margin-left: 1.2em;">{{ pending_pd_count }}</span>
-              {% endif %}
-              {% if pending_proposals_count > 0 %}
-              <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-warning text-dark" style="font-size:0.55em; margin-left: 1.2em;">{{ pending_proposals_count }}</span>
-              {% endif %}
-              {% if pending_certificate_requests_count > 0 %}
-              <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-warning text-dark" style="font-size:0.55em; margin-left: 1.2em;">{{ pending_certificate_requests_count }}</span>
-              {% endif %}
-              {% if pending_applications_count > 0 %}
-              <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-warning text-dark" style="font-size:0.55em; margin-left: 1.2em;">{{ pending_applications_count }}</span>
-              {% endif %}
-              {% if is_board() %}
-              <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-primary {{ 'd-none' if not mailbox_unread_count }}" style="font-size:0.55em; margin-left: 1.2em;" data-mailbox-unread>{{ mailbox_unread_count }}</span>
-              {% endif %}
             </span>
           </a>
           <ul class="dropdown-menu dropdown-menu-end">
             <li><a class="dropdown-item" href="{{ url_for('cabinet.profile') }}"><span class="dropdown-icon"><i class="bi bi-person" aria-hidden="true"></i></span>{{ _("Мой профиль") }}</a></li>
-            {% if is_chairman() and pending_pd_count > 0 %}
-            <li><a class="dropdown-item" href="{{ url_for('persons.list_persons') }}"><span class="dropdown-icon"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i></span>{{ _("Ожидает одобрения") }} {{ pending_pd_count }}</a></li>
-            {% endif %}
-            {% if pending_votes_count > 0 %}
-            <li><a class="dropdown-item" href="{{ url_for('voting.list_votes') }}"><span class="dropdown-icon"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i></span>{{ _("Не проголосовано") }} {{ pending_votes_count }}</a></li>
-            {% endif %}
-            {% if pending_proposals_count > 0 %}
-            <li><a class="dropdown-item" href="{{ url_for('proposals.list_proposals') }}"><span class="dropdown-icon"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i></span>{{ _("Предложения ждут решения") }} {{ pending_proposals_count }}</a></li>
-            {% endif %}
-            {% if pending_certificate_requests_count > 0 %}
-            <li><a class="dropdown-item" href="{{ url_for('certificates.list_certificates') }}"><span class="dropdown-icon"><i class="bi bi-file-earmark-check" aria-hidden="true"></i></span>{{ _("Запрошены справки") }} {{ pending_certificate_requests_count }}</a></li>
-            {% endif %}
-            {% if pending_applications_count > 0 %}
-            <li><a class="dropdown-item" href="{{ url_for('applications.list_applications', status='submitted') }}"><span class="dropdown-icon"><i class="bi bi-file-earmark-text" aria-hidden="true"></i></span>{{ _("Заявления ждут решения") }} {{ pending_applications_count }}</a></li>
-            {% endif %}
-            {% if is_board() %}
-            <li class="{{ 'd-none' if not mailbox_unread_count }}" data-mailbox-unread-item><a class="dropdown-item" href="{{ url_for('mailbox.inbox') }}"><span class="dropdown-icon"><i class="bi bi-envelope" aria-hidden="true"></i></span>{{ _("Непрочитанные письма") }} <span data-mailbox-unread>{{ mailbox_unread_count }}</span></a></li>
-            {% endif %}
             <li><a class="dropdown-item" href="{{ url_for('cabinet.garages') }}"><span class="dropdown-icon"><i class="bi bi-house-door" aria-hidden="true"></i></span>{{ _("Мой гараж") }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('certificates.my_certificates') }}"><span class="dropdown-icon"><i class="bi bi-file-earmark-check" aria-hidden="true"></i></span>{{ _("Справки о владении гаражом") }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('pd4.select') }}"><span class="dropdown-icon"><i class="bi bi-receipt" aria-hidden="true"></i></span>{{ _("Квитанции (по форме ПД-4)") }}</a></li>
@@ -1005,6 +986,21 @@ tr.table-info-subtle { --bs-table-bg: var(--bs-info-bg-subtle); --bs-table-borde
    прижимается к углу. */
 .kebab-toggle { width: 2rem; height: 2rem; padding: 0; margin: -.25rem -.5rem 0 0; display: inline-flex; align-items: center; justify-content: center; border: 0; color: var(--bs-secondary-color); font-size: 1.1rem; }
 .kebab-toggle:hover, .kebab-toggle:focus-visible, .kebab-toggle.show { color: var(--bs-body-color); background-color: var(--bs-tertiary-bg); }
+/* Колокольчик «Требует внимания» в шапке (над .navbar-collapse, см. разметку).
+   Бейдж — в правом верхнем углу значка; качается один раз, когда счётчик
+   вырос (класс .is-ringing ставит скрипт опроса внизу страницы). */
+.attention-bell { position: relative; color: rgba(255,255,255,.75); font-size: 1.25rem; padding: .25rem .5rem; border: 0; line-height: 1; }
+.attention-bell:hover, .attention-bell:focus-visible, .attention-bell.show { color: #fff; }
+/* .attention-bell в селекторе — перебить бутстраповское .btn .badge { position: relative } */
+.attention-bell .attention-badge { position: absolute; top: .1rem; right: .1rem; transform: translate(25%, -15%); font-size: .6rem; padding: .25em .45em; border: 2px solid var(--bs-dark); }
+.attention-menu { min-width: 18rem; }
+.attention-bell.is-ringing > .bi { display: inline-block; animation: attention-ring .7s ease-in-out; transform-origin: 50% 10%; }
+@keyframes attention-ring {
+  0%, 100% { transform: rotate(0); }
+  15% { transform: rotate(16deg); } 30% { transform: rotate(-14deg); }
+  45% { transform: rotate(10deg); } 60% { transform: rotate(-6deg); } 75% { transform: rotate(3deg); }
+}
+@media (prefers-reduced-motion: reduce) { .attention-bell.is-ringing > .bi { animation: none; } }
 /* Скрытый текст в тексте вики/новости — ||текст|| в markdown (см.
    news_format.py: _SPOILER_RE), например пароль устройства: не для
    защиты (это всё та же страница, просто визуально скрыто), а чтобы
@@ -1967,6 +1963,99 @@ document.addEventListener("click", function (e) {
   btn.textContent = nowCollapsed ? btn.dataset.expandLabel : btn.dataset.collapseLabel;
 });
 </script>
+{% if current_user %}
+<script>
+// «Требует внимания» — живое обновление колокольчика в шапке, счётчик в
+// заголовке вкладки «(N) …», красная точка на favicon и цифра на иконке
+// установленного приложения (Badging API). Опрос /attention раз в минуту и
+// только пока вкладка видима (фоновые вкладки сервер не дёргают) + сразу при
+// возвращении на вкладку. Колокольчик качается, когда счётчик вырос по
+// сравнению с последним увиденным (localStorage — общий на все вкладки,
+// чтобы при переходе по страницам не качался каждый раз заново).
+(function () {
+  var bell = document.getElementById("attentionBell");
+  if (!bell) return;
+  var button = bell.querySelector(".attention-bell");
+  var icon = button.querySelector(".bi");
+  var badge = bell.querySelector("[data-attention-total]");
+  var menu = bell.querySelector("[data-attention-menu]");
+  var baseTitle = document.title;
+  var STORAGE_KEY = "attentionSeenTotal";
+  var iconLinks = Array.prototype.slice.call(document.querySelectorAll('link[rel="icon"]'));
+  iconLinks.forEach(function (link) { link.dataset.originalHref = link.href; });
+  var dotIconUrl = null;
+
+  function withDot(callback) {
+    if (dotIconUrl) return callback(dotIconUrl);
+    var img = new Image();
+    img.onload = function () {
+      var canvas = document.createElement("canvas");
+      canvas.width = canvas.height = 32;
+      var ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0, 32, 32);
+      ctx.beginPath();
+      ctx.arc(24, 8, 7, 0, 2 * Math.PI);
+      ctx.fillStyle = "#dc3545";
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = "#fff";
+      ctx.stroke();
+      dotIconUrl = canvas.toDataURL("image/png");
+      callback(dotIconUrl);
+    };
+    img.src = {{ url_for('static', filename='favicon-32x32.png') | tojson }};
+  }
+
+  function applyTotal(total) {
+    badge.textContent = total;
+    badge.classList.toggle("d-none", !total);
+    icon.classList.toggle("bi-bell-fill", !!total);
+    icon.classList.toggle("bi-bell", !total);
+    document.title = total ? "(" + total + ") " + baseTitle : baseTitle;
+    if (total) {
+      withDot(function (url) { iconLinks.forEach(function (link) { link.href = url; }); });
+    } else {
+      iconLinks.forEach(function (link) { link.href = link.dataset.originalHref; });
+    }
+    if ("setAppBadge" in navigator) {
+      (total ? navigator.setAppBadge(total) : navigator.clearAppBadge()).catch(function () {});
+    }
+    var seen = parseInt(localStorage.getItem(STORAGE_KEY) || "0", 10);
+    if (total > seen) {
+      button.classList.remove("is-ringing");
+      void button.offsetWidth;  // перезапуск CSS-анимации
+      button.classList.add("is-ringing");
+    }
+    localStorage.setItem(STORAGE_KEY, String(total));
+  }
+  button.addEventListener("animationend", function () { button.classList.remove("is-ringing"); });
+
+  function refresh() {
+    // Список не подменяем, пока он открыт — пункт уехал бы из-под пальца.
+    fetch({{ url_for('main.attention') | tojson }}, { headers: { "Accept": "application/json" }, credentials: "same-origin" })
+      .then(function (resp) { return resp.ok ? resp.json() : null; })
+      .then(function (data) {
+        if (!data) return;
+        if (!menu.classList.contains("show")) menu.innerHTML = data.html;
+        document.querySelectorAll("[data-mailbox-unread]").forEach(function (el) {
+          if (menu.contains(el)) return;
+          el.textContent = data.mailbox_unread;
+          if (el.classList.contains("badge")) el.classList.toggle("d-none", !data.mailbox_unread);
+        });
+        applyTotal(data.total);
+      })
+      .catch(function () {});
+  }
+  window.refreshAttention = refresh;
+
+  applyTotal({{ attention_total }});
+  setInterval(function () { if (document.visibilityState === "visible") refresh(); }, 60000);
+  document.addEventListener("visibilitychange", function () {
+    if (document.visibilityState === "visible") refresh();
+  });
+})();
+</script>
+{% endif %}
 {% if webpush_prompt %}
 <script>
 // Подписка этого браузера на push сразу после входа — если человек отметил

@@ -121,7 +121,9 @@ def test_dashboard_hides_pending_section_when_nothing_pending(app, db, client):
 
     resp = client.get("/dashboard")
     assert resp.status_code == 200
-    assert "Требует внимания" not in resp.get_data(as_text=True)
+    # «Требует внимания» есть и в колокольчике шапки — ищем именно
+    # заголовок карточки на дашборде
+    assert 'card-title">Требует внимания' not in resp.get_data(as_text=True)
 
 
 def test_dashboard_debt_card_links_to_member_accounts(app, db, client):

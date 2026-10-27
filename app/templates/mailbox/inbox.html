@@ -314,6 +314,8 @@
     document.querySelectorAll("[data-mailbox-unread-item]").forEach(function (el) {
       el.classList.toggle("d-none", !count);
     });
+    // общий счётчик колокольчика, вкладки и иконки приложения (base.html)
+    if (window.refreshAttention) window.refreshAttention();
   }
 
   document.querySelectorAll(".mail-dot").forEach(function (dot) {

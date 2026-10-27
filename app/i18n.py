@@ -1836,6 +1836,16 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         # garages.py
         "Счётчик обновлён.": "Meter updated.",
 
+        # колокольчик «Требует внимания» в шапке (_attention_menu.html, app/attention.py)
+        "Требует внимания": "Needs attention",
+        "Ожидает одобрения": "Awaiting approval",
+        "Не проголосовано": "Not voted yet",
+        "Предложения ждут решения": "Proposals awaiting decision",
+        "Запрошены справки": "Certificates requested",
+        "Заявления ждут решения": "Applications awaiting decision",
+        "Непрочитанные письма": "Unread emails",
+        "Новых уведомлений нет": "No new notifications",
+
         # cabinet/profile.html
         "Контактные данные": "Contact details",
         "Паспортные данные": "Passport details",

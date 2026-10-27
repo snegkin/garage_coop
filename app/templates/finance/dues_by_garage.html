@@ -1,0 +1,180 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Оплата взносов по гаражам") }}{% endblock %}
+{% block content %}
+<style>
+  .dues-cell { white-space: nowrap; text-align: end; }
+  .dues-paid { background: var(--bs-success-bg-subtle); }
+  .dues-partial { background: var(--bs-warning-bg-subtle); }
+  .dues-unpaid { background: var(--bs-danger-bg-subtle); }
+  .dues-candidate { outline: 3px solid var(--bs-primary); outline-offset: -3px; font-weight: bold; }
+  .dues-legend span { display: inline-block; width: 1em; height: 1em; vertical-align: -0.15em; border: 1px solid var(--bs-border-color); }
+</style>
+
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <h3 class="mb-0">{{ _("Оплата взносов по гаражам") }}</h3>
+  <form method="get" class="d-flex align-items-center gap-2">
+    <label class="form-label mb-0 small text-muted" for="duesFeeType">{{ _("Вид взноса") }}</label>
+    <select class="form-select form-select-sm" style="width:auto" id="duesFeeType" name="fee_type" onchange="this.form.submit()">
+      {% for ft in fee_types %}
+      <option value="{{ ft.id }}" {{ "selected" if ft.id == fee_type_id }}>{{ ft.name }}</option>
+      {% endfor %}
+      <option value="0" {{ "selected" if not fee_type_id }}>{{ _("Все взносы (без пени)") }}</option>
+    </select>
+  </form>
+</div>
+<p class="text-muted small">{{ _("По каждому гаражу и году — сколько начислено и сколько из этого уже погашено (платежом любой даты). Включая счета прежних собственников: вопрос «оплачен ли гараж за год», а не «кем».") }}</p>
+
+{% if unmatched_lines %}
+<div class="card mb-4 border-warning">
+  <div class="card-body">
+    <h5 class="card-title">{{ _("Неразнесённые зачисления из выписок") }}</h5>
+    <p class="text-muted small">{{ _("Платёж не удалось отнести ни на один лицевой счёт (номер счёта не распознан, плательщика нет среди членов — напр. оплата с чужой карты). Кнопка «Кандидаты» оставит в таблице ниже только гаражи, у которых долг за какой-то год или общий долг ровно равен сумме платежа.") }}</p>
+    <div class="table-responsive">
+      <table class="table table-sm mb-0">
+        <thead>
+          <tr>
+            <th>{{ _("Дата") }}</th>
+            <th class="text-end">{{ _("Сумма") }}</th>
+            <th>{{ _("Плательщик") }}</th>
+            <th>{{ _("Назначение платежа") }}</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for line in unmatched_lines %}
+          <tr>
+            <td class="text-nowrap">
+              <a href="{{ url_for('bank_sync.statement', account_id=line.bank_account_id, date_from=line.operation_date.isoformat(), date_to=line.operation_date.isoformat()) }}">{{ fmt_date(line.operation_date) }}</a>
+            </td>
+            <td class="text-end text-nowrap">{{ fmt2(line.amount) }} ₽</td>
+            <td>{{ line.counterparty_name or "—" }}</td>
+            <td class="small">{{ line.payment_purpose or "—" }}</td>
+            <td class="text-end">
+              <button type="button" class="btn btn-sm btn-outline-primary text-nowrap" data-candidates-amount="{{ line.amount }}">{{ _("Кандидаты") }}</button>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% if not summary.years %}
+<p class="text-muted">{{ _("Начислений по этому виду взноса пока нет.") }}</p>
+{% else %}
+<div class="d-flex align-items-center gap-3 mb-2 flex-wrap">
+  <input class="form-control" style="max-width:320px" id="duesSearch" placeholder="{{ _('Поиск по гаражу, ФИО или телефону...') }}">
+  <div class="form-check mb-0">
+    <input class="form-check-input" type="checkbox" id="duesDebtOnly">
+    <label class="form-check-label" for="duesDebtOnly">{{ _("Только с долгом") }}</label>
+  </div>
+  <div class="d-none align-items-center gap-2" id="duesCandidatesBar">
+    <span class="badge bg-primary" id="duesCandidatesLabel"></span>
+    <button type="button" class="btn btn-sm btn-outline-secondary" id="duesCandidatesReset">{{ _("Показать все") }}</button>
+  </div>
+  <div class="dues-legend small text-muted ms-auto">
+    <span class="dues-paid"></span> {{ _("оплачено") }}
+    <span class="dues-partial ms-2"></span> {{ _("частично") }}
+    <span class="dues-unpaid ms-2"></span> {{ _("не оплачено") }}
+  </div>
+</div>
+
+<div class="table-responsive">
+<table class="table table-sm table-bordered bg-body align-middle" id="duesTable">
+  <thead>
+    <tr>
+      <th>{{ _("Гараж") }}</th>
+      <th>{{ _("Собственники") }}</th>
+      {% for y in summary.years %}<th class="text-end">{{ y }}</th>{% endfor %}
+      <th class="text-end">{{ _("Долг") }}</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in summary.rows %}
+    {% set garage = row.garage %}
+    <tr data-debt="{{ row.total_debt }}"
+        data-filter-text="{{ row.search_text }}">
+      <td class="text-nowrap"><a href="{{ url_for('garages.detail', garage_id=garage.id) }}">№{{ garage.number }}</a></td>
+      <td class="small">
+        {% for p in row.owners %}
+        <div><a href="{{ url_for('persons.detail', person_id=p.id) }}">{{ p.full_name }}</a> · {{ phones_html(p.phones) }}</div>
+        {% else %}
+        <span class="text-muted">—</span>
+        {% endfor %}
+      </td>
+      {% for y in summary.years %}
+      {% set c = row.cells.get(y) %}
+      {% if c %}
+      <td class="dues-cell dues-{{ c.status }}" data-debt="{{ c.debt }}"
+          title="{{ _('Начислено {charged} ₽, оплачено {paid} ₽', charged=fmt2(c.charged), paid=fmt2(c.paid)) }}">
+        {% if c.status == "paid" %}✓{% else %}{{ fmt2(c.debt) }}{% endif %}
+      </td>
+      {% else %}
+      <td class="dues-cell text-muted">—</td>
+      {% endif %}
+      {% endfor %}
+      <td class="dues-cell {{ 'text-danger fw-bold' if row.total_debt > 0 }}" data-debt="{{ row.total_debt }}">{{ fmt2(row.total_debt) if row.total_debt > 0 else "—" }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+<p class="text-muted small d-none" id="duesNoResults">{{ _("Ничего не найдено.") }}</p>
+<p class="text-muted small">{{ _("В ячейке — остаток долга за год, ✓ — оплачено полностью, «—» — начислений не было. Наведите на ячейку, чтобы увидеть начислено/оплачено.") }}</p>
+
+<script>
+(function () {
+  var table = document.getElementById("duesTable");
+  var search = document.getElementById("duesSearch");
+  var debtOnly = document.getElementById("duesDebtOnly");
+  var bar = document.getElementById("duesCandidatesBar");
+  var barLabel = document.getElementById("duesCandidatesLabel");
+  var noResults = document.getElementById("duesNoResults");
+  var candidatesLabel = {{ _("Кандидаты на {amount} ₽") | tojson }};
+  var candidateAmount = null;
+  var rows = Array.from(table.tBodies[0].rows);
+
+  function sameAmount(a, b) { return Math.abs(a - b) < 0.005; }
+
+  function update() {
+    var q = search.value.trim().toLowerCase();
+    var visible = 0;
+    rows.forEach(function (row) {
+      var isCandidate = false;
+      row.querySelectorAll("[data-debt]").forEach(function (cell) {
+        var match = candidateAmount !== null && sameAmount(parseFloat(cell.getAttribute("data-debt")), candidateAmount);
+        cell.classList.toggle("dues-candidate", match);
+        if (match) isCandidate = true;
+      });
+      var show = (!q || row.getAttribute("data-filter-text").includes(q))
+        && (!debtOnly.checked || parseFloat(row.getAttribute("data-debt")) > 0)
+        && (candidateAmount === null || isCandidate);
+      row.classList.toggle("d-none", !show);
+      if (show) visible++;
+    });
+    noResults.classList.toggle("d-none", visible > 0);
+  }
+
+  document.querySelectorAll("[data-candidates-amount]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var raw = btn.getAttribute("data-candidates-amount");
+      candidateAmount = parseFloat(raw);
+      barLabel.textContent = candidatesLabel.replace("{amount}", btn.closest("tr").cells[1].textContent.replace("₽", "").trim());
+      bar.classList.replace("d-none", "d-flex");
+      table.scrollIntoView({ behavior: "smooth", block: "start" });
+      update();
+    });
+  });
+  document.getElementById("duesCandidatesReset").addEventListener("click", function () {
+    candidateAmount = null;
+    bar.classList.replace("d-flex", "d-none");
+    update();
+  });
+  search.addEventListener("input", update);
+  debtOnly.addEventListener("change", update);
+})();
+</script>
+{% endif %}
+{% endblock %}

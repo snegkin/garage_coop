@@ -1,8 +1,10 @@
 import datetime as dt
+import re
 from decimal import Decimal, InvalidOperation
 
 from flask import Blueprint, render_template, request, redirect, url_for, flash, g, abort, jsonify
 from sqlalchemy import or_, func
+from sqlalchemy.orm import selectinload
 
 from . import database
 from . import audit
@@ -13,8 +15,9 @@ from .permissions import can_view_member_account, is_board, is_privileged
 from .models import (
     GarageOwnership, Charge, Payment, ChargeAllocation, Garage, PersonalAccount,
     FeeType, MemberAccount, Person, RoleEnum,
-    Cooperative, BankAccount,
+    Cooperative, BankAccount, BankStatementLine,
 )
+from .bank_sync import is_aggregate_registry_payment
 from .accounting import (
     get_settings, electricity_account_number, member_account_number, person_member_account_number,
     owner_index_for, balance as _balance,
@@ -317,6 +320,127 @@ def collection_progress_data():
         abort(404)
     coop = database.db_session.query(Cooperative).first()
     return jsonify(_collection_progress(coop, year))
+
+
+def _garage_number_key(number: str) -> tuple:
+    """«2», «10», «10а» — по числу, а не как строки (иначе «10» раньше «2»)."""
+    match = re.match(r"\d+", number)
+    return (int(match.group()) if match else float("inf"), number)
+
+
+def _dues_by_garage(fee_type_id: int | None) -> dict:
+    """
+    Сводка «Оплата взносов по гаражам»: для каждой пары (гараж, год) —
+    начислено и оплачено (через ChargeAllocation — сколько из этих
+    начислений уже погашено, платежом любой даты) по счетам членов вида
+    fee_type_id (None — все виды, кроме пени). Счета считаются ВМЕСТЕ С
+    архивными: за прошлые годы начисления лежат на счёте прежнего
+    собственника, а вопрос здесь — «оплачен ли гараж за этот год», не
+    «кем». Счета без гаража (FeeType.per_garage=False) сюда не попадают.
+    """
+    allocated = (
+        database.db_session.query(
+            ChargeAllocation.charge_id, func.sum(ChargeAllocation.amount).label("paid"),
+        )
+        .group_by(ChargeAllocation.charge_id)
+        .subquery()
+    )
+    query = (
+        database.db_session.query(
+            MemberAccount.garage_id, Charge.year,
+            func.sum(Charge.amount), func.sum(func.coalesce(allocated.c.paid, 0)),
+        )
+        .join(MemberAccount, Charge.account_id == MemberAccount.id)
+        .join(FeeType, MemberAccount.fee_type_id == FeeType.id)
+        .outerjoin(allocated, allocated.c.charge_id == Charge.id)
+        .filter(MemberAccount.garage_id.is_not(None), FeeType.is_penalty.is_(False))
+        .group_by(MemberAccount.garage_id, Charge.year)
+    )
+    if fee_type_id is not None:
+        query = query.filter(FeeType.id == fee_type_id)
+
+    cells: dict[int, dict[int, dict]] = {}
+    years: set[int] = set()
+    for garage_id, year, charged, paid in query.all():
+        charged, paid = Decimal(charged), Decimal(paid)
+        debt = charged - paid
+        status = "paid" if debt <= 0 else ("partial" if paid > 0 else "unpaid")
+        cells.setdefault(garage_id, {})[year] = {
+            "charged": charged, "paid": paid, "debt": max(debt, Decimal("0")), "status": status,
+        }
+        years.add(year)
+
+    garages = (
+        database.db_session.query(Garage)
+        .options(selectinload(Garage.ownerships).selectinload(GarageOwnership.person).selectinload(Person.phones))
+        .all()
+    )
+    garages.sort(key=lambda gr: _garage_number_key(gr.number))
+    rows = []
+    for garage in garages:
+        garage_cells = cells.get(garage.id, {})
+        owners = [o.person for o in sorted(garage.ownerships, key=lambda o: -o.share)]
+        search_parts = [f"№{garage.number}"]
+        for person in owners:
+            search_parts.append(person.full_name)
+            search_parts.extend(phone.number for phone in person.phones)
+        rows.append({
+            "garage": garage,
+            "owners": owners,
+            "search_text": " ".join(search_parts).lower(),
+            "cells": garage_cells,
+            "total_debt": sum((c["debt"] for c in garage_cells.values()), Decimal("0")),
+        })
+    return {"years": sorted(years), "rows": rows}
+
+
+def _unmatched_statement_credits() -> list[BankStatementLine]:
+    """Зачисления из выписок, так и не разнесённые ни на один счёт (номер
+    счёта не распознан, плательщик не найден — напр. заплатили с чужой
+    карты). Агрегированные проводки по реестру платежей не в счёт — они и
+    не должны разноситься целиком на один счёт (см.
+    bank_sync.is_aggregate_registry_payment)."""
+    lines = (
+        database.db_session.query(BankStatementLine)
+        .filter(BankStatementLine.direction == "credit", BankStatementLine.matched_payment_id.is_(None))
+        .order_by(BankStatementLine.operation_date.desc())
+        .all()
+    )
+    return [line for line in lines if not is_aggregate_registry_payment(line.payment_purpose)]
+
+
+@bp.route("/dues-by-garage")
+@roles_required(RoleEnum.BOARD)
+def dues_by_garage():
+    """
+    Наглядная сводка «кто за какой гараж за какой год заплатил» — таблица
+    гаражи × годы с собственниками и их телефонами, чтобы обзвонить
+    неплательщиков вручную. Рядом — неразнесённые зачисления из выписок:
+    по кнопке у такого зачисления подсвечиваются гаражи, у которых долг за
+    какой-то год (или общий) ровно равен его сумме — первые кандидаты, кому
+    звонить и спрашивать, не они ли платили.
+    """
+    fee_types = (
+        database.db_session.query(FeeType)
+        .filter(FeeType.is_penalty.is_(False), FeeType.per_garage.is_(True), FeeType.code != "electricity")
+        .order_by(FeeType.name)
+        .all()
+    )
+    # По умолчанию — членские взносы (о них чаще всего и вопрос), «0» —
+    # явный выбор «все виды взносов».
+    fee_type_id = request.args.get("fee_type", type=int)
+    if fee_type_id is None:
+        membership = next((ft for ft in fee_types if ft.code == "membership"), None)
+        fee_type_id = membership.id if membership else 0
+    if fee_type_id and fee_type_id not in {ft.id for ft in fee_types}:
+        fee_type_id = 0
+
+    return render_template(
+        "finance/dues_by_garage.html",
+        fee_types=fee_types, fee_type_id=fee_type_id,
+        summary=_dues_by_garage(fee_type_id or None),
+        unmatched_lines=_unmatched_statement_credits(),
+    )
 
 
 @bp.route("/member-accounts/<int:account_id>")

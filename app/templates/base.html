@@ -122,6 +122,7 @@
             {% if is_privileged() %}
             <li><a class="dropdown-item" href="{{ url_for('finance.member_accounts') }}">{{ _("Счета членов кооператива") }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('finance.member_account_stats') }}">{{ _("Статистика взносов") }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('finance.dues_by_garage') }}">{{ _("Оплата взносов по гаражам") }}</a></li>
             {% endif %}
             {% if is_chairman() %}
             <li><a class="dropdown-item" href="{{ url_for('finance.mass_charge') }}">{{ _("Массовое начисление") }}</a></li>

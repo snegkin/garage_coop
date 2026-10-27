@@ -7,7 +7,7 @@
     <div class="text-muted small">{{ counterparty.category or "" }}</div>
   </div>
   <div>
-    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#editCounterpartyModal">{{ _("Изменить") }}</button>
+    <button class="btn btn-primary btn-icon-square" data-bs-toggle="modal" data-bs-target="#editCounterpartyModal" title="{{ _('Изменить') }}"><i class="bi bi-pencil" aria-hidden="true"></i></button>
     <a data-back-link data-back-label="&larr; {{ _('Назад') }}" class="btn btn-primary" href="{{ url_for('counterparties.list_counterparties') }}">{{ _("← Все контрагенты") }}</a>
   </div>
 </div>
@@ -167,7 +167,7 @@
           {% for doc in e.documents %}<a href="{{ url_for('cooperative.download_document', doc_id=doc.id) }}" title="{{ doc.title }}">{{ _("скачать") }}{% if e.documents|length > 1 %} ({{ loop.index }}){% endif %}</a>{% if not loop.last %}, {% endif %}{% endfor %}
         {% else %}—{% endif %}
       </td>
-      <td class="no-sort text-end"><button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#editExpenseModal{{ e.id }}">{{ _("Изменить") }}</button></td>
+      <td class="no-sort text-end"><button class="btn btn-sm btn-primary btn-icon-square" data-bs-toggle="modal" data-bs-target="#editExpenseModal{{ e.id }}" title="{{ _('Изменить') }}"><i class="bi bi-pencil" aria-hidden="true"></i></button></td>
     </tr>
     {% else %}
     <tr><td colspan="7" class="text-muted">{{ _("Расходов пока нет.") }}</td></tr>
@@ -219,9 +219,9 @@
       <td class="text-nowrap text-end">
         {% if p.reverses_payment_id is none %}
           {% if p.id == last_payment_id %}
-          <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#editPaymentModal{{ p.id }}">{{ _("Изменить") }}</button>
+          <button class="btn btn-sm btn-primary btn-icon-square" data-bs-toggle="modal" data-bs-target="#editPaymentModal{{ p.id }}" title="{{ _('Изменить') }}"><i class="bi bi-pencil" aria-hidden="true"></i></button>
           {% elif not p.reversed_by %}
-          <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#editPaymentDetailsModal{{ p.id }}">{{ _("Изменить") }}</button>
+          <button class="btn btn-sm btn-primary btn-icon-square" data-bs-toggle="modal" data-bs-target="#editPaymentDetailsModal{{ p.id }}" title="{{ _('Изменить') }}"><i class="bi bi-pencil" aria-hidden="true"></i></button>
           {% endif %}
           {% if not p.reversed_by %}
           <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#reversePaymentModal{{ p.id }}">{{ _("Сторно") }}</button>
@@ -229,7 +229,7 @@
         {% elif is_chairman() %}
           <form method="post" action="{{ url_for('counterparties.delete_reversal', counterparty_id=counterparty.id, payment_id=p.id) }}"
                 onsubmit="return confirm('{{ _('Удалить это сторно? Исходный платёж снова станет действующим.') }}')">
-            <button class="btn btn-sm btn-outline-danger">{{ _("Удалить") }}</button>
+            <button class="btn btn-sm btn-outline-danger btn-icon-square" title="{{ _('Удалить') }}"><i class="bi bi-trash" aria-hidden="true"></i></button>
           </form>
         {% endif %}
       </td>

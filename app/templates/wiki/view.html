@@ -61,9 +61,9 @@
     {% if is_board() %}
     <div class="d-flex gap-2 mt-4">
       <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('wiki.create', parent_id=page.id) }}">+ {{ _("Добавить подраздел") }}</a>
-      <a class="btn btn-sm btn-primary" href="{{ url_for('wiki.edit', page_id=page.id) }}">{{ _("Изменить") }}</a>
+      <a class="btn btn-sm btn-primary btn-icon-square" href="{{ url_for('wiki.edit', page_id=page.id) }}" title="{{ _('Изменить') }}"><i class="bi bi-pencil" aria-hidden="true"></i></a>
       <form method="post" action="{{ url_for('wiki.delete', page_id=page.id) }}" class="d-inline" onsubmit="return confirm('{{ _("Удалить страницу вики?") }}')">
-        <button class="btn btn-sm btn-outline-danger" {{ 'disabled' if page.children }} title="{{ _('Сначала удалите или перенесите подразделы.') if page.children else '' }}">{{ _("Удалить") }}</button>
+        <button class="btn btn-sm btn-outline-danger btn-icon-square" {{ 'disabled' if page.children }} title="{{ _('Сначала удалите или перенесите подразделы.') if page.children else _('Удалить') }}"><i class="bi bi-trash" aria-hidden="true"></i></button>
       </form>
     </div>
     {% endif %}

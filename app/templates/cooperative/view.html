@@ -4,7 +4,7 @@
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h3>{{ _("Информация о кооперативе") }}</h3>
   {% if is_chairman() %}
-  <a class="btn btn-primary" href="{{ url_for('cooperative.edit') }}">{{ _("Редактировать") }}</a>
+  <a class="btn btn-primary btn-icon-square" href="{{ url_for('cooperative.edit') }}" title="{{ _('Редактировать') }}"><i class="bi bi-pencil" aria-hidden="true"></i></a>
   {% endif %}
 </div>
 

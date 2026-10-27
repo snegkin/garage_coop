@@ -42,9 +42,9 @@
       <td>{% if m.is_chair %}<span class="badge bg-primary">{{ _("председатель комиссии") }}</span>{% endif %}</td>
       {% if is_chairman() %}
       <td class="text-nowrap">
-        <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#editMemberModal{{ m.id }}">{{ _("Изменить") }}</button>
+        <button class="btn btn-sm btn-primary btn-icon-square" data-bs-toggle="modal" data-bs-target="#editMemberModal{{ m.id }}" title="{{ _('Изменить') }}"><i class="bi bi-pencil" aria-hidden="true"></i></button>
         <form method="post" action="{{ url_for('governance.delete_commission_member', commission_id=commission.id, member_id=m.id) }}" class="d-inline" onsubmit="return confirm('{{ _('Убрать из состава?') }}')">
-          <button class="btn btn-sm btn-outline-danger">{{ _("Убрать") }}</button>
+          <button class="btn btn-sm btn-outline-danger btn-icon-square" title="{{ _('Убрать') }}"><i class="bi bi-person-dash" aria-hidden="true"></i></button>
         </form>
       </td>
       {% endif %}

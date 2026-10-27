@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_actions.html" as actions %}
 {% block title %}{{ _("Главная") }}{% endblock %}
 {% block content %}
 {% with dismissible=true %}{% include "_install_app.html" %}{% endwith %}
@@ -21,15 +22,13 @@
     {% set unused_preview, is_long = news_excerpt(item.body) %}
     <div class="card bg-body mb-3">
       <div class="card-body">
-        <div class="d-flex justify-content-between align-items-start gap-2">
+        <div class="d-flex flex-nowrap justify-content-between align-items-start gap-2">
           <h5 class="card-title mb-1">{{ item.title }}</h5>
           {% if current_user and is_board() %}
-          <div class="d-flex gap-2 text-nowrap">
-            <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('news.edit', news_id=item.id) }}">{{ _("Изменить") }}</a>
-            <form method="post" action="{{ url_for('news.delete', news_id=item.id) }}" onsubmit="return confirm('{{ _('Удалить новость?') }}')">
-              <button class="btn btn-sm btn-outline-danger">{{ _("Удалить") }}</button>
-            </form>
-          </div>
+          {% call actions.menu() %}
+            {{ actions.link(url_for('news.edit', news_id=item.id), "pencil", _("Изменить")) }}
+            {{ actions.post(url_for('news.delete', news_id=item.id), "trash", _("Удалить"), confirm=_("Удалить новость?"), danger=True) }}
+          {% endcall %}
           {% endif %}
         </div>
         <p class="card-subtitle text-muted small mb-2">

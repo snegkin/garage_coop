@@ -21,7 +21,7 @@
   </div>
   <div class="d-flex gap-2">
     {% if vote.status.value == 'draft' and is_chairman() %}
-    <a class="btn btn-outline-primary btn-sm" href="{{ url_for('voting.edit', vote_id=vote.id) }}">{{ _("Изменить") }}</a>
+    <a class="btn btn-outline-primary btn-sm btn-icon-square" href="{{ url_for('voting.edit', vote_id=vote.id) }}" title="{{ _('Изменить') }}"><i class="bi bi-pencil" aria-hidden="true"></i></a>
     {% endif %}
     <a data-back-link data-back-label="&larr; {{ _('Назад') }}" class="btn btn-outline-secondary btn-sm" href="{{ url_for('voting.list_votes') }}">{{ _("← ко всем голосованиям") }}</a>
   </div>

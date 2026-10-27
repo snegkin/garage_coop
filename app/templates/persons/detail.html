@@ -27,7 +27,7 @@
   <div class="d-flex gap-2">
     <a class="btn btn-outline-secondary" href="{{ url_for('persons.statement', person_id=person.id) }}">{{ _("Выписка по счетам") }}</a>
     {% if is_board() %}
-    <a class="btn btn-primary" href="{{ url_for('persons.edit', person_id=person.id) }}">{{ _("Редактировать") }}</a>
+    <a class="btn btn-primary btn-icon-square" href="{{ url_for('persons.edit', person_id=person.id) }}" title="{{ _('Редактировать') }}"><i class="bi bi-pencil" aria-hidden="true"></i></a>
     {% if not person.is_archived %}
     <button type="button" class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#archivePersonModal">{{ _("В архив") }}</button>
     {% endif %}

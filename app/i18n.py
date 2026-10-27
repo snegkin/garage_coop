@@ -2075,8 +2075,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Показать все": "Show all",
         "Долг {debt} ₽": "Debt {debt} ₽",
         "Оплачено полностью": "Fully paid",
-        "Суммы в рублях. Цвет «Оплачено» — оплачено полностью/частично/не оплачено, «—» — начислений не было. Наведите на «Оплачено», чтобы увидеть остаток долга.":
-            "Amounts in rubles. The “Paid” color — fully/partially/not paid, “—” — nothing was charged. Hover “Paid” to see the remaining debt.",
+        "Суммы в рублях. Цвет суммы «Оплачено» — оплачено полностью/частично/не оплачено, «—» — начислений не было. Наведите на «Оплачено», чтобы увидеть остаток долга.":
+            "Amounts in rubles. The “Paid” amount color — fully/partially/not paid, “—” — nothing was charged. Hover “Paid” to see the remaining debt.",
         "Собрано": "Collected",
         "Без пени. Собрано — платежи, сделанные в этом году; долг — остаток начисленного за год на конец года (для текущего года — на сегодня).":
             "Penalties excluded. Collected — payments made within this year; debt — the year's charges left unpaid at year end (today, for the current year).",

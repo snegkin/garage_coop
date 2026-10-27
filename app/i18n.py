@@ -2059,6 +2059,24 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "За этот год не было начислений.": "There were no charges in this year.",
         "Собрано нарастающим итогом": "Collected, cumulative",
         "Статистика взносов": "Dues statistics",
+
+        # finance/dues_by_garage.html — оплата взносов по гаражам и годам
+        "Оплата взносов по гаражам": "Dues payments by garage",
+        "Все взносы (без пени)": "All dues (excluding penalties)",
+        "По каждому гаражу и году — сколько начислено и сколько из этого уже погашено (платежом любой даты). Включая счета прежних собственников: вопрос «оплачен ли гараж за год», а не «кем».":
+            "For each garage and year — how much was charged and how much of it is already paid (by a payment of any date). Includes previous owners' accounts: the question is whether the garage is paid for the year, not by whom.",
+        "Неразнесённые зачисления из выписок": "Unallocated incoming bank payments",
+        "Платёж не удалось отнести ни на один лицевой счёт (номер счёта не распознан, плательщика нет среди членов — напр. оплата с чужой карты). Кнопка «Кандидаты» оставит в таблице ниже только гаражи, у которых долг за какой-то год или общий долг ровно равен сумме платежа.":
+            "The payment could not be matched to any account (account number not recognized, payer is not a member — e.g. paid from someone else's card). The “Candidates” button leaves only the garages whose debt for some year, or total debt, exactly equals the payment amount.",
+        "Кандидаты": "Candidates",
+        "Кандидаты на {amount} ₽": "Candidates for {amount} ₽",
+        "Начислений по этому виду взноса пока нет.": "No charges of this fee type yet.",
+        "Поиск по гаражу, ФИО или телефону...": "Search by garage, name or phone...",
+        "Только с долгом": "With debt only",
+        "Показать все": "Show all",
+        "Начислено {charged} ₽, оплачено {paid} ₽": "Charged {charged} ₽, paid {paid} ₽",
+        "В ячейке — остаток долга за год, ✓ — оплачено полностью, «—» — начислений не было. Наведите на ячейку, чтобы увидеть начислено/оплачено.":
+            "A cell shows the year's remaining debt, ✓ — fully paid, “—” — nothing was charged. Hover a cell to see charged/paid.",
         "Собрано": "Collected",
         "Без пени. Собрано — платежи, сделанные в этом году; долг — остаток начисленного за год на конец года (для текущего года — на сегодня).":
             "Penalties excluded. Collected — payments made within this year; debt — the year's charges left unpaid at year end (today, for the current year).",

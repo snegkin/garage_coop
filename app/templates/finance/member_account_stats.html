@@ -1,0 +1,264 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Статистика взносов") }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h3>{{ _("Статистика взносов") }}</h3>
+  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('finance.member_accounts') }}">{{ _("Счета членов кооператива") }}</a>
+</div>
+
+{% if not account_stats.by_type and not collection_years %}
+<p class="text-muted">{{ _("Счетов пока нет.") }}</p>
+{% endif %}
+
+{% if account_stats.by_type %}
+<div class="card mb-4">
+  <div class="card-body">
+    <h5 class="card-title">{{ _("Статистика по видам счетов") }}</h5>
+    <div class="table-responsive">
+      <table class="table table-sm mb-0">
+        <thead>
+          <tr>
+            <th>{{ _("Вид взноса") }}</th>
+            <th class="text-end">{{ _("Счетов") }}</th>
+            <th class="text-end">{{ _("С долгом") }}</th>
+            <th class="text-end">{{ _("Долг") }}</th>
+            <th class="text-end">{{ _("Итоговый баланс") }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for s in account_stats.by_type %}
+          <tr>
+            <td>{{ s.name }}</td>
+            <td class="text-end">{{ s.count }}</td>
+            <td class="text-end">{{ s.debt_count }}</td>
+            <td class="text-end {{ 'text-danger' if s.total_debt < 0 }}">{{ fmt2(-s.total_debt) }} ₽</td>
+            <td class="text-end {{ 'text-danger' if s.total_balance < 0 else 'text-success' }}">{{ fmt2(s.total_balance) }} ₽</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr class="fw-bold border-top">
+            <td>{{ _("Итого") }}</td>
+            <td class="text-end">{{ account_stats.total_count }}</td>
+            <td class="text-end">{{ account_stats.total_debt_accounts }}</td>
+            <td class="text-end {{ 'text-danger' if account_stats.total_debt < 0 }}">{{ fmt2(-account_stats.total_debt) }} ₽</td>
+            <td class="text-end {{ 'text-danger' if account_stats.total_balance < 0 else 'text-success' }}">{{ fmt2(account_stats.total_balance) }} ₽</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+    <p class="text-muted small mb-0 mt-2">{{ _("Без учёта архивных счетов (закрытых при смене собственника гаража).") }}</p>
+  </div>
+</div>
+{% endif %}
+
+{% if collection_years %}
+<div class="card mb-4">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+      <h5 class="card-title mb-0">{{ _("Собираемость взносов в течение года") }}</h5>
+      <div class="d-flex align-items-center gap-2">
+        <label class="form-label mb-0 small text-muted" for="collectionYearSelect">{{ _("Год") }}</label>
+        <select class="form-select form-select-sm" style="width:auto" id="collectionYearSelect">
+          {% for y in collection_years %}
+          <option value="{{ y }}" {{ "selected" if y == collection_year }}>{{ y }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+    <p class="text-muted small mt-2 mb-0" id="collectionDueNote">
+      {% if collection_progress and collection_progress.due_date %}
+        {{ _("Пунктиром — крайний срок оплаты взносов по уставу в этом году: {date}.", date=collection_progress.due_date) }}
+      {% elif collection_progress %}
+        {{ _("Крайний срок оплаты взносов не задан в реквизитах кооператива.") }}
+      {% else %}
+        {{ _("За этот год не было начислений.") }}
+      {% endif %}
+    </p>
+    <div style="position:relative; height:260px;" class="mt-2" id="collectionChartWrap"{{ " hidden" if not collection_progress }}>
+      <canvas id="collectionRateChart"></canvas>
+    </div>
+    {# Разбивка той же суммы по видам взноса за выбранный год — итог
+       совпадает с последней точкой графика (см. finance._collection_progress).
+       Первый раз рендерится сервером, при смене года tbody/tfoot
+       перерисовывает renderBreakdown() из того же JSON, что и график. #}
+    <div class="table-responsive mt-3" id="collectionBreakdownWrap"{{ " hidden" if not collection_progress }}>
+      <table class="table table-sm mb-0" id="collectionBreakdown">
+        <thead>
+          <tr>
+            <th>{{ _("Вид взноса") }}</th>
+            <th class="text-end">{{ _("Начислено") }}</th>
+            <th class="text-end">{{ _("Собрано") }}</th>
+            <th class="text-end">{{ _("Долг") }}</th>
+            <th class="text-end">%</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% if collection_progress %}
+          {% for r in collection_progress.by_type %}
+          <tr>
+            <td>{{ r.name }}</td>
+            <td class="text-end">{{ fmt2(r.charged) }} ₽</td>
+            <td class="text-end">{{ fmt2(r.collected) }} ₽</td>
+            <td class="text-end {{ 'text-danger' if r.debt > 0 }}">{{ fmt2(r.debt) }} ₽</td>
+            <td class="text-end">{{ r.rate }}</td>
+          </tr>
+          {% endfor %}
+          {% endif %}
+        </tbody>
+        <tfoot>
+          {% if collection_progress %}
+          {% set t = collection_progress.total %}
+          <tr class="fw-bold border-top">
+            <td>{{ _("Итого") }}</td>
+            <td class="text-end">{{ fmt2(t.charged) }} ₽</td>
+            <td class="text-end">{{ fmt2(t.collected) }} ₽</td>
+            <td class="text-end {{ 'text-danger' if t.debt > 0 }}">{{ fmt2(t.debt) }} ₽</td>
+            <td class="text-end">{{ t.rate }}</td>
+          </tr>
+          {% endif %}
+        </tfoot>
+      </table>
+      <p class="text-muted small mb-0 mt-2">{{ _("Без пени. Собрано — платежи, сделанные в этом году; долг — остаток начисленного за год на конец года (для текущего года — на сегодня).") }}</p>
+    </div>
+  </div>
+</div>
+<script src="{{ vendor_url('chart.js', 'chart.umd.js') }}"></script>
+<script src="{{ vendor_url('chartjs-adapter-date-fns', 'chartjs-adapter-date-fns.bundle.min.js') }}"></script>
+<script>
+(function () {
+  var yearSelect = document.getElementById("collectionYearSelect");
+  var noteEl = document.getElementById("collectionDueNote");
+  var wrap = document.getElementById("collectionChartWrap");
+  var canvas = document.getElementById("collectionRateChart");
+  var breakdownWrap = document.getElementById("collectionBreakdownWrap");
+  var breakdown = document.getElementById("collectionBreakdown");
+  if (!yearSelect || !canvas) return;
+
+  var dataUrl = {{ url_for("finance.collection_progress_data") | tojson }};
+  var duePrefix = {{ _("Пунктиром — крайний срок оплаты взносов по уставу в этом году") | tojson }};
+  var noDueText = {{ _("Крайний срок оплаты взносов не задан в реквизитах кооператива.") | tojson }};
+  var noChargesText = {{ _("За этот год не было начислений.") | tojson }};
+  var totalLabel = {{ _("Итого") | tojson }};
+  // Разделитель дробной части — как у серверного fmt2 (по локали).
+  var decimalSep = {{ fmt2(0)[1:2] | tojson }};
+  var currentDueIso = null;
+  var chart = null;
+  var rubFormat = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 0 });
+
+  function fmtRub(v) { return v.toFixed(2).replace(".", decimalSep) + " ₽"; }
+
+  function breakdownRow(name, r) {
+    var tr = document.createElement("tr");
+    [name, fmtRub(r.charged), fmtRub(r.collected), fmtRub(r.debt), String(r.rate)].forEach(function (text, i) {
+      var td = document.createElement("td");
+      td.textContent = text;
+      if (i > 0) td.className = "text-end";
+      if (i === 3 && r.debt > 0) td.className += " text-danger";
+      tr.appendChild(td);
+    });
+    return tr;
+  }
+
+  function renderBreakdown(progress) {
+    var tbody = breakdown.tBodies[0], tfoot = breakdown.tFoot;
+    tbody.replaceChildren();
+    tfoot.replaceChildren();
+    progress.by_type.forEach(function (r) { tbody.appendChild(breakdownRow(r.name, r)); });
+    var totalRow = breakdownRow(totalLabel, progress.total);
+    totalRow.className = "fw-bold border-top";
+    tfoot.appendChild(totalRow);
+  }
+
+  // Пунктирная вертикальная линия на дне крайнего срока оплаты —
+  // Chart.js не умеет такое из коробки без отдельного плагина аннотаций
+  // (лишняя внешняя библиотека ради одной линии), рисуем сами через
+  // afterDraw на низком уровне canvas API. currentDueIso читается в
+  // момент отрисовки — переключение года меняет её без пересоздания
+  // графика (см. renderProgress).
+  var dueLinePlugin = {
+    id: "dueLine",
+    afterDraw: function (chart) {
+      if (!currentDueIso) return;
+      var xScale = chart.scales.x, yScale = chart.scales.y;
+      var x = xScale.getPixelForValue(new Date(currentDueIso).getTime());
+      var ctx = chart.ctx;
+      ctx.save();
+      ctx.strokeStyle = "#dc3545";
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.moveTo(x, yScale.top);
+      ctx.lineTo(x, yScale.bottom);
+      ctx.stroke();
+      ctx.restore();
+    },
+  };
+
+  function renderProgress(progress) {
+    if (!progress) {
+      wrap.hidden = true;
+      breakdownWrap.hidden = true;
+      noteEl.textContent = noChargesText;
+      return;
+    }
+    wrap.hidden = false;
+    breakdownWrap.hidden = false;
+    currentDueIso = progress.due_date_iso;
+    noteEl.textContent = progress.due_date ? (duePrefix + ": " + progress.due_date + ".") : noDueText;
+
+    var points = progress.points.map(function (p) { return { x: p.date, y: p.rate }; });
+    if (chart) {
+      chart.data.datasets[0].data = points;
+      chart.options.scales.yRub.max = progress.total_charged;
+      chart.update();
+      renderBreakdown(progress);
+      return;
+    }
+    chart = new Chart(canvas.getContext("2d"), {
+      type: "line",
+      data: {
+        datasets: [{
+          label: {{ _("Собрано нарастающим итогом") | tojson }},
+          data: points,
+          borderColor: "#0d6efd",
+          backgroundColor: "#0d6efd",
+          stepped: true,
+          pointRadius: 2,
+          fill: false,
+        }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          x: { type: "time", time: { unit: "month", displayFormats: { month: "MMM" } } },
+          y: { beginAtZero: true, max: 100, title: { display: true, text: "%" } },
+          // Та же кривая в рублях: 100% = всё начисленное за год, поэтому
+          // шкала справа — просто 0…total_charged, линии сетки не дублируем.
+          yRub: {
+            position: "right", min: 0, max: progress.total_charged,
+            grid: { drawOnChartArea: false },
+            title: { display: true, text: "₽" },
+            ticks: { callback: function (v) { return rubFormat.format(v); } },
+          },
+        },
+        plugins: { legend: { display: false } },
+      },
+      plugins: [dueLinePlugin],
+    });
+  }
+
+  {% if collection_progress %}
+  renderProgress({{ collection_progress|tojson }});
+  {% endif %}
+
+  yearSelect.addEventListener("change", function () {
+    fetch(dataUrl + "?year=" + encodeURIComponent(yearSelect.value))
+      .then(function (r) { return r.json(); })
+      .then(renderProgress)
+      .catch(function () {});
+  });
+})();
+</script>
+{% endif %}
+{% endblock %}

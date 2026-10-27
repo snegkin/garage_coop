@@ -2058,6 +2058,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "No dues deadline is set in the cooperative's details.",
         "За этот год не было начислений.": "There were no charges in this year.",
         "Собрано нарастающим итогом": "Collected, cumulative",
+        "Статистика взносов": "Dues statistics",
+        "Собрано": "Collected",
+        "Без пени. Собрано — платежи, сделанные в этом году; долг — остаток начисленного за год на конец года (для текущего года — на сегодня).":
+            "Penalties excluded. Collected — payments made within this year; debt — the year's charges left unpaid at year end (today, for the current year).",
 
         # garages/list.html, persons/list.html — подсветка строк + легенда
         "Нет счётчика электричества": "No electricity meter",

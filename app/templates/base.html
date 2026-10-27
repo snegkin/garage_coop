@@ -116,7 +116,7 @@
             <li><a class="dropdown-item" href="{{ url_for('certificates.list_certificates') }}">{{ _("Справки о владении гаражом") }}</a></li>
             <li><hr class="dropdown-divider"></li>
             <li><h6 class="dropdown-header">{{ _("Коммуникации") }}</h6></li>
-            <li><a class="dropdown-item d-flex justify-content-between align-items-center" href="{{ url_for('mailbox.inbox') }}">{{ _("Почта") }}{% if mailbox_unread_count > 0 %}<span class="badge bg-primary rounded-pill">{{ mailbox_unread_count }}</span>{% endif %}</a></li>
+            <li><a class="dropdown-item d-flex justify-content-between align-items-center" href="{{ url_for('mailbox.inbox') }}">{{ _("Почта") }}<span class="badge bg-primary rounded-pill {{ 'd-none' if not mailbox_unread_count }}" data-mailbox-unread>{{ mailbox_unread_count }}</span></a></li>
             <li><a class="dropdown-item" href="{{ url_for('sms_settings.view') }}">{{ _("СМС и Telegram") }}</a></li>
             {% endif %}
 
@@ -169,8 +169,8 @@
               {% if pending_applications_count > 0 %}
               <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-warning text-dark" style="font-size:0.55em; margin-left: 1.2em;">{{ pending_applications_count }}</span>
               {% endif %}
-              {% if mailbox_unread_count > 0 %}
-              <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-primary" style="font-size:0.55em; margin-left: 1.2em;">{{ mailbox_unread_count }}</span>
+              {% if is_board() %}
+              <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-primary {{ 'd-none' if not mailbox_unread_count }}" style="font-size:0.55em; margin-left: 1.2em;" data-mailbox-unread>{{ mailbox_unread_count }}</span>
               {% endif %}
             </span>
           </a>
@@ -191,8 +191,8 @@
             {% if pending_applications_count > 0 %}
             <li><a class="dropdown-item" href="{{ url_for('applications.list_applications', status='submitted') }}"><span class="dropdown-icon"><i class="bi bi-file-earmark-text" aria-hidden="true"></i></span>{{ _("Заявления ждут решения") }} {{ pending_applications_count }}</a></li>
             {% endif %}
-            {% if mailbox_unread_count > 0 %}
-            <li><a class="dropdown-item" href="{{ url_for('mailbox.inbox') }}"><span class="dropdown-icon"><i class="bi bi-envelope" aria-hidden="true"></i></span>{{ _("Непрочитанные письма") }} {{ mailbox_unread_count }}</a></li>
+            {% if is_board() %}
+            <li class="{{ 'd-none' if not mailbox_unread_count }}" data-mailbox-unread-item><a class="dropdown-item" href="{{ url_for('mailbox.inbox') }}"><span class="dropdown-icon"><i class="bi bi-envelope" aria-hidden="true"></i></span>{{ _("Непрочитанные письма") }} <span data-mailbox-unread>{{ mailbox_unread_count }}</span></a></li>
             {% endif %}
             <li><a class="dropdown-item" href="{{ url_for('cabinet.garages') }}"><span class="dropdown-icon"><i class="bi bi-house-door" aria-hidden="true"></i></span>{{ _("Мой гараж") }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('certificates.my_certificates') }}"><span class="dropdown-icon"><i class="bi bi-file-earmark-check" aria-hidden="true"></i></span>{{ _("Справки о владении гаражом") }}</a></li>
@@ -997,6 +997,14 @@ tr.table-info-subtle { --bs-table-bg: var(--bs-info-bg-subtle); --bs-table-borde
    на странице лицевого счёта и т.п., где рядом уже есть колонка с суммой/
    датой и обычная текстовая кнопка была бы избыточно широкой. */
 .btn-icon-square { width: 2rem; height: 2rem; padding: 0; display: inline-flex; align-items: center; justify-content: center; line-height: 1; }
+/* Обычного размера (не btn-sm) — «Редактировать» в заголовке страницы
+   рядом с полноразмерными текстовыми кнопками: та же высота, что у них. */
+.btn-icon-square:not(.btn-sm) { width: 2.375rem; height: 2.375rem; }
+/* «⋮» меню действий карточки (_actions.html) — без рамки, приглушённый,
+   чтобы не спорил с заголовком; отступ сверху/справа съедается, значок
+   прижимается к углу. */
+.kebab-toggle { width: 2rem; height: 2rem; padding: 0; margin: -.25rem -.5rem 0 0; display: inline-flex; align-items: center; justify-content: center; border: 0; color: var(--bs-secondary-color); font-size: 1.1rem; }
+.kebab-toggle:hover, .kebab-toggle:focus-visible, .kebab-toggle.show { color: var(--bs-body-color); background-color: var(--bs-tertiary-bg); }
 /* Скрытый текст в тексте вики/новости — ||текст|| в markdown (см.
    news_format.py: _SPOILER_RE), например пароль устройства: не для
    защиты (это всё та же страница, просто визуально скрыто), а чтобы

@@ -31,12 +31,10 @@
       </div>
       <div class="d-flex gap-2">
         <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('control_meters.create', parent_id=node.id) }}">+ {{ _("Дочерний узел") }}</a>
-        <a class="btn btn-sm btn-primary" href="{{ url_for('control_meters.edit', node_id=node.id) }}">{{ _("Изменить") }}</a>
+        <a class="btn btn-sm btn-primary btn-icon-square" href="{{ url_for('control_meters.edit', node_id=node.id) }}" title="{{ _('Изменить') }}"><i class="bi bi-pencil" aria-hidden="true"></i></a>
         <form method="post" action="{{ url_for('control_meters.delete', node_id=node.id) }}" onsubmit="return confirm('{{ _("Удалить узел контрольного счётчика?") }}')">
-          <button class="btn btn-sm btn-outline-danger" {{ 'disabled' if node.children or node.garages }}
-                  title="{{ _('Сначала перенесите/удалите дочерние узлы и отвяжите гаражи.') if (node.children or node.garages) else '' }}">
-            {{ _("Удалить") }}
-          </button>
+          <button class="btn btn-sm btn-outline-danger btn-icon-square" {{ 'disabled' if node.children or node.garages }}
+                  title="{{ _('Сначала перенесите/удалите дочерние узлы и отвяжите гаражи.') if (node.children or node.garages) else _('Удалить') }}"><i class="bi bi-trash" aria-hidden="true"></i></button>
         </form>
       </div>
     </div>

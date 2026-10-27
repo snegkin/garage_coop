@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_actions.html" as actions %}
 {% block title %}{{ _("Доска объявлений") }}{% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
@@ -19,8 +20,8 @@
 {% for post in posts %}
 <div class="card bg-body mb-3">
   <div class="card-body">
-    <div class="d-flex justify-content-between align-items-start gap-2">
-      <div>
+    <div class="d-flex flex-nowrap justify-content-between align-items-start gap-2">
+      <div class="me-auto">
         <span class="badge bg-secondary mb-1">{{ _(category_labels[post.category]) }}</span>
         {% if post.is_members_only %}
         <span class="badge bg-warning text-dark mb-1" title="{{ _('Видно только вошедшим пользователям') }}">{{ _("Только своим") }}</span>
@@ -30,19 +31,17 @@
       {% if post.price is not none %}
       <div class="fs-5 fw-bold text-nowrap">{{ fmt2(post.price) }} ₽</div>
       {% endif %}
+      {% if current_user and (is_board() or post.author_id == current_user.id) %}
+      {% call actions.menu() %}
+        {{ actions.link(url_for('bulletin.edit', post_id=post.id), "pencil", _("Изменить")) }}
+        {{ actions.post(url_for('bulletin.delete', post_id=post.id), "trash", _("Удалить"), confirm=_("Удалить объявление?"), danger=True) }}
+      {% endcall %}
+      {% endif %}
     </div>
     <p class="card-subtitle text-muted small mb-2">{{ fmt_date(post.created_at.date()) }}</p>
     <div class="card-text">{{ render_news_html(post.description) }}</div>
 
     <p class="mb-0 mt-2"><strong>{{ _("Контакт") }}:</strong> {{ post.contact }}</p>
-    {% if current_user and (is_board() or post.author_id == current_user.id) %}
-    <div class="mt-2 d-flex gap-2">
-      <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('bulletin.edit', post_id=post.id) }}">{{ _("Изменить") }}</a>
-      <form method="post" action="{{ url_for('bulletin.delete', post_id=post.id) }}" onsubmit="return confirm('{{ _('Удалить объявление?') }}')">
-        <button class="btn btn-sm btn-outline-danger">{{ _("Удалить") }}</button>
-      </form>
-    </div>
-    {% endif %}
   </div>
 </div>
 {% endfor %}

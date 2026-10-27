@@ -1,0 +1,42 @@
+{# Меню действий над объектом — значок «⋮» в углу карточки/заголовка,
+   по нажатию выпадающий список (Изменить, Удалить…). Для карточек
+   (новости, объявления, сообщения форума…), где ряд текстовых кнопок на
+   телефоне длинный и переносился под заголовок. В ТАБЛИЦАХ не годится:
+   .table-responsive обрезает выпадающий список по своей границе — там
+   квадратные кнопки-значки (.btn-icon-square, см. power/view.html).
+
+   Подключать: {% import "_actions.html" as actions %}
+     {% call actions.menu() %}
+       {{ actions.link(url, "pencil", _("Изменить")) }}
+       {{ actions.post(url, "trash", _("Удалить"), confirm=_("Удалить …?"), danger=True) }}
+     {% endcall %}
+   Контейнер с заголовком — с классом flex-nowrap, иначе мобильное правило
+   «d-flex с h1–h5» (base.html) перенесёт значок под заголовок. #}
+
+{% macro menu(label=None) -%}
+<div class="dropdown flex-shrink-0">
+  <button type="button" class="btn btn-sm kebab-toggle" data-bs-toggle="dropdown" aria-expanded="false"
+          title="{{ label or _('Действия') }}" aria-label="{{ label or _('Действия') }}"><i class="bi bi-three-dots-vertical" aria-hidden="true"></i></button>
+  <ul class="dropdown-menu dropdown-menu-end">
+    {{ caller() }}
+  </ul>
+</div>
+{%- endmacro %}
+
+{% macro link(href, icon, text) -%}
+<li><a class="dropdown-item" href="{{ href }}"><span class="dropdown-icon"><i class="bi bi-{{ icon }}" aria-hidden="true"></i></span>{{ text }}</a></li>
+{%- endmacro %}
+
+{% macro modal(target, icon, text) -%}
+<li><button type="button" class="dropdown-item" data-bs-toggle="modal" data-bs-target="{{ target }}"><span class="dropdown-icon"><i class="bi bi-{{ icon }}" aria-hidden="true"></i></span>{{ text }}</button></li>
+{%- endmacro %}
+
+{# confirm — текст для confirm(): с ним форма уходит AJAX-ом (см. base.html,
+   «onsubmit="return confirm(...)"»); без него — ajax=True добавляет
+   data-ajax, иначе обычный POST. disabled_title — пункт неактивен, в
+   подсказке причина. #}
+{% macro post(action, icon, text, confirm=None, danger=False, ajax=False, disabled_title=None) -%}
+<li><form method="post" action="{{ action }}"{% if confirm %} onsubmit="return confirm('{{ confirm }}')"{% endif %}{% if ajax %} data-ajax{% endif %}>
+  <button class="dropdown-item{{ ' text-danger' if danger and not disabled_title }}"{% if disabled_title %} disabled title="{{ disabled_title }}"{% endif %}><span class="dropdown-icon"><i class="bi bi-{{ icon }}" aria-hidden="true"></i></span>{{ text }}</button>
+</form></li>
+{%- endmacro %}

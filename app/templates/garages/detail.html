@@ -30,7 +30,7 @@
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h3>{{ page_title }}</h3>
   {% if is_board() %}
-  <a class="btn btn-primary" href="{{ url_for('garages.edit', garage_id=garage.id) }}">{{ _("Редактировать") }}</a>
+  <a class="btn btn-primary btn-icon-square" href="{{ url_for('garages.edit', garage_id=garage.id) }}" title="{{ _('Редактировать') }}"><i class="bi bi-pencil" aria-hidden="true"></i></a>
   {% endif %}
 </div>
 
@@ -347,11 +347,10 @@
           <input class="form-control form-control-sm mb-1" type="file" name="file" accept="image/*">
           <div class="d-flex gap-1">
             <button class="btn btn-sm btn-primary w-100">{{ _("Сохранить") }}</button>
+            <button class="btn btn-sm btn-outline-danger btn-icon-square flex-shrink-0" form="removePhotoForm{{ photo.id }}" title="{{ _('Удалить') }}"><i class="bi bi-trash" aria-hidden="true"></i></button>
           </div>
         </form>
-        <form method="post" action="{{ url_for('garages.remove_photo', garage_id=garage.id, photo_id=photo.id) }}" onsubmit="return confirm('{{ _("Удалить фото?") }}')">
-          <button class="btn btn-sm btn-outline-danger w-100">{{ _("Удалить") }}</button>
-        </form>
+        <form method="post" action="{{ url_for('garages.remove_photo', garage_id=garage.id, photo_id=photo.id) }}" id="removePhotoForm{{ photo.id }}" onsubmit="return confirm('{{ _("Удалить фото?") }}')"></form>
         {% elif photo.caption %}
         <div class="small text-muted">{{ photo.caption }}</div>
         {% endif %}
@@ -447,8 +446,8 @@
         <a href="{{ url_for('garages.document_photo_file', document_id=doc.id, original_filename=doc.original_filename) }}" class="small d-block text-truncate" title="{{ doc.original_filename }}">{{ doc.original_filename }}</a>
         {% if doc.comment %}<div class="small text-muted">{{ doc.comment }}</div>{% endif %}
         {% if is_owner_or_board %}
-        <form method="post" action="{{ url_for('garages.remove_document_photo', garage_id=garage.id, document_id=doc.id) }}" onsubmit="return confirm('{{ _("Удалить документ?") }}')" class="mt-1">
-          <button class="btn btn-sm btn-outline-danger w-100">{{ _("Удалить") }}</button>
+        <form method="post" action="{{ url_for('garages.remove_document_photo', garage_id=garage.id, document_id=doc.id) }}" onsubmit="return confirm('{{ _("Удалить документ?") }}')" class="mt-1 text-end">
+          <button class="btn btn-sm btn-outline-danger btn-icon-square" title="{{ _('Удалить') }}"><i class="bi bi-trash" aria-hidden="true"></i></button>
         </form>
         {% endif %}
       </div>

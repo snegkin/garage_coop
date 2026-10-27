@@ -41,7 +41,7 @@
     <button class="btn btn-sm btn-primary">{{ _("Сохранить") }}</button>
   </form>
   <form method="post" action="{{ url_for('finance.delete_member_account', account_id=account.id) }}" onsubmit="return confirm('{{ _("Удалить счёт вместе со всей историей начислений и платежей по нему?") }}')" class="ms-auto">
-    <button class="btn btn-sm btn-outline-danger">{{ _("Удалить счёт") }}</button>
+    <button class="btn btn-sm btn-outline-danger btn-icon-square" title="{{ _('Удалить счёт') }}"><i class="bi bi-trash" aria-hidden="true"></i></button>
   </form>
 </div>
 <div class="text-danger small mb-2 d-none" id="defaultAccountNumberError"></div>

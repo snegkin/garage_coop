@@ -2062,7 +2062,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
 
         # finance/dues_by_garage.html — оплата взносов по гаражам и годам
         "Оплата взносов по гаражам": "Dues payments by garage",
-        "По каждому гаражу и виду взноса — сколько начислено за выбранный год и сколько из этого уже погашено (платежом любой даты). Включая счета прежних собственников: вопрос «оплачен ли гараж за год», а не «кем». Пеня не учитывается.":
+        "По каждому гаражу и виду взноса — сколько начислено за выбранный год и сколько из этого уже оплачено (платежом любой даты). Включая счета прежних собственников: вопрос «оплачен ли гараж за год», а не «кем». Пеня не учитывается.":
             "For each garage and fee type — how much was charged for the selected year and how much of it is already paid (by a payment of any date). Includes previous owners' accounts: the question is whether the garage is paid for the year, not by whom. Penalties are excluded.",
         "Неразнесённые зачисления из выписок": "Unallocated incoming bank payments",
         "Платёж не удалось отнести ни на один лицевой счёт (номер счёта не распознан, плательщика нет среди членов — напр. оплата с чужой карты). Кнопка «Кандидаты» оставит в таблице ниже только гаражи, у которых за выбранный год долг по какому-то виду взноса или итого ровно равен сумме платежа.":
@@ -2073,9 +2073,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Поиск по гаражу, ФИО или телефону...": "Search by garage, name or phone...",
         "Только с долгом": "With debt only",
         "Показать все": "Show all",
-        "Начислено {charged} ₽, оплачено {paid} ₽": "Charged {charged} ₽, paid {paid} ₽",
-        "В ячейке — остаток долга, ✓ — оплачено полностью, «—» — начислений не было. Наведите на ячейку, чтобы увидеть начислено/оплачено.":
-            "A cell shows the remaining debt, ✓ — fully paid, “—” — nothing was charged. Hover a cell to see charged/paid.",
+        "Долг {debt} ₽": "Debt {debt} ₽",
+        "Оплачено полностью": "Fully paid",
+        "Суммы в рублях. Цвет «Оплачено» — оплачено полностью/частично/не оплачено, «—» — начислений не было. Наведите на «Оплачено», чтобы увидеть остаток долга.":
+            "Amounts in rubles. The “Paid” color — fully/partially/not paid, “—” — nothing was charged. Hover “Paid” to see the remaining debt.",
         "Собрано": "Collected",
         "Без пени. Собрано — платежи, сделанные в этом году; долг — остаток начисленного за год на конец года (для текущего года — на сегодня).":
             "Penalties excluded. Collected — payments made within this year; debt — the year's charges left unpaid at year end (today, for the current year).",

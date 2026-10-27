@@ -1,18 +1,22 @@
 {% extends "base.html" %}
 {% block title %}{{ _("Оплата взносов по гаражам") }}{% endblock %}
 {% block content %}
-{% macro dues_cell(c, extra_class="") %}
+{# Пара колонок «Начислено | Оплачено» по одному виду взноса (или итого).
+   Цвет статуса — на «Оплачено»; там же data-debt (остаток) — по нему
+   кнопка «Кандидаты» ищет совпадение с суммой неразнесённого платежа. #}
+{% macro dues_cells(c, extra_class="") %}
 {% if c %}
+<td class="dues-cell dues-group-start {{ extra_class }}">{{ fmt2(c.charged) }}</td>
 <td class="dues-cell dues-{{ c.status }} {{ extra_class }}" data-debt="{{ c.debt }}"
-    title="{{ _('Начислено {charged} ₽, оплачено {paid} ₽', charged=fmt2(c.charged), paid=fmt2(c.paid)) }}">
-  {% if c.status == "paid" %}✓{% else %}{{ fmt2(c.debt) }}{% endif %}
-</td>
+    title="{{ _('Долг {debt} ₽', debt=fmt2(c.debt)) if c.debt > 0 else _('Оплачено полностью') }}">{{ fmt2(c.paid) }}</td>
 {% else %}
+<td class="dues-cell dues-group-start text-muted">—</td>
 <td class="dues-cell text-muted">—</td>
 {% endif %}
 {% endmacro %}
 <style>
   .dues-cell { white-space: nowrap; text-align: end; }
+  #duesTable .dues-group-start { border-left: 2px solid var(--bs-secondary-color); }
   .dues-paid { background: var(--bs-success-bg-subtle); }
   .dues-partial { background: var(--bs-warning-bg-subtle); }
   .dues-unpaid { background: var(--bs-danger-bg-subtle); }
@@ -31,7 +35,7 @@
     </select>
   </form>
 </div>
-<p class="text-muted small">{{ _("По каждому гаражу и виду взноса — сколько начислено за выбранный год и сколько из этого уже погашено (платежом любой даты). Включая счета прежних собственников: вопрос «оплачен ли гараж за год», а не «кем». Пеня не учитывается.") }}</p>
+<p class="text-muted small">{{ _("По каждому гаражу и виду взноса — сколько начислено за выбранный год и сколько из этого уже оплачено (платежом любой даты). Включая счета прежних собственников: вопрос «оплачен ли гараж за год», а не «кем». Пеня не учитывается.") }}</p>
 
 {% if unmatched_lines %}
 <div class="card mb-4 border-warning">
@@ -94,10 +98,16 @@
 <table class="table table-sm table-bordered bg-body align-middle" id="duesTable">
   <thead>
     <tr>
-      <th>{{ _("Гараж") }}</th>
-      <th>{{ _("Собственники") }}</th>
-      {% for ft in summary.fee_types %}<th class="text-end">{{ ft.name }}</th>{% endfor %}
-      <th class="text-end">{{ _("Итого") }}</th>
+      <th rowspan="2">{{ _("Гараж") }}</th>
+      <th rowspan="2">{{ _("Собственники") }}</th>
+      {% for ft in summary.fee_types %}<th colspan="2" class="text-center dues-group-start">{{ ft.name }}</th>{% endfor %}
+      <th colspan="2" class="text-center dues-group-start">{{ _("Итого") }}</th>
+    </tr>
+    <tr>
+      {% for _ft in range(summary.fee_types | length + 1) %}
+      <th class="text-end small dues-group-start">{{ _("Начислено") }}</th>
+      <th class="text-end small">{{ _("Оплачено") }}</th>
+      {% endfor %}
     </tr>
   </thead>
   <tbody>
@@ -114,16 +124,16 @@
         {% endfor %}
       </td>
       {% for ft in summary.fee_types %}
-      {{ dues_cell(row.cells.get(ft.id)) }}
+      {{ dues_cells(row.cells.get(ft.id)) }}
       {% endfor %}
-      {{ dues_cell(row.total, "fw-bold") }}
+      {{ dues_cells(row.total, "fw-bold") }}
     </tr>
     {% endfor %}
   </tbody>
 </table>
 </div>
 <p class="text-muted small d-none" id="duesNoResults">{{ _("Ничего не найдено.") }}</p>
-<p class="text-muted small">{{ _("В ячейке — остаток долга, ✓ — оплачено полностью, «—» — начислений не было. Наведите на ячейку, чтобы увидеть начислено/оплачено.") }}</p>
+<p class="text-muted small">{{ _("Суммы в рублях. Цвет «Оплачено» — оплачено полностью/частично/не оплачено, «—» — начислений не было. Наведите на «Оплачено», чтобы увидеть остаток долга.") }}</p>
 
 <script>
 (function () {

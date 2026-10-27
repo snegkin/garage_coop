@@ -380,6 +380,54 @@ def test_visiting_inbox_refreshes_unread_count_cache(db, client, monkeypatch):
     assert settings.unread_count == 1
 
 
+def test_opening_message_clears_it_from_unread_badge(db, client, monkeypatch):
+    """Прочитанное письмо уходит из бейджа сразу, а не на следующем прогоне cron."""
+    _make_board(db)
+    _make_settings(db, unread_count=1)
+    fake = _mock_imap(monkeypatch, {1: _test_email().as_bytes()})
+    original_uid = fake.uid
+
+    def uid_marking_seen(command, *args):
+        # Как настоящий IMAP-сервер: обычный (не PEEK) FETCH ставит \Seen.
+        if command == "fetch" and "RFC822" in (args[1] if len(args) > 1 else ""):
+            fake.flags.setdefault(int(args[0]), set()).add("\\Seen")
+        return original_uid(command, *args)
+    fake.uid = uid_marking_seen
+    login(client, "board1", "pass1234")
+
+    client.get("/mailbox/messages/1")
+
+    db.expire_all()
+    assert db.query(MailboxSettings).first().unread_count == 0
+
+
+def test_set_state_read_updates_badge_and_returns_count(db, client, monkeypatch):
+    _make_board(db)
+    _make_settings(db, unread_count=2)
+    _mock_imap(monkeypatch, {1: _test_email().as_bytes(), 2: _test_email().as_bytes()})
+    login(client, "board1", "pass1234")
+
+    resp = client.post("/mailbox/messages/1/state", data={"state": "read", "folder": "INBOX"})
+
+    assert resp.get_json() == {"ok": True, "state": "read", "unread_count": 1}
+    db.expire_all()
+    assert db.query(MailboxSettings).first().unread_count == 1
+
+
+def test_pop3_opening_message_clears_it_from_users_badge(db, client, monkeypatch):
+    board1 = _make_board(db)
+    _make_pop3_settings(db)
+    board1.pop3_mailbox_unread_count = 1
+    db.commit()
+    _mock_pop3(monkeypatch, [_test_email().as_bytes()])
+    login(client, "board1", "pass1234")
+
+    client.get("/mailbox/messages/1")
+
+    db.expire_all()
+    assert db.get(User, board1.id).pop3_mailbox_unread_count == 0
+
+
 def test_visiting_sent_folder_does_not_touch_unread_count(db, client, monkeypatch):
     """Счётчик — про "Входящие", заход в другую папку его не трогает."""
     _make_board(db)
@@ -429,7 +477,11 @@ def test_nav_badge_hidden_when_no_unread(db, client):
     login(client, "board1", "pass1234")
 
     resp = client.get("/")
-    assert "Непрочитанные письма" not in resp.get_data(as_text=True)
+    body = resp.get_data(as_text=True)
+    # Разметка остаётся скрытой (d-none) — её показывает JS страницы почты
+    # при смене статуса письма без перезагрузки.
+    assert re.search(r'<li class="d-none" data-mailbox-unread-item>', body)
+    assert re.search(r'badge[^"]*d-none[^"]*"[^>]*data-mailbox-unread>0<', body)
 
 
 def test_nav_badge_hidden_for_non_board_member(db, client):
@@ -1237,7 +1289,7 @@ def test_set_message_state_cycles_flags(db, client, monkeypatch):
     login(client, "board1", "pass1234")
 
     resp = client.post("/mailbox/messages/1/state", data={"state": "read"})
-    assert resp.get_json() == {"ok": True, "state": "read"}
+    assert resp.get_json() == {"ok": True, "state": "read", "unread_count": 0}
     assert fake.flags[1] == {"\\Seen"}
 
     resp = client.post("/mailbox/messages/1/state", data={"state": "important"})
@@ -1340,7 +1392,7 @@ def test_pop3_set_message_state_cycles_via_db(db, client, monkeypatch):
     login(client, "board1", "pass1234")
 
     resp = client.post("/mailbox/messages/1/state", data={"state": "important"})
-    assert resp.get_json() == {"ok": True, "state": "important"}
+    assert resp.get_json() == {"ok": True, "state": "important", "unread_count": 1}
     row = database.db_session.query(MailboxPop3MessageState).filter_by(user_id=board1.id, message_uidl="uidl-1").first()
     assert row.flagged is True
 

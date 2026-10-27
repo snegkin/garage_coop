@@ -302,6 +302,20 @@
     dot.title = LABELS[state] + " — {{ _('нажмите, чтобы изменить') }}";
   }
 
+  // Бейджи «непрочитано» в шапке (base.html, data-mailbox-unread) — сервер
+  // пересчитывает их при смене статуса (mailbox._refresh_badge), здесь
+  // показываем новое значение без перезагрузки страницы.
+  function applyUnreadCount(count) {
+    if (count === null || count === undefined) return;
+    document.querySelectorAll("[data-mailbox-unread]").forEach(function (el) {
+      el.textContent = count;
+      if (el.classList.contains("badge")) el.classList.toggle("d-none", !count);
+    });
+    document.querySelectorAll("[data-mailbox-unread-item]").forEach(function (el) {
+      el.classList.toggle("d-none", !count);
+    });
+  }
+
   document.querySelectorAll(".mail-dot").forEach(function (dot) {
     function toggle() {
       if (dot.dataset.busy) return;
@@ -316,7 +330,7 @@
         body: formData,
       })
         .then(function (r) { return r.json(); })
-        .then(function (data) { if (data.ok) applyState(dot, data.state); })
+        .then(function (data) { if (data.ok) { applyState(dot, data.state); applyUnreadCount(data.unread_count); } })
         .catch(function () {})
         .finally(function () { delete dot.dataset.busy; });
     }

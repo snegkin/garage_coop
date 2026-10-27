@@ -154,7 +154,8 @@ def test_page_renders_for_board(db, client):
     assert "Должник Звонков" in body
     assert 'href="tel:+79001234567"' in body
     assert "dues-unpaid" in body
-    assert "1000,00" in body
+    assert "1000,00" in body  # начислено
+    assert ">0,00</td>" in body  # оплачено
 
 
 def test_page_requires_board(db, client):

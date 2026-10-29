@@ -14,7 +14,7 @@ from app.accounting import (
 )
 from app.models import (
     RoleEnum, Counterparty, CounterpartyApiProvider, CounterpartyPayment, Document, DocumentType, Expense, ExpenseKind,
-    ReconciliationAct,
+    ElectricityTariff, MasterMeterReading, ReconciliationAct,
 )
 
 from tests.conftest import make_user, login
@@ -199,3 +199,64 @@ def test_balance_as_of_and_reconciliation_default(app, db, client):
     })
     act = db.query(ReconciliationAct).filter_by(counterparty_id=counterparty.id).one()
     assert act.our_balance == Decimal("0.00")
+
+
+def test_delete_invoice_removes_files_and_reallocates(app, db, client):
+    """Удаление счёта: файлы удаляются вместе с ним, платёж остаётся и
+    переразносится на оставшийся счёт."""
+    import os
+    counterparty = make_counterparty(db, prepaid=True)
+    first = Expense(counterparty_id=counterparty.id, date=dt.date(2026, 10, 1), amount=Decimal("300.00"), kind=ExpenseKind.INVOICE)
+    second = Expense(counterparty_id=counterparty.id, date=dt.date(2026, 10, 5), amount=Decimal("300.00"), kind=ExpenseKind.INVOICE)
+    db.add_all([first, second])
+    db.flush()
+    file_path = os.path.join(app.config["UPLOAD_FOLDER"], "invoice.pdf")
+    with open(file_path, "wb") as fh:
+        fh.write(b"%PDF")
+    doc = Document(
+        doc_type=DocumentType.INVOICE, date=dt.date(2026, 10, 1), title="Счёт", file_path="invoice.pdf",
+        counterparty_id=counterparty.id, expense_id=first.id, is_internal=True,
+    )
+    db.add(doc)
+    db.add(CounterpartyPayment(counterparty_id=counterparty.id, date=dt.date(2026, 10, 2), amount=Decimal("300.00")))
+    _login_board(db, client, "board_pp8")
+
+    resp = client.post(f"/counterparties/{counterparty.id}/expenses/{first.id}/delete")
+    assert resp.status_code == 302
+    database.db_session.expire_all()
+    assert database.db_session.get(Expense, first.id) is None
+    assert database.db_session.get(Document, doc.id) is None
+    assert not os.path.exists(file_path)
+    assert expense_paid_amount(database.db_session.get(Expense, second.id)) == Decimal("300.00")
+    assert counterparty_balance(_reload(counterparty.id)) == Decimal("300.00")
+
+
+def test_delete_expense_from_meter_reading_refused(app, db, client):
+    counterparty = make_counterparty(db, name="ТНС Энерго")
+    expense = Expense(counterparty_id=counterparty.id, date=dt.date(2026, 10, 1), amount=Decimal("500.00"))
+    tariff = ElectricityTariff(rate=Decimal("5"), effective_date=dt.date(2025, 1, 1))
+    db.add_all([expense, tariff])
+    db.flush()
+    db.add(MasterMeterReading(
+        year=2026, month=10, reading_date=dt.date(2026, 10, 1), reading=Decimal("100"),
+        tariff_id=tariff.id, expense_id=expense.id,
+    ))
+    _login_board(db, client, "board_pp9")
+
+    client.post(f"/counterparties/{counterparty.id}/expenses/{expense.id}/delete")
+    database.db_session.expire_all()
+    assert database.db_session.get(Expense, expense.id) is not None
+
+
+def test_delete_reconciliation_act(app, db, client):
+    counterparty = make_counterparty(db, name="ТНС Энерго")
+    act = ReconciliationAct(
+        counterparty_id=counterparty.id, period_start=dt.date(2026, 7, 1), period_end=dt.date(2026, 9, 30),
+        our_balance=Decimal("0"), counterparty_balance=Decimal("0"),
+    )
+    db.add(act)
+    _login_board(db, client, "board_pp10")
+
+    assert client.post(f"/counterparties/{counterparty.id}/reconciliation/{act.id}/delete").status_code == 302
+    database.db_session.expire_all()
+    assert database.db_session.get(ReconciliationAct, act.id) is None

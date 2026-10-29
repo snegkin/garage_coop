@@ -1,4 +1,5 @@
 import datetime as dt
+import os
 
 from flask import Blueprint, render_template, request, redirect, url_for, flash, abort, current_app, jsonify
 from werkzeug.utils import secure_filename
@@ -10,7 +11,7 @@ from .auth import roles_required
 from .models import (
     Counterparty, CounterpartyApiProvider, CounterpartyApiCredential, Expense, ExpenseKind, CounterpartyPayment, ReconciliationAct,
     BALANCE_SYNC_INTERVAL_CHOICES,
-    BankAccount, BankStatementLine, Document, DocumentType, RoleEnum,
+    BankAccount, BankStatementLine, Document, DocumentType, MasterMeterReading, RoleEnum,
 )
 from .accounting import (
     counterparty_balance, counterparty_amount_to_pay, counterparty_unbilled_usage,
@@ -116,6 +117,15 @@ def _parse_expense_kind(counterparty: Counterparty, value: str | None) -> Expens
         return ExpenseKind(value)
     except ValueError:
         return ExpenseKind.INVOICE
+
+
+def _delete_document_with_file(doc: Document) -> None:
+    """Удаляет документ вместе с файлом в uploads — как cooperative.delete_document."""
+    if doc.file_path:
+        full_path = os.path.join(current_app.config["UPLOAD_FOLDER"], doc.file_path)
+        if os.path.exists(full_path):
+            os.remove(full_path)
+    database.db_session.delete(doc)
 
 
 def _sync_expense_document_types(expense: Expense) -> None:
@@ -418,6 +428,36 @@ def edit_expense(counterparty_id, expense_id):
     return redirect(url_for("counterparties.detail", counterparty_id=counterparty.id))
 
 
+@bp.route("/<int:counterparty_id>/expenses/<int:expense_id>/delete", methods=["POST"])
+@roles_required(RoleEnum.BOARD)
+def delete_expense(counterparty_id, expense_id):
+    """Удаление счёта/акта/расхода вместе с прикреплёнными файлами (они
+    загружались этой же формой и без записи не нужны). Платежи остаются и
+    переразносятся заново. Расход за электроэнергию удаляется только вместе
+    с показанием счётчика (power.delete_reading) — иначе показание осталось
+    бы с суммой, которой нет в расчётах с поставщиком."""
+    counterparty = database.db_session.get(Counterparty, counterparty_id)
+    expense = database.db_session.get(Expense, expense_id)
+    if counterparty is None or expense is None or expense.counterparty_id != counterparty.id:
+        abort(404)
+    if database.db_session.query(MasterMeterReading).filter_by(expense_id=expense.id).first() is not None:
+        flash(_("Этот расход создан показанием общего счётчика — удалите показание на странице электроэнергии."), "danger")
+        return redirect(url_for("counterparties.detail", counterparty_id=counterparty.id))
+
+    label = "Счёт на оплату" if expense.kind == ExpenseKind.INVOICE else "Расход"
+    summary = (f"Удалён: {label} {audit.format_amount(expense.amount)} от "
+               f"{audit.format_date(expense.date)} — {counterparty.name}")
+    for doc in list(expense.documents):
+        _delete_document_with_file(doc)
+    database.db_session.delete(expense)
+    database.db_session.flush()
+    reallocate_counterparty_expenses(counterparty)
+    audit.record("expense.delete", entity_type="counterparty", entity_id=counterparty.id, summary=summary)
+    database.db_session.commit()
+    flash(_("Счёт на оплату удалён.") if label == "Счёт на оплату" else _("Расход удалён."), "success")
+    return redirect(url_for("counterparties.detail", counterparty_id=counterparty.id))
+
+
 @bp.route("/<int:counterparty_id>/expenses/<int:expense_id>/move", methods=["POST"])
 @roles_required(RoleEnum.BOARD)
 def move_expense(counterparty_id, expense_id):
@@ -696,6 +736,30 @@ def add_reconciliation_act(counterparty_id):
     )
     database.db_session.commit()
     flash(_("Акт сверки добавлен."), "success")
+    return redirect(url_for("counterparties.detail", counterparty_id=counterparty.id))
+
+
+@bp.route("/<int:counterparty_id>/reconciliation/<int:act_id>/delete", methods=["POST"])
+@roles_required(RoleEnum.BOARD)
+def delete_reconciliation_act(counterparty_id, act_id):
+    """Акт сверки — информационная запись, удаляется вместе со сканом."""
+    counterparty = database.db_session.get(Counterparty, counterparty_id)
+    act = database.db_session.get(ReconciliationAct, act_id)
+    if counterparty is None or act is None or act.counterparty_id != counterparty.id:
+        abort(404)
+    if act.document_id:
+        doc = database.db_session.get(Document, act.document_id)
+        if doc is not None:
+            _delete_document_with_file(doc)
+    audit.record(
+        "reconciliation_act.delete",
+        f"Удалён акт сверки с {counterparty.name} за {audit.format_date(act.period_start)}"
+        f"—{audit.format_date(act.period_end)}",
+        entity_type="counterparty", entity_id=counterparty.id,
+    )
+    database.db_session.delete(act)
+    database.db_session.commit()
+    flash(_("Акт сверки удалён."), "success")
     return redirect(url_for("counterparties.detail", counterparty_id=counterparty.id))
 
 

@@ -184,7 +184,13 @@
           {% for doc in e.documents %}<a href="{{ url_for('cooperative.download_document', doc_id=doc.id) }}" title="{{ doc.title }}">{{ _("скачать") }}{% if e.documents|length > 1 %} ({{ loop.index }}){% endif %}</a>{% if not loop.last %}, {% endif %}{% endfor %}
         {% else %}—{% endif %}
       </td>
-      <td class="no-sort text-end"><button class="btn btn-sm btn-primary btn-icon-square" data-bs-toggle="modal" data-bs-target="#editExpenseModal{{ e.id }}" title="{{ _('Изменить') }}"><i class="bi bi-pencil" aria-hidden="true"></i></button></td>
+      <td class="no-sort text-end text-nowrap">
+        <button class="btn btn-sm btn-primary btn-icon-square" data-bs-toggle="modal" data-bs-target="#editExpenseModal{{ e.id }}" title="{{ _('Изменить') }}"><i class="bi bi-pencil" aria-hidden="true"></i></button>
+        <form method="post" action="{{ url_for('counterparties.delete_expense', counterparty_id=counterparty.id, expense_id=e.id) }}" class="d-inline"
+              onsubmit="return confirm('{{ _('Удалить запись вместе с прикреплёнными файлами?') }}')">
+          <button class="btn btn-sm btn-outline-danger btn-icon-square" title="{{ _('Удалить') }}"><i class="bi bi-trash" aria-hidden="true"></i></button>
+        </form>
+      </td>
     </tr>
     {% else %}
     <tr><td colspan="{{ 7 if with_paid else 6 }}" class="text-muted">{{ empty_text }}</td></tr>
@@ -197,7 +203,7 @@
 {% endmacro %}
 
 {% if counterparty.prepaid %}
-{{ expense_table("invoicesTable", invoices, _("Счета на оплату"), _("Счетов пока нет."), kind="INVOICE") }}
+{{ expense_table("invoicesTable", invoices, _("Счета на оплату"), _("Счетов на оплату пока нет."), kind="INVOICE") }}
 {{ expense_table("expensesTable", charges, _("Акты / УПД (начислено, списывается с аванса)"), _("Актов пока нет."), kind="CHARGE", with_paid=False) }}
 {% else %}
 {{ expense_table("expensesTable", charges, _("Расходы (начислено)"), _("Расходов пока нет.")) }}
@@ -275,7 +281,7 @@
   <input class="form-control form-control-sm" data-table-filter-for="actsTable" placeholder="{{ _('Поиск по комментарию, сумме...') }}">
 </div>
 <table class="table table-sm bg-body sortable mb-2" id="actsTable" data-page-size="15">
-  <thead><tr><th>{{ _("Период") }}</th><th>{{ _("Наш баланс") }}</th><th>{{ _("Баланс по данным контрагента") }}</th><th>{{ _("Комментарий") }}</th><th class="no-sort text-end">{{ _("Акт") }}</th></tr></thead>
+  <thead><tr><th>{{ _("Период") }}</th><th>{{ _("Наш баланс") }}</th><th>{{ _("Баланс по данным контрагента") }}</th><th>{{ _("Комментарий") }}</th><th class="no-sort text-end">{{ _("Акт") }}</th><th class="no-sort text-end">{{ _("Действия") }}</th></tr></thead>
   <tbody>
     {% for a in acts %}
     <tr data-filter-text="{{ ((a.our_balance|string if a.our_balance is not none else '') ~ ' ' ~ (a.counterparty_balance|string if a.counterparty_balance is not none else '') ~ ' ' ~ (a.comment or ''))|lower }}">
@@ -297,9 +303,15 @@
       </td>
       <td>{{ a.comment or "—" }}</td>
       <td class="text-end">{% if a.document_id %}<a href="{{ url_for('cooperative.download_document', doc_id=a.document_id) }}">{{ _("скачать") }}</a>{% else %}—{% endif %}</td>
+      <td class="text-end">
+        <form method="post" action="{{ url_for('counterparties.delete_reconciliation_act', counterparty_id=counterparty.id, act_id=a.id) }}" class="d-inline"
+              onsubmit="return confirm('{{ _('Удалить акт сверки вместе со сканом?') }}')">
+          <button class="btn btn-sm btn-outline-danger btn-icon-square" title="{{ _('Удалить') }}"><i class="bi bi-trash" aria-hidden="true"></i></button>
+        </form>
+      </td>
     </tr>
     {% else %}
-    <tr><td colspan="5" class="text-muted">{{ _("Актов сверки пока нет.") }}</td></tr>
+    <tr><td colspan="6" class="text-muted">{{ _("Актов сверки пока нет.") }}</td></tr>
     {% endfor %}
   </tbody>
 </table>

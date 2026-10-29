@@ -159,11 +159,9 @@
   <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#addExpenseModal"{% if kind %} data-expense-kind="{{ kind }}"{% endif %}>+ {{ _("Добавить") }}</button>
 </div>
 <div class="mb-4">
-{% if items %}
 <div class="mb-2">
   <input class="form-control form-control-sm" data-table-filter-for="{{ table_id }}" placeholder="{{ _('Поиск по категории, описанию, сумме...') }}">
 </div>
-{% endif %}
 <table class="table table-sm bg-body sortable mb-2" id="{{ table_id }}" data-page-size="15">
   <thead><tr><th>{{ _("Дата") }}</th><th>{{ _("Категория") }}</th><th>{{ _("Описание") }}</th><th>{{ _("Сумма") }}</th>{% if with_paid %}<th>{{ _("Оплачено") }}</th>{% endif %}<th class="no-sort text-end">{{ _("Документ") }}</th><th class="no-sort text-end">{{ _("Действия") }}</th></tr></thead>
   <tbody>
@@ -210,11 +208,9 @@
   <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#addPaymentModal">+ {{ _("Добавить") }}</button>
 </div>
 <div class="mb-4">
-{% if payments %}
 <div class="mb-2">
   <input class="form-control form-control-sm" data-table-filter-for="paymentsTable" placeholder="{{ _('Поиск по сумме, счёту, комментарию...') }}">
 </div>
-{% endif %}
 <table class="table table-sm bg-body sortable mb-2" id="paymentsTable" data-page-size="15">
   <thead><tr><th>{{ _("Дата") }}</th><th>{{ _("Сумма") }}</th><th>{{ _("Счёт списания") }}</th><th>{{ _("Комментарий") }}</th><th class="no-sort text-end">{{ _("Платёжный документ") }}</th><th class="no-sort text-end">{{ _("Действия") }}</th></tr></thead>
   <tbody>
@@ -275,11 +271,9 @@
   <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#addActModal">+ {{ _("Добавить") }}</button>
 </div>
 <div class="mb-4">
-{% if acts %}
 <div class="mb-2">
   <input class="form-control form-control-sm" data-table-filter-for="actsTable" placeholder="{{ _('Поиск по комментарию, сумме...') }}">
 </div>
-{% endif %}
 <table class="table table-sm bg-body sortable mb-2" id="actsTable" data-page-size="15">
   <thead><tr><th>{{ _("Период") }}</th><th>{{ _("Наш баланс") }}</th><th>{{ _("Баланс по данным контрагента") }}</th><th>{{ _("Комментарий") }}</th><th class="no-sort text-end">{{ _("Акт") }}</th></tr></thead>
   <tbody>
@@ -318,11 +312,9 @@
   <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#addDocumentModal">+ {{ _("Добавить") }}</button>
 </div>
 <div class="mb-4">
-{% if documents %}
 <div class="mb-2">
   <input class="form-control form-control-sm" data-table-filter-for="counterpartyDocumentsTable" placeholder="{{ _('Поиск по названию, номеру или типу...') }}">
 </div>
-{% endif %}
 <table class="table table-sm bg-body sortable mb-2" id="counterpartyDocumentsTable" data-page-size="15">
   <thead><tr><th>{{ _("Дата") }}</th><th>{{ _("Тип") }}</th><th>{{ _("№") }}</th><th>{{ _("Название") }}</th><th class="no-sort text-end">{{ _("Файл") }}</th></tr></thead>
   <tbody>

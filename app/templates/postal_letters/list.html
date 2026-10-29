@@ -6,8 +6,17 @@
   <a href="{{ url_for('legal_docs.debtors') }}" class="btn btn-primary">+ {{ _("Новые письма должникам") }}</a>
 </div>
 <p class="text-muted">
-  {{ _("Письма готовятся здесь, но отправляются вручную: при необходимости поправьте текст черновиков, скачайте пакет, подпишите PDF в КриптоПро и загрузите пакет в личный кабинет otpravka.pochta.ru, затем отметьте письма как загруженные/доставленные по данным того же личного кабинета. Пакет для уже выгруженных писем можно скачать повторно, а выгруженные — вернуть в черновики или удалить.") }}
+  {{ _("Основной путь — «Отправить через Почту (API)»: письма встают в очередь, агент ЭЗП на компьютере председателя (там Рутокен с КЭП) подписывает их и отправляет в Почту, статус и ШПИ появляются здесь сами. Запасной путь — скачать пакет, подписать PDF в КриптоПро и загрузить его в личный кабинет otpravka.pochta.ru, затем отметить письма как загруженные/доставленные вручную. Пакет для уже выгруженных писем можно скачать повторно, а выгруженные — вернуть в черновики или удалить.") }}
+  {% if is_chairman() %}<a href="{{ url_for('postal_letters.api_settings') }}">{{ _("Настройки API Почты") }}</a>{% endif %}
 </p>
+{% if not api_configured %}
+<div class="alert alert-secondary py-2">{{ _("Отправка через API Почты не настроена — задайте ID отправителя и выпустите токен агента в настройках API (председатель).") }}</div>
+{% elif agent_stale %}
+<div class="alert alert-warning py-2">
+  {% if agent_minutes_ago is none %}{{ _("Агент ЭЗП ещё ни разу не выходил на связь — письма из очереди не уйдут, пока он не запущен.") }}
+  {% else %}{{ _("Агент ЭЗП не выходил на связь {n} мин. — проверьте, что компьютер председателя включён и Рутокен вставлен.", n=agent_minutes_ago) }}{% endif %}
+</div>
+{% endif %}
 
 <form method="get" class="mb-3">
   <select name="status" class="form-select form-select-sm w-auto" onchange="this.form.submit()">
@@ -22,7 +31,7 @@
    к ней атрибутом form="…": в строках свои формы («Загружено в ЛК»), а
    вложенные <form> браузер игнорирует — кнопка строки отправляла бы эту. #}
 <form method="post" action="{{ url_for('postal_letters.export') }}" id="postalBulkForm"></form>
-<p class="text-muted small mb-2">{{ _("Отмечать можно черновики и выгруженные письма (галка в заголовке — все сразу).") }} {{ _("Выбрано:") }} <span id="postalSelectedCount">0</span></p>
+<p class="text-muted small mb-2">{{ _("Отмечать можно черновики, выгруженные письма и письма в очереди (галка в заголовке — все сразу).") }} {{ _("Выбрано:") }} <span id="postalSelectedCount">0</span></p>
 <table class="table table-bordered bg-body align-middle">
   <thead>
     <tr>
@@ -38,11 +47,13 @@
   <tbody>
     {% for d in dispatches %}
     <tr>
-      <td>{% if d.status.value in ("draft", "exported") %}<input type="checkbox" class="form-check-input postal-select" name="dispatch_id" value="{{ d.id }}" form="postalBulkForm">{% endif %}</td>
+      <td>{% if d.status.value in ("draft", "exported", "queued") %}<input type="checkbox" class="form-check-input postal-select" name="dispatch_id" value="{{ d.id }}" form="postalBulkForm">{% endif %}</td>
       <td><a href="{{ url_for('persons.detail', person_id=d.person_id) }}">{{ d.person.full_name }}</a>{% if d.intro_text or d.closing_text %} <span class="badge bg-light text-dark border" title="{{ _('Текст письма изменён вручную') }}"><i class="bi bi-pencil" aria-hidden="true"></i></span>{% endif %}</td>
       <td>{{ d.reg_number }}</td>
       <td>
         <span class="badge {{ status_badge(d.status) }}">{{ status_label(d.status) }}</span>
+        {% if d.api_status %}<div class="text-muted small">{{ _("Почта:") }} {{ api_status_label(d.api_status) }}</div>
+        {% elif d.api_request_code %}<div class="text-muted small">{{ _("через API, ждём статус Почты") }}</div>{% endif %}
         {% if d.status.value == "failed" and d.comment %}<div class="text-muted small">{{ d.comment }}</div>{% endif %}
       </td>
       <td>{{ d.tracking_number or "—" }}</td>
@@ -67,6 +78,10 @@
   </tbody>
 </table>
 <div class="d-flex gap-2 flex-wrap">
+  <button class="btn btn-success" form="postalBulkForm" formaction="{{ url_for('postal_letters.queue') }}" {{ "disabled" if not dispatches or not api_configured }}
+          title="{{ _('Черновики и выгруженные — в очередь агенту ЭЗП') }}">{{ _("Отправить через Почту (API)") }}</button>
+  <button class="btn btn-outline-secondary" form="postalBulkForm" formaction="{{ url_for('postal_letters.unqueue') }}" {{ "disabled" if not dispatches }}
+          title="{{ _('Только для писем в очереди, пока агент их не забрал') }}">{{ _("Убрать из очереди") }}</button>
   <button class="btn btn-primary" form="postalBulkForm" formaction="{{ url_for('postal_letters.export') }}" {{ "disabled" if not dispatches }}>{{ _("Скачать пакет для отмеченных (.zip)") }}</button>
   <button class="btn btn-outline-secondary" form="postalBulkForm" formaction="{{ url_for('postal_letters.to_draft') }}" {{ "disabled" if not dispatches }}
           title="{{ _('Только для выгруженных: поправить текст и выгрузить заново') }}">{{ _("Вернуть в черновики") }}</button>

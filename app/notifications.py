@@ -438,7 +438,7 @@ BOARD_EVENT_GROUPS = {
     },
     "settings": {
         "label": "Почта и настройки",
-        "actions": ("cooperative.settings_edit", "mailbox.*", "telegram.*", "sms.*"),
+        "actions": ("cooperative.settings_edit", "mailbox.*", "telegram.*", "sms.*", "postal_api.*"),
     },
     "logins": {
         "label": "Входы на сайт",

@@ -1,0 +1,23 @@
+; stunnel КриптоПро до ИС ЭПС — /etc/ezp-agent/stunnel.conf
+; Клиент с двусторонней аутентификацией (п. 4.2.1 инструкции Почты).
+; foreground — под systemd процесс не уходит в фон, лог идёт в journald.
+foreground = yes
+pid =
+output = /dev/stdout
+socket = l:TCP_NODELAY=1
+socket = r:TCP_NODELAY=1
+debug = 5
+
+[ezp]
+client = yes
+; Адрес только на этой машине — агент шлёт сюда обычный HTTP
+accept = 127.0.0.1:3080
+; Интеграционный контур (тест). Для продуктива:
+; connect = api.zakaznoe.pochta.ru:3080
+connect = 91.215.37.229:3080
+; Открытая часть КЭП (PEM), ключ stunnel найдёт в хранилище пользователя ezp-agent
+cert = /etc/ezp-agent/client.cer
+; ПИН Рутокена (параметр stunnel КриптоПро) — если пароль контейнера не сохранён
+; в CSP. Тогда файл — root:ezp-agent 0640, как и конфиг агента.
+;pincode = 12345678
+verify = 0

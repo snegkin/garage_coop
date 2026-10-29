@@ -440,6 +440,20 @@ class CounterpartyApiProvider(str, enum.Enum):
     TNS_ENERGO_BUSINESS = "tns_energo_business"
 
 
+class ExpenseKind(str, enum.Enum):
+    """
+    Вид строки Expense. CHARGE — начисление: услуга оказана (акт/УПД),
+    кооператив должен — уменьшает баланс расчётов. INVOICE — счёт на
+    оплату у контрагента на ПРЕДОПЛАТЕ (Counterparty.prepaid: SMS Aero,
+    Почта России): это не долг, а просьба внести аванс — баланс расчётов
+    не трогает, платежи разносятся по счетам только чтобы показать
+    «оплачен/не оплачен». У контрагента на постоплате (ТНС Энерго: счёт
+    приходит вместе с УПД) — всегда CHARGE.
+    """
+    CHARGE = "CHARGE"
+    INVOICE = "INVOICE"
+
+
 # Допустимые значения Counterparty.balance_sync_interval_days: раз в сутки,
 # в 2 дня, в 3 дня, в неделю, в месяц (30 дней). Подписи — в
 # counterparties/_fields.html.
@@ -486,6 +500,11 @@ class Counterparty(Base):
     # меняется почти каждый день, и ежедневный синк давал запись в журнале
     # аудита на каждый день. Кнопка «Обновить баланс» на карточке — всегда.
     balance_sync_interval_days: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    # Расчёты по предоплате: контрагент выставляет счёт, кооператив платит
+    # вперёд (аванс), услуги списываются с аванса по актам/УПД. Счета такого
+    # контрагента — Expense с kind=INVOICE, на баланс расчётов не влияют
+    # (см. ExpenseKind и accounting.counterparty_balance()).
+    prepaid: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
 
     expenses: Mapped[list["Expense"]] = relationship(back_populates="counterparty")
     payments: Mapped[list["CounterpartyPayment"]] = relationship(back_populates="counterparty")
@@ -574,6 +593,7 @@ class Expense(Base):
     amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
     category: Mapped[str | None] = mapped_column(String(100))
     description: Mapped[str | None] = mapped_column(Text)
+    kind: Mapped[ExpenseKind] = mapped_column(Enum(ExpenseKind), default=ExpenseKind.CHARGE, server_default=ExpenseKind.CHARGE.value)
 
     counterparty: Mapped["Counterparty"] = relationship(back_populates="expenses")
     documents: Mapped[list["Document"]] = relationship(back_populates="expense", order_by="Document.id")

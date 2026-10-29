@@ -32,7 +32,7 @@ from .i18n import translate as _
 from .models import (
     AccountNumberSettings, ElectricityTariff, ElectricityTariffKind, ElectricitySettings, Cooperative, Garage, LandTaxYear,
     Charge, Payment, MemberAccount, FeeType, ChargeAllocation, KeyRate,
-    Counterparty, Expense, CounterpartyPayment, ExpenseAllocation, BankAccount, BankStatementLine, GarageOwnership,
+    Counterparty, CounterpartyApiProvider, Expense, ExpenseKind, CounterpartyPayment, ExpenseAllocation, BankAccount, BankStatementLine, GarageOwnership,
 )
 
 
@@ -487,9 +487,19 @@ def reallocate_counterparty_expenses(counterparty: Counterparty) -> None:
     «не оплачено» не исчезала даже после явной оплаты — пока пользователь
     не открывал платёж на правку и не сохранял его ещё раз, что попадало
     уже в новый запрос со свежими коллекциями).
+
+    У контрагента на предоплате (Counterparty.prepaid) платежи разносятся
+    по СЧЕТАМ (ExpenseKind.INVOICE) — статус «оплачен» нужен именно им, а
+    начисления по актам/УПД гасятся авансом, статуса оплаты у них нет. У
+    остальных — по начислениям, как и раньше. Разнесение строк другого
+    вида просто очищается.
     """
     database.db_session.expire(counterparty, ["payments", "expenses"])
-    expenses = sorted(counterparty.expenses, key=lambda e: e.date)
+    target_kind = ExpenseKind.INVOICE if counterparty.prepaid else ExpenseKind.CHARGE
+    for expense in counterparty.expenses:
+        if expense.kind != target_kind:
+            expense.allocations.clear()
+    expenses = sorted((e for e in counterparty.expenses if e.kind == target_kind), key=lambda e: e.date)
 
     reversal_totals: dict[int, Decimal] = {}
     for p in counterparty.payments:
@@ -536,15 +546,58 @@ def expense_paid_amount(expense: Expense) -> Decimal:
     return sum((a.amount for a in expense.allocations), Decimal("0"))
 
 
-def counterparty_balance(counterparty: Counterparty) -> Decimal:
-    """Баланс расчётов с контрагентом = начальный баланс + payments - expenses
+def counterparty_balance(counterparty: Counterparty, as_of: dt.date | None = None) -> Decimal:
+    """Баланс расчётов с контрагентом = начальный баланс + payments - начисления
     (сторно уже входят в payments отрицательной суммой). Тот же знак, что и
     balance() для гаражей/членов: отрицательное — кооператив ещё должен
-    контрагенту, положительное — переплата (аванс, редкий случай)."""
-    charged = sum((e.amount for e in counterparty.expenses), Decimal("0"))
-    paid = sum((p.amount for p in counterparty.payments), Decimal("0"))
-    opening = counterparty.opening_balance or Decimal("0")
+    контрагенту, положительное — аванс у контрагента (обычное дело при
+    предоплате: заплатили по счёту, акты ещё не пришли). Счета на оплату
+    (ExpenseKind.INVOICE) не учитываются — это не долг.
+
+    as_of — баланс на конец указанного дня (для актов сверки): только
+    расходы/платежи с датой <= as_of; начальный баланс — если его дата не
+    указана или не позже as_of."""
+    def _in_range(d: dt.date) -> bool:
+        return as_of is None or d <= as_of
+
+    charged = sum(
+        (e.amount for e in counterparty.expenses if e.kind == ExpenseKind.CHARGE and _in_range(e.date)),
+        Decimal("0"),
+    )
+    paid = sum((p.amount for p in counterparty.payments if _in_range(p.date)), Decimal("0"))
+    opening = Decimal("0")
+    if counterparty.opening_balance is not None and (
+        counterparty.opening_balance_date is None or _in_range(counterparty.opening_balance_date)
+    ):
+        opening = counterparty.opening_balance
     return opening + paid - charged
+
+
+def counterparty_amount_to_pay(counterparty: Counterparty) -> Decimal:
+    """Сколько сейчас нужно заплатить контрагенту — подсказка и значение
+    «пустой суммы» в форме платежа. На предоплате — неоплаченные остатки
+    счетов (по разнесению reallocate_counterparty_expenses), иначе — долг
+    по балансу расчётов."""
+    if counterparty.prepaid:
+        return sum(
+            (e.amount - expense_paid_amount(e) for e in counterparty.expenses if e.kind == ExpenseKind.INVOICE),
+            Decimal("0"),
+        )
+    return max(Decimal("0"), -counterparty_balance(counterparty))
+
+
+def counterparty_unbilled_usage(counterparty: Counterparty) -> Decimal | None:
+    """Сверка баланса расчётов с балансом личного кабинета у контрагента на
+    предоплате с API (SMS Aero): аванс по нашим данным минус остаток в ЛК
+    ≈ сколько уже израсходовано, но ещё не закрыто актами/УПД. None — если
+    сверять не с чем (не предоплата, нет API или баланс ЛК не получен)."""
+    if (
+        not counterparty.prepaid
+        or counterparty.api_provider == CounterpartyApiProvider.NONE
+        or counterparty.external_balance is None
+    ):
+        return None
+    return counterparty_balance(counterparty) - counterparty.external_balance
 
 
 def available_statement_lines(exclude_payment_id: int | None = None) -> list[BankStatementLine]:

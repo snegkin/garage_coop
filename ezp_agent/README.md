@@ -8,6 +8,8 @@
 - возвращает на сайт номер запроса, статус и ШПИ.
 
 Подробности — в докстринге `ezp_agent.py` и в `app/postal_letters.py`.
+Инструкция Почты по API ИС ЭПС (пункты, на которые ссылается код), —
+[`docs/`](docs/).
 
 Почему не на сервере сайта: ключ КЭП от ФНС неэкспортируемый, он есть только
 на токене. Токен нужен дважды: для подписи PDF и для TLS-рукопожатия с Почтой.
@@ -65,7 +67,7 @@
    | промежуточный «Федеральная налоговая служба» | `CA_FNS_Russia_2025_01.crt` | `2fef1770…` | *CA cert URL* в сертификате: `http://pki.tax.gov.ru/crt/ca_fns_russia_2025_01.crt` |
    | корневой ГОСТ «Минцифры России», до 2040 | `Mincifry_Rossii_root_guc2022.cer` | `2f0cb09b…` | `http://crl.gosuslugi.ru/cdp/guc2022.crt` |
 
-   Все три файла лежат в `instance/coop_certs/` сайта. Ставить их в
+   Все три файла лежат в [`certs/`](certs/README.md) (в git их нет). Ставить их в
    хранилища **компьютера** (`mRoot`/`mCA`), а не пользователя: тогда их
    видит и `ezp-agent`. Делается один раз:
    ```bash
@@ -85,7 +87,7 @@
      -container '\\.\Aktiv Rutoken lite 00 00\SCARD\…' -pem
    sudo install -m 0644 /tmp/client.cer /etc/ezp-agent/client.cer
    ```
-   Тот же файл уже лежит в репозитории сайта: `instance/coop_certs/gm-voshod.cer`.
+   Тот же файл — `certs/gm-voshod.cer`.
 
 6. **Письмо в Почту** — ezp.support-r00@russianpost.ru (п. 6.12.1.4
    инструкции). Приложить три сертификата из таблицы в п. 4, только

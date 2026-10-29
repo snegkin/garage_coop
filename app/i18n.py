@@ -2282,6 +2282,36 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "The header (court, {party}) and the \"{title}\" title are generated automatically from the records and printed separately — only the main text below is editable here.",
         "Заявление о вынесении судебного приказа": "Application for a court order",
         "о взыскании задолженности по членским (целевым) взносам и пени": "to recover debt on membership (special-purpose) dues and penalty",
+        # postal_letters — отправка через API ИС ЭПС агентом ЭЗП
+        "В очереди на отправку": "Queued for sending",
+        "Почта ещё не видит письмо": "Not yet seen by the Post",
+        "Принято Почтой": "Accepted by the Post",
+        "Обрабатывается Почтой": "Being processed by the Post",
+        "Доставлено в электронном виде": "Delivered electronically",
+        "Передано Почтой на печать": "Sent to print by the Post",
+        "Отклонено Почтой": "Rejected by the Post",
+        "Почта:": "Post:",
+        "через API, ждём статус Почты": "via API, waiting for Post status",
+        "Отправить через Почту (API)": "Send via the Post (API)",
+        "Убрать из очереди": "Remove from queue",
+        "Настройки API Почты": "Post API settings",
+        "Агент ЭЗП": "E-letter agent",
+        "ID отправителя": "Sender ID",
+        "Выпустить токен агента": "Issue agent token",
+        "Выпустить новый токен агента": "Issue a new agent token",
+        "Интеграционное тестирование": "Integration testing",
+        "Скачать тестовый комплект (.zip)": "Download test kit (.zip)",
+        "К заказным письмам": "Back to registered letters",
+        "Последний раз на связи:": "Last seen:",
+        "ни разу": "never",
+        "Поставлено в очередь: {n}. Агент ЭЗП на компьютере председателя подпишет и отправит их при следующем проходе.":
+            "Queued: {n}. The e-letter agent on the chairman's computer will sign and send them on its next run.",
+        "Письмо {reg} ({name}) не поставлено в очередь: {problems}.": "Letter {reg} ({name}) was not queued: {problems}.",
+        "Убрано из очереди: {n}.": "Removed from queue: {n}.",
+        "Агент ЭЗП не выходил на связь {n} мин. — проверьте, что компьютер председателя включён и Рутокен вставлен.":
+            "The e-letter agent has not checked in for {n} min — make sure the chairman's computer is on and the Rutoken is inserted.",
+        "Агент ЭЗП ещё ни разу не выходил на связь — письма из очереди не уйдут, пока он не запущен.":
+            "The e-letter agent has never checked in — queued letters will not be sent until it is running.",
     }
 }
 

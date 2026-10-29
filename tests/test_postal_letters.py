@@ -1,8 +1,9 @@
 """
-Заказные письма через Почту России (app/postal_letters.py, /postal-letters/) —
-задача минимум: формирование реестра .xls + PDF-писем для РУЧНОЙ загрузки в
-otpravka.pochta.ru, без прямой интеграции с API Почты (см. докстринг
-app/postal_letters.py). Первая версия — только уведомления о задолженности,
+Заказные письма через Почту России (app/postal_letters.py, /postal-letters/):
+реестр .xls + PDF-письма для ручной загрузки в otpravka.pochta.ru (запасной
+канал) и отправка через API ИС ЭПС агентом ЭЗП — очередь, метаданные
+commonInfo, API агента (основной канал, см. докстринг app/postal_letters.py;
+сам агент — tests/test_ezp_agent.py). Только уведомления о задолженности,
 тот же список должников, что и у app.legal_docs.debt_notice.
 """
 import datetime as dt
@@ -378,3 +379,252 @@ def test_list_links_names_and_row_forms_are_not_nested(db, client):
     bulk = html[html.index('id="postalBulkForm"'):]
     assert bulk.index("</form>") < bulk.index("mark-sent")
     assert 'form="postalBulkForm"' in html
+
+
+# ---------------------------------------------------------------------------
+# Отправка через API ИС ЭПС (агент ЭЗП)
+# ---------------------------------------------------------------------------
+
+import hashlib
+import json
+
+from app.postal_letters import split_full_name, build_common_info
+from app.models import PostalApiSettings
+
+AGENT_TOKEN = "agent-secret-token"
+
+
+def _api_settings(db, sender_id="1071", token=AGENT_TOKEN):
+    settings = PostalApiSettings(
+        sender_id=sender_id, agent_token_hash=hashlib.sha256(token.encode()).hexdigest() if token else None,
+    )
+    db.add(settings)
+    db.flush()
+    return settings
+
+
+def _agent(client, method, url, **kwargs):
+    return getattr(client, method)(url, headers={"Authorization": f"Bearer {AGENT_TOKEN}"}, **kwargs)
+
+
+def _new_draft(db, client, person):
+    client.post("/postal-letters/new", data={"person_id": [str(person.id)]})
+    return db.query(PostalDispatch).filter_by(person_id=person.id).one()
+
+
+def test_split_full_name():
+    assert split_full_name("Иванов Иван Иванович") == ("Иванов", "Иван", "Иванович")
+    assert split_full_name("Мамедов Рашид Гусейн оглы") == ("Мамедов", "Рашид", "Гусейн оглы")
+    assert split_full_name("Иванов Иван") == ("Иванов", "Иван", None)
+    assert split_full_name("Иванов") == ("Иванов", "", None)
+
+
+def test_build_common_info(db, client):
+    _make_coop(db)
+    _board_login(db, client)
+    settings = _api_settings(db)
+    person = _make_debtor(db, full_name="Должников Долг Долгович")
+    db.commit()
+    dispatch = _new_draft(db, client, person)
+
+    coop = db.query(Cooperative).first()
+    info = build_common_info(dispatch, coop, settings)
+    assert info["type"] == "REGISTERED"
+    assert info["postMark"] == 16384
+    assert info["mailRank"] == 0
+    assert "mailId" not in info  # ШПИ присваивает Почта
+    assert info["attachments"]["pdf"] == {"attachmentId": "letter.pdf", "attachmentSignatureId": "letter.pdf.sig"}
+    assert info["document"]["id"] == f"gsk-{dispatch.id}"
+    assert info["document"]["registrationNumber"] == dispatch.reg_number
+    assert info["document"]["registrationDate"] == f"{dt.date.today().isoformat()}T00:00:00"
+    assert info["sender"]["code"] == info["sender"]["departmentCode"] == "CODE_1071"
+    assert info["sender"]["name"] == "Тестовый гаражный кооператив"
+    assert info["sender"]["address"] == "123456, г. Тестоград, ул. Почтовая, д. 2"
+    assert info["recipient"]["countryCodeOKSM"] == 643
+    assert info["recipient"]["address"] == person.residence_address
+    assert info["recipient"]["person"] == {"lastName": "Должников", "firstName": "Долг", "patronymic": "Долгович"}
+
+
+def test_letter_pdf_is_pdfa(db, client, app):
+    _make_coop(db)
+    _board_login(db, client)
+    person = _make_debtor(db)
+    db.commit()
+    dispatch = _new_draft(db, client, person)
+    with open(os.path.join(app.config["UPLOAD_FOLDER"], dispatch.document.file_path), "rb") as f:
+        pdf = f.read()
+    assert b"pdfaid" in pdf  # XMP-метаданные PDF/A (п. 7.5 инструкции ИС ЭПС)
+
+
+def test_queue_skips_letters_with_problems(db, client):
+    _make_coop(db)
+    _board_login(db, client)
+    _api_settings(db)
+    good = _make_debtor(db, full_name="Хорошев Адрес Индексович")
+    bad = _make_debtor(db, full_name="Плохов Адрес Безиндексович")
+    bad.residence_address = "г. Тольятти, ул. Гаражная, д. 1"
+    db.commit()
+    good_d, bad_d = _new_draft(db, client, good), _new_draft(db, client, bad)
+
+    resp = client.post("/postal-letters/queue", data={"dispatch_id": [str(good_d.id), str(bad_d.id)]}, follow_redirects=True)
+    db.expire_all()
+    assert good_d.status == PostalDispatchStatus.QUEUED
+    assert good_d.queued_at is not None
+    assert bad_d.status == PostalDispatchStatus.DRAFT
+    assert "в адресе нет почтового индекса" in resp.get_data(as_text=True)
+
+    client.post("/postal-letters/unqueue", data={"dispatch_id": [str(good_d.id)]})
+    db.expire_all()
+    assert good_d.status == PostalDispatchStatus.DRAFT
+    assert good_d.queued_at is None
+
+
+def test_queue_requires_sender_id(db, client):
+    _make_coop(db)
+    _board_login(db, client)
+    _api_settings(db, sender_id=None)
+    person = _make_debtor(db)
+    db.commit()
+    dispatch = _new_draft(db, client, person)
+    client.post("/postal-letters/queue", data={"dispatch_id": [str(dispatch.id)]})
+    db.expire_all()
+    assert dispatch.status == PostalDispatchStatus.DRAFT
+
+
+def test_agent_endpoints_require_token(db, client):
+    _api_settings(db)
+    db.commit()
+    assert client.get("/postal-letters/agent/jobs").status_code == 401
+    assert client.get("/postal-letters/agent/jobs", headers={"Authorization": "Bearer wrong"}).status_code == 401
+    assert client.post("/postal-letters/agent/jobs/1/result", json={"request_code": "x"}).status_code == 401
+    assert _agent(client, "get", "/postal-letters/agent/jobs").status_code == 200
+
+
+def test_agent_full_cycle(db, client):
+    _make_coop(db)
+    _board_login(db, client)
+    _api_settings(db)
+    person = _make_debtor(db)
+    db.commit()
+    dispatch = _new_draft(db, client, person)
+    client.post("/postal-letters/queue", data={"dispatch_id": [str(dispatch.id)]})
+
+    jobs = _agent(client, "get", "/postal-letters/agent/jobs").get_json()
+    assert [j["id"] for j in jobs["send"]] == [dispatch.id]
+    assert jobs["send"][0]["common_info"]["document"]["id"] == f"gsk-{dispatch.id}"
+    assert jobs["poll"] == []
+    assert db.query(PostalApiSettings).one().agent_last_seen_at is not None
+
+    pdf = _agent(client, "get", jobs["send"][0]["pdf_path"])
+    assert pdf.status_code == 200 and pdf.data.startswith(b"%PDF")
+
+    resp = _agent(client, "post", f"/postal-letters/agent/jobs/{dispatch.id}/result", json={"request_code": "req_abc"})
+    assert resp.status_code == 200
+    db.expire_all()
+    assert dispatch.status == PostalDispatchStatus.SENT
+    assert dispatch.api_request_code == "req_abc"
+    assert dispatch.sent_at is not None
+    # повторный result для уже отправленного — 409, статус не трогаем
+    assert _agent(client, "post", f"/postal-letters/agent/jobs/{dispatch.id}/result", json={"request_code": "req_x"}).status_code == 409
+
+    jobs = _agent(client, "get", "/postal-letters/agent/jobs").get_json()
+    assert jobs["send"] == []
+    assert jobs["poll"] == [{"id": dispatch.id, "request_code": "req_abc"}]
+
+    _agent(client, "post", f"/postal-letters/agent/jobs/{dispatch.id}/status", json={"type": "IN_PROGRESS"})
+    db.expire_all()
+    assert dispatch.api_status == "IN_PROGRESS"
+    # IN_PROGRESS — следующий опрос не раньше чем через 30 минут
+    assert _agent(client, "get", "/postal-letters/agent/jobs").get_json()["poll"] == []
+    dispatch.api_checked_at = dt.datetime.utcnow() - dt.timedelta(minutes=31)
+    db.commit()
+    assert len(_agent(client, "get", "/postal-letters/agent/jobs").get_json()["poll"]) == 1
+
+    _agent(client, "post", f"/postal-letters/agent/jobs/{dispatch.id}/status",
+           json={"type": "ONLINE_DELIVERED", "mailId": "44512399000017", "acceptanceTimestamp": 1535015817000})
+    db.expire_all()
+    assert dispatch.status == PostalDispatchStatus.DELIVERED
+    assert dispatch.tracking_number == "44512399000017"
+    assert dispatch.delivered_at is not None
+    assert _agent(client, "get", "/postal-letters/agent/jobs").get_json()["poll"] == []
+
+    page = client.get("/postal-letters/").get_data(as_text=True)
+    assert "Доставлено в электронном виде" in page
+
+
+def test_agent_status_print_and_failed(db, client):
+    _make_coop(db)
+    _board_login(db, client)
+    _api_settings(db)
+    p1, p2 = _make_debtor(db, full_name="Печатнов Пётр Петрович"), _make_debtor(db, full_name="Отказов Олег Олегович")
+    db.commit()
+    d1, d2 = _new_draft(db, client, p1), _new_draft(db, client, p2)
+    client.post("/postal-letters/queue", data={"dispatch_id": [str(d1.id), str(d2.id)]})
+    for d in (d1, d2):
+        _agent(client, "post", f"/postal-letters/agent/jobs/{d.id}/result", json={"request_code": f"req_{d.id}"})
+
+    _agent(client, "post", f"/postal-letters/agent/jobs/{d1.id}/status", json={"type": "DELIVERED_TO_PRINT", "mailId": "1"})
+    _agent(client, "post", f"/postal-letters/agent/jobs/{d2.id}/status",
+           json={"type": "FAILED", "description": "Ошибка. Нет адреса в ФИАС", "errorCode": 61})
+    db.expire_all()
+    assert d1.status == PostalDispatchStatus.SENT and d1.tracking_number == "1"
+    assert d2.status == PostalDispatchStatus.FAILED
+    assert d2.comment == "Ошибка. Нет адреса в ФИАС (код 61)"
+    assert _agent(client, "get", "/postal-letters/agent/jobs").get_json()["poll"] == []
+
+
+def test_agent_result_error_marks_failed(db, client):
+    _make_coop(db)
+    _board_login(db, client)
+    _api_settings(db)
+    person = _make_debtor(db)
+    db.commit()
+    dispatch = _new_draft(db, client, person)
+    client.post("/postal-letters/queue", data={"dispatch_id": [str(dispatch.id)]})
+    _agent(client, "post", f"/postal-letters/agent/jobs/{dispatch.id}/result", json={"error": "Почта: некорректный запрос"})
+    db.expire_all()
+    assert dispatch.status == PostalDispatchStatus.FAILED
+    assert dispatch.comment == "Почта: некорректный запрос"
+
+
+def test_api_settings_token_shown_once_and_hashed(db, client):
+    _make_coop(db)
+    _board_login(db, client, username="chair", role=RoleEnum.CHAIRMAN)
+
+    resp = client.post("/postal-letters/api-settings", data={"sender_id": " 1071 "})
+    assert resp.status_code == 302
+    assert db.query(PostalApiSettings).one().sender_id == "1071"
+
+    resp = client.post("/postal-letters/api-settings", data={"issue_token": "1"})
+    page = resp.get_data(as_text=True)
+    settings = db.query(PostalApiSettings).one()
+    db.refresh(settings)
+    token = page.split('<code class="user-select-all fs-6">')[1].split("</code>")[0]
+    assert hashlib.sha256(token.encode()).hexdigest() == settings.agent_token_hash
+    assert token not in client.get("/postal-letters/api-settings").get_data(as_text=True)
+    assert client.get("/postal-letters/agent/jobs", headers={"Authorization": f"Bearer {token}"}).status_code == 200
+
+
+def test_api_settings_chairman_only(db, client):
+    _make_coop(db)
+    _board_login(db, client)
+    assert client.get("/postal-letters/api-settings").status_code == 302
+    assert client.get("/postal-letters/api-test-kit").status_code == 302
+
+
+def test_api_test_kit(db, client):
+    _make_coop(db)
+    _board_login(db, client, username="chair", role=RoleEnum.CHAIRMAN)
+    _api_settings(db)
+    db.commit()
+    resp = client.get("/postal-letters/api-test-kit")
+    assert resp.status_code == 200
+    with zipfile.ZipFile(io.BytesIO(resp.data)) as zf:
+        names = sorted(zf.namelist())
+        assert names == [f"test{n}/{f}" for n in (1, 2, 3) for f in ("commonInfo.json", "letter.pdf")]
+        infos = [json.loads(zf.read(f"test{n}/commonInfo.json")) for n in (1, 2, 3)]
+        assert zf.read("test1/letter.pdf").startswith(b"%PDF")
+    assert infos[0]["recipient"]["person"] == {"lastName": "Кузнецов", "firstName": "Кирилл", "patronymic": "Викторович"}
+    assert infos[2]["recipient"]["organization"] == {"name": "Тестовый ЮЛ ПР 3", "inn": "7700000051"}
+    assert len({i["document"]["id"] for i in infos}) == 3
+    assert db.query(PostalDispatch).count() == 0

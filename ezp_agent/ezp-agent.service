@@ -1,0 +1,23 @@
+# Агент ЭЗП — /etc/systemd/system/ezp-agent.service
+# systemctl daemon-reload && systemctl enable --now ezp-agent
+# Логи: journalctl -u ezp-agent -f
+[Unit]
+Description=Агент ЭЗП: подпись и отправка заказных писем через API Почты России
+Wants=network-online.target ezp-stunnel.service
+After=network-online.target pcscd.service ezp-stunnel.service
+
+[Service]
+Type=simple
+User=ezp-agent
+Group=ezp-agent
+ExecStart=/usr/bin/python3 /opt/ezp-agent/ezp_agent.py --config /etc/ezp-agent/ezp_agent.ini run --loop
+Restart=on-failure
+RestartSec=60
+# /run/ezp-agent (блокировка) и /var/lib/ezp-agent (журнал отправленного)
+RuntimeDirectory=ezp-agent
+StateDirectory=ezp-agent
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

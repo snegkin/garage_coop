@@ -3179,20 +3179,19 @@ class RevisionChatMessage(Base):
 
 
 # ---------------------------------------------------------------------------
-# Заказные письма через Почту России (см. app/postal_letters.py) — задача
-# минимум БЕЗ прямой интеграции с API Почты (ни ИС ЭПС «Система-Система»,
-# ни REST API «Отправка» для неё не подошли, см. докстринг postal_letters.py):
-# система только готовит Excel-реестр (.xls) + PDF-письма для РУЧНОЙ
-# загрузки в личный кабинет otpravka.pochta.ru, дальнейшие статусы
-# (отправлено/доставлено/ШПИ) правление вносит вручную по данным того же
-# личного кабинета.
+# Заказные письма через Почту России (см. app/postal_letters.py). Два канала:
+# основной — API ИС ЭПС «Система-Система» через агента на ПК председателя
+# (там Рутокен с КЭП: подпись PDF и ГОСТ-TLS до Почты, см. ezp_agent/),
+# статусы и ШПИ приходят сами; запасной — Excel-реестр (.xls) + PDF для
+# ручной загрузки в otpravka.pochta.ru, статусы правление вносит вручную.
 # ---------------------------------------------------------------------------
 
 class PostalDispatchStatus(str, enum.Enum):
     DRAFT = "draft"          # письмо сформировано, ещё не включено в экспорт
     EXPORTED = "exported"    # включено в скачанный ZIP-пакет для otpravka.pochta.ru
-    SENT = "sent"            # правление вручную подтвердило загрузку в ЛК Почты
-    DELIVERED = "delivered"  # доставлено (по данным ЛК Почты, ШПИ проставлен вручную)
+    QUEUED = "queued"        # ждёт, пока агент ЭЗП заберёт, подпишет и отправит через API
+    SENT = "sent"            # принято ИС ЭПС (requestCode) или вручную отмечено загруженным в ЛК Почты
+    DELIVERED = "delivered"  # доставлено (статус ИС ЭПС или вручную по ЛК Почты)
     FAILED = "failed"        # Почта отклонила / доставка не удалась
 
 
@@ -3233,9 +3232,34 @@ class PostalDispatch(Base):
     closing_text: Mapped[str | None] = mapped_column(Text)
     categories: Mapped[str | None] = mapped_column(Text)
 
+    # Отправка через API ИС ЭПС (агент ЭЗП): requestCode из ответа POST
+    # /letters, сырой статус из GET /letters/{requestCode}/status (ACCEPTED,
+    # ONLINE_DELIVERED…) и когда его последний раз спрашивали — по нему агент
+    # выдерживает рекомендованные Почтой интервалы опроса (п. 7.6.1).
+    queued_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
+    api_request_code: Mapped[str | None] = mapped_column(String(64))
+    api_status: Mapped[str | None] = mapped_column(String(32))
+    api_checked_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
+
     person: Mapped["Person"] = relationship()
     document: Mapped["Document | None"] = relationship()
     created_by: Mapped["User | None"] = relationship()
+
+
+class PostalApiSettings(Base):
+    """Единственная запись — подключение к API ИС ЭПС через агента ЭЗП
+    (ezp_agent/ на ПК председателя). ID и токен отправителя от Почты здесь
+    НЕ хранятся — они только в конфиге агента, запросы к Почте идёт он.
+    sender_id — тот же ID отправителя, но несекретный: из него собирается
+    sender.code = CODE_<id> в метаданных письма. agent_token_hash — sha256
+    токена, которым агент авторизуется на сайте (сам токен показывается
+    председателю один раз при выпуске)."""
+    __tablename__ = "postal_api_settings"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    sender_id: Mapped[str | None] = mapped_column(String(64))
+    agent_token_hash: Mapped[str | None] = mapped_column(String(64))
+    agent_last_seen_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
 
 
 class PostalLetterCounter(Base):

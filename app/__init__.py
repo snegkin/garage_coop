@@ -94,6 +94,7 @@ def create_app(config_class=Config):
     from . import postal_letters
     app.jinja_env.globals["status_label"] = postal_letters.status_label
     app.jinja_env.globals["status_badge"] = postal_letters.status_badge
+    app.jinja_env.globals["api_status_label"] = postal_letters.api_status_label
     # Чек-бокс «Актуальные» у таблиц лицевых счетов (persons/detail.html,
     # garages/detail.html, finance/member_accounts.html) — см. models.py:
     # CORE_FEE_TYPE_CODES.
@@ -258,7 +259,7 @@ def create_app(config_class=Config):
     from .board_chat import bp as board_chat_bp
     from .revision_chat import bp as revision_chat_bp
     from .legal_docs import bp as legal_docs_bp
-    from .postal_letters import bp as postal_letters_bp
+    from .postal_letters import bp as postal_letters_bp, agent_bp as postal_agent_bp
     from .annual_reports import bp as annual_reports_bp
     from .system_logs import bp as system_logs_bp
 
@@ -296,6 +297,9 @@ def create_app(config_class=Config):
     app.register_blueprint(revision_chat_bp)
     app.register_blueprint(legal_docs_bp)
     app.register_blueprint(postal_letters_bp)
+    # Агент ЭЗП ходит со своим Bearer-токеном, без сессии и CSRF-токена формы.
+    csrf.exempt(postal_agent_bp)
+    app.register_blueprint(postal_agent_bp)
     app.register_blueprint(annual_reports_bp)
     app.register_blueprint(system_logs_bp)
 

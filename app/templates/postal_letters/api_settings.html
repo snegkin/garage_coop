@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Настройки API Почты") }}{% endblock %}
+{% block content %}
+<a href="{{ url_for('postal_letters.list_view') }}" data-back-link>{{ _("К заказным письмам") }}</a>
+<h3 class="mt-2">{{ _("Отправка заказных писем через API Почты (ИС ЭПС)") }}</h3>
+<p class="text-muted">
+  {{ _("Письма подписывает и отправляет агент ЭЗП на компьютере председателя: там Рутокен с КЭП кооператива, нужный и для подписи PDF, и для защищённого канала до Почты. Агент сам забирает с сайта очередь писем и возвращает статусы. ID и токен отправителя от Почты вписываются только в конфиг агента, на сайте их нет. Установка агента — ezp_agent/README.md в репозитории.") }}
+</p>
+
+<div class="card mb-3">
+  <div class="card-body">
+    <h5 class="card-title">{{ _("Агент ЭЗП") }}</h5>
+    <p class="mb-2">
+      {{ _("Последний раз на связи:") }}
+      {% if settings.agent_last_seen_at %}<span data-utc-datetime="{{ settings.agent_last_seen_at.isoformat() }}Z">{{ fmt_date(settings.agent_last_seen_at) }} {{ settings.agent_last_seen_at.strftime("%H:%M") }}</span>
+      {% else %}{{ _("ни разу") }}{% endif %}
+    </p>
+    {% if new_token %}
+    <div class="alert alert-success">
+      <div class="mb-1">{{ _("Токен агента (agent_token в /etc/ezp-agent/ezp_agent.ini) — показывается один раз:") }}</div>
+      <code class="user-select-all fs-6">{{ new_token }}</code>
+    </div>
+    {% endif %}
+    <form method="post">
+      <button class="btn btn-outline-primary" name="issue_token" value="1"
+              {% if settings.agent_token_hash %}onclick="return confirm('{{ _('Выпустить новый токен? Старый перестанет работать, агент не сможет войти, пока не впишете новый в его конфиг.') }}')"{% endif %}>
+        {{ _("Выпустить новый токен агента") if settings.agent_token_hash else _("Выпустить токен агента") }}
+      </button>
+    </form>
+  </div>
+</div>
+
+<div class="card mb-3">
+  <div class="card-body">
+    <h5 class="card-title">{{ _("ID отправителя") }}</h5>
+    <p class="text-muted small">{{ _("Идентификатор отправителя, который выдала Почта вместе с токеном (тот же, что ezp_id в конфиге агента). Из него собирается код отправителя CODE_<ID> в метаданных письма. Для интеграционного теста и для продуктива Почта выдаёт разные ID — при переходе поменяйте здесь и в конфиге агента.") }}</p>
+    <form method="post" class="d-flex gap-2 flex-wrap align-items-end">
+      <div>
+        <input class="form-control" name="sender_id" value="{{ settings.sender_id or '' }}" placeholder="1071">
+      </div>
+      <button class="btn btn-primary">{{ _("Сохранить") }}</button>
+    </form>
+  </div>
+</div>
+
+<div class="card mb-3">
+  <div class="card-body">
+    <h5 class="card-title">{{ _("Интеграционное тестирование") }}</h5>
+    <p class="text-muted small">{{ _("Перед продуктивом Почта просит отправить три тестовых письма тестовым получателям (п. 6.12.1 инструкции). Комплект — три PDF тем же шаблоном, что и настоящие письма, с метаданными к каждому; отправляет агент командой «ezp_agent.py send-file». В журнал писем они не попадают.") }}</p>
+    <a class="btn btn-outline-secondary {{ 'disabled' if not settings.sender_id }}" href="{{ url_for('postal_letters.api_test_kit') }}">{{ _("Скачать тестовый комплект (.zip)") }}</a>
+  </div>
+</div>
+{% endblock %}

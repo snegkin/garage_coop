@@ -1,0 +1,22 @@
+# ГОСТ-TLS туннель до ИС ЭПС (stunnel из пакета cprocsp-stunnel КриптоПро) —
+# /etc/systemd/system/ezp-stunnel.service
+# systemctl daemon-reload && systemctl enable --now ezp-stunnel
+# Запускается от того же пользователя, что и агент: клиентский ключ берётся
+# из его хранилища (сертификат установлен через certmgr -inst от ezp-agent).
+[Unit]
+Description=stunnel КриптоПро до ИС ЭПС Почты России
+Wants=network-online.target
+After=network-online.target pcscd.service
+
+[Service]
+Type=simple
+User=ezp-agent
+Group=ezp-agent
+# Путь — как ставит пакет cprocsp-stunnel (проверьте: ls /opt/cprocsp/sbin/amd64/stunnel*)
+ExecStart=/opt/cprocsp/sbin/amd64/stunnel_thread /etc/ezp-agent/stunnel.conf
+Restart=on-failure
+RestartSec=30
+RuntimeDirectory=ezp-stunnel
+
+[Install]
+WantedBy=multi-user.target

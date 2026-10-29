@@ -1,6 +1,6 @@
 import datetime as dt
 
-from flask import Blueprint, render_template, request, redirect, url_for, flash, abort, current_app
+from flask import Blueprint, render_template, request, redirect, url_for, flash, abort, current_app, jsonify
 from werkzeug.utils import secure_filename
 
 from . import database
@@ -8,12 +8,13 @@ from . import audit
 from .i18n import translate as _, parse_decimal, parse_optional_decimal as _parse_decimal
 from .auth import roles_required
 from .models import (
-    Counterparty, CounterpartyApiProvider, CounterpartyApiCredential, Expense, CounterpartyPayment, ReconciliationAct,
+    Counterparty, CounterpartyApiProvider, CounterpartyApiCredential, Expense, ExpenseKind, CounterpartyPayment, ReconciliationAct,
     BALANCE_SYNC_INTERVAL_CHOICES,
     BankAccount, BankStatementLine, Document, DocumentType, RoleEnum,
 )
 from .accounting import (
-    counterparty_balance, reallocate_counterparty_expenses, pay_counterparty,
+    counterparty_balance, counterparty_amount_to_pay, counterparty_unbilled_usage,
+    reallocate_counterparty_expenses, pay_counterparty,
     expense_paid_amount, edit_counterparty_payment, edit_counterparty_payment_details,
     reverse_counterparty_payment, delete_counterparty_payment_reversal,
     available_statement_lines, resolve_statement_line,
@@ -104,6 +105,25 @@ def _parse_balance_sync_interval(value: str | None) -> int:
     return days if days in BALANCE_SYNC_INTERVAL_CHOICES else 1
 
 
+def _parse_expense_kind(counterparty: Counterparty, value: str | None) -> ExpenseKind:
+    """Вид расхода из формы. Выбор есть только у контрагента на предоплате
+    (по умолчанию — счёт на оплату); у остальных всегда начисление, что бы
+    ни пришло в POST."""
+    if not counterparty.prepaid:
+        return ExpenseKind.CHARGE
+    try:
+        return ExpenseKind(value)
+    except ValueError:
+        return ExpenseKind.INVOICE
+
+
+def _expense_document_args(counterparty: Counterparty, kind: ExpenseKind) -> tuple[str, DocumentType]:
+    """Заголовок по умолчанию и тип документа для файлов расхода."""
+    if kind == ExpenseKind.INVOICE:
+        return _("Счёт от {name}", name=counterparty.name), DocumentType.INVOICE
+    return _("Акт/УПД от {name}", name=counterparty.name), DocumentType.UTD
+
+
 @bp.route("/")
 @roles_required(RoleEnum.BOARD)
 def list_counterparties():
@@ -129,6 +149,7 @@ def create():
         opening_balance_date=dt.date.fromisoformat(f["opening_balance_date"]) if f.get("opening_balance_date") else None,
         api_provider=_parse_api_provider(f.get("api_provider")),
         balance_sync_interval_days=_parse_balance_sync_interval(f.get("balance_sync_interval_days")),
+        prepaid=bool(f.get("prepaid")),
     )
     database.db_session.add(counterparty)
     database.db_session.flush()
@@ -159,6 +180,17 @@ def edit(counterparty_id):
     counterparty.opening_balance_date = dt.date.fromisoformat(opening_date) if opening_date else None
     counterparty.api_provider = _parse_api_provider(f.get("api_provider"))
     counterparty.balance_sync_interval_days = _parse_balance_sync_interval(f.get("balance_sync_interval_days"))
+    prepaid = bool(f.get("prepaid"))
+    if counterparty.prepaid and not prepaid and any(e.kind == ExpenseKind.INVOICE for e in counterparty.expenses):
+        # Счёт на оплату без предоплаты не имеет смысла (у постоплатного всё
+        # — начисления), а молча превратить счета в долг было бы хуже.
+        database.db_session.rollback()
+        flash(_("Нельзя снять «Предоплата» — у контрагента есть счета на оплату. Сначала переведите их в акты/УПД или удалите."), "danger")
+        return redirect(url_for("counterparties.list_counterparties"))
+    if prepaid != counterparty.prepaid:
+        counterparty.prepaid = prepaid
+        database.db_session.flush()
+        reallocate_counterparty_expenses(counterparty)
     audit.record("counterparty.edit", f"Изменены данные контрагента: {counterparty.name}", entity_type="counterparty", entity_id=counterparty.id)
     database.db_session.commit()
     flash(_("Данные контрагента обновлены."), "success")
@@ -267,10 +299,19 @@ def detail(counterparty_id):
     # показать текущий выбор как selected.
     referenceable_statement_lines = available_statement_lines(last_payment_id)
 
+    # Баланс по нашим данным на конец периода каждого акта сверки — чтобы
+    # видеть, сходится ли акт с тем, что в системе сейчас (задним числом
+    # могли добавить/поправить расходы и платежи после подписания акта).
+    act_ledger_balance = {a.id: counterparty_balance(counterparty, as_of=a.period_end) for a in acts}
+
     return render_template(
         "counterparties/detail.html",
         counterparty=counterparty,
         balance=counterparty_balance(counterparty),
+        amount_to_pay=counterparty_amount_to_pay(counterparty),
+        unbilled_usage=counterparty_unbilled_usage(counterparty),
+        act_ledger_balance=act_ledger_balance,
+        expense_kinds=ExpenseKind,
         expenses=expenses,
         payments=payments,
         acts=acts,
@@ -294,27 +335,30 @@ def add_expense(counterparty_id):
     f = request.form
     expense_date = dt.date.fromisoformat(f["date"])
     expense_amount = parse_decimal(f["amount"])
+    kind = _parse_expense_kind(counterparty, f.get("kind"))
     expense = Expense(
         counterparty_id=counterparty.id,
         date=expense_date,
         amount=expense_amount,
         category=f.get("category") or None,
         description=f.get("description") or None,
+        kind=kind,
     )
     database.db_session.add(expense)
     database.db_session.flush()
+    default_title, doc_type = _expense_document_args(counterparty, kind)
     _save_expense_documents(
-        "document_file", "document_title",
-        _("Счёт от {name}", name=counterparty.name), counterparty, expense,
+        "document_file", "document_title", default_title, counterparty, expense, doc_type,
     )
     reallocate_counterparty_expenses(counterparty)
+    label = "Счёт на оплату" if kind == ExpenseKind.INVOICE else "Расход"
     audit.record(
         "expense.create", entity_type="counterparty", entity_id=counterparty.id,
-        summary=f"Расход {audit.format_amount(expense_amount)} — {counterparty.name}, "
+        summary=f"{label} {audit.format_amount(expense_amount)} — {counterparty.name}, "
                 f"{audit.format_date(expense_date)}",
     )
     database.db_session.commit()
-    flash(_("Расход добавлен."), "success")
+    flash(_("Счёт на оплату добавлен.") if kind == ExpenseKind.INVOICE else _("Расход добавлен."), "success")
     return redirect(url_for("counterparties.detail", counterparty_id=counterparty.id))
 
 
@@ -344,9 +388,10 @@ def edit_expense(counterparty_id, expense_id):
     expense.amount = parse_decimal(f["amount"])
     expense.category = f.get("category") or None
     expense.description = f.get("description") or None
+    expense.kind = _parse_expense_kind(counterparty, f.get("kind"))
+    default_title, doc_type = _expense_document_args(counterparty, expense.kind)
     _save_expense_documents(
-        "document_file", "document_title",
-        _("Счёт от {name}", name=counterparty.name), counterparty, expense,
+        "document_file", "document_title", default_title, counterparty, expense, doc_type,
     )
     database.db_session.flush()
     reallocate_counterparty_expenses(counterparty)
@@ -376,11 +421,11 @@ def add_payment(counterparty_id):
         # форме, показывающий именно эту сумму); если долга нет, пустое
         # поле ничего не означает — сумму нужно указать явно. Тот же приём,
         # что и у finance.add_member_payment.
-        current_balance = counterparty_balance(counterparty)
-        if current_balance >= 0:
+        # У контрагента на предоплате «долг» — это неоплаченные счета.
+        amount = counterparty_amount_to_pay(counterparty)
+        if amount <= 0:
             flash(_("Укажите сумму платежа — задолженности перед контрагентом нет, чтобы закрыть её пустым полем."), "danger")
             return redirect(url_for("counterparties.detail", counterparty_id=counterparty.id))
-        amount = -current_balance
     if amount <= 0:
         flash(_("Сумма платежа должна быть больше нуля."), "danger")
         return redirect(url_for("counterparties.detail", counterparty_id=counterparty.id))
@@ -561,6 +606,21 @@ def delete_reversal(counterparty_id, payment_id):
     return redirect(url_for("counterparties.detail", counterparty_id=counterparty.id))
 
 
+@bp.route("/<int:counterparty_id>/balance")
+@roles_required(RoleEnum.BOARD)
+def balance_as_of(counterparty_id):
+    """Баланс расчётов на дату (?as_of=YYYY-MM-DD) — подставляется в поле
+    «Наш баланс» формы акта сверки при смене даты окончания периода."""
+    counterparty = database.db_session.get(Counterparty, counterparty_id)
+    if counterparty is None:
+        abort(404)
+    try:
+        as_of = dt.date.fromisoformat(request.args.get("as_of", ""))
+    except ValueError:
+        abort(400)
+    return jsonify(balance=str(counterparty_balance(counterparty, as_of=as_of)))
+
+
 @bp.route("/<int:counterparty_id>/reconciliation/new", methods=["POST"])
 @roles_required(RoleEnum.BOARD)
 def add_reconciliation_act(counterparty_id):
@@ -577,7 +637,10 @@ def add_reconciliation_act(counterparty_id):
         counterparty_id=counterparty.id,
         period_start=dt.date.fromisoformat(f["period_start"]),
         period_end=dt.date.fromisoformat(f["period_end"]),
-        our_balance=_parse_decimal(f.get("our_balance")) if f.get("our_balance") else counterparty_balance(counterparty),
+        our_balance=(
+            _parse_decimal(f.get("our_balance")) if f.get("our_balance")
+            else counterparty_balance(counterparty, as_of=dt.date.fromisoformat(f["period_end"]))
+        ),
         counterparty_balance=_parse_decimal(f.get("counterparty_balance")),
         document_id=document_id,
         comment=f.get("comment") or None,

@@ -38,8 +38,12 @@
         <div class="text-muted">{{ _("Баланс расчётов") }}</div>
         <div class="fs-1 {{ 'text-danger' if balance < 0 else 'text-success' }}">{{ fmt2(balance) }} ₽</div>
         <div class="text-muted small">
-          {% if balance < 0 %}{{ _("кооператив должен контрагенту") }}{% elif balance > 0 %}{{ _("переплата в пользу кооператива") }}{% else %}{{ _("расчёты закрыты") }}{% endif %}
+          {% if balance < 0 %}{{ _("кооператив должен контрагенту") }}{% elif balance > 0 %}{{ _("аванс у контрагента") if counterparty.prepaid else _("переплата в пользу кооператива") }}{% else %}{{ _("расчёты закрыты") }}{% endif %}
         </div>
+        {% if counterparty.prepaid %}
+        <div class="text-muted small mt-2">{{ _("Предоплата: счета на оплату баланс не меняют, его уменьшают только акты/УПД.") }}</div>
+        {% if amount_to_pay > 0 %}<div class="small text-danger">{{ _("Не оплачено по счетам: {amount} ₽", amount=fmt2(amount_to_pay)) }}</div>{% endif %}
+        {% endif %}
       </div>
     </div>
   </div>
@@ -63,6 +67,15 @@
         </div>
       {% else %}
         <div class="text-muted">{{ _("ещё не обновлялся") }}</div>
+      {% endif %}
+      {% if unbilled_usage is not none %}
+        {% if unbilled_usage > 0 %}
+        <div class="small text-warning-emphasis">{{ _("Аванс по расчётам {ledger} ₽, в ЛК {lk} ₽ — ≈{diff} ₽ израсходовано, акты/УПД ещё не загружены.", ledger=fmt2(balance), lk=fmt2(counterparty.external_balance), diff=fmt2(unbilled_usage)) }}</div>
+        {% elif unbilled_usage < 0 %}
+        <div class="small text-warning-emphasis">{{ _("В ЛК на {diff} ₽ больше, чем аванс по расчётам ({ledger} ₽) — проверьте, все ли платежи внесены и не загружены ли лишние акты.", ledger=fmt2(balance), diff=fmt2(-unbilled_usage)) }}</div>
+        {% else %}
+        <div class="small text-success">{{ _("✓ сходится с балансом расчётов") }}</div>
+        {% endif %}
       {% endif %}
       {% if counterparty.external_balance_error %}
         <div class="text-danger small">{{ _("Последняя ошибка") }}: {{ counterparty.external_balance_error }}</div>
@@ -148,17 +161,21 @@
 </div>
 {% endif %}
 <table class="table table-sm bg-body sortable mb-2" id="expensesTable" data-page-size="15">
-  <thead><tr><th>{{ _("Дата") }}</th><th>{{ _("Категория") }}</th><th>{{ _("Описание") }}</th><th>{{ _("Сумма") }}</th><th>{{ _("Оплачено") }}</th><th class="no-sort text-end">{{ _("Счёт/УПД") }}</th><th class="no-sort text-end">{{ _("Действия") }}</th></tr></thead>
+  <thead><tr><th>{{ _("Дата") }}</th><th>{{ _("Категория") }}</th><th>{{ _("Описание") }}</th><th>{{ _("Сумма") }}</th><th>{{ _("Оплачено") }}</th><th class="no-sort text-end">{{ _("Документ") }}</th><th class="no-sort text-end">{{ _("Действия") }}</th></tr></thead>
   <tbody>
     {% for e in expenses %}
     <tr data-filter-text="{{ ((e.category or '') ~ ' ' ~ (e.description or '') ~ ' ' ~ e.amount)|lower }}">
       <td data-sort-value="{{ e.date.isoformat() }}">{{ fmt_date(e.date) }}</td>
-      <td>{{ e.category or "—" }}</td>
+      <td>
+        {% if counterparty.prepaid %}<span class="badge {{ 'bg-info text-dark' if e.kind.value == 'INVOICE' else 'bg-secondary' }} me-1">{{ _("счёт") if e.kind.value == "INVOICE" else _("акт/УПД") }}</span>{% endif %}
+        {{ e.category or "—" }}
+      </td>
       <td>{{ e.description or "—" }}</td>
       <td data-sort-value="{{ e.amount }}">{{ fmt2(e.amount) }} ₽</td>
       <td data-sort-value="{{ expense_paid.get(e.id, 0) }}">
         {% set paid = expense_paid.get(e.id, 0) %}
-        {% if paid >= e.amount %}<span class="badge bg-success">{{ _("оплачено") }}</span>
+        {% if counterparty.prepaid and e.kind.value == "CHARGE" %}<span class="text-muted small">{{ _("списано с аванса") }}</span>
+        {% elif paid >= e.amount %}<span class="badge bg-success">{{ _("оплачено") }}</span>
         {% elif paid > 0 %}<span class="badge bg-warning text-dark">{{ fmt2(paid) }} {{ _("из") }} {{ fmt2(e.amount) }} ₽</span>
         {% else %}<span class="badge bg-danger">{{ _("не оплачено") }}</span>{% endif %}
       </td>
@@ -259,11 +276,19 @@
     {% for a in acts %}
     <tr data-filter-text="{{ ((a.our_balance|string if a.our_balance is not none else '') ~ ' ' ~ (a.counterparty_balance|string if a.counterparty_balance is not none else '') ~ ' ' ~ (a.comment or ''))|lower }}">
       <td data-sort-value="{{ a.period_end.isoformat() }}">{{ fmt_date(a.period_start) }} — {{ fmt_date(a.period_end) }}</td>
-      <td>{{ (fmt2(a.our_balance) ~ " ₽") if a.our_balance is not none else "—" }}</td>
+      <td>
+        {{ (fmt2(a.our_balance) ~ " ₽") if a.our_balance is not none else "—" }}
+        {% set ledger = act_ledger_balance[a.id] %}
+        {% if a.our_balance is not none and a.our_balance != ledger %}
+          <div class="small text-warning-emphasis" title="{{ _('Расходы или платежи за этот период меняли уже после внесения акта') }}">{{ _("сейчас в системе на эту дату: {amount} ₽", amount=fmt2(ledger)) }}</div>
+        {% endif %}
+      </td>
       <td>
         {{ (fmt2(a.counterparty_balance) ~ " ₽") if a.counterparty_balance is not none else "—" }}
         {% if a.our_balance is not none and a.counterparty_balance is not none and a.our_balance != a.counterparty_balance %}
-          <span class="badge bg-warning text-dark ms-1">{{ _("расхождение") }}</span>
+          <span class="badge bg-warning text-dark ms-1">{{ _("расхождение {amount} ₽", amount=fmt2(a.our_balance - a.counterparty_balance)) }}</span>
+        {% elif a.our_balance is not none and a.counterparty_balance is not none %}
+          <span class="text-success small ms-1">{{ _("✓ сходится") }}</span>
         {% endif %}
       </td>
       <td>{{ a.comment or "—" }}</td>
@@ -358,6 +383,15 @@
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body">
+          {% if counterparty.prepaid %}
+          <div class="mb-3">
+            <label class="form-label">{{ _("Что это") }}</label>
+            <select class="form-select" name="kind">
+              <option value="INVOICE" selected>{{ _("Счёт на оплату — баланс не меняет") }}</option>
+              <option value="CHARGE">{{ _("Акт / УПД — услуга оказана, списывается с аванса") }}</option>
+            </select>
+          </div>
+          {% endif %}
           <div class="row g-2 mb-3">
             <div class="col-6">
               <label class="form-label">{{ _("Дата") }}</label>
@@ -377,7 +411,7 @@
             <textarea class="form-control" name="description"></textarea>
           </div>
           <div class="mb-3">
-            <label class="form-label">{{ _("Счёт / УПД от контрагента") }}</label>
+            <label class="form-label">{{ _("Счёт / акт / УПД от контрагента") }}</label>
             <input class="form-control" type="file" name="document_file" multiple>
             <div class="form-text">{{ _("Можно выбрать сразу несколько файлов — например, когда услуга оформлена контрагентом двумя разными УПД (счёт-фактурами).") }}</div>
           </div>
@@ -403,6 +437,15 @@
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body">
+          {% if counterparty.prepaid %}
+          <div class="mb-3">
+            <label class="form-label">{{ _("Что это") }}</label>
+            <select class="form-select" name="kind">
+              <option value="INVOICE" {{ "selected" if e.kind.value == "INVOICE" }}>{{ _("Счёт на оплату — баланс не меняет") }}</option>
+              <option value="CHARGE" {{ "selected" if e.kind.value == "CHARGE" }}>{{ _("Акт / УПД — услуга оказана, списывается с аванса") }}</option>
+            </select>
+          </div>
+          {% endif %}
           <div class="row g-2 mb-3">
             <div class="col-6">
               <label class="form-label">{{ _("Дата") }}</label>
@@ -422,7 +465,7 @@
             <textarea class="form-control" name="description">{{ e.description or "" }}</textarea>
           </div>
           <div class="mb-3">
-            <label class="form-label">{{ _("Счёт / УПД от контрагента") }}</label>
+            <label class="form-label">{{ _("Счёт / акт / УПД от контрагента") }}</label>
             {% if e.documents %}
             <div class="form-text mb-1">
               {{ _("Уже прикреплено:") }}
@@ -461,8 +504,8 @@
             </div>
             <div class="col-6">
               <label class="form-label">{{ _("Сумма, ₽") }}</label>
-              <input class="form-control" type="text" inputmode="decimal" name="amount" placeholder="{{ fmt2(-balance) if balance < 0 else _('сумма') }}">
-              {% if balance < 0 %}<div class="form-text">{{ _("Пусто — закрыть весь долг ({amount} ₽).", amount=fmt2(-balance)) }}</div>{% endif %}
+              <input class="form-control" type="text" inputmode="decimal" name="amount" placeholder="{{ fmt2(amount_to_pay) if amount_to_pay > 0 else _('сумма') }}">
+              {% if amount_to_pay > 0 %}<div class="form-text">{{ _("Пусто — оплатить все неоплаченные счета ({amount} ₽).", amount=fmt2(amount_to_pay)) if counterparty.prepaid else _("Пусто — закрыть весь долг ({amount} ₽).", amount=fmt2(amount_to_pay)) }}</div>{% endif %}
             </div>
           </div>
           <div class="mb-3">
@@ -662,14 +705,14 @@
             </div>
             <div class="col-6">
               <label class="form-label">{{ _("по") }}</label>
-              <input class="form-control" type="date" name="period_end" value="{{ today }}" required>
+              <input class="form-control" type="date" name="period_end" value="{{ today }}" required data-balance-url="{{ url_for('counterparties.balance_as_of', counterparty_id=counterparty.id) }}">
             </div>
           </div>
           <div class="row g-2 mb-3">
             <div class="col-6">
               <label class="form-label">{{ _("Наш баланс, ₽") }}</label>
               <input class="form-control" type="text" inputmode="decimal" name="our_balance" value="{{ balance }}">
-              <div class="form-text">{{ _("По умолчанию — текущий расчётный баланс.") }}</div>
+              <div class="form-text">{{ _("По умолчанию — баланс расчётов на дату окончания периода.") }}</div>
             </div>
             <div class="col-6">
               <label class="form-label">{{ _("Баланс по данным контрагента, ₽") }}</label>
@@ -776,6 +819,19 @@
   // кандидатах без точного совпадения по сумме ничего не выбираем, решает
   // человек. Правки существующих платежей не трогаем — там уже есть свой
   // осознанный выбор (или explicit "не указана").
+  // «Наш баланс» в форме акта сверки — баланс расчётов на дату окончания
+  // периода (counterparties.balance_as_of), пересчитывается при смене даты.
+  var periodEndInput = document.querySelector('#addActModal input[name="period_end"]');
+  if (periodEndInput) {
+    periodEndInput.addEventListener("change", function () {
+      if (!periodEndInput.value) return;
+      var ourBalanceInput = document.querySelector('#addActModal input[name="our_balance"]');
+      fetch(periodEndInput.dataset.balanceUrl + "?as_of=" + encodeURIComponent(periodEndInput.value))
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (data) { if (data) ourBalanceInput.value = data.balance; });
+    });
+  }
+
   var newPaymentModalEl = document.getElementById("addPaymentModal");
   if (newPaymentModalEl) {
     var counterpartyInn = "{{ counterparty.inn or '' }}";

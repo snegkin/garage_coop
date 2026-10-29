@@ -389,19 +389,13 @@
     <div class="modal-content">
       <form method="post" action="{{ url_for('counterparties.add_expense', counterparty_id=counterparty.id) }}" enctype="multipart/form-data">
         <div class="modal-header">
-          <h5 class="modal-title">{{ _("Новый расход") }}</h5>
+          {# Вид (kind) у предоплатного контрагента задаёт кнопка «+ Добавить»
+             той таблицы, из которой открыта форма (см. скрипт ниже). #}
+          <h5 class="modal-title" data-title-invoice="{{ _('Новый счёт на оплату') }}" data-title-charge="{{ _('Новый акт / УПД') }}">{{ _("Новый расход") }}</h5>
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body">
-          {% if counterparty.prepaid %}
-          <div class="mb-3">
-            <label class="form-label">{{ _("Что это") }}</label>
-            <select class="form-select" name="kind">
-              <option value="INVOICE" selected>{{ _("Счёт на оплату — баланс не меняет") }}</option>
-              <option value="CHARGE">{{ _("Акт / УПД — услуга оказана, списывается с аванса") }}</option>
-            </select>
-          </div>
-          {% endif %}
+          {% if counterparty.prepaid %}<input type="hidden" name="kind" value="INVOICE">{% endif %}
           <div class="row g-2 mb-3">
             <div class="col-6">
               <label class="form-label">{{ _("Дата") }}</label>
@@ -443,19 +437,10 @@
     <div class="modal-content">
       <form method="post" action="{{ url_for('counterparties.edit_expense', counterparty_id=counterparty.id, expense_id=e.id) }}" enctype="multipart/form-data">
         <div class="modal-header">
-          <h5 class="modal-title">{{ _("Изменить расход") }}</h5>
+          <h5 class="modal-title">{% if counterparty.prepaid %}{{ _("Изменить счёт на оплату") if e.kind.value == "INVOICE" else _("Изменить акт / УПД") }}{% else %}{{ _("Изменить расход") }}{% endif %}</h5>
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body">
-          {% if counterparty.prepaid %}
-          <div class="mb-3">
-            <label class="form-label">{{ _("Что это") }}</label>
-            <select class="form-select" name="kind">
-              <option value="INVOICE" {{ "selected" if e.kind.value == "INVOICE" }}>{{ _("Счёт на оплату — баланс не меняет") }}</option>
-              <option value="CHARGE" {{ "selected" if e.kind.value == "CHARGE" }}>{{ _("Акт / УПД — услуга оказана, списывается с аванса") }}</option>
-            </select>
-          </div>
-          {% endif %}
           <div class="row g-2 mb-3">
             <div class="col-6">
               <label class="form-label">{{ _("Дата") }}</label>
@@ -488,10 +473,20 @@
           </div>
         </div>
         <div class="modal-footer d-flex justify-content-end">
+          {% if counterparty.prepaid %}
+          {# Отдельная форма (вложенные <form> нельзя) — для записей, попавших
+             не в ту таблицу, в т.ч. счетов, внесённых до появления предоплаты. #}
+          <button type="submit" form="moveExpenseForm{{ e.id }}" class="btn btn-outline-secondary me-auto">
+            {{ _("Перенести в акты / УПД") if e.kind.value == "INVOICE" else _("Перенести в счета на оплату") }}
+          </button>
+          {% endif %}
           <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
           <button class="btn btn-primary">{{ _("Сохранить") }}</button>
         </div>
       </form>
+      {% if counterparty.prepaid %}
+      <form id="moveExpenseForm{{ e.id }}" method="post" action="{{ url_for('counterparties.move_expense', counterparty_id=counterparty.id, expense_id=e.id) }}" class="d-none"></form>
+      {% endif %}
     </div>
   </div>
 </div>
@@ -843,13 +838,17 @@
   }
 
   // Две таблицы у предоплатного контрагента (счета / акты) открывают одну
-  // и ту же форму нового расхода — вид подставляется кнопкой «+ Добавить».
+  // и ту же форму нового расхода — вид (скрытое поле kind) и заголовок
+  // подставляются по кнопке «+ Добавить», из которой её открыли.
   var addExpenseModalEl = document.getElementById("addExpenseModal");
   if (addExpenseModalEl) {
     addExpenseModalEl.addEventListener("show.bs.modal", function (event) {
-      var kindSelect = addExpenseModalEl.querySelector('select[name="kind"]');
+      var kindInput = addExpenseModalEl.querySelector('input[name="kind"]');
       var kind = event.relatedTarget && event.relatedTarget.dataset.expenseKind;
-      if (kindSelect && kind) kindSelect.value = kind;
+      if (!kindInput || !kind) return;
+      kindInput.value = kind;
+      var title = addExpenseModalEl.querySelector(".modal-title");
+      title.textContent = kind === "INVOICE" ? title.dataset.titleInvoice : title.dataset.titleCharge;
     });
   }
 

@@ -13,7 +13,8 @@ from app.accounting import (
     counterparty_balance, counterparty_amount_to_pay, counterparty_unbilled_usage, expense_paid_amount,
 )
 from app.models import (
-    RoleEnum, Counterparty, CounterpartyApiProvider, CounterpartyPayment, Expense, ExpenseKind, ReconciliationAct,
+    RoleEnum, Counterparty, CounterpartyApiProvider, CounterpartyPayment, Document, DocumentType, Expense, ExpenseKind,
+    ReconciliationAct,
 )
 
 from tests.conftest import make_user, login
@@ -114,12 +115,19 @@ def test_cannot_unset_prepaid_with_invoices(app, db, client):
     assert _reload(counterparty.id).prepaid is True
 
 
-def test_turning_prepaid_on_reallocates_to_invoices(app, db, client):
+def test_turning_prepaid_on_and_moving_to_invoices(app, db, client):
     """Старые «счета-начисления» постоплатного контрагента: включили
-    предоплату, перевели строку в счёт — платёж разносится по счёту."""
+    предоплату, перенесли строку в счета — платёж разносится по счёту, тип
+    прикреплённого документа меняется на «Счёт». Правка формы вид не меняет."""
     counterparty = make_counterparty(db)
     expense = Expense(counterparty_id=counterparty.id, date=dt.date(2026, 10, 1), amount=Decimal("500.00"))
     db.add(expense)
+    db.flush()
+    doc = Document(
+        doc_type=DocumentType.UTD, date=dt.date(2026, 10, 1), title="Счёт", file_path="x.pdf",
+        counterparty_id=counterparty.id, expense_id=expense.id, is_internal=True,
+    )
+    db.add(doc)
     db.add(CounterpartyPayment(counterparty_id=counterparty.id, date=dt.date(2026, 10, 2), amount=Decimal("500.00")))
     _login_board(db, client, "board_pp5")
 
@@ -127,10 +135,30 @@ def test_turning_prepaid_on_reallocates_to_invoices(app, db, client):
     client.post(f"/counterparties/{counterparty.id}/expenses/{expense.id}/edit", data={
         "date": "2026-10-01", "amount": "500.00", "kind": "INVOICE",
     })
+    assert database.db_session.get(Expense, expense.id).kind == ExpenseKind.CHARGE
+
+    resp = client.post(f"/counterparties/{counterparty.id}/expenses/{expense.id}/move")
+    assert resp.status_code == 302
     cp = _reload(counterparty.id)
     assert cp.prepaid is True
+    assert database.db_session.get(Expense, expense.id).kind == ExpenseKind.INVOICE
+    assert database.db_session.get(Document, doc.id).doc_type == DocumentType.INVOICE
     assert counterparty_balance(cp) == Decimal("500.00")
     assert expense_paid_amount(database.db_session.get(Expense, expense.id)) == Decimal("500.00")
+
+    client.post(f"/counterparties/{counterparty.id}/expenses/{expense.id}/move")
+    database.db_session.expire_all()
+    assert database.db_session.get(Expense, expense.id).kind == ExpenseKind.CHARGE
+    assert database.db_session.get(Document, doc.id).doc_type == DocumentType.UTD
+
+
+def test_move_not_allowed_for_postpaid(app, db, client):
+    counterparty = make_counterparty(db, name="ТНС Энерго")
+    expense = Expense(counterparty_id=counterparty.id, date=dt.date(2026, 10, 1), amount=Decimal("500.00"))
+    db.add(expense)
+    _login_board(db, client, "board_pp7")
+
+    assert client.post(f"/counterparties/{counterparty.id}/expenses/{expense.id}/move").status_code == 400
 
 
 def test_unbilled_usage_against_lk_balance(app, db):

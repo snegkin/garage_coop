@@ -70,7 +70,8 @@ def test_prepaid_invoice_payment_act_flow(app, db, client):
     resp = client.get(f"/counterparties/{counterparty.id}")
     html = resp.get_data(as_text=True)
     assert "аванс у контрагента" in html
-    assert "списано с аванса" in html
+    assert "Счета на оплату" in html
+    assert "Акты / УПД (начислено" in html
 
 
 def test_prepaid_empty_payment_amount_pays_unpaid_invoices(app, db, client):
@@ -98,6 +99,10 @@ def test_postpaid_ignores_kind_from_form(app, db, client):
     assert cp.expenses[0].kind == ExpenseKind.CHARGE
     assert counterparty_balance(cp) == Decimal("-2000.00")
     assert counterparty_amount_to_pay(cp) == Decimal("2000.00")
+
+    html = client.get(f"/counterparties/{counterparty.id}").get_data(as_text=True)
+    assert "Расходы (начислено)" in html
+    assert "Счета на оплату" not in html
 
 
 def test_cannot_unset_prepaid_with_invoices(app, db, client):

@@ -56,10 +56,28 @@
    sudo -u ezp-agent /opt/cprocsp/bin/amd64/certmgr -list
    ```
    В выводе должны быть `SHA1 Thumbprint : 32c441ef…` и `PrivateKey Link : Yes`.
-   Для `-errchain` должна строиться цепочка до корня. Корневой сертификат
-   Минцифры и промежуточный ФНС ставятся в хранилища `uRoot`/`CA` (это делается
-   один раз). Промежуточный берётся по ссылке *CA cert URL* в сертификате:
-   `http://pki.tax.gov.ru/crt/ca_fns_russia_2025_01.crt`.
+
+   Для `-errchain` должна строиться цепочка до корня:
+
+   | Звено | Файл | SHA1 | Откуда |
+   |---|---|---|---|
+   | клиент «ГМ "ВОСХОД"» | `gm-voshod.cer` | `32c441ef…` | — |
+   | промежуточный «Федеральная налоговая служба» | `CA_FNS_Russia_2025_01.crt` | `2fef1770…` | *CA cert URL* в сертификате: `http://pki.tax.gov.ru/crt/ca_fns_russia_2025_01.crt` |
+   | корневой ГОСТ «Минцифры России», до 2040 | `Mincifry_Rossii_root_guc2022.cer` | `2f0cb09b…` | `http://crl.gosuslugi.ru/cdp/guc2022.crt` |
+
+   Все три файла лежат в `instance/coop_certs/` сайта. Ставить их в
+   хранилища **компьютера** (`mRoot`/`mCA`), а не пользователя: тогда их
+   видит и `ezp-agent`. Делается один раз:
+   ```bash
+   sudo /opt/cprocsp/bin/amd64/certmgr -inst -store mRoot -file Mincifry_Rossii_root_guc2022.cer
+   sudo /opt/cprocsp/bin/amd64/certmgr -inst -store mCA   -file CA_FNS_Russia_2025_01.crt
+   # проверка: цепочка строится (Certificate chains are checked)
+   sudo -u ezp-agent /opt/cprocsp/bin/amd64/cryptcp -copycert -thumbprint 32c441ef7c63a951ab66b4ef585bfe05fe6fdbd7 \
+     -u -errchain -df /tmp/chaincheck.cer </dev/null
+   ```
+   `Russian_Trusted_Root_CA`/`Russian_Trusted_Sub_CA` — это RSA-сертификаты
+   НУЦ Минцифры для HTTPS-сайтов. В ГОСТ-цепочку КЭП они не входят, для ЭЗП
+   не нужны.
 
 5. **Открытая часть сертификата в PEM** — для `stunnel` и для Почты:
    ```bash
@@ -70,10 +88,9 @@
    Тот же файл уже лежит в репозитории сайта: `instance/coop_certs/gm-voshod.cer`.
 
 6. **Письмо в Почту** — ezp.support-r00@russianpost.ru (п. 6.12.1.4
-   инструкции). Приложить три сертификата, только открытые части:
-   - клиентский `client.cer`;
-   - промежуточный ФНС;
-   - корневой Минцифры.
+   инструкции). Приложить три сертификата из таблицы в п. 4, только
+   открытые части: `gm-voshod.cer`, `CA_FNS_Russia_2025_01.crt`,
+   `Mincifry_Rossii_root_guc2022.cer`.
 
    Попросить внести их в белый список и выдать тестовую пару ID/token.
 

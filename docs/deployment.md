@@ -383,7 +383,8 @@ Bearer-токен), так что компьютер может быть за NA
 
 Порядок подключения:
 1. Отправить сертификаты (клиентский — `instance/coop_certs/gm-voshod.cer`,
-   промежуточный ФНС, корневой Минцифры) на ezp.support-r00@russianpost.ru
+   промежуточный ФНС `CA_FNS_Russia_2025_01.crt`, корневой ГОСТ Минцифры
+   `Mincifry_Rossii_root_guc2022.cer` — все в той же папке) на ezp.support-r00@russianpost.ru
    и получить тестовые ID/token.
 2. Установить агента по [README](../ezp_agent/README.md).
 3. Выполнить `ezp_agent.py check`.

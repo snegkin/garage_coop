@@ -106,15 +106,27 @@ def _parse_balance_sync_interval(value: str | None) -> int:
 
 
 def _parse_expense_kind(counterparty: Counterparty, value: str | None) -> ExpenseKind:
-    """Вид расхода из формы. Выбор есть только у контрагента на предоплате
-    (по умолчанию — счёт на оплату); у остальных всегда начисление, что бы
-    ни пришло в POST."""
+    """Вид нового расхода из формы: у контрагента на предоплате его задаёт
+    таблица, из которой открыта форма (скрытое поле kind, по умолчанию —
+    счёт на оплату); у остальных всегда начисление, что бы ни пришло в POST.
+    Вид существующей записи меняется только переносом (move_expense)."""
     if not counterparty.prepaid:
         return ExpenseKind.CHARGE
     try:
         return ExpenseKind(value)
     except ValueError:
         return ExpenseKind.INVOICE
+
+
+def _sync_expense_document_types(expense: Expense) -> None:
+    """Тип прикреплённых к расходу документов — по его виду: у счёта на
+    оплату — «Счёт», у начисления — «УПД» (вручную выставленный «Акт» или
+    другой тип у начисления не трогаем, меняем только бывший «Счёт»)."""
+    for doc in expense.documents:
+        if expense.kind == ExpenseKind.INVOICE:
+            doc.doc_type = DocumentType.INVOICE
+        elif doc.doc_type == DocumentType.INVOICE:
+            doc.doc_type = DocumentType.UTD
 
 
 def _expense_document_args(counterparty: Counterparty, kind: ExpenseKind) -> tuple[str, DocumentType]:
@@ -390,7 +402,6 @@ def edit_expense(counterparty_id, expense_id):
     expense.amount = parse_decimal(f["amount"])
     expense.category = f.get("category") or None
     expense.description = f.get("description") or None
-    expense.kind = _parse_expense_kind(counterparty, f.get("kind"))
     default_title, doc_type = _expense_document_args(counterparty, expense.kind)
     _save_expense_documents(
         "document_file", "document_title", default_title, counterparty, expense, doc_type,
@@ -404,6 +415,36 @@ def edit_expense(counterparty_id, expense_id):
     )
     database.db_session.commit()
     flash(_("Расход изменён."), "success")
+    return redirect(url_for("counterparties.detail", counterparty_id=counterparty.id))
+
+
+@bp.route("/<int:counterparty_id>/expenses/<int:expense_id>/move", methods=["POST"])
+@roles_required(RoleEnum.BOARD)
+def move_expense(counterparty_id, expense_id):
+    """Перенос записи между таблицами «Счета на оплату» и «Акты / УПД» у
+    контрагента на предоплате — вид меняется только так, явным действием, а
+    не полем формы (вид задаёт таблица, в которую запись добавили). Нужен,
+    если внесли не в ту таблицу, и для счетов, внесённых начислениями ещё до
+    включения предоплаты. Тип прикреплённых документов меняется вместе с
+    видом (_sync_expense_document_types)."""
+    counterparty = database.db_session.get(Counterparty, counterparty_id)
+    expense = database.db_session.get(Expense, expense_id)
+    if counterparty is None or expense is None or expense.counterparty_id != counterparty.id:
+        abort(404)
+    if not counterparty.prepaid:
+        abort(400)
+
+    expense.kind = ExpenseKind.CHARGE if expense.kind == ExpenseKind.INVOICE else ExpenseKind.INVOICE
+    _sync_expense_document_types(expense)
+    database.db_session.flush()
+    reallocate_counterparty_expenses(counterparty)
+    target = "счета на оплату" if expense.kind == ExpenseKind.INVOICE else "акты/УПД"
+    audit.record(
+        "expense.move", entity_type="counterparty", entity_id=counterparty.id,
+        summary=f"Расход #{expense.id} ({audit.format_amount(expense.amount)}) перенесён в {target} — {counterparty.name}",
+    )
+    database.db_session.commit()
+    flash(_("Перенесено в счета на оплату.") if expense.kind == ExpenseKind.INVOICE else _("Перенесено в акты / УПД."), "success")
     return redirect(url_for("counterparties.detail", counterparty_id=counterparty.id))
 
 

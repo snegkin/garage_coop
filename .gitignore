@@ -21,3 +21,7 @@ venv/
 # Личные настройки Claude Code (не для команды)
 .claude/settings.local.json
 
+
+# Сертификаты КЭП для агента ЭЗП — в git только README (в клиентском — СНИЛС/ИНН председателя)
+ezp_agent/certs/*
+!ezp_agent/certs/README.md

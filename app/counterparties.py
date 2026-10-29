@@ -312,6 +312,8 @@ def detail(counterparty_id):
         unbilled_usage=counterparty_unbilled_usage(counterparty),
         act_ledger_balance=act_ledger_balance,
         expense_kinds=ExpenseKind,
+        invoices=[e for e in expenses if e.kind == ExpenseKind.INVOICE],
+        charges=[e for e in expenses if e.kind == ExpenseKind.CHARGE],
         expenses=expenses,
         payments=payments,
         acts=acts,

@@ -150,35 +150,37 @@
 </div>
 {% endif %}
 
+{# Таблица расходов. with_paid — колонка «Оплачено» (разнесение платежей):
+   у счетов предоплатного контрагента и у начислений постоплатного; у актов
+   предоплатного её нет — они гасятся авансом, см. reallocate_counterparty_expenses. #}
+{% macro expense_table(table_id, items, title, empty_text, kind=None, with_paid=True) %}
 <div class="d-flex justify-content-between align-items-center mb-2">
-  <h5 class="mb-0">{{ _("Расходы (начислено)") }}</h5>
-  <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#addExpenseModal">+ {{ _("Добавить") }}</button>
+  <h5 class="mb-0">{{ title }}</h5>
+  <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#addExpenseModal"{% if kind %} data-expense-kind="{{ kind }}"{% endif %}>+ {{ _("Добавить") }}</button>
 </div>
 <div class="mb-4">
-{% if expenses %}
+{% if items %}
 <div class="mb-2">
-  <input class="form-control form-control-sm" data-table-filter-for="expensesTable" placeholder="{{ _('Поиск по категории, описанию, сумме...') }}">
+  <input class="form-control form-control-sm" data-table-filter-for="{{ table_id }}" placeholder="{{ _('Поиск по категории, описанию, сумме...') }}">
 </div>
 {% endif %}
-<table class="table table-sm bg-body sortable mb-2" id="expensesTable" data-page-size="15">
-  <thead><tr><th>{{ _("Дата") }}</th><th>{{ _("Категория") }}</th><th>{{ _("Описание") }}</th><th>{{ _("Сумма") }}</th><th>{{ _("Оплачено") }}</th><th class="no-sort text-end">{{ _("Документ") }}</th><th class="no-sort text-end">{{ _("Действия") }}</th></tr></thead>
+<table class="table table-sm bg-body sortable mb-2" id="{{ table_id }}" data-page-size="15">
+  <thead><tr><th>{{ _("Дата") }}</th><th>{{ _("Категория") }}</th><th>{{ _("Описание") }}</th><th>{{ _("Сумма") }}</th>{% if with_paid %}<th>{{ _("Оплачено") }}</th>{% endif %}<th class="no-sort text-end">{{ _("Документ") }}</th><th class="no-sort text-end">{{ _("Действия") }}</th></tr></thead>
   <tbody>
-    {% for e in expenses %}
+    {% for e in items %}
     <tr data-filter-text="{{ ((e.category or '') ~ ' ' ~ (e.description or '') ~ ' ' ~ e.amount)|lower }}">
       <td data-sort-value="{{ e.date.isoformat() }}">{{ fmt_date(e.date) }}</td>
-      <td>
-        {% if counterparty.prepaid %}<span class="badge {{ 'bg-info text-dark' if e.kind.value == 'INVOICE' else 'bg-secondary' }} me-1">{{ _("счёт") if e.kind.value == "INVOICE" else _("акт/УПД") }}</span>{% endif %}
-        {{ e.category or "—" }}
-      </td>
+      <td>{{ e.category or "—" }}</td>
       <td>{{ e.description or "—" }}</td>
       <td data-sort-value="{{ e.amount }}">{{ fmt2(e.amount) }} ₽</td>
+      {% if with_paid %}
       <td data-sort-value="{{ expense_paid.get(e.id, 0) }}">
         {% set paid = expense_paid.get(e.id, 0) %}
-        {% if counterparty.prepaid and e.kind.value == "CHARGE" %}<span class="text-muted small">{{ _("списано с аванса") }}</span>
-        {% elif paid >= e.amount %}<span class="badge bg-success">{{ _("оплачено") }}</span>
+        {% if paid >= e.amount %}<span class="badge bg-success">{{ _("оплачено") }}</span>
         {% elif paid > 0 %}<span class="badge bg-warning text-dark">{{ fmt2(paid) }} {{ _("из") }} {{ fmt2(e.amount) }} ₽</span>
         {% else %}<span class="badge bg-danger">{{ _("не оплачено") }}</span>{% endif %}
       </td>
+      {% endif %}
       <td class="text-end">
         {% if e.documents %}
           {% for doc in e.documents %}<a href="{{ url_for('cooperative.download_document', doc_id=doc.id) }}" title="{{ doc.title }}">{{ _("скачать") }}{% if e.documents|length > 1 %} ({{ loop.index }}){% endif %}</a>{% if not loop.last %}, {% endif %}{% endfor %}
@@ -187,13 +189,21 @@
       <td class="no-sort text-end"><button class="btn btn-sm btn-primary btn-icon-square" data-bs-toggle="modal" data-bs-target="#editExpenseModal{{ e.id }}" title="{{ _('Изменить') }}"><i class="bi bi-pencil" aria-hidden="true"></i></button></td>
     </tr>
     {% else %}
-    <tr><td colspan="7" class="text-muted">{{ _("Расходов пока нет.") }}</td></tr>
+    <tr><td colspan="{{ 7 if with_paid else 6 }}" class="text-muted">{{ empty_text }}</td></tr>
     {% endfor %}
   </tbody>
 </table>
-<p class="text-muted d-none" data-no-results-for="expensesTable">{{ _("Ничего не найдено.") }}</p>
-<nav class="d-none" data-pager-for="expensesTable"><ul class="pagination pagination-sm mb-0"></ul></nav>
+<p class="text-muted d-none" data-no-results-for="{{ table_id }}">{{ _("Ничего не найдено.") }}</p>
+<nav class="d-none" data-pager-for="{{ table_id }}"><ul class="pagination pagination-sm mb-0"></ul></nav>
 </div>
+{% endmacro %}
+
+{% if counterparty.prepaid %}
+{{ expense_table("invoicesTable", invoices, _("Счета на оплату"), _("Счетов пока нет."), kind="INVOICE") }}
+{{ expense_table("expensesTable", charges, _("Акты / УПД (начислено, списывается с аванса)"), _("Актов пока нет."), kind="CHARGE", with_paid=False) }}
+{% else %}
+{{ expense_table("expensesTable", charges, _("Расходы (начислено)"), _("Расходов пока нет.")) }}
+{% endif %}
 
 <div class="d-flex justify-content-between align-items-center mb-2">
   <h5 class="mb-0">{{ _("Платежи (оплачено)") }}</h5>
@@ -829,6 +839,17 @@
       fetch(periodEndInput.dataset.balanceUrl + "?as_of=" + encodeURIComponent(periodEndInput.value))
         .then(function (r) { return r.ok ? r.json() : null; })
         .then(function (data) { if (data) ourBalanceInput.value = data.balance; });
+    });
+  }
+
+  // Две таблицы у предоплатного контрагента (счета / акты) открывают одну
+  // и ту же форму нового расхода — вид подставляется кнопкой «+ Добавить».
+  var addExpenseModalEl = document.getElementById("addExpenseModal");
+  if (addExpenseModalEl) {
+    addExpenseModalEl.addEventListener("show.bs.modal", function (event) {
+      var kindSelect = addExpenseModalEl.querySelector('select[name="kind"]');
+      var kind = event.relatedTarget && event.relatedTarget.dataset.expenseKind;
+      if (kindSelect && kind) kindSelect.value = kind;
     });
   }
 

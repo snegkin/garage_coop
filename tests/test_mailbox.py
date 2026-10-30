@@ -671,6 +671,32 @@ def test_compose_missing_fields_returns_json_error(db, client):
     assert payload["ok"] is False
 
 
+def test_compose_preview_renders_body_without_sending(db, client, monkeypatch):
+    _make_board(db)
+    _make_settings(db)
+    fake_smtp = _mock_smtp(monkeypatch)
+    login(client, "board1", "pass1234")
+
+    assert "/mailbox/compose/preview" in client.get("/mailbox/compose").get_data(as_text=True)
+
+    resp = client.post("/mailbox/compose/preview", data={"body": "**Жирный** и <script>alert(1)</script>"})
+    assert resp.status_code == 200
+    html = resp.get_json()["html"]
+    assert "<strong>Жирный</strong>" in html
+    assert "<script>" not in html
+    assert fake_smtp.sent == []
+
+    assert client.post("/mailbox/compose/preview", data={"body": "  "}).get_json()["html"] == ""
+
+
+def test_compose_preview_requires_board(db, client):
+    _make_member(db)
+    _make_settings(db)
+    login(client, "member1", "pass1234")
+    resp = client.post("/mailbox/compose/preview", data={"body": "текст"})
+    assert resp.status_code in (302, 403)
+
+
 def test_sending_mail_creates_no_charge_or_expense(db, client, monkeypatch):
     """Регрессия: почта правления не денежная операция — не должна
     затрагивать Charge/Expense ни при каких обстоятельствах."""

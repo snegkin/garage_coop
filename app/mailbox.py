@@ -806,6 +806,17 @@ def compose():
     )
 
 
+@bp.route("/compose/preview", methods=["POST"])
+@roles_required(RoleEnum.BOARD)
+def compose_preview():
+    """AJAX-предпросмотр тела письма перед отправкой (кнопка в
+    mailbox/compose.html) — тот же render_html, что и в compose() при
+    отправке, чтобы предпросмотр не разошёлся с тем, что увидит получатель.
+    Кому/тема/вложения/цитата показываются из самой формы на клиенте."""
+    body = request.form.get("body", "")
+    return jsonify(html=str(render_html(body)) if body.strip() else "")
+
+
 @bp.route("/settings", methods=["POST"])
 @roles_required(RoleEnum.CHAIRMAN)
 def save_settings():

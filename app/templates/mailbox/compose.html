@@ -43,10 +43,36 @@
     <input class="form-control" type="file" name="attachments" multiple>
   </div>
   <div class="d-flex justify-content-end gap-2">
+    <button class="btn btn-outline-primary" type="button" id="composePreviewBtn"><i class="bi bi-eye" aria-hidden="true"></i> {{ _("Предпросмотр") }}</button>
     <button class="btn btn-primary" type="submit" id="composeSubmitBtn">{{ _("Отправить") }}</button>
     <a class="btn btn-outline-secondary" href="{{ url_for('mailbox.inbox') }}">{{ _("Отмена") }}</a>
   </div>
 </form>
+
+<div class="modal fade" id="composePreviewModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">{{ _("Предпросмотр письма") }}</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <dl class="row mb-3 small">
+          <dt class="col-sm-3">{{ _("Кому") }}</dt><dd class="col-sm-9" id="previewTo"></dd>
+          <dt class="col-sm-3">{{ _("Тема") }}</dt><dd class="col-sm-9" id="previewSubject"></dd>
+          <dt class="col-sm-3 d-none" id="previewAttachmentsLabel">{{ _("Вложения") }}</dt><dd class="col-sm-9 d-none" id="previewAttachments"></dd>
+        </dl>
+        <div class="border rounded p-3 card-text" id="previewBody"></div>
+        <div class="text-danger small d-none mt-2" id="previewError"></div>
+        <iframe id="previewQuoteFrame" class="d-none mt-3" sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox" style="width:100%;height:300px;resize:vertical;border:1px solid var(--bs-border-color);background:#fff"></iframe>
+      </div>
+      <div class="modal-footer d-flex justify-content-end">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _("Вернуться к письму") }}</button>
+        <button type="button" class="btn btn-primary" id="previewSendBtn">{{ _("Отправить") }}</button>
+      </div>
+    </div>
+  </div>
+</div>
 
 <script>
 // Отправка через fetch, а не обычным submit формы — при ошибке (например
@@ -125,6 +151,68 @@
       textarea.focus();
     });
   }
+
+  // Предпросмотр перед отправкой — тело рендерит сервер (mailbox.compose_preview,
+  // тот же render_html, что при отправке), остальное берётся из формы как есть.
+  // textContent, не innerHTML — адрес и тема вводятся руками.
+  var previewBtn = document.getElementById("composePreviewBtn");
+  var previewModalEl = document.getElementById("composePreviewModal");
+  var previewBody = document.getElementById("previewBody");
+  var previewError = document.getElementById("previewError");
+  var previewQuoteFrame = document.getElementById("previewQuoteFrame");
+  var attachmentsInput = form.querySelector('input[name="attachments"]');
+
+  function showPreviewMeta() {
+    document.getElementById("previewTo").textContent = form.elements.to.value.trim() || "{{ _('не указан') }}";
+    document.getElementById("previewSubject").textContent = form.elements.subject.value.trim() || "{{ _('без темы') }}";
+    var names = Array.from(attachmentsInput.files).map(function (f) { return f.name; });
+    document.getElementById("previewAttachments").textContent = names.join(", ");
+    document.getElementById("previewAttachments").classList.toggle("d-none", !names.length);
+    document.getElementById("previewAttachmentsLabel").classList.toggle("d-none", !names.length);
+    var withQuote = quoteFrame && quoteCheckbox && quoteCheckbox.checked;
+    previewQuoteFrame.classList.toggle("d-none", !withQuote);
+    if (withQuote && previewQuoteFrame.getAttribute("srcdoc") !== quoteFrame.getAttribute("srcdoc")) {
+      previewQuoteFrame.setAttribute("srcdoc", quoteFrame.getAttribute("srcdoc"));
+    }
+  }
+
+  previewBtn.addEventListener("click", function () {
+    previewError.classList.add("d-none");
+    previewBody.innerHTML = "";
+    showPreviewMeta();
+    var csrfMeta = document.querySelector('meta[name="csrf-token"]');
+    var formData = new FormData();
+    formData.append("body", textarea.value);
+
+    fetch("{{ url_for('mailbox.compose_preview') }}", {
+      method: "POST",
+      headers: csrfMeta ? { "X-CSRFToken": csrfMeta.getAttribute("content") } : {},
+      body: formData,
+    })
+      .then(function (r) { return r.json().then(function (data) { return { ok: r.ok, data: data }; }); })
+      .then(function (result) {
+        if (!result.ok) {
+          previewError.textContent = result.data.error || "{{ _('Не удалось построить предпросмотр.') }}";
+          previewError.classList.remove("d-none");
+          return;
+        }
+        previewBody.innerHTML = result.data.html || "<p class=\"text-muted mb-0\">{{ _('Текст пока пуст.') }}</p>";
+      })
+      .catch(function () {
+        previewError.textContent = "{{ _('Не удалось построить предпросмотр.') }}";
+        previewError.classList.remove("d-none");
+      })
+      .finally(function () {
+        if (window.bootstrap) bootstrap.Modal.getOrCreateInstance(previewModalEl).show();
+      });
+  });
+
+  // «Отправить» из предпросмотра — обычная отправка формы (с проверкой
+  // обязательных полей браузером и обработчиком submit ниже).
+  document.getElementById("previewSendBtn").addEventListener("click", function () {
+    if (window.bootstrap) bootstrap.Modal.getOrCreateInstance(previewModalEl).hide();
+    form.requestSubmit(submitBtn);
+  });
 
   form.addEventListener("submit", function (e) {
     e.preventDefault();

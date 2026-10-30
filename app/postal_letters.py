@@ -668,12 +668,7 @@ def edit(dispatch_id):
         if request.form.get("reset"):
             dispatch.intro_text = dispatch.closing_text = None
         else:
-            intro = (request.form.get("intro_text") or "").strip()
-            closing = (request.form.get("closing_text") or "").strip()
-            # Совпадает со стандартным (или пусто) — храним NULL: стандартный
-            # текст подставляется на дату пересборки, а не застывает.
-            dispatch.intro_text = intro if intro and intro != default_intro else None
-            dispatch.closing_text = closing if closing and closing != default_closing else None
+            dispatch.intro_text, dispatch.closing_text = _form_letter_texts(default_intro, default_closing)
         if not _regenerate_pdf(dispatch):
             database.db_session.rollback()
             return redirect(url_for("postal_letters.edit", dispatch_id=dispatch.id))
@@ -689,6 +684,51 @@ def edit(dispatch_id):
         "postal_letters/edit.html", dispatch=dispatch,
         intro_text=dispatch.intro_text or default_intro, closing_text=dispatch.closing_text or default_closing,
         is_custom=bool(dispatch.intro_text or dispatch.closing_text),
+    )
+
+
+def _form_letter_texts(default_intro: str, default_closing: str) -> tuple[str | None, str | None]:
+    """Вводный и заключительный текст из формы правки. Совпадает со
+    стандартным (или пусто) — NULL: стандартный текст подставляется на дату
+    пересборки, а не застывает."""
+    intro = (request.form.get("intro_text") or "").strip()
+    closing = (request.form.get("closing_text") or "").strip()
+    return (
+        intro if intro and intro != default_intro else None,
+        closing if closing and closing != default_closing else None,
+    )
+
+
+@bp.route("/<int:dispatch_id>/preview", methods=["GET", "POST"])
+@roles_required(RoleEnum.BOARD)
+def preview(dispatch_id):
+    """Предпросмотр письма в браузере (PDF inline, в новой вкладке). GET —
+    сохранённый PDF письма в любом статусе (то, что уйдёт или ушло в Почту).
+    POST — со страницы правки: PDF собирается из текста, который сейчас в
+    полях формы, на сегодняшнюю дату, и никуда не сохраняется."""
+    dispatch = database.db_session.get(PostalDispatch, dispatch_id)
+    if dispatch is None:
+        abort(404)
+    if request.method == "GET":
+        document = dispatch.document
+        if document is None or not document.file_path:
+            abort(404)
+        return send_file(
+            os.path.join(current_app.config["UPLOAD_FOLDER"], document.file_path),
+            mimetype="application/pdf", as_attachment=False, download_name=document.file_name,
+        )
+
+    coop, chairman = _coop_and_chairman()
+    today = dt.date.today()
+    intro, closing = _form_letter_texts(debt_notice_default_intro(coop, today), debt_notice_default_closing())
+    pdf_bytes = _render_debt_notice_pdf(
+        dispatch.person, coop, chairman, today, dispatch_categories(dispatch), intro, closing,
+    )
+    if pdf_bytes is None:
+        return redirect(url_for("postal_letters.edit", dispatch_id=dispatch.id))
+    return Response(
+        pdf_bytes, mimetype="application/pdf",
+        headers={"Content-Disposition": f"inline; filename=preview_{dispatch.reg_number}.pdf"},
     )
 
 

@@ -60,7 +60,8 @@
       <td>{{ fmt_date(d.created_at.date()) }}</td>
       <td class="text-nowrap">
         {% if d.status.value == "draft" %}<a class="btn btn-sm btn-outline-primary" href="{{ url_for('postal_letters.edit', dispatch_id=d.id) }}"><i class="bi bi-pencil" aria-hidden="true"></i> {{ _("Текст") }}</a>{% endif %}
-        {% if d.document_id %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('cooperative.download_document', doc_id=d.document_id) }}">PDF</a>{% endif %}
+        {% if d.document_id %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('postal_letters.preview', dispatch_id=d.id) }}" target="_blank" title="{{ _('Открыть письмо в новой вкладке') }}"><i class="bi bi-eye" aria-hidden="true"></i> {{ _("Просмотр") }}</a>
+        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('cooperative.download_document', doc_id=d.document_id) }}" title="{{ _('Скачать PDF') }}"><i class="bi bi-download" aria-hidden="true"></i></a>{% endif %}
         {% if d.status.value == "exported" %}
         <form method="post" action="{{ url_for('postal_letters.mark_sent', dispatch_id=d.id) }}" class="d-inline" data-ajax>
           <button class="btn btn-sm btn-outline-success">{{ _("Загружено в ЛК") }}</button>

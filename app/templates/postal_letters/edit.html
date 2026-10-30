@@ -18,11 +18,13 @@
   </div>
   <div class="d-flex gap-2 flex-wrap">
     <button class="btn btn-primary">{{ _("Сохранить и пересобрать PDF") }}</button>
+    <button class="btn btn-outline-primary" formaction="{{ url_for('postal_letters.preview', dispatch_id=dispatch.id) }}" formtarget="_blank"
+            title="{{ _('Письмо с текстом из полей выше, в новой вкладке — ничего не сохраняется') }}"><i class="bi bi-eye" aria-hidden="true"></i> {{ _("Предпросмотр") }}</button>
     {% if is_custom %}
     <button class="btn btn-outline-secondary" name="reset" value="1">{{ _("Вернуть стандартный текст") }}</button>
     {% endif %}
     {% if dispatch.document_id %}
-    <a class="btn btn-outline-secondary" href="{{ url_for('cooperative.download_document', doc_id=dispatch.document_id) }}">{{ _("Текущий PDF") }}</a>
+    <a class="btn btn-outline-secondary" href="{{ url_for('postal_letters.preview', dispatch_id=dispatch.id) }}" target="_blank">{{ _("Текущий PDF") }}</a>
     {% endif %}
   </div>
 </form>

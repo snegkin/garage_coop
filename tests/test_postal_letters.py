@@ -302,6 +302,35 @@ def test_edit_draft_text_rebuilds_pdf(app, db, client):
     assert dispatch.intro_text is None and dispatch.closing_text is None
 
 
+def test_preview_shows_saved_pdf_and_unsaved_text(app, db, client):
+    _make_coop(db)
+    _board_login(db, client)
+    person = _make_debtor(db)
+    db.commit()
+    dispatch = _new_letters(db, client, person)[person.id]
+    saved_file = _upload_path(app, dispatch.document)
+
+    resp = client.get(f"/postal-letters/{dispatch.id}/preview")
+    assert resp.status_code == 200 and resp.mimetype == "application/pdf"
+    assert resp.headers["Content-Disposition"].startswith("inline")
+    with open(saved_file, "rb") as f:
+        assert resp.data == f.read()
+
+    resp = client.post(f"/postal-letters/{dispatch.id}/preview", data={
+        "intro_text": "Свой вводный абзац.", "closing_text": "Просим оплатить.",
+    })
+    assert resp.status_code == 200 and resp.mimetype == "application/pdf"
+    assert resp.headers["Content-Disposition"].startswith("inline")
+    assert resp.data.startswith(b"%PDF")
+    # предпросмотр ничего не сохраняет: ни текст, ни файл
+    db.refresh(dispatch)
+    assert dispatch.intro_text is None and dispatch.closing_text is None
+    assert _upload_path(app, dispatch.document) == saved_file and os.path.exists(saved_file)
+
+    assert "/preview" in client.get("/postal-letters/").get_data(as_text=True)
+    assert "/preview" in client.get(f"/postal-letters/{dispatch.id}/edit").get_data(as_text=True)
+
+
 def test_custom_text_rendered_in_letter_with_paragraphs_and_escaping(app):
     from flask import render_template
     with app.test_request_context():

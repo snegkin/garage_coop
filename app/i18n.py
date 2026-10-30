@@ -2312,6 +2312,16 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "The e-letter agent has not checked in for {n} min — make sure the chairman's computer is on and the Rutoken is inserted.",
         "Агент ЭЗП ещё ни разу не выходил на связь — письма из очереди не уйдут, пока он не запущен.":
             "The e-letter agent has never checked in — queued letters will not be sent until it is running.",
+        # mailbox/compose.html — предпросмотр перед отправкой
+        "Предпросмотр письма": "Message preview",
+        "Вернуться к письму": "Back to the message",
+        "не указан": "not specified",
+        "без темы": "no subject",
+        # postal_letters — предпросмотр письма
+        "Просмотр": "View",
+        "Открыть письмо в новой вкладке": "Open the letter in a new tab",
+        "Письмо с текстом из полей выше, в новой вкладке — ничего не сохраняется":
+            "The letter with the text from the fields above, in a new tab — nothing is saved",
     }
 }
 

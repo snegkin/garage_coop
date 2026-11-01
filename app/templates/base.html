@@ -213,7 +213,16 @@
            подписи «Запомнить меня» (<label>), по вкладке «По телефону»
            или по отступу формы закрывал её. В Яндекс Браузере на
            телефоне тап по галочке почти всегда приходится на <label>. #}
-        <li class="nav-item dropdown">
+        {# На телефоне/планшете (< lg) — не форма в меню, а ссылка на
+           отдельную страницу входа (/auth/login, тот же
+           auth/_login_form.html): форма во всю ширину экрана, экранная
+           клавиатура не толкается с выдвижным меню. next — вернуться
+           после входа на текущую страницу (login_next_url, см.
+           app/__init__.py: _inject_user). #}
+        <li class="nav-item d-lg-none">
+          <a class="nav-link" href="{{ url_for('auth.login', next=login_next_url) if login_next_url else url_for('auth.login') }}">{{ _("Войти") }}</a>
+        </li>
+        <li class="nav-item dropdown d-none d-lg-block">
           <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">{{ _("Войти") }}</a>
           <div class="dropdown-menu dropdown-menu-end p-3" style="min-width:300px">
             {% set form_id = "header" %}
@@ -266,7 +275,7 @@
 {% endif %}
 <nav class="bottom-nav d-lg-none" data-bs-theme="dark" aria-label="{{ _('Основные разделы') }}">
   {% for endpoint, icon, label in bottom_tabs %}
-  <a class="bottom-nav-item {{ 'active' if request.endpoint == endpoint }}" href="{{ url_for(endpoint) }}"{% if request.endpoint == endpoint %} aria-current="page"{% endif %}>
+  <a class="bottom-nav-item {{ 'active' if request.endpoint == endpoint }}" href="{{ url_for(endpoint, next=login_next_url) if endpoint == 'auth.login' and login_next_url else url_for(endpoint) }}"{% if request.endpoint == endpoint %} aria-current="page"{% endif %}>
     <i class="bi bi-{{ icon }}" aria-hidden="true"></i><span>{{ label }}</span>
   </a>
   {% endfor %}

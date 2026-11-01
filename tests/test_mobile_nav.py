@@ -55,3 +55,14 @@ def test_bottom_nav_home_is_dashboard_for_board(client, db):
 
     nav = _bottom_nav(client.get("/dashboard").get_data(as_text=True))
     assert re.search(r'class="bottom-nav-item active" href="/dashboard"', nav)
+
+
+def test_mobile_login_is_separate_page_with_return_to_current(client, db):
+    body = client.get("/bulletin/").get_data(as_text=True)
+    # в меню на телефоне — ссылка на страницу входа, форма-дропдаун только на lg+
+    assert '<li class="nav-item d-lg-none">\n          <a class="nav-link" href="/auth/login?next=/bulletin/">Войти</a>' in body
+    assert '<li class="nav-item dropdown d-none d-lg-block">' in body
+    assert 'href="/auth/login?next=/bulletin/"' in _bottom_nav(body)
+    # на самой странице входа next не подставляется
+    nav = _bottom_nav(client.get("/auth/login").get_data(as_text=True))
+    assert 'class="bottom-nav-item active" href="/auth/login" aria-current="page"' in nav

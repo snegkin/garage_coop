@@ -1476,6 +1476,28 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Для членов, проголосовавших очно на собрании (на бумаге) — их голос не попадает в систему сам, отметьте его здесь. Сам член кооператива сможет переголосовать электронно позже — учитывается последняя подача.":
             "For members who voted in person at the meeting (on paper) — their vote doesn't enter the system on its own, record it here. The member can still re-vote electronically later — the latest submission counts.",
         "Отметить голос": "Record vote",
+        "Контрольные хеши": "Control hashes",
+        "Хеш повестки и списка голосующих (при открытии)": "Agenda and voter list hash (at opening)",
+        "Итоговый хеш (при закрытии)": "Final hash (at closing)",
+        "Все подачи бюллетеней записываются в неизменяемый журнал. Хеши пришли вам в уведомлениях об открытии и закрытии — сверьте их: любое изменение голосов задним числом их ломает.":
+            "Every ballot submission is written to a tamper-evident log. You received these hashes in the opening and closing notifications — compare them: any retroactive change to the votes breaks them.",
+        "Впишите итоговый хеш в текст протокола.": "Include the final hash in the text of the minutes.",
+        "Проверить целостность": "Check integrity",
+        "Журнал бюллетеней не ведётся — голосование создано до появления контрольных хешей.":
+            "No ballot log — this vote was created before control hashes were introduced.",
+        "Проверка целостности": "Integrity check",
+        "Проверка целостности голосования": "Vote integrity check",
+        "← к голосованию": "← back to the vote",
+        "Для этого голосования журнал бюллетеней не ведётся — оно создано до появления контрольных хешей.":
+            "There is no ballot log for this vote — it was created before control hashes were introduced.",
+        "Целостность подтверждена: повестка совпадает с зафиксированной при открытии, журнал из {n} записей не изменён, текущие голоса совпадают с журналом.":
+            "Integrity confirmed: the agenda matches the one fixed at opening, the log of {n} entries is unchanged, and current votes match the log.",
+        "Итоги совпадают с итоговым хешем.": "The results match the final hash.",
+        "Обнаружены расхождения — данные голосования изменены после записи. Сообщите правлению и ревизионной комиссии.":
+            "Discrepancies found — vote data was changed after it was recorded. Notify the board and the audit commission.",
+        "Хеш повестки (при открытии)": "Agenda hash (at opening)",
+        "Сверьте эти хеши с теми, что пришли вам в уведомлениях об открытии и закрытии голосования. Если они различаются — журнал переписан целиком.":
+            "Compare these hashes with the ones in your vote opening and closing notifications. If they differ, the whole log has been rewritten.",
         "Нет ни одного человека с долей владения в гараже.": "No one owns a share in any garage.",
         "дата голосования": "voting date",
         "Запись голоса за члена кооператива": "Recording a vote on behalf of a member",

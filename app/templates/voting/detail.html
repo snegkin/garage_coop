@@ -168,6 +168,27 @@
 </div>
 {% endif %}
 
+{% if vote.status.value != 'draft' and vote.voting_type.value != 'in_person' %}
+<div class="card bg-body mt-3">
+  <div class="card-body small">
+    <h6 class="card-title"><i class="bi bi-shield-lock" aria-hidden="true"></i> {{ _("Контрольные хеши") }}</h6>
+    {% if vote.genesis_hash %}
+    <p class="mb-1">{{ _("Хеш повестки и списка голосующих (при открытии)") }}: <code class="text-break">{{ vote.genesis_hash }}</code></p>
+    {% if vote.final_hash %}
+    <p class="mb-1">{{ _("Итоговый хеш (при закрытии)") }}: <code class="text-break">{{ vote.final_hash }}</code></p>
+    {% endif %}
+    <p class="text-muted mb-2">{{ _("Все подачи бюллетеней записываются в неизменяемый журнал. Хеши пришли вам в уведомлениях об открытии и закрытии — сверьте их: любое изменение голосов задним числом их ломает.") }}</p>
+    {% if vote.final_hash and is_chairman() %}
+    <p class="text-muted mb-2">{{ _("Впишите итоговый хеш в текст протокола.") }}</p>
+    {% endif %}
+    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('voting.integrity', vote_id=vote.id) }}">{{ _("Проверить целостность") }}</a>
+    {% else %}
+    <p class="text-muted mb-0">{{ _("Журнал бюллетеней не ведётся — голосование создано до появления контрольных хешей.") }}</p>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
 {% if is_board() %}
 <div class="card bg-body mt-3">
   <div class="card-body">

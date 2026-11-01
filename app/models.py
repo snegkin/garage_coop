@@ -939,6 +939,21 @@ class Vote(Base):
     created_by_person_id: Mapped[int | None] = mapped_column(ForeignKey("person.id", ondelete="SET NULL"), index=True)
     protocol_document_id: Mapped[int | None] = mapped_column(ForeignKey("document.id", ondelete="SET NULL"), index=True)
 
+    # Контрольные хеши журнала бюллетеней (см. app/vote_ledger.py и
+    # VoteBallotEvent). registry_hash — снимок реестра голосующих (кто и с
+    # каким весом) на момент открытия; genesis_hash — повестка + параметры +
+    # registry_hash, рассылается членам при открытии; final_hash — голова
+    # цепочки + итоги, рассылается при закрытии. final_total_weight — общий
+    # вес голосов кооператива на момент закрытия: итоги закрытого голосования
+    # считаются от него, а не от текущих долей (иначе смена собственника
+    # гаража после закрытия «сдвигала» бы уже зафиксированный результат).
+    # Все NULL — голосование создано/закрыто до появления журнала.
+    registry_hash: Mapped[str | None] = mapped_column(String(64))
+    genesis_hash: Mapped[str | None] = mapped_column(String(64))
+    final_hash: Mapped[str | None] = mapped_column(String(64))
+    final_hash_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
+    final_total_weight: Mapped[Decimal | None] = mapped_column(Numeric(10, 5))
+
     meeting: Mapped["GeneralMeeting | None"] = relationship()
     created_by: Mapped["Person | None"] = relationship()
     protocol_document: Mapped["Document | None"] = relationship()
@@ -972,7 +987,8 @@ class VoteBallot(Base):
     (сумма долей владения этого человека по всем его гаражам) — фиксируется
     заново при каждой подаче/переголосовании, пока голосование открыто.
     Переголосование, пока Vote.status == OPEN, разрешено — обновляет ту же
-    запись (upsert по (question_id, person_id)), не создаёт дубль.
+    запись (upsert по (question_id, person_id)), не создаёт дубль; вся
+    история подач — в неизменяемом журнале VoteBallotEvent.
 
     comment — необязательное текстовое обоснование голоса, ПУБЛИЧНОЕ
     (видно всем, не только правлению, и независимо от статуса голосования
@@ -995,6 +1011,46 @@ class VoteBallot(Base):
 
     __table_args__ = (
         UniqueConstraint("question_id", "person_id", name="uq_vote_ballot_question_person"),
+    )
+
+
+class VoteBallotEvent(Base):
+    """
+    Неизменяемый журнал подач бюллетеня (hash-цепочка) — см. app/vote_ledger.py.
+    VoteBallot хранит только ТЕКУЩЕЕ состояние (переголосование перезаписывает
+    строку), а здесь — каждая подача отдельной строкой: кто подал (сам член —
+    source='self', председатель за него с бумажного бюллетеня — 'manual',
+    перенос уже поданных голосов при внедрении журнала — 'migrated'), что
+    выбрал по каждому вопросу, с каким весом. hash = sha256(prev_hash +
+    канонический JSON полей), prev_hash первой записи = Vote.genesis_hash.
+    Любая правка/удаление/вставка задним числом рвёт цепочку или расходится с
+    Vote.final_hash, который уже разослан членам кооператива.
+
+    Таблица только на добавление: в SQLite UPDATE/DELETE запрещены триггерами
+    (миграция b7e2c19d4f60). ВНИМАНИЕ: batch_alter_table этой таблицы в
+    будущих миграциях пересоздаёт её и теряет триггеры — их надо создать
+    заново.
+    """
+    __tablename__ = "vote_ballot_event"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    vote_id: Mapped[int] = mapped_column(ForeignKey("vote.id"), index=True)
+    seq: Mapped[int] = mapped_column(Integer)
+    person_id: Mapped[int] = mapped_column(ForeignKey("person.id"), index=True)
+    # Без FK: запись историческая и неизменяемая — ondelete=SET NULL при
+    # удалении учётки был бы UPDATE, который запрещён триггером.
+    entered_by_user_id: Mapped[int | None] = mapped_column(Integer)
+    source: Mapped[str] = mapped_column(String(16))
+    payload: Mapped[str] = mapped_column(Text)
+    weight: Mapped[Decimal] = mapped_column(Numeric(8, 5))
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime)
+    prev_hash: Mapped[str] = mapped_column(String(64))
+    hash: Mapped[str] = mapped_column(String(64))
+
+    person: Mapped["Person"] = relationship()
+
+    __table_args__ = (
+        UniqueConstraint("vote_id", "seq", name="uq_vote_ballot_event_vote_seq"),
     )
 
 

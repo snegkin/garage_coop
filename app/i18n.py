@@ -930,6 +930,13 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         # cabinet (self-service)
         "Мой профиль": "My profile",
         "Мой гараж": "My garage",
+        # нижняя панель вкладок на телефоне (base.html: .bottom-nav)
+        "Квитанции": "Receipts",
+        "Профиль": "Profile",
+        "Меню": "Menu",
+        "Объявления": "Bulletin",
+        "Видео": "Video",
+        "Основные разделы": "Main sections",
         "Актуальные данные (можно менять самостоятельно)": "Up-to-date info (you can edit this yourself)",
         "Официальные данные (изменяются только правлением)": "Official records (edited by the board only)",
         "Ваша учётная запись пока не привязана к карточке члена кооператива. Обратитесь в правление.":

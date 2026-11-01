@@ -1,7 +1,7 @@
 """
 Колокольчик «Требует внимания» в шапке (base.html, _attention_menu.html) и
 его опрос /attention (main.attention) — счётчики из app/attention.py.
-Колокольчик стоит вне .navbar-collapse, чтобы на телефоне уведомления были
+Колокольчик стоит вне выдвижного меню (#nav, offcanvas), чтобы на телефоне уведомления были
 видны без раскрытия меню; бейджей на имени пользователя больше нет.
 """
 import re
@@ -32,8 +32,8 @@ def test_bell_shows_pending_vote_outside_collapsed_menu(db, client):
     login(client, "member1", "pass12345")
 
     body = client.get("/").get_data(as_text=True)
-    # до .navbar-collapse — виден и при свёрнутом меню на телефоне
-    assert body.index('id="attentionBell"') < body.index('class="collapse navbar-collapse"')
+    # до выдвижного меню — виден и при закрытом меню на телефоне
+    assert body.index('id="attentionBell"') < body.index('class="offcanvas offcanvas-end" tabindex="-1" id="nav"')
     bell = _bell(body)
     assert re.search(r'data-attention-total>1<', bell)
     assert "bi-bell-fill" in bell

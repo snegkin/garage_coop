@@ -14,7 +14,10 @@ models.py).
 - Открывает голосование (draft -> open) — с этого момента и до closes_at
   члены могут подавать/менять бюллетень.
 - Переголосование, пока голосование открыто, разрешено — обновляет тот же
-  бюллетень, не создаёт дубль (см. cast_ballots).
+  бюллетень, не создаёт дубль (см. cast_ballots). История подач при этом не
+  теряется: каждая подача дописывается в неизменяемый журнал (hash-цепочку,
+  см. vote_ledger.py), контрольные хеши рассылаются членам при открытии и
+  закрытии — подделку голосов задним числом видно (/voting/<id>/integrity).
 - Для очно-заочного голосования часть членов голосует очно на собрании
   (на бумаге) — их волеизъявление в систему не попадает само по себе;
   председатель может внести/поправить бюллетень любого члена вручную,
@@ -43,6 +46,7 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 from . import database
 from . import audit
 from . import notifications
+from . import vote_ledger
 from .i18n import translate as _, parse_decimal
 from .auth import login_required, roles_required
 from .permissions import is_board, is_chairman
@@ -77,6 +81,18 @@ def total_cooperative_weight() -> Decimal:
     return sum((o.share for o in ownerships), Decimal("0"))
 
 
+def effective_total_weight(vote: Vote) -> Decimal:
+    """
+    Общий вес голосов, от которого считаются итоги этого голосования: для
+    закрытого с журналом — зафиксированный при закрытии (Vote.final_total_weight,
+    входит в итоговый хеш), иначе — текущий. Так смена собственника гаража
+    после закрытия не «сдвигает» уже зафиксированный результат.
+    """
+    if vote.final_total_weight is not None:
+        return vote.final_total_weight
+    return total_cooperative_weight()
+
+
 def is_accepting_ballots(vote: Vote) -> bool:
     """Можно ли сейчас подавать/менять бюллетень — открыто и в пределах окна приёма."""
     now = dt.datetime.now()
@@ -100,7 +116,7 @@ def question_results(question: VoteQuestion) -> dict:
     for ballot in question.ballots:
         totals[ballot.choice] += ballot.weight
     participating = totals[VoteChoice.FOR] + totals[VoteChoice.AGAINST] + totals[VoteChoice.ABSTAIN]
-    total = total_cooperative_weight()
+    total = effective_total_weight(question.vote)
     has_quorum = quorum_met(question.vote)
     passed = bool(has_quorum) and total > 0 and (totals[VoteChoice.FOR] / total) >= question.majority_threshold
     return {
@@ -127,7 +143,7 @@ def quorum_met(vote: Vote) -> bool:
     голосование): правомочно, только если приняло участие СТРОГО БОЛЬШЕ
     половины от общего веса голосов кооператива.
     """
-    total = total_cooperative_weight()
+    total = effective_total_weight(vote)
     if total <= 0:
         return False
     return (vote_participation_weight(vote) / total) > QUORUM_THRESHOLD
@@ -164,6 +180,7 @@ def eligible_voters() -> list[Person]:
 
 def cast_ballots(
     vote: Vote, person: Person, choices: dict[int, VoteChoice], comments: dict[int, str] | None = None,
+    source: str = vote_ledger.SOURCE_SELF, entered_by_user_id: int | None = None,
 ) -> None:
     """
     Подаёт/обновляет бюллетень человека по всем переданным вопросам этого
@@ -174,15 +191,24 @@ def cast_ballots(
     текстовое обоснование по каждому вопросу (VoteBallot.comment, ПУБЛИЧНОЕ
     — см. models.VoteBallot); отсутствие ключа или пустая строка — без
     комментария. Не коммитит сама.
+
+    Каждая подача дописывается в неизменяемый журнал (vote_ledger.append_event):
+    строка VoteBallot хранит только текущий голос, история — там. source —
+    кто подал (сам член / председатель за него), entered_by_user_id — чья
+    учётная запись это сделала.
     """
     weight = person_voting_weight(person.id)
     comments = comments or {}
     now = dt.datetime.now()
     question_ids = {q.id: q for q in vote.questions}
+    accepted_choices: dict[int, VoteChoice] = {}
+    accepted_comments: dict[int, str | None] = {}
     for question_id, choice in choices.items():
         if question_id not in question_ids:
             continue
         comment = (comments.get(question_id) or "").strip() or None
+        accepted_choices[question_id] = choice
+        accepted_comments[question_id] = comment
         existing = (
             database.db_session.query(VoteBallot)
             .filter_by(question_id=question_id, person_id=person.id)
@@ -198,6 +224,9 @@ def cast_ballots(
                 question_id=question_id, person_id=person.id, choice=choice, weight=weight,
                 comment=comment, cast_at=now,
             ))
+    vote_ledger.append_event(
+        vote, person.id, accepted_choices, accepted_comments, weight, source, entered_by_user_id, now,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -380,9 +409,31 @@ def detail(vote_id):
         my_weight=my_weight, my_ballots=my_ballots,
         is_accepting=is_accepting_ballots(vote),
         quorum=quorum_met(vote), participation=vote_participation_weight(vote) if is_board() else None,
-        total_weight=total_cooperative_weight(),
+        total_weight=effective_total_weight(vote),
         show_manual_ballots=show_manual_ballots, voters=voters, voter_ballots=voter_ballots, voter_weights=voter_weights,
     )
+
+
+@bp.route("/<int:vote_id>/integrity")
+@login_required
+def integrity(vote_id):
+    """
+    Проверка целостности журнала бюллетеней (см. vote_ledger.verify) —
+    доступна любому члену кооператива: расхождения описаны без персональных
+    данных (номер записи журнала, номер вопроса); к кому относится
+    расхождение, видит только правление.
+    """
+    vote = database.db_session.get(Vote, vote_id)
+    if vote is None or (vote.status == VoteStatus.DRAFT and not is_board()):
+        flash(_("Голосование не найдено."), "warning")
+        return redirect(url_for("voting.list_votes"))
+    result = vote_ledger.verify(vote)
+    persons = {}
+    if is_board():
+        ids = {p.person_id for p in result.problems if p.person_id}
+        if ids:
+            persons = {p.id: p for p in database.db_session.query(Person).filter(Person.id.in_(ids))}
+    return render_template("voting/integrity.html", vote=vote, result=result, persons=persons)
 
 
 @bp.route("/<int:vote_id>/questions/add", methods=["POST"])
@@ -432,12 +483,18 @@ def open_vote(vote_id):
         flash(_("Нельзя открыть голосование без вопросов повестки."), "danger")
         return redirect(url_for("voting.detail", vote_id=vote_id))
     vote.status = VoteStatus.OPEN
-    audit.record("vote.open", f"Открыто голосование «{vote.title}»", entity_type="vote", entity_id=vote.id)
+    vote_ledger.seal_on_open(vote)
+    audit.record(
+        "vote.open", f"Открыто голосование «{vote.title}», контрольный хеш повестки {vote.genesis_hash}",
+        entity_type="vote", entity_id=vote.id,
+    )
     notifications.after_commit(
         notifications.notify_persons, [p.id for p in eligible_voters()], "vote",
         f"Открыто голосование «{vote.title}»",
         f"Открыто голосование «{vote.title}». Бюллетени принимаются до "
         f"{vote.closes_at.strftime('%d.%m.%Y %H:%M')}.\n\n"
+        f"Контрольный хеш повестки и списка голосующих:\n{vote.genesis_hash}\n"
+        "Сохраните это сообщение: по хешу можно убедиться, что повестку не меняли после открытия.\n\n"
         + url_for("voting.detail", vote_id=vote.id, _external=True),
         g.user.id, "governance",
     )
@@ -455,7 +512,24 @@ def close_vote(vote_id):
         return redirect(url_for("voting.detail", vote_id=vote_id))
     vote.status = VoteStatus.CLOSED
     vote.closed_at = dt.datetime.now()
-    audit.record("vote.close", f"Закрыто голосование «{vote.title}», результаты зафиксированы", entity_type="vote", entity_id=vote.id)
+    vote_ledger.seal_on_close(vote, total_cooperative_weight())
+    hash_note = f", итоговый хеш {vote.final_hash}" if vote.final_hash else ""
+    audit.record(
+        "vote.close", f"Закрыто голосование «{vote.title}», результаты зафиксированы{hash_note}",
+        entity_type="vote", entity_id=vote.id,
+    )
+    if vote.final_hash:
+        notifications.after_commit(
+            notifications.notify_persons, [p.id for p in eligible_voters()], "vote",
+            f"Голосование «{vote.title}» закрыто",
+            f"Голосование «{vote.title}» закрыто, результаты зафиксированы.\n\n"
+            f"Итоговый контрольный хеш:\n{vote.final_hash}\n"
+            "Сохраните это сообщение. Хеш однозначно фиксирует все поданные голоса и итоги: "
+            "если кто-то изменит их задним числом, хеш на сайте и в протоколе перестанет совпадать "
+            "с этим, а проверка целостности покажет расхождение.\n\n"
+            + url_for("voting.detail", vote_id=vote.id, _external=True),
+            g.user.id, "governance",
+        )
     database.db_session.commit()
     flash(_("Голосование закрыто, результаты зафиксированы."), "success")
     return redirect(url_for("voting.detail", vote_id=vote_id))
@@ -527,7 +601,7 @@ def ballot(vote_id):
         if len(choices) != len(vote.questions):
             flash(_("Ответьте на все вопросы повестки перед отправкой бюллетеня."), "danger")
             return redirect(url_for("voting.ballot", vote_id=vote_id))
-        cast_ballots(vote, person, choices, comments)
+        cast_ballots(vote, person, choices, comments, source=vote_ledger.SOURCE_SELF, entered_by_user_id=g.user.id)
         audit.record(
             "vote.ballot_cast", f"{person.full_name} проголосовал(а) в голосовании «{vote.title}»",
             entity_type="vote", entity_id=vote.id,
@@ -583,7 +657,7 @@ def set_ballot_for_person(vote_id, person_id):
         if not choices:
             flash(_("Отметьте хотя бы один вопрос повестки."), "danger")
             return redirect(url_for("voting.set_ballot_for_person", vote_id=vote_id, person_id=person_id))
-        cast_ballots(vote, person, choices, comments)
+        cast_ballots(vote, person, choices, comments, source=vote_ledger.SOURCE_MANUAL, entered_by_user_id=g.user.id)
         audit.record(
             "vote.manual_ballot",
             f"Председатель вручную зафиксировал голос «{person.full_name}» в голосовании «{vote.title}»",

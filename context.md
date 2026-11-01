@@ -376,6 +376,26 @@ IN_PERSON_AND_ABSENTEE и только пока OPEN; переиспользуе
 это аргументация человека, а не результат, способный повлиять на ещё не
 проголосовавших через бандвагон-эффект числа.
 
+**Журнал бюллетеней (`app/vote_ledger.py`, `VoteBallotEvent`)** —
+hash-цепочка поверх `VoteBallot`: `cast_ballots()` после upsert зовёт
+`vote_ledger.append_event()` (одна строка на подачу, `source` self/manual/
+migrated, `entered_by_user_id`). `open_vote` → `seal_on_open` (registry_hash
+— реестр person_id→вес, genesis_hash — параметры + вопросы + registry_hash),
+`close_vote` → `seal_on_close` (`final_total_weight`, `final_hash` = голова
+цепочки + итоги). Оба хеша рассылаются `notify_persons` и пишутся в
+audit_log. `verify()` (маршрут `/voting/<id>/integrity`, любой член)
+пересчитывает genesis, цепочку, «проигрывает» события и сверяет с
+`vote_ballot`, пересчитывает final_hash. **Грабли:** (1) формат хеширования
+заморожен — менять только через новую версию `LEDGER_VERSION`, иначе все
+старые журналы станут «битыми»; (2) таблица append-only через триггеры
+SQLite (миграция b7e2c19d4f60) — `batch_alter_table('vote_ballot_event')`
+пересоздаёт таблицу и ТЕРЯЕТ триггеры; (3) `effective_total_weight(vote)` —
+у закрытого голосования итоги/кворум считаются от `final_total_weight`, не
+от текущих долей (иначе final_hash «поплывёт» при смене собственника);
+(4) `db_session` без autoflush — `append_event`/`verify` делают `flush()`
+сами. Не закрыто: при доступе к БД, пока голосование открыто, цепочку можно
+переписать целиком до рассылки final_hash (нужны квитанции голосующим).
+
 ## Предложения голосований от рядовых членов (`app/proposals.py`)
 `VoteProposal`/`VoteProposalBoardBallot`. Правление голосует «за/против/
 воздержался» ПО ГОЛОВАМ (одна запись на person_id ТЕКУЩЕГО созыва,

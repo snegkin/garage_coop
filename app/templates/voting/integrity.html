@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Проверка целостности") }} — {{ vote.title }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-start mb-3">
+  <h3 class="mb-0">{{ _("Проверка целостности голосования") }}</h3>
+  <a data-back-link data-back-label="&larr; {{ _('Назад') }}" class="btn btn-outline-secondary btn-sm" href="{{ url_for('voting.detail', vote_id=vote.id) }}">{{ _("← к голосованию") }}</a>
+</div>
+<p class="text-muted">{{ vote.title }}</p>
+
+{% if not result.has_ledger %}
+<div class="alert alert-secondary">{{ _("Для этого голосования журнал бюллетеней не ведётся — оно создано до появления контрольных хешей.") }}</div>
+{% elif result.ok %}
+<div class="alert alert-success">
+  <i class="bi bi-shield-check" aria-hidden="true"></i>
+  {{ _("Целостность подтверждена: повестка совпадает с зафиксированной при открытии, журнал из {n} записей не изменён, текущие голоса совпадают с журналом.", n=result.events) }}
+  {% if vote.final_hash %}{{ _("Итоги совпадают с итоговым хешем.") }}{% endif %}
+</div>
+{% else %}
+<div class="alert alert-danger">
+  <i class="bi bi-shield-exclamation" aria-hidden="true"></i>
+  {{ _("Обнаружены расхождения — данные голосования изменены после записи. Сообщите правлению и ревизионной комиссии.") }}
+</div>
+<ul>
+  {% for p in result.problems %}
+  <li>{{ p.text }}{% if p.person_id and persons.get(p.person_id) %} — <a href="{{ url_for('persons.detail', person_id=p.person_id) }}">{{ persons[p.person_id].full_name }}</a>{% endif %}</li>
+  {% endfor %}
+</ul>
+{% endif %}
+
+{% if result.has_ledger %}
+<div class="card bg-body">
+  <div class="card-body small">
+    <p class="mb-1">{{ _("Хеш повестки (при открытии)") }}: <code class="text-break">{{ vote.genesis_hash }}</code></p>
+    {% if vote.final_hash %}<p class="mb-1">{{ _("Итоговый хеш (при закрытии)") }}: <code class="text-break">{{ vote.final_hash }}</code></p>{% endif %}
+    <p class="text-muted mb-0">{{ _("Сверьте эти хеши с теми, что пришли вам в уведомлениях об открытии и закрытии голосования. Если они различаются — журнал переписан целиком.") }}</p>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

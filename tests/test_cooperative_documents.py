@@ -224,3 +224,24 @@ def test_documents_table_access_column_is_sortable_and_searchable(app, db, clien
 
 def database_query_first_by_title(db, title):
     return db.query(Document).filter_by(title=title).first()
+
+
+def test_postal_letter_documents_hidden_from_cooperative_list(db, client):
+    """PDF сформированных заказных писем — только в разделе «Письма», не в
+    общих документах кооператива."""
+    from app.models import PostalDispatch, PostalDispatchStatus
+
+    _make_board(db, "board_letters")
+    person = make_person(db, full_name="Должников Пётр")
+    letter_doc = _make_document(db, is_internal=True, title="Уведомление о задолженности — Должников", doc_type=DocumentType.LETTER)
+    _make_document(db, is_internal=True, title="Обычное письмо правления", doc_type=DocumentType.LETTER)
+    db.add(PostalDispatch(
+        person_id=person.id, reg_number="GSK-77", title=letter_doc.title,
+        status=PostalDispatchStatus.DRAFT, document_id=letter_doc.id,
+    ))
+    db.commit()
+    login(client, "board_letters", "pass1234")
+
+    html = client.get("/cooperative/").get_data(as_text=True)
+    assert "Обычное письмо правления" in html
+    assert "Уведомление о задолженности — Должников" not in html

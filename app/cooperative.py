@@ -10,7 +10,7 @@ from . import audit
 from . import notifications
 from .i18n import translate as _, parse_optional_decimal as _parse_decimal
 from .auth import login_required, roles_required
-from .models import Cooperative, BankAccount, BankApiProvider, RoleEnum, Document, DocumentType, Person, Counterparty
+from .models import Cooperative, BankAccount, BankApiProvider, RoleEnum, Document, DocumentType, Person, Counterparty, PostalDispatch
 from .accounting import cooperative_balance
 from .uploads import save_upload
 from .permissions import is_board
@@ -26,8 +26,17 @@ def view():
     # Документы, привязанные к контрагенту (Document.counterparty_id), сюда
     # не попадают — они показываются в карточке соответствующего контрагента
     # (см. counterparties.detail), чтобы не дублировать список в двух местах.
+    # По той же причине нет и PDF сформированных заказных писем
+    # (PostalDispatch.document_id) — они в разделе «Письма» (postal_letters).
     from .permissions import is_board
-    query = database.db_session.query(Document).filter(Document.counterparty_id.is_(None)).order_by(Document.date.desc())
+    letter_document_ids = (
+        database.db_session.query(PostalDispatch.document_id).filter(PostalDispatch.document_id.is_not(None))
+    )
+    query = (
+        database.db_session.query(Document)
+        .filter(Document.counterparty_id.is_(None), Document.id.not_in(letter_document_ids))
+        .order_by(Document.date.desc())
+    )
     if not is_board():
         query = query.filter(Document.is_internal.is_(False))
     docs = query.all()

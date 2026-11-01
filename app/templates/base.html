@@ -32,7 +32,7 @@
       <img src="{{ url_for('static', filename='favicon-32x32.png') }}" alt="" style="width:24px;height:24px;vertical-align:middle;margin-right:8px">
       {{ coop_name }}
     </a>
-    {# Колокольчик «Требует внимания» — ВНЕ .navbar-collapse: на телефоне
+    {# Колокольчик «Требует внимания» — ВНЕ выдвижного меню #nav: на телефоне
        меню свёрнуто, и уведомления внутри него никто не видел. Здесь он
        между логотипом и бургером; на десктопе order-lg-last уводит его в
        конец строки, за профиль. Список — _attention_menu.html, счётчики —
@@ -49,10 +49,24 @@
       </ul>
     </div>
     {% endif %}
-    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#nav">
+    {# Меню на телефоне/планшете (< lg) — выдвижная панель (offcanvas)
+       поверх страницы, а не раскрывающийся блок (.navbar-collapse) в
+       потоке страницы: у панели своя прокрутка (длинный «Кооператив»
+       листается внутри неё), закрывается она только крестиком, тапом
+       мимо или переходом по ссылке. На lg и шире Bootstrap
+       (.navbar-expand-lg .offcanvas) рисует то же содержимое обычной
+       строкой навбара — на компьютере всё как раньше. Ту же панель
+       открывает кнопка «Меню» в нижней панели (см. .bottom-nav ниже). #}
+    <button class="navbar-toggler" type="button" data-bs-toggle="offcanvas" data-bs-target="#nav"
+            aria-controls="nav" aria-label="{{ _('Меню') }}">
       <span class="navbar-toggler-icon"></span>
     </button>
-    <div class="collapse navbar-collapse" id="nav">
+    <div class="offcanvas offcanvas-end" tabindex="-1" id="nav" aria-labelledby="navLabel">
+      <div class="offcanvas-header">
+        <h5 class="offcanvas-title" id="navLabel">{{ coop_name }}</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="{{ _('Закрыть') }}"></button>
+      </div>
+      <div class="offcanvas-body">
       <ul class="navbar-nav me-auto">
         {# Видеонаблюдение — общедоступный роут (surveillance.view вовсе
            без @login_required) — топ-уровнем виден только анонимному:
@@ -192,8 +206,15 @@
            реальная цель редиректа login_required и для прямых ссылок
            вроде «Забыли пароль?». form_id="header" — чтобы id вкладок не
            задвоились с формой на самой странице входа. #}
+        {# data-bs-auto-close="outside" — список закрывается только кликом
+           МИМО него. По умолчанию (autoClose: true) Bootstrap закрывает
+           дропдаун и по клику внутри, кроме кликов прямо по
+           input/select/textarea/form (Dropdown.clearMenus): тап по
+           подписи «Запомнить меня» (<label>), по вкладке «По телефону»
+           или по отступу формы закрывал её. В Яндекс Браузере на
+           телефоне тап по галочке почти всегда приходится на <label>. #}
         <li class="nav-item dropdown">
-          <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">{{ _("Войти") }}</a>
+          <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">{{ _("Войти") }}</a>
           <div class="dropdown-menu dropdown-menu-end p-3" style="min-width:300px">
             {% set form_id = "header" %}
             {% include "auth/_login_form.html" with context %}
@@ -201,6 +222,7 @@
         </li>
         {% endif %}
       </ul>
+      </div>
     </div>
   </div>
 </nav>
@@ -219,6 +241,39 @@
 
   {% block content %}{% endblock %}
 </div>
+
+{# Нижняя панель вкладок — только на телефоне/планшете (< lg, тот же
+   порог, что у выдвижного меню): самые частые разделы всегда под
+   пальцем, «Меню» открывает ту же панель #nav, что и бургер в шапке.
+   Остальная навигация — в ней же. Подсветка текущего раздела — по
+   request.endpoint. Место под панель внизу страницы и подъём пузырей
+   чатов — см. .bottom-nav в <style>. #}
+{% set home_endpoint = 'main.dashboard' if current_user and is_board() else 'main.index' %}
+{% if current_user %}
+{% set bottom_tabs = [
+  (home_endpoint, 'house', _("Главная")),
+  ('cabinet.garages', 'car-front', _("Гараж")),
+  ('pd4.select', 'receipt', _("Квитанции")),
+  ('cabinet.profile', 'person', _("Профиль")),
+] %}
+{% else %}
+{% set bottom_tabs = [
+  (home_endpoint, 'house', _("Главная")),
+  ('bulletin.list_posts', 'megaphone', _("Объявления")),
+  ('surveillance.view', 'camera-video', _("Видео")),
+  ('auth.login', 'box-arrow-in-right', _("Войти")),
+] %}
+{% endif %}
+<nav class="bottom-nav d-lg-none" data-bs-theme="dark" aria-label="{{ _('Основные разделы') }}">
+  {% for endpoint, icon, label in bottom_tabs %}
+  <a class="bottom-nav-item {{ 'active' if request.endpoint == endpoint }}" href="{{ url_for(endpoint) }}"{% if request.endpoint == endpoint %} aria-current="page"{% endif %}>
+    <i class="bi bi-{{ icon }}" aria-hidden="true"></i><span>{{ label }}</span>
+  </a>
+  {% endfor %}
+  <button type="button" class="bottom-nav-item" data-bs-toggle="offcanvas" data-bs-target="#nav" aria-controls="nav">
+    <i class="bi bi-list" aria-hidden="true"></i><span>{{ _("Меню") }}</span>
+  </button>
+</nav>
 
 <div id="lightboxOverlay" class="lightbox-overlay d-none">
   <button type="button" class="lightbox-close" aria-label="{{ _("Закрыть") }}"><i class="bi bi-x-lg" aria-hidden="true"></i></button>
@@ -988,7 +1043,7 @@ tr.table-info-subtle { --bs-table-bg: var(--bs-info-bg-subtle); --bs-table-borde
    прижимается к углу. */
 .kebab-toggle { width: 2rem; height: 2rem; padding: 0; margin: -.25rem -.5rem 0 0; display: inline-flex; align-items: center; justify-content: center; border: 0; color: var(--bs-secondary-color); font-size: 1.1rem; }
 .kebab-toggle:hover, .kebab-toggle:focus-visible, .kebab-toggle.show { color: var(--bs-body-color); background-color: var(--bs-tertiary-bg); }
-/* Колокольчик «Требует внимания» в шапке (над .navbar-collapse, см. разметку).
+/* Колокольчик «Требует внимания» в шапке (вне выдвижного меню #nav, см. разметку).
    Бейдж — в правом верхнем углу значка; качается один раз, когда счётчик
    вырос (класс .is-ringing ставит скрипт опроса внизу страницы). */
 .attention-bell { position: relative; color: rgba(255,255,255,.75); font-size: 1.25rem; padding: .25rem .5rem; border: 0; line-height: 1; }
@@ -1104,6 +1159,52 @@ tr.table-info-subtle { --bs-table-bg: var(--bs-info-bg-subtle); --bs-table-borde
   .chat-widget-form textarea { font-size: 16px; resize: none; }
   /* Страница под открытым чатом не прокручивается. */
   html.chat-widget-fullscreen, html.chat-widget-fullscreen body { overflow: hidden; }
+}
+/* Выдвижное меню (#nav, offcanvas) на телефоне: не шире 85% экрана —
+   слева остаётся полоска страницы, тап по ней закрывает меню. Ссылки
+   крупнее, чем в строке навбара, — под палец. */
+@media (max-width: 991.98px) {
+  #nav { --bs-offcanvas-width: min(85vw, 360px); }
+  #nav .nav-link { padding-top: .6rem; padding-bottom: .6rem; }
+  #nav .dropdown-item { padding-top: .5rem; padding-bottom: .5rem; white-space: normal; }
+}
+/* Нижняя панель вкладок (разметка — после #mainContent). Высота —
+   --bottom-nav-h; env(safe-area-inset-bottom) — полоска жестов iPhone/
+   Android в установленном приложении (display: standalone). */
+:root { --bottom-nav-h: 3.5rem; }
+.bottom-nav {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 1030;
+  display: flex; height: calc(var(--bottom-nav-h) + env(safe-area-inset-bottom));
+  padding-bottom: env(safe-area-inset-bottom);
+  background: var(--bs-dark); border-top: 1px solid rgba(255, 255, 255, .1);
+}
+.bottom-nav-item {
+  flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .1rem;
+  background: none; border: 0; padding: 0 .25rem; color: rgba(255, 255, 255, .65); text-decoration: none;
+  font-size: .7rem; line-height: 1.1;
+}
+.bottom-nav-item span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bottom-nav-item .bi { font-size: 1.3rem; line-height: 1; }
+.bottom-nav-item.active, .bottom-nav-item:hover, .bottom-nav-item:focus-visible { color: #fff; }
+.bottom-nav-item.active .bi { color: var(--bs-primary); }
+@media (max-width: 991.98px) {
+  /* Место под панель, чтобы конец страницы не прятался за ней. */
+  body { padding-bottom: calc(var(--bottom-nav-h) + env(safe-area-inset-bottom)); }
+  /* Пузыри чатов — над панелью, а не поверх её вкладок. */
+  .chat-widget-bubble { bottom: calc(var(--bottom-nav-h) + env(safe-area-inset-bottom) + .75rem); }
+  /* У пузырей z-index 1500 — выше выдвижного меню (1045); пока меню
+     открыто, прячем их, иначе висят поверх его пунктов. */
+  body:has(#nav:is(.show, .showing)) .chat-widget-bubble { display: none; }
+  /* На время ввода текста панель прячем: экранная клавиатура и так
+     съедает половину экрана, а панель встала бы прямо над ней. */
+  body:has(:is(input:not([type="checkbox"]):not([type="radio"]):not([type="button"]):not([type="submit"]), textarea, select, [contenteditable="true"]):focus) .bottom-nav { display: none; }
+}
+@media (min-width: 576px) and (max-width: 991.98px) {
+  .chat-widget-panel { bottom: calc(var(--bottom-nav-h) + env(safe-area-inset-bottom) + 4.5rem); }
+}
+@media print {
+  .bottom-nav { display: none !important; }
+  body { padding-bottom: 0 !important; }
 }
 /* Шапка и контент на широких мониторах — шире бутстраповских 1320px
    (.container): таблицам с кнопками в правых колонках тесно, а на 2K/4K

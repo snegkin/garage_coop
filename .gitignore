@@ -27,4 +27,4 @@ ezp_agent/certs/*
 !ezp_agent/certs/README.md
 
 # Флаг заглушки «Технические работы» (deployment/deploy-from-git/deploy.sh)
-deployment/maintenance.on
+deployment/deploy-from-git/maintenance.on

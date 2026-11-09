@@ -73,9 +73,9 @@ Debian/Ubuntu, на другой ОС пути и команды будут св
 [`deployment/ansible`](../deployment/ansible/README.md). Обновления —
 [`deployment/deploy-from-git/deploy.sh`](../deployment/deploy-from-git/deploy.sh)
 с заглушкой «Ведутся технические работы» на время обновления
-(`deployment/maintenance.html`, nginx отдаёт её с кодом 503 по флагу
-`deployment/maintenance.on`, а также при 502/504 — пока gunicorn
-перезапускается; фрагмент конфига — `deployment/nginx-maintenance.conf`),
+(`deployment/deploy-from-git/maintenance.html`, nginx отдаёт её с кодом 503 по флагу
+`deployment/deploy-from-git/maintenance.on`, а также при 502/504 — пока gunicorn
+перезапускается; фрагмент конфига — `deployment/deploy-from-git/nginx-maintenance.conf`),
 см. [INSTALL.md](../INSTALL.md#обновление).
 
 Чек-лист перед первым реальным запуском:

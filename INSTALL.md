@@ -128,17 +128,17 @@ server {
 
     # Заглушка «Ведутся технические работы» — на время обновления (флаг
     # ставит deploy.sh) и пока gunicorn перезапускается. Подробнее —
-    # deployment/nginx-maintenance.conf.
+    # deployment/deploy-from-git/nginx-maintenance.conf.
     error_page 502 503 504 @maintenance;
     location @maintenance {
-        root /home/coop/garage_coop/deployment;
+        root /home/coop/garage_coop/deployment/deploy-from-git;
         rewrite ^ /maintenance.html break;
         add_header Retry-After 120 always;
         add_header Cache-Control "no-store" always;
     }
 
     location / {
-        if (-f /home/coop/garage_coop/deployment/maintenance.on) {
+        if (-f /home/coop/garage_coop/deployment/deploy-from-git/maintenance.on) {
             return 503;
         }
         proxy_pass http://127.0.0.1:8000;

@@ -11,8 +11,8 @@
 # Что делает обновление (всё — на сервере, одним SSH-сеансом):
 #   1. git fetch ветки; локальные правки в коде на сервере — отказ;
 #   2. включает заглушку «Ведутся технические работы» (файл-флаг
-#      deployment/maintenance.on, его проверяет nginx —
-#      deployment/nginx-maintenance.conf);
+#      deployment/deploy-from-git/maintenance.on, его проверяет nginx —
+#      deployment/deploy-from-git/nginx-maintenance.conf);
 #   3. бэкап БД (scripts/backup_db.sh) — перед миграциями;
 #   4. git merge --ff-only, pip install (если менялся requirements.txt),
 #      scripts/vendor.sh verify;
@@ -131,7 +131,7 @@ set -Eeuo pipefail
 log()  { printf '\033[1m==> %s\033[0m\n' "$*"; }
 warn() { printf '\033[33m%s\033[0m\n' "$*" >&2; }
 
-FLAG="$APP_DIR/deployment/maintenance.on"
+FLAG="$APP_DIR/deployment/deploy-from-git/maintenance.on"
 
 sudo_cmd() {
     if [ -n "$DEPLOY_PASSWORD" ]; then
@@ -152,7 +152,7 @@ as_app() {
 }
 git_app() { as_app git -C "$APP_DIR" "$@"; }
 
-# mkdir — на сервере может стоять код старше, чем каталог deployment/.
+# mkdir — на сервере может стоять код старше, чем каталог deployment/deploy-from-git/.
 maintenance_on()  { as_app mkdir -p "${FLAG%/*}"; as_app touch "$FLAG"; }
 maintenance_off() { as_app rm -f "$FLAG"; }
 

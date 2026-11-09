@@ -1,0 +1,15 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Garage cooperative ({{ coop_domain or inventory_hostname }})
+After=network.target
+
+[Service]
+User={{ app_user }}
+WorkingDirectory={{ app_dir }}
+EnvironmentFile={{ app_dir }}/.env
+ExecStartPre={{ app_dir }}/scripts/repair_db.sh
+ExecStart={{ app_dir }}/venv/bin/gunicorn {{ gunicorn_args }} -b 127.0.0.1:{{ app_port }} run:app
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

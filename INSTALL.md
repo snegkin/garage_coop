@@ -1,7 +1,9 @@
 # Установка на сервер
 
 Пошаговая установка одного кооператива на сервер с Linux (команды — для
-Debian/Ubuntu): gunicorn за nginx с HTTPS. Локальный запуск для разработки —
+Debian/Ubuntu): gunicorn за nginx с HTTPS. Всё это (и перенос БД с
+другого сервера/компьютера) автоматически делает Ansible-плейбук —
+[deployment/ansible](deployment/ansible/README.md); ниже — то же вручную. Локальный запуск для разработки —
 в [README](README.md#быстрый-старт); подробности по каждой настройке, все
 cron-скрипты, резервное копирование и несколько кооперативов на одном
 сервере — в [docs/deployment.md](docs/deployment.md).
@@ -124,7 +126,21 @@ server {
         add_header Cache-Control "public, immutable";
     }
 
+    # Заглушка «Ведутся технические работы» — на время обновления (флаг
+    # ставит deploy.sh) и пока gunicorn перезапускается. Подробнее —
+    # deployment/nginx-maintenance.conf.
+    error_page 502 503 504 @maintenance;
+    location @maintenance {
+        root /home/coop/garage_coop/deployment;
+        rewrite ^ /maintenance.html break;
+        add_header Retry-After 120 always;
+        add_header Cache-Control "no-store" always;
+    }
+
     location / {
+        if (-f /home/coop/garage_coop/deployment/maintenance.on) {
+            return 503;
+        }
         proxy_pass http://127.0.0.1:8000;
         proxy_set_header Host $host;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -163,6 +179,26 @@ sudo certbot --nginx -d coop.example.ru     # HTTPS и редирект с http 
 Чек-лист перед реальной работой — в [docs/deployment.md](docs/deployment.md#деплой-в-проде).
 
 ## Обновление
+
+Со своего компьютера — одной командой
+[`deployment/deploy-from-git/deploy.sh`](deployment/deploy-from-git/deploy.sh):
+на время обновления сайт показывает заглушку «Ведутся технические
+работы», перед миграциями делается бэкап БД, после перезапуска — проверка,
+что сайт отвечает; при сбое до перезапуска код откатывается. Настройки
+(ветка, сервер, логин, пароль) — в `~/.config/garage-coop/deploy.conf`
+вне git, образец — `deployment/deploy-from-git/deploy.conf.example`.
+
+```bash
+deployment/deploy-from-git/deploy.sh                    # обновить
+deployment/deploy-from-git/deploy.sh maintenance on     # заглушка вручную (off, status)
+```
+
+Без SSH-ключа (`DEPLOY_PASSWORD` в конфиге) нужен `sshpass`. Для
+`sudo systemctl restart` без пароля — правило в `/etc/sudoers.d/`
+(Ansible-плейбук ставит его сам):
+`coop ALL=(root) NOPASSWD: /usr/bin/systemctl restart garage-coop`.
+
+То же вручную на сервере:
 
 ```bash
 sudo -iu coop

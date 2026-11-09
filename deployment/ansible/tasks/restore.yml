@@ -1,0 +1,155 @@
+# Перенос БД и файлов (instance/uploads и т.п.) со своего компьютера.
+# Только когда на сервере БД ещё нет, либо restore_force: true. Перезапись
+# с restore_force сохраняет прежнюю БД в instance/backups/pre_restore_*.db.
+
+- name: БД на сервере
+  ansible.builtin.stat:
+    path: "{{ app_instance_dir }}/coop.db"
+  register: remote_db
+
+- name: Решить, переносить ли БД
+  ansible.builtin.set_fact:
+    do_restore_db: "{{ restore_db_file | length > 0 and (not remote_db.stat.exists or restore_force | bool) }}"
+
+- name: Перенос БД
+  when: do_restore_db | bool
+  block:
+    - name: Временный каталог на этом компьютере
+      ansible.builtin.tempfile:
+        state: directory
+        suffix: coopdb
+      delegate_to: localhost
+      become: false
+      register: local_tmp
+
+    - name: Снимок локальной БД (backup API) и проверка целостности
+      ansible.builtin.command:
+        argv: [python3, "{{ playbook_dir }}/files/db_snapshot.py", "{{ restore_db_file }}", "{{ local_tmp.path }}/coop.db"]
+      delegate_to: localhost
+      become: false
+      register: snapshot
+      changed_when: false
+
+    - name: Сведения о снимке
+      ansible.builtin.set_fact:
+        db_snapshot: "{{ snapshot.stdout | from_json }}"
+
+    - name: Код на сервере знает ревизию схемы этой БД
+      ansible.builtin.command:
+        argv: [grep, -rlF, "revision: str = '{{ db_snapshot.revision }}'", "{{ app_dir }}/migrations/versions"]
+      register: revision_known
+      changed_when: false
+      failed_when: false
+      when: db_snapshot.revision is not none
+
+    - name: Ревизии нет — БД новее кода в {{ app_branch }}
+      ansible.builtin.fail:
+        msg: >-
+          БД на ревизии {{ db_snapshot.revision }}, а в коде ветки
+          {{ app_branch }} на сервере такой миграции нет: сайт с этой БД не
+          запустится. Запушьте коммиты с миграцией (git push origin
+          {{ app_branch }}), затем на сервере: sudo -u {{ app_user }} git -C
+          {{ app_dir }} pull --ff-only — и прогоните плейбук ещё раз.
+      when: db_snapshot.revision is not none and revision_known.rc != 0
+
+    - name: Есть ли уже служба сайта
+      ansible.builtin.stat:
+        path: "/etc/systemd/system/{{ service_name }}.service"
+      register: unit_file
+
+    - name: Остановить сайт на время замены БД
+      ansible.builtin.systemd_service:
+        name: "{{ service_name }}"
+        state: stopped
+      when: unit_file.stat.exists
+
+    - name: Каталог бэкапов
+      ansible.builtin.file:
+        path: "{{ app_instance_dir }}/backups"
+        state: directory
+        owner: "{{ app_user }}"
+        group: "{{ app_user }}"
+        mode: "0700"
+
+    - name: Сохранить прежнюю БД сервера
+      ansible.builtin.command:
+        argv: [sqlite3, "{{ app_instance_dir }}/coop.db", ".backup '{{ app_instance_dir }}/backups/pre_restore_{{ now(fmt='%Y%m%d_%H%M%S') }}.db'"]
+      become_user: "{{ app_user }}"
+      when: remote_db.stat.exists
+
+    - name: Залить снимок
+      ansible.builtin.copy:
+        src: "{{ local_tmp.path }}/coop.db"
+        dest: "{{ app_instance_dir }}/coop.db.new"
+        owner: "{{ app_user }}"
+        group: "{{ app_user }}"
+        mode: "0600"
+
+    - name: Целостность после копирования
+      ansible.builtin.command:
+        argv: [sqlite3, "{{ app_instance_dir }}/coop.db.new", "PRAGMA integrity_check"]
+      register: remote_integrity
+      changed_when: false
+      failed_when: remote_integrity.stdout != "ok"
+
+    - name: Убрать -wal/-shm прежней БД (от другого файла)
+      ansible.builtin.file:
+        path: "{{ app_instance_dir }}/coop.db{{ item }}"
+        state: absent
+      loop: ["-wal", "-shm"]
+
+    - name: Подменить БД
+      ansible.builtin.command:
+        argv: [mv, -f, "{{ app_instance_dir }}/coop.db.new", "{{ app_instance_dir }}/coop.db"]
+
+    - name: Перенесена БД
+      ansible.builtin.debug:
+        msg: "coop.db: ревизия {{ db_snapshot.revision }}, {{ (db_snapshot.size / 1048576) | round(1) }} МБ"
+
+  always:
+    - name: Удалить локальный снимок
+      ansible.builtin.file:
+        path: "{{ local_tmp.path }}"
+        state: absent
+      delegate_to: localhost
+      become: false
+      when: local_tmp.path is defined
+
+# --- файлы ------------------------------------------------------------------
+
+- name: Метка «файлы уже перенесены»
+  ansible.builtin.stat:
+    path: "{{ app_instance_dir }}/.restored-files"
+  register: files_marker
+
+- name: Перенос файлов
+  when: restore_source_instance_dir | length > 0 and (not files_marker.stat.exists or restore_force | bool)
+  block:
+    - name: Какие каталоги есть локально
+      ansible.builtin.stat:
+        path: "{{ restore_source_instance_dir }}/{{ item }}"
+      loop: "{{ restore_instance_dirs }}"
+      delegate_to: localhost
+      become: false
+      register: local_dirs
+
+    # Без --delete: на сервере ничего не удаляется, только докладывается.
+    - name: rsync каталогов instance/ на сервер
+      ansible.posix.synchronize:
+        src: "{{ restore_source_instance_dir }}/{{ item.item }}/"
+        dest: "{{ app_instance_dir }}/{{ item.item }}/"
+        archive: true
+        rsync_opts:
+          - "--chown={{ app_user }}:{{ app_user }}"
+      loop: "{{ local_dirs.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+      when: item.stat.exists and item.stat.isdir
+
+    - name: Поставить метку
+      ansible.builtin.copy:
+        dest: "{{ app_instance_dir }}/.restored-files"
+        content: "{{ now(utc=true).isoformat() }} из {{ restore_source_instance_dir }}\n"
+        owner: "{{ app_user }}"
+        group: "{{ app_user }}"
+        mode: "0600"

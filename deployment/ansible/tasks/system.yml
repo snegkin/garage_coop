@@ -1,0 +1,86 @@
+- name: Python не старше 3.12
+  ansible.builtin.assert:
+    that: ansible_facts.python.version.major == 3 and ansible_facts.python.version.minor >= 12
+    fail_msg: "Нужен Python ≥ 3.12 (Ubuntu 24.04), на сервере {{ ansible_facts.python_version }}"
+
+- name: Часовой пояс
+  community.general.timezone:
+    name: "{{ timezone }}"
+
+- name: Пакеты
+  ansible.builtin.apt:
+    name: "{{ packages + (['ffmpeg'] if install_ffmpeg else []) + (['fail2ban'] if install_fail2ban else []) }}"
+    update_cache: true
+    cache_valid_time: 3600
+  vars:
+    packages:
+      - git
+      - python3
+      - python3-venv
+      - sqlite3
+      - nginx
+      - certbot
+      - rsync
+      - curl
+      - ufw
+      - unattended-upgrades
+      # weasyprint (PDF) и шрифты для него: Liberation — метрические
+      # аналоги Arial/Times New Roman из шаблонов, DejaVu — запасной.
+      - libpango-1.0-0
+      - libpangoft2-1.0-0
+      - fonts-liberation
+      - fonts-dejavu-core
+
+- name: Автоматические обновления безопасности
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/20auto-upgrades
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+    mode: "0644"
+
+- name: Есть ли swap
+  ansible.builtin.stat:
+    path: /swapfile
+  register: swapfile
+
+- name: Создать /swapfile
+  when: swap_size_mb | int > 0 and not swapfile.stat.exists
+  block:
+    - name: Выделить место
+      ansible.builtin.command: "fallocate -l {{ swap_size_mb }}M /swapfile"
+    - name: Права
+      ansible.builtin.file:
+        path: /swapfile
+        mode: "0600"
+    - name: mkswap
+      ansible.builtin.command: mkswap /swapfile
+    - name: swapon
+      ansible.builtin.command: swapon /swapfile
+
+- name: swap в fstab
+  ansible.posix.mount:
+    src: /swapfile
+    path: none
+    fstype: swap
+    opts: sw
+    state: present
+  when: swap_size_mb | int > 0
+
+- name: Файрвол — SSH до включения, чтобы не отрезать себе доступ
+  community.general.ufw:
+    rule: allow
+    port: "{{ ssh_port }}"
+    proto: tcp
+
+- name: Файрвол — HTTP/HTTPS
+  community.general.ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: tcp
+  loop: ["80", "443"]
+
+- name: Файрвол включён
+  community.general.ufw:
+    state: enabled
+    policy: deny

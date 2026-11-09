@@ -1,0 +1,114 @@
+- name: Пользователь сайта
+  ansible.builtin.user:
+    name: "{{ app_user }}"
+    shell: /bin/bash
+    password: "!"
+    update_password: on_create
+
+- name: Каталог пользователя доступен nginx (статика) — только проход, не чтение
+  ansible.builtin.file:
+    path: "/home/{{ app_user }}"
+    mode: "0711"
+
+- name: Ключи для входа deploy.sh
+  ansible.posix.authorized_key:
+    user: "{{ app_user }}"
+    key: "{{ item }}"
+  loop: "{{ deploy_ssh_pubkeys }}"
+
+- name: deploy.sh перезапускает сервис без пароля — и больше ничего
+  ansible.builtin.copy:
+    dest: "/etc/sudoers.d/{{ service_name }}-deploy"
+    content: "{{ app_user }} ALL=(root) NOPASSWD: /usr/bin/systemctl restart {{ service_name }}\n"
+    mode: "0440"
+    validate: visudo -cf %s
+
+# --- доступ сервера к репозиторию ----------------------------------------
+
+- name: Deploy key сервера (для git fetch из deploy.sh)
+  ansible.builtin.command:
+    cmd: ssh-keygen -t ed25519 -N "" -C "{{ app_user }}@{{ inventory_hostname }} deploy" -f /home/{{ app_user }}/.ssh/id_ed25519
+    creates: "/home/{{ app_user }}/.ssh/id_ed25519"
+  become_user: "{{ app_user }}"
+  when: app_repo_url is match('git@|ssh://')
+
+- name: Ключ GitHub в known_hosts (опубликованный GitHub, не через ssh-keyscan)
+  ansible.builtin.known_hosts:
+    path: "/home/{{ app_user }}/.ssh/known_hosts"
+    name: github.com
+    key: "github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"
+  become_user: "{{ app_user }}"
+  when: "'github.com' in app_repo_url"
+
+- name: Есть ли доступ к репозиторию
+  ansible.builtin.command: git ls-remote --heads {{ app_repo_url }} {{ app_branch }}
+  become_user: "{{ app_user }}"
+  register: repo_access
+  changed_when: false
+  failed_when: false
+
+- name: Нет доступа — добавить deploy key
+  when: repo_access.rc != 0 or repo_access.stdout | length == 0
+  block:
+    - name: Прочитать публичный ключ
+      ansible.builtin.slurp:
+        src: "/home/{{ app_user }}/.ssh/id_ed25519.pub"
+      register: deploy_pub
+
+    - name: Ждём, пока ключ добавят в GitHub
+      ansible.builtin.pause:
+        prompt: |
+          Сервер не может прочитать {{ app_repo_url }} (ветка {{ app_branch }}):
+          {{ repo_access.stderr | default('', true) | trim or 'ветка не найдена' }}
+
+          Добавьте ключ: GitHub → репозиторий → Settings → Deploy keys → Add deploy key
+          (Allow write access — НЕ ставить):
+
+          {{ deploy_pub.content | b64decode | trim }}
+
+          Нажмите Enter, когда добавите (Ctrl+C, A — прервать)
+
+    - name: Доступ к репозиторию появился
+      ansible.builtin.command: git ls-remote --exit-code --heads {{ app_repo_url }} {{ app_branch }}
+      become_user: "{{ app_user }}"
+      changed_when: false
+
+# --- код ------------------------------------------------------------------
+
+# Только первый клон: дальше код обновляет deployment/deploy.sh (с
+# заглушкой, бэкапом и проверкой), а не повторный прогон плейбука.
+- name: Клон репозитория
+  ansible.builtin.git:
+    repo: "{{ app_repo_url }}"
+    dest: "{{ app_dir }}"
+    version: "{{ app_branch }}"
+    update: false
+  become_user: "{{ app_user }}"
+
+- name: Каталог данных (БД, загрузки, ключи банка) — только владельцу
+  ansible.builtin.file:
+    path: "{{ app_instance_dir }}"
+    state: directory
+    owner: "{{ app_user }}"
+    group: "{{ app_user }}"
+    mode: "0700"
+
+- name: Зависимости Python в venv
+  ansible.builtin.pip:
+    requirements: "{{ app_dir }}/requirements.txt"
+    virtualenv: "{{ app_dir }}/venv"
+    virtualenv_command: python3 -m venv
+  become_user: "{{ app_user }}"
+
+- name: gunicorn в venv
+  ansible.builtin.pip:
+    name: gunicorn
+    virtualenv: "{{ app_dir }}/venv"
+  become_user: "{{ app_user }}"
+
+- name: Библиотеки фронтенда совпадают с манифестом
+  ansible.builtin.command: "{{ app_dir }}/scripts/vendor.sh verify"
+  args:
+    chdir: "{{ app_dir }}"
+  become_user: "{{ app_user }}"
+  changed_when: false

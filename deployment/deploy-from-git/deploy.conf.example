@@ -1,0 +1,51 @@
+# Настройки deployment/deploy-from-git/deploy.sh. Это пример: настоящий файл хранится ВНЕ
+# репозитория (в нём пароль), по умолчанию ~/.config/garage-coop/deploy.conf:
+#
+#   mkdir -p ~/.config/garage-coop
+#   cp deployment/deploy-from-git/deploy.conf.example ~/.config/garage-coop/deploy.conf
+#   chmod 600 ~/.config/garage-coop/deploy.conf
+#
+# Другой файл — deploy.sh -c /путь/к/файлу или DEPLOY_CONFIG=/путь/к/файлу.
+# Синтаксис — shell (файл подключается через «.»): значения с пробелами — в кавычках.
+
+# Ветка, которая выкатывается на сервер (из origin, локальная копия не нужна).
+DEPLOY_BRANCH=master
+
+# Сервер и вход по SSH.
+DEPLOY_HOST=coop.example.ru
+DEPLOY_PORT=22
+DEPLOY_USER=coop
+
+# Пароль: для входа по SSH (нужен пакет sshpass) и для sudo на сервере
+# (перезапуск сервиса). Пусто — вход по SSH-ключу, а sudo без пароля
+# (NOPASSWD для systemctl restart). Ключ надёжнее пароля.
+DEPLOY_PASSWORD=
+
+# Ключ SSH (пусто — ключи по умолчанию из ~/.ssh) и любые другие опции ssh.
+DEPLOY_SSH_KEY=
+DEPLOY_SSH_OPTS=""
+
+# Каталог с кодом на сервере.
+APP_DIR=/home/coop/garage_coop
+
+# Владелец кода (под ним работает сайт). Если он не DEPLOY_USER, git/pip
+# выполняются через sudo -u APP_USER. Пусто — то же, что DEPLOY_USER.
+APP_USER=coop
+
+# systemd-сервисы, которые перезапускаются после обновления (несколько
+# кооперативов с одного кода — через пробел).
+SERVICES="garage-coop"
+
+# Адреса для проверки после перезапуска — по одному на сервис, в том же
+# порядке. Успех — любой ответ без 5xx (например, 302 на страницу входа).
+HEALTH_URLS="http://127.0.0.1:8000/"
+
+# Сколько секунд ждать, пока сервис начнёт отвечать (миграции БД
+# накатываются при старте).
+HEALTH_TIMEOUT=90
+
+# Бэкап БД перед обновлением (scripts/backup_db.sh): 1 — делать, 0 — нет.
+BACKUP_BEFORE=1
+# Файлы окружения кооперативов для бэкапа (ENV_FILE, через пробел). Пусто —
+# .env в каталоге кода, то есть один кооператив.
+BACKUP_ENV_FILES=""

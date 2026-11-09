@@ -1,0 +1,80 @@
+# Сертификат — certbot certonly --webroot, а TLS в конфиге пишет сам
+# шаблон: certbot --nginx правил бы файл, который плейбук при следующем
+# прогоне перезаписал бы обратно.
+
+- name: Каталог для проверки Let's Encrypt
+  ansible.builtin.file:
+    path: /var/www/letsencrypt
+    state: directory
+    mode: "0755"
+
+- name: Сайт nginx
+  ansible.builtin.template:
+    src: nginx-site.conf.j2
+    dest: "/etc/nginx/sites-available/{{ service_name }}"
+    mode: "0644"
+  notify: reload nginx
+
+- name: Сайт включён
+  ansible.builtin.file:
+    src: "../sites-available/{{ service_name }}"
+    dest: "/etc/nginx/sites-enabled/{{ service_name }}"
+    state: link
+  notify: reload nginx
+
+- name: Убрать сайт nginx по умолчанию
+  ansible.builtin.file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+  notify: reload nginx
+
+- name: Конфиг nginx валиден
+  ansible.builtin.command: nginx -t
+  changed_when: false
+
+- name: nginx применил конфиг до certbot
+  ansible.builtin.meta: flush_handlers
+
+- name: Получить сертификат
+  when: coop_domain | length > 0 and not https_enabled | bool
+  block:
+    - name: certbot certonly --webroot
+      ansible.builtin.command:
+        argv: [certbot, certonly, --webroot, -w, /var/www/letsencrypt, -d, "{{ coop_domain }}",
+               --email, "{{ certbot_email }}", --agree-tos, --non-interactive, --no-eff-email]
+      register: certbot
+      failed_when: false
+
+    - name: Не вышло — сайт пока по HTTP
+      ansible.builtin.debug:
+        msg: >-
+          certbot не выдал сертификат (чаще всего A-запись {{ coop_domain }}
+          ещё не смотрит на этот сервер или не разошлась). Сайт работает по
+          HTTP; когда DNS обновится — прогоните плейбук ещё раз (--tags nginx,app).
+          {{ certbot.stderr | default('') | trim }}
+      when: certbot.rc != 0
+
+    - name: Сертификат получен — включить HTTPS
+      ansible.builtin.set_fact:
+        https_enabled: true
+      when: certbot.rc == 0
+
+    - name: Сайт nginx с HTTPS
+      ansible.builtin.template:
+        src: nginx-site.conf.j2
+        dest: "/etc/nginx/sites-available/{{ service_name }}"
+        mode: "0644"
+      notify: reload nginx
+      when: certbot.rc == 0
+
+- name: Каталог хуков certbot
+  ansible.builtin.file:
+    path: /etc/letsencrypt/renewal-hooks/deploy
+    state: directory
+    mode: "0755"
+
+- name: Перечитать nginx после продления сертификата
+  ansible.builtin.copy:
+    dest: /etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh
+    content: "#!/bin/sh\nsystemctl reload nginx\n"
+    mode: "0755"

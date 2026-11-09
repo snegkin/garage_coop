@@ -1,0 +1,16 @@
+# Создан плейбуком deployment/ansible для deployment/deploy-from-git/deploy.sh
+# (образец со всеми пояснениями — deploy.conf.example рядом с ним). Плейбук
+# этот файл больше не трогает — правьте сами.
+DEPLOY_BRANCH={{ app_branch }}
+DEPLOY_HOST={{ ansible_host | default(inventory_hostname) }}
+DEPLOY_PORT={{ ssh_port }}
+DEPLOY_USER={{ app_user }}
+# Вход — по ключу из deploy_ssh_pubkeys, перезапуск сервиса — sudo без пароля.
+DEPLOY_PASSWORD=
+APP_DIR={{ app_dir }}
+APP_USER={{ app_user }}
+SERVICES="{{ service_name }}"
+HEALTH_URLS="http://127.0.0.1:{{ app_port }}/"
+HEALTH_TIMEOUT=90
+BACKUP_BEFORE=1
+BACKUP_ENV_FILES=""

@@ -69,6 +69,15 @@ certbot) и статикой, gunicorn держите на `127.0.0.1`, нару
 таймаут, gzip) — в [INSTALL.md](../INSTALL.md); это пример для
 Debian/Ubuntu, на другой ОС пути и команды будут свои.
 
+Сервер с нуля, с переносом БД и файлов `instance/` — Ansible-плейбук
+[`deployment/ansible`](../deployment/ansible/README.md). Обновления —
+[`deployment/deploy-from-git/deploy.sh`](../deployment/deploy-from-git/deploy.sh)
+с заглушкой «Ведутся технические работы» на время обновления
+(`deployment/maintenance.html`, nginx отдаёт её с кодом 503 по флагу
+`deployment/maintenance.on`, а также при 502/504 — пока gunicorn
+перезапускается; фрагмент конфига — `deployment/nginx-maintenance.conf`),
+см. [INSTALL.md](../INSTALL.md#обновление).
+
 Чек-лист перед первым реальным запуском:
 1. `SECRET_KEY` задан переменной окружения (не дефолтный).
 2. `FLASK_DEBUG` не установлен (или `=0`) — иначе интерактивный

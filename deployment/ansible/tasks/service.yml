@@ -1,0 +1,67 @@
+- name: .env приложения
+  ansible.builtin.template:
+    src: env.j2
+    dest: "{{ app_dir }}/.env"
+    owner: "{{ app_user }}"
+    group: "{{ app_user }}"
+    mode: "0600"
+  notify: restart app
+
+- name: БД есть
+  ansible.builtin.stat:
+    path: "{{ app_instance_dir }}/coop.db"
+  register: db_now
+
+- name: БД нет и переносить нечего — новая (chairman / change-me-please)
+  ansible.builtin.shell: set -a && . ./.env && set +a && venv/bin/python seed.py
+  args:
+    chdir: "{{ app_dir }}"
+  become_user: "{{ app_user }}"
+  when: not db_now.stat.exists
+
+- name: Служба systemd
+  ansible.builtin.template:
+    src: app.service.j2
+    dest: "/etc/systemd/system/{{ service_name }}.service"
+    mode: "0644"
+  notify: restart app
+
+- name: Служба включена и запущена
+  ansible.builtin.systemd_service:
+    name: "{{ service_name }}"
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Перезапуск, если менялись .env/юнит
+  ansible.builtin.meta: flush_handlers
+
+- name: Сайт отвечает (миграции накатываются при старте)
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ app_port }}/"
+    follow_redirects: none
+    status_code: [200, 301, 302, 303, 307, 308, 401, 403, 404]
+  register: health
+  retries: 30
+  delay: 3
+  until: health.status in [200, 301, 302, 303, 307, 308, 401, 403, 404]
+
+- name: cron
+  ansible.builtin.cron:
+    user: "{{ app_user }}"
+    name: "{{ item.name }}"
+    minute: "{{ item.minute | default('*') }}"
+    hour: "{{ item.hour | default('*') }}"
+    day: "{{ item.day | default('*') }}"
+    weekday: "{{ item.weekday | default('*') }}"
+    job: "{{ app_dir }}/scripts/{{ item.name }}.sh"
+    state: "{{ 'present' if item.enabled | default(true) else 'absent' }}"
+  loop: "{{ cron_jobs }}"
+  loop_control:
+    label: "{{ item.name }}{{ '' if item.enabled | default(true) else ' (выкл.)' }}"
+
+- name: Итог
+  ansible.builtin.debug:
+    msg:
+      - "Сайт: {{ ('https://' + coop_domain) if https_enabled | bool else ('http://' + (coop_domain or ansible_host)) }}"
+      - "Обновления дальше — deployment/deploy-from-git/deploy.sh (конфиг: ~/.config/garage-coop/deploy.conf)"

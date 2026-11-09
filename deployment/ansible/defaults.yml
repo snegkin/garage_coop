@@ -1,0 +1,55 @@
+# Значения по умолчанию. Переопределяются в ~/.config/garage-coop/vars.yml
+# (образец — vars.example.yml); сюда секреты не писать.
+
+timezone: Europe/Moscow            # времена в crontab ниже — по нему
+swap_size_mb: 1024                 # 0 — не создавать /swapfile
+ssh_port: 22
+install_ffmpeg: false              # кадры с камер видеонаблюдения (dvr_snapshot)
+install_fail2ban: true
+
+app_repo_url: git@github.com:snegkin/garage_coop.git
+app_branch: master
+app_user: coop
+app_dir: "/home/{{ app_user }}/garage_coop"
+app_instance_dir: "{{ app_dir }}/instance"
+service_name: garage-coop
+app_port: 8000
+gunicorn_args: "-w 1 --threads 4 -k gthread"
+
+coop_domain: ""                    # пусто — без HTTPS, сайт по IP
+certbot_email: ""
+
+# Публичные ключи, с которыми можно войти под app_user (для deploy.sh).
+deploy_ssh_pubkeys: []
+
+# .env приложения
+app_secret_key: ""
+app_bank_api_encryption_key: ""
+recaptcha_site_key: ""
+recaptcha_secret_key: ""
+app_env_extra: {}                  # любые другие переменные .env: {ИМЯ: значение}
+
+# Перенос данных со своего компьютера. Делается ОДИН раз: если БД на
+# сервере уже есть, она не трогается (restore_force: true — перезаписать,
+# прежняя сохраняется в instance/backups/pre_restore_*.db).
+restore_db_file: ""                # локальный coop.db; пусто — новая БД через seed.py
+restore_source_instance_dir: ""    # локальный instance/, откуда брать каталоги ниже
+restore_instance_dirs: [uploads, bank_certs, dvr, bundles]
+restore_force: false
+
+# cron пользователя app_user (docs/deployment.md, «Автоматизация»).
+# Раз в минуту каждый скрипт поднимает приложение (~120 МБ) — включайте
+# частые только для реально настроенных интеграций.
+cron_jobs:
+  - {name: update_key_rate,            minute: "0",   hour: "6"}
+  - {name: accrue_penalty,             minute: "10",  hour: "6", day: "1"}
+  - {name: reconcile_sms_charges,      minute: "30",  hour: "3"}
+  - {name: sync_bank_accounts,         minute: "0",   hour: "7", weekday: "1-5"}
+  - {name: sync_counterparty_balances, minute: "10",  hour: "7"}
+  - {name: backup_db,                  minute: "0",   hour: "3"}
+  - {name: cleanup_orphan_attachments, minute: "40",  hour: "3"}
+  - {name: board_chat_digest,          minute: "*/5"}
+  - {name: poll_mailbox,               minute: "*/5"}
+  - {name: poll_telegram,              minute: "*",   enabled: false}
+  - {name: poll_ewelink,               minute: "*",   enabled: false}
+  - {name: dvr_snapshot,               minute: "*",   enabled: false}

@@ -1,0 +1,96 @@
+# Сервер сайта кооператива с нуля: Ubuntu 24.04 (Python ≥ 3.12), один
+# кооператив, gunicorn за nginx с HTTPS, перенос БД и файлов со своего
+# компьютера. Повторный прогон безопасен: БД и файлы на сервере не
+# перезаписываются (кроме restore_force: true), остальное приводится к
+# описанному состоянию. Запуск и порядок переезда — README.md.
+#
+#   cd deployment/ansible && ansible-playbook site.yml
+#   ansible-playbook site.yml --tags app         # только код/.env/сервис
+#   ansible-playbook site.yml --check --diff     # что изменится
+
+- name: Сервер сайта кооператива
+  hosts: coop
+  become: true
+  vars_files:
+    - defaults.yml
+    - "{{ lookup('env', 'COOP_VARS') or lookup('env', 'HOME') + '/.config/garage-coop/vars.yml' }}"
+
+  pre_tasks:
+    - name: Обязательные настройки заданы
+      ansible.builtin.assert:
+        that:
+          - app_secret_key | length >= 32
+          - app_bank_api_encryption_key | length > 0
+          - coop_domain | length == 0 or certbot_email | length > 0
+        fail_msg: >-
+          В vars.yml нужны app_secret_key (≥32 символов) и
+          app_bank_api_encryption_key — те же, что на старом сервере; при
+          coop_domain — ещё certbot_email.
+      tags: always
+
+    - name: Локальная БД для переноса существует
+      ansible.builtin.stat:
+        path: "{{ restore_db_file }}"
+      delegate_to: localhost
+      become: false
+      register: local_db
+      when: restore_db_file | length > 0
+      failed_when: not local_db.stat.exists
+      tags: always
+
+    # Здесь, а не в tasks/nginx.yml: от этого зависит и .env (FORCE_HTTPS),
+    # а он генерируется и при --tags app.
+    - name: Есть ли сертификат
+      ansible.builtin.stat:
+        path: "/etc/letsencrypt/live/{{ coop_domain }}/fullchain.pem"
+      register: cert
+      when: coop_domain | length > 0
+      tags: always
+
+    - name: HTTPS включается, только если сертификат уже есть
+      ansible.builtin.set_fact:
+        https_enabled: "{{ coop_domain | length > 0 and cert.stat.exists | default(false) }}"
+      tags: always
+
+  tasks:
+    - name: Система
+      ansible.builtin.import_tasks: tasks/system.yml
+      tags: system
+
+    - name: Код и окружение
+      ansible.builtin.import_tasks: tasks/code.yml
+      tags: app
+
+    - name: Перенос БД и файлов
+      ansible.builtin.import_tasks: tasks/restore.yml
+      tags: restore
+
+    - name: nginx и HTTPS
+      ansible.builtin.import_tasks: tasks/nginx.yml
+      tags: nginx
+
+    - name: .env, служба, cron
+      ansible.builtin.import_tasks: tasks/service.yml
+      tags: app
+
+    - name: Конфиг deploy.sh на этом компьютере
+      ansible.builtin.template:
+        src: deploy.conf.j2
+        dest: "{{ lookup('env', 'HOME') }}/.config/garage-coop/deploy.conf"
+        mode: "0600"
+        force: false
+      delegate_to: localhost
+      become: false
+      tags: app
+
+  handlers:
+    - name: reload nginx
+      ansible.builtin.systemd_service:
+        name: nginx
+        state: reloaded
+
+    - name: restart app
+      ansible.builtin.systemd_service:
+        name: "{{ service_name }}"
+        state: restarted
+        daemon_reload: true

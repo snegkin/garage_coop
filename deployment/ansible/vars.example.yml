@@ -1,0 +1,35 @@
+# Копия — в ~/.config/garage-coop/vars.yml (вне git, chmod 600). Все
+# остальные настройки и их значения по умолчанию — defaults.yml.
+
+coop_domain: coop.example.ru       # A-запись должна уже смотреть на новый сервер — иначе certbot не выдаст сертификат
+certbot_email: admin@example.ru
+
+app_branch: master
+
+deploy_ssh_pubkeys:
+  - "{{ lookup('file', '~/.ssh/id_rsa.pub') }}"
+
+# Ключи — ТЕ ЖЕ, что были на старом сервере. С другим BANK_API_ENCRYPTION_KEY
+# сохранённые в БД секреты (банк, почта, Telegram, eWeLink, регистраторы,
+# SMS Aero, web-push) не расшифруются — вводить заново. Другой SECRET_KEY
+# только разлогинит всех.
+#
+# Если продовый .env есть на этом компьютере — берём прямо из него, без копий:
+prod_env: /home/sne/work/garage_coop/.env
+app_secret_key: "{{ lookup('ansible.builtin.ini', 'SECRET_KEY', type='properties', file=prod_env) }}"
+app_bank_api_encryption_key: "{{ lookup('ansible.builtin.ini', 'BANK_API_ENCRYPTION_KEY', type='properties', file=prod_env) }}"
+# Ключи reCAPTCHA выпускаются на домен: новый домен — добавьте его в
+# консоли reCAPTCHA или выпустите новые.
+recaptcha_site_key: "{{ lookup('ansible.builtin.ini', 'RECAPTCHA_SITE_KEY', type='properties', file=prod_env, default='') }}"
+recaptcha_secret_key: "{{ lookup('ansible.builtin.ini', 'RECAPTCHA_SECRET_KEY', type='properties', file=prod_env, default='') }}"
+
+# Пути в .env — уже под новый сервер (на старом был /home/gmvoshod/...).
+app_env_extra:
+  SBERBANK_API_CA_BUNDLE: "{{ app_instance_dir }}/bundles/bundle.pem"
+
+# Данные со своего компьютера
+restore_db_file: /home/sne/work/garage_coop/instance/coop.db
+restore_source_instance_dir: /home/sne/work/garage_coop/instance
+
+# cron_jobs — список заменяется целиком: чтобы включить, например,
+# poll_ewelink, скопируйте весь список из defaults.yml и поменяйте enabled.

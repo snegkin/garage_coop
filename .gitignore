@@ -25,3 +25,6 @@ venv/
 # Сертификаты КЭП для агента ЭЗП — в git только README (в клиентском — СНИЛС/ИНН председателя)
 ezp_agent/certs/*
 !ezp_agent/certs/README.md
+
+# Флаг заглушки «Технические работы» (deployment/deploy-from-git/deploy.sh)
+deployment/maintenance.on

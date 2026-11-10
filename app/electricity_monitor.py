@@ -45,6 +45,7 @@ HISTORY_VIEW_HOURS = 24 * 3  # период НАЧАЛЬНОГО масштаб�
 MAX_CHART_POINTS = 8640  # точек на устройство в ответе history_data() — при опросе раз в 5 минут за HISTORY_FETCH_HOURS (30 дней) сырых точек ~8640, т.е. порог практически не прореживает дефолтный запрос (иначе даже начальный узкий масштаб HISTORY_VIEW_HOURS получил бы точку раз в ~29 минут вместо раз в ~5); прореживание реально включается только при вручную расширенном периоде за пределами 30 дней — без ограничения совсем график на таком периоде будет тормозить
 OAUTH_STATE_SESSION_KEY = "ewelink_oauth_state"
 RAW_READINGS_KEEP_DAYS = 90  # поминутные показания храним 3 месяца, дальше — почасовые (см. compact_old_readings)
+STALE_AFTER = dt.timedelta(minutes=10)  # поллер пишет отметку каждую минуту; дольше нет ни одной — опрос не проходит (токен, сеть), и «онлайн» в карточке уже ничего не значит
 COMPACT_BATCH_GROUPS = 200  # (~2 с на пачку) устройство-часов за один прогон поллера — первый запуск разбирает накопившееся порциями
 
 
@@ -243,11 +244,23 @@ def view():
     # latest_by_device — последние РЕАЛЬНЫЕ показания (онлайн); offline_since_by_device —
     # с какого момента устройство офлайн, если последняя отметка поллера — офлайн
     # (тогда показания в карточке устаревшие, см. reading_from_snapshot).
+    # stale_since_by_device — последняя отметка поллера старше STALE_AFTER:
+    # что с устройством сейчас, неизвестно (не «офлайн» — это сообщает само
+    # облако). Показания — как последние известные, в итоги не входят.
     latest_by_device = {}
     offline_since_by_device = {}
+    stale_since_by_device = {}
+    stale_before = dt.datetime.utcnow() - STALE_AFTER
     for device in devices:
         readings = database.db_session.query(PowerPhaseReading).filter_by(device_id=device.id)
         latest = readings.order_by(PowerPhaseReading.ts.desc()).first()
+        if latest is not None and latest.ts < stale_before:
+            stale_since_by_device[device.id] = latest.ts
+            latest_by_device[device.id] = (
+                latest if latest.is_online
+                else readings.filter_by(is_online=True).order_by(PowerPhaseReading.ts.desc()).first()
+            )
+            continue
         if latest is None or latest.is_online:
             latest_by_device[device.id] = latest
             continue
@@ -260,7 +273,8 @@ def view():
     # Итоги — только по фазам на связи: устаревшие показания офлайн-фазы в сумме
     # выглядели бы как текущие.
     online_readings = [
-        r for device_id, r in latest_by_device.items() if r and device_id not in offline_since_by_device
+        r for device_id, r in latest_by_device.items()
+        if r and device_id not in offline_since_by_device and device_id not in stale_since_by_device
     ]
     power_values = [r.power_w for r in online_readings if r.power_w is not None]
     total_power = sum(power_values) if power_values else None
@@ -309,6 +323,7 @@ def view():
         devices_json=devices_json,
         latest_by_device=latest_by_device,
         offline_since_by_device=offline_since_by_device,
+        stale_since_by_device=stale_since_by_device,
         total_power=total_power,
         total_day_kwh=total_day_kwh,
         total_month_kwh=total_month_kwh,

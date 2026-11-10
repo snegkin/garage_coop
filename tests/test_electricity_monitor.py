@@ -552,6 +552,38 @@ def test_view_offline_device_shows_since_and_last_data_excluded_from_totals(app,
     assert "Без учёта фаз офлайн." in body
 
 
+def test_view_stale_poll_is_not_online_and_excluded_from_totals(app, db, client):
+    """Опрос давно не проходит (истёк токен, нет сети) — последняя отметка
+    «онлайн» уже ничего не значит: «нет свежих данных», не «онлайн», и в
+    итоги фаза не входит."""
+    device_a = make_phase_device(db, label="Фаза A", ewelink_device_id="dev-a", sort_order=0)
+    device_b = make_phase_device(db, label="Фаза B", ewelink_device_id="dev-b", sort_order=1)
+    device_c = make_phase_device(db, label="Фаза C", ewelink_device_id="dev-c", sort_order=2)
+    now = dt.datetime.utcnow()
+    stale_ts = now - dt.timedelta(minutes=11)
+    db.add(PowerPhaseReading(device_id=device_a.id, ts=stale_ts, power_w=Decimal("1234"),
+                             day_kwh=Decimal("7.77"), is_online=True, switch_on=False))
+    # офлайн-отметка, но и она давняя — тоже «нет свежих данных», не «офлайн»
+    db.add(PowerPhaseReading(device_id=device_c.id, ts=now - dt.timedelta(minutes=40), power_w=Decimal("999"),
+                             is_online=True))
+    db.add(PowerPhaseReading(device_id=device_c.id, ts=now - dt.timedelta(minutes=30), is_online=False))
+    db.add(PowerPhaseReading(device_id=device_b.id, ts=now - dt.timedelta(minutes=9), power_w=Decimal("500"),
+                             day_kwh=Decimal("1.11"), is_online=True))
+    make_user(db, "board20", "pass12345", role=RoleEnum.BOARD)
+    db.commit()
+    login(client, "board20", "pass12345")
+
+    body = client.get("/electricity/").get_data(as_text=True)
+    assert body.count("нет свежих данных") == 2  # A и C; B (9 минут) — ещё онлайн
+    assert body.count('badge bg-success">онлайн') == 1
+    assert "офлайн</span>" not in body and "Нет связи с устройством с" not in body
+    assert "реле выкл" not in body  # состояние реле тоже давнее
+    assert f'data-utc-datetime="{stale_ts.isoformat()}Z"' in body
+    assert "1,23" in body and "1,00" in body  # последние известные показания A и C — в карточках
+    assert "0,50" in body and "1,11" in body and "8,88" not in body  # итоги — только B
+    assert "Без учёта фаз без свежих данных." in body
+
+
 # ---------------------------------------------------------------------------
 # /electricity/history-data — JSON для графика (см. monitor.html)
 # ---------------------------------------------------------------------------

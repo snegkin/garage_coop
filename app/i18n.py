@@ -884,6 +884,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Нет связи с устройством с": "No connection to the device since",
         "Последние данные:": "Last data:",
         "Без учёта фаз офлайн.": "Offline phases are not included.",
+        "нет свежих данных": "no fresh data",
+        "Опрос устройств не проходит, свежих данных нет с": "Device polling is failing, no fresh data since",
+        "Без учёта фаз без свежих данных.": "Phases without fresh data are not included.",
         "Приложение на телефон": "App for your phone",
         "Политика конфиденциальности": "Privacy policy",
         "Установите сайт как приложение: значок на главном экране, открывается без адресной строки, приходят уведомления.":

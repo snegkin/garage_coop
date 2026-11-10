@@ -20,7 +20,9 @@ jobs:
       - name: Install system dependencies (weasyprint)
         run: |
           sudo apt-get update
-          sudo apt-get install -y libpango-1.0-0 libpangocairo-1.0-0 libgdk-pixbuf2.0-0 libffi-dev
+          # weasyprint ≥ 53 — только Pango (без cairo и gdk-pixbuf); тот же
+          # набор, что ставит на сервер deployment/ansible/tasks/system.yml.
+          sudo apt-get install -y libpango-1.0-0 libpangoft2-1.0-0 libffi-dev fonts-liberation fonts-dejavu-core
 
       - name: Install Python dependencies
         run: pip install -r requirements-dev.txt

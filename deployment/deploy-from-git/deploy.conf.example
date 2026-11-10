@@ -1,11 +1,17 @@
-# Настройки deployment/deploy-from-git/deploy.sh. Это пример: настоящий файл хранится ВНЕ
-# репозитория (в нём пароль), по умолчанию ~/.config/garage-coop/deploy.conf:
+# Настройки deployment/deploy-from-git/deploy.sh. Это пример; настоящий файл
+# (в нём может быть пароль) не коммитится. Любое из двух мест:
 #
+#   рядом со скриптом (в .gitignore):
+#   cp deployment/deploy-from-git/deploy.conf.example deployment/deploy-from-git/deploy.conf
+#   chmod 600 deployment/deploy-from-git/deploy.conf
+#
+#   или вне репозитория:
 #   mkdir -p ~/.config/garage-coop
 #   cp deployment/deploy-from-git/deploy.conf.example ~/.config/garage-coop/deploy.conf
 #   chmod 600 ~/.config/garage-coop/deploy.conf
 #
-# Другой файл — deploy.sh -c /путь/к/файлу или DEPLOY_CONFIG=/путь/к/файлу.
+# Есть оба — берётся тот, что рядом со скриптом. Явно — deploy.sh -c ПУТЬ или
+# DEPLOY_CONFIG=ПУТЬ.
 # Синтаксис — shell (файл подключается через «.»): значения с пробелами — в кавычках.
 
 # Ветка, которая выкатывается на сервер (из origin, локальная копия не нужна).

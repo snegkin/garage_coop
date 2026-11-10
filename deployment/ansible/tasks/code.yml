@@ -25,6 +25,15 @@
 
 # --- доступ сервера к репозиторию ----------------------------------------
 
+# Некоторые образы VPS кладут серверные опции sshd в клиентский
+# ssh_config — клиент на них падает («Bad configuration option»), и git
+# не достучится до GitHub. Настоящие значения живут в sshd_config.
+- name: Убрать опции sshd из клиентского ssh_config
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/ssh_config
+    regexp: '^\s*(PermitRootLogin|PermitEmptyPasswords|UsePAM|X11Forwarding)\b'
+    state: absent
+
 - name: Deploy key сервера (для git fetch из deploy.sh)
   ansible.builtin.command:
     cmd: ssh-keygen -t ed25519 -N "" -C "{{ app_user }}@{{ inventory_hostname }} deploy" -f /home/{{ app_user }}/.ssh/id_ed25519

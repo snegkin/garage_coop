@@ -2,6 +2,18 @@
 # шаблон: certbot --nginx правил бы файл, который плейбук при следующем
 # прогоне перезаписал бы обратно.
 
+- name: Версия nginx
+  ansible.builtin.command: nginx -v
+  register: nginx_v
+  changed_when: false
+  check_mode: false
+
+# `http2 on;` — с nginx 1.25.1 (Debian 13); в Ubuntu 24.04 — 1.24, там
+# только старое `listen ... http2`.
+- name: Синтаксис HTTP/2 под эту версию nginx
+  ansible.builtin.set_fact:
+    nginx_http2_directive: "{{ (nginx_v.stderr | regex_search('nginx/([0-9.]+)', '\\1') | first) is version('1.25.1', '>=') }}"
+
 - name: Каталог для проверки Let's Encrypt
   ansible.builtin.file:
     path: /var/www/letsencrypt
@@ -54,17 +66,22 @@
           {{ certbot.stderr | default('') | trim }}
       when: certbot.rc != 0
 
-    - name: Сертификат получен — включить HTTPS
-      ansible.builtin.set_fact:
-        https_enabled: true
-      when: certbot.rc == 0
-
+    # when блока проверяется перед КАЖДОЙ его задачей: после set_fact
+    # https_enabled=true всё, что ниже в блоке, пропустилось бы. Поэтому
+    # шаблон — с явным https_enabled, а set_fact — последним.
     - name: Сайт nginx с HTTPS
       ansible.builtin.template:
         src: nginx-site.conf.j2
         dest: "/etc/nginx/sites-available/{{ service_name }}"
         mode: "0644"
+      vars:
+        https_enabled: true
       notify: reload nginx
+      when: certbot.rc == 0
+
+    - name: Сертификат получен — включить HTTPS (последним в блоке)
+      ansible.builtin.set_fact:
+        https_enabled: true
       when: certbot.rc == 0
 
 - name: Каталог хуков certbot

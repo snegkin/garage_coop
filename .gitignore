@@ -28,3 +28,8 @@ ezp_agent/certs/*
 
 # Флаг заглушки «Технические работы» (deployment/deploy-from-git/deploy.sh)
 deployment/deploy-from-git/maintenance.on
+
+# Локальные конфиги Ansible (секреты, адреса серверов)
+deployment/ansible/inventory.ini
+deployment/ansible/vars.yml
+deployment/deploy-from-git/deploy.conf

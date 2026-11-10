@@ -4,7 +4,7 @@
 timezone: Europe/Moscow            # времена в crontab ниже — по нему
 swap_size_mb: 1024                 # 0 — не создавать /swapfile
 ssh_port: 22
-install_ffmpeg: false              # кадры с камер видеонаблюдения (dvr_snapshot)
+install_ffmpeg: "{{ 'dvr_snapshot' in cron_enable }}"  # кадры с камер: ставится сам, если включён dvr_snapshot
 install_fail2ban: true
 
 app_repo_url: git@github.com:snegkin/garage_coop.git
@@ -21,6 +21,11 @@ certbot_email: ""
 
 # Публичные ключи, с которыми можно войти под app_user (для deploy.sh).
 deploy_ssh_pubkeys: []
+
+# Куда на ЭТОМ компьютере записать конфиг deploy.sh (если файла ещё нет).
+# Рядом со скриптом (в .gitignore) — "{{ playbook_dir }}/../deploy-from-git/deploy.conf";
+# deploy.sh сам ищет и там, и здесь.
+deploy_conf_path: "{{ lookup('env', 'HOME') }}/.config/garage-coop/deploy.conf"
 
 # .env приложения
 app_secret_key: ""
@@ -53,3 +58,9 @@ cron_jobs:
   - {name: poll_telegram,              minute: "*",   enabled: false}
   - {name: poll_ewelink,               minute: "*",   enabled: false}
   - {name: dvr_snapshot,               minute: "*",   enabled: false}
+
+# Включить/выключить задачи из списка выше по имени, не копируя его целиком:
+#   cron_enable: [dvr_snapshot, poll_telegram]
+#   cron_disable: [poll_mailbox]
+cron_enable: []
+cron_disable: []

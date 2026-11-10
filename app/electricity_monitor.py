@@ -373,7 +373,8 @@ def history_data():
                 PowerPhaseReading.ts >= since,
                 PowerPhaseReading.ts <= until,
                 # Офлайн-отметки (см. reading_from_snapshot) идут точками с w=null —
-                # Chart.js рвёт на них линию, а не тянет её через время без связи.
+                # график опускает на них линию в ноль (см. linePoints в monitor.html),
+                # а не тянет её через время без связи.
                 or_(PowerPhaseReading.power_w.isnot(None), PowerPhaseReading.is_online.is_(False)),
             )
             .order_by(PowerPhaseReading.ts.asc())

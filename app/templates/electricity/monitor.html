@@ -58,33 +58,40 @@
 <div class="row g-3 mb-4">
   {% for device in devices %}
   {% set reading = latest_by_device.get(device.id) %}
-  {% set offline_since = offline_since_by_device.get(device.id) %}
+  {% set stale_since = stale_since_by_device.get(device.id) %}
+  {% set offline_since = None if stale_since else offline_since_by_device.get(device.id) %}
   <div class="col-md-4">
     <div class="card">
       <div class="card-body">
         <div class="d-flex justify-content-between align-items-start">
           <div class="text-muted">{{ device.label }}</div>
           <div class="text-end">
-            {% if offline_since %}
+            {% if stale_since %}
+              <span class="badge bg-warning text-dark">{{ _("нет свежих данных") }}</span>
+            {% elif offline_since %}
               <span class="badge bg-secondary">{{ _("офлайн") }}</span>
             {% elif reading %}
               <span class="badge bg-success">{{ _("онлайн") }}</span>
             {% endif %}
-            {% if reading and not offline_since %}
+            {% if reading and not offline_since and not stale_since %}
               {% if reading.switch_on is not none and not reading.switch_on %}
               <span class="badge bg-danger" title="{{ _('Реле отключено — питание на этой фазе снято.') }}">{{ _("реле выкл") }}</span>
               {% endif %}
-            {% elif not reading %}
+            {% elif not reading and not stale_since %}
             <span class="badge bg-secondary">{{ _("нет данных") }}</span>
             {% endif %}
           </div>
         </div>
-        {% if offline_since %}
+        {% if stale_since %}
+        <div class="text-warning-emphasis small">
+          {{ _("Опрос устройств не проходит, свежих данных нет с") }} <span data-utc-datetime="{{ stale_since.isoformat() }}Z">{{ fmt_date(stale_since) }} {{ stale_since.strftime('%H:%M') }} UTC</span>{% if reading %}. {{ _("Последние данные:") }}{% endif %}
+        </div>
+        {% elif offline_since %}
         <div class="text-danger small">
           {{ _("Нет связи с устройством с") }} <span data-utc-datetime="{{ offline_since.isoformat() }}Z">{{ fmt_date(offline_since) }} {{ offline_since.strftime('%H:%M') }} UTC</span>{% if reading %}. {{ _("Последние данные:") }}{% endif %}
         </div>
         {% endif %}
-        <div class="{{ 'text-body-tertiary' if offline_since else '' }}">
+        <div class="{{ 'text-body-tertiary' if offline_since or stale_since else '' }}">
         {% if reading and reading.power_w is not none %}
         <div class="fs-2">{{ fmt2(reading.power_w / 1000) }} {{ _("кВт") }}</div>
         <div class="text-muted small">
@@ -115,6 +122,7 @@
         {% if total_power is not none %}
         <div class="fs-2">{{ fmt2(total_power / 1000) }} {{ _("кВт") }}</div>
         {% if offline_since_by_device %}<div class="text-muted small">{{ _("Без учёта фаз офлайн.") }}</div>{% endif %}
+        {% if stale_since_by_device %}<div class="text-muted small">{{ _("Без учёта фаз без свежих данных.") }}</div>{% endif %}
         {% else %}
         <p class="text-muted mb-0">{{ _("Недостаточно данных.") }}</p>
         {% endif %}
@@ -128,6 +136,7 @@
         {% if total_day_kwh is not none %}
         <div class="fs-2">{{ fmt2(total_day_kwh) }} {{ _("кВт·ч") }}</div>
         {% if offline_since_by_device %}<div class="text-muted small">{{ _("Без учёта фаз офлайн.") }}</div>{% endif %}
+        {% if stale_since_by_device %}<div class="text-muted small">{{ _("Без учёта фаз без свежих данных.") }}</div>{% endif %}
         {% else %}
         <p class="text-muted mb-0">{{ _("Недостаточно данных.") }}</p>
         {% endif %}
@@ -141,6 +150,7 @@
         {% if total_month_kwh is not none %}
         <div class="fs-2">{{ fmt2(total_month_kwh) }} {{ _("кВт·ч") }}</div>
         {% if offline_since_by_device %}<div class="text-muted small">{{ _("Без учёта фаз офлайн.") }}</div>{% endif %}
+        {% if stale_since_by_device %}<div class="text-muted small">{{ _("Без учёта фаз без свежих данных.") }}</div>{% endif %}
         {% else %}
         <p class="text-muted mb-0">{{ _("Недостаточно данных.") }}</p>
         {% endif %}

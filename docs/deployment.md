@@ -243,10 +243,83 @@ logrotate не нужен.
 меньше; распаковать вручную — `gunzip -k`) в `instance/backups/`, хранит
 последние 30 копий (настраивается через `KEEP_BACKUPS`). **Бэкап лежит на том же диске, что и
 сама БД** — это защита от повреждения файла/случайной команды `rm`, а не
-от отказа сервера целиком. Для настоящей защиты синхронизируйте
-`instance/backups/` куда-то ещё (rsync на другой хост, объектное
-хранилище) — сам скрипт этого не делает. Запустить вручную:
-`python3 scripts/backup_db.py`.
+от отказа сервера целиком: от него — [внешний бэкап](#внешний-бэкап)
+ниже. Запустить вручную: `python3 scripts/backup_db.py`.
+
+### Внешний бэкап
+
+Хостер может потерять VPS вместе со всеми своими бэкапами (с Beget так и
+случилось): копии на том же сервере и у того же провайдера не спасают. Поэтому копий три, у
+трёх независимых сторон:
+
+| Копия | Чем | Где |
+|---|---|---|
+| снимки БД | `backup_db` (выше) | сам сервер, `instance/backups/` |
+| внешняя | `backup_offsite` → restic | Yandex Object Storage (S3) |
+| локальная | агент [`backup_agent/`](../backup_agent/README.md) | компьютер председателя |
+
+Во внешнюю и локальную копии попадают снимок БД, файл окружения (`.env`:
+без `SECRET_KEY`/`BANK_API_ENCRYPTION_KEY` сохранённые в БД пароли и токены
+не расшифровать), `uploads/`, `bank_certs/`, `bundles/` и архив почты
+`mail_backup/`. Каталог `dvr/` не входит.
+
+```bash
+# crontab -e (ansible ставит эти строки сам, см. cron_jobs в defaults.yml)
+50 2 * * * /путь/к/проекту/scripts/backup_mailbox.sh
+20 3 * * * /путь/к/проекту/scripts/backup_offsite.sh
+```
+
+**`backup_mailbox`** копирует письма почты правления с почтового сервера
+(настройки — из «Почты правления», отдельный конфиг не нужен) в
+`instance/mail_backup/` файлами `.eml`. IMAP: все папки, только чтение (флаг
+«прочитано» не меняется). POP3: по UIDL. Работает только на добавление:
+удалённое на сервере письмо в архиве остаётся. Почта не настроена — скрипт
+просто выходит.
+
+**`backup_offsite`** каждый раз обновляет `instance/backup_staging/`
+(консистентный снимок БД, копия `.env`, `MANIFEST.json`), который забирает
+агент председателя. Если в `.env` задан `RESTIC_REPOSITORY`, он же
+отправляет всё это в restic-репозиторий: шифрование на сервере, история
+версий, передаются только изменения. Политика хранения:
+`OFFSITE_KEEP_DAILY`/`WEEKLY`/`MONTHLY` (14/8/12), по воскресеньям
+`restic check`. Итог запуска — `instance/logs/backup_offsite_status.json`.
+
+Настройка Yandex Object Storage:
+
+1. В консоли Yandex Cloud создать бакет (приватный, класс «Стандартное»).
+2. Создать сервисный аккаунт с ролью `storage.editor` на этот бакет и
+   выпустить ему **статический ключ доступа**.
+3. В `.env` на сервере (через ansible — `app_env_extra` в `vars.yml`, см.
+   `vars.example.yml`):
+   ```
+   RESTIC_REPOSITORY=s3:https://storage.yandexcloud.net/<бакет>/coop
+   RESTIC_PASSWORD=<openssl rand -hex 32>
+   AWS_ACCESS_KEY_ID=<идентификатор ключа>
+   AWS_SECRET_ACCESS_KEY=<секрет>
+   AWS_DEFAULT_REGION=ru-central1
+   ```
+   **`RESTIC_PASSWORD` сохраните вне сервера** (менеджер паролей правления):
+   копия `.env` лежит внутри того же зашифрованного репозитория, и без
+   пароля её не достать.
+4. Проверка: `python3 scripts/backup_offsite.py` (первый запуск сам
+   выполнит `restic init`), затем
+   `set -a; . ./.env; set +a; restic snapshots`.
+
+Восстановление на новом сервере:
+
+```bash
+export RESTIC_REPOSITORY=… RESTIC_PASSWORD=… AWS_ACCESS_KEY_ID=… AWS_SECRET_ACCESS_KEY=… AWS_DEFAULT_REGION=ru-central1
+restic snapshots
+restic restore latest --target /tmp/coop-restore
+```
+
+Дальше так же, как из локальной копии: раскладка каталогов и подъём
+сервера ansible-плейбуком описаны в [backup_agent/README.md](../backup_agent/README.md#восстановление).
+
+Агент председателя заходит на сервер ssh-ключом, ограниченным
+`scripts/backup_pull_gate.sh` (rrsync на чтение внутри `INSTANCE_DIR`).
+Каждый его заход пишется в `instance/logs/backup_pull.log`. Если записи
+давно не появлялись, локальная копия перестала обновляться.
 
 **Восстановление** — из `scripts/restore_db.py` (обёртка `restore_db.sh`
 подхватывает venv так же, как у бэкапа; в cron её ставить не нужно, это

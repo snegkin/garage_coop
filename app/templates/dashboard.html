@@ -223,6 +223,11 @@
       scales: {
         x: {
           type: "time",
+          // Ось — ровно запрошенные сутки, а не диапазон имеющихся точек:
+          // иначе при паре часов данных (свежий запуск, пропуск опроса)
+          // Chart.js растягивает их на всю ширину превью.
+          min: since.getTime(),
+          max: until.getTime(),
           time: { displayFormats: { minute: "HH", hour: "HH" } },
           ticks: { maxRotation: 0 },
         },

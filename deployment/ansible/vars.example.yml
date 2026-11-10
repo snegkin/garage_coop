@@ -31,6 +31,18 @@ recaptcha_secret_key: "{{ lookup('ansible.builtin.ini', 'RECAPTCHA_SECRET_KEY', 
 # Пути в .env — уже под новый сервер (на старом был /home/gmvoshod/...).
 app_env_extra:
   SBERBANK_API_CA_BUNDLE: "{{ app_instance_dir }}/bundles/bundle.pem"
+  # Внешний бэкап в Yandex Object Storage (scripts/backup_offsite.py,
+  # docs/deployment.md, «Внешний бэкап»). Без RESTIC_REPOSITORY cron
+  # backup_offsite только готовит каталог для агента председателя.
+  # RESTIC_REPOSITORY: s3:https://storage.yandexcloud.net/<бакет>/coop
+  # RESTIC_PASSWORD: "<openssl rand -hex 32 — сохранить и вне сервера>"
+  # AWS_ACCESS_KEY_ID: "<статический ключ сервисного аккаунта>"
+  # AWS_SECRET_ACCESS_KEY: "<секрет ключа>"
+  # AWS_DEFAULT_REGION: ru-central1
+
+# Агент локального бэкапа на компьютере председателя (backup_agent/README.md):
+# backup_agent_pubkeys:
+#   - "ssh-ed25519 AAAA… coop-backup"
 
 # Данные со своего компьютера
 restore_db_file: /home/sne/work/garage_coop/instance/coop.db

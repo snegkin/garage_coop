@@ -46,6 +46,12 @@
   delay: 3
   until: health.status in [200, 301, 302, 303, 307, 308, 401, 403, 404]
 
+- name: В cron_enable/cron_disable только известные задачи
+  ansible.builtin.assert:
+    that: (cron_enable + cron_disable) | difference(cron_jobs | map(attribute='name')) | length == 0
+    fail_msg: "Нет таких задач в cron_jobs: {{ (cron_enable + cron_disable) | difference(cron_jobs | map(attribute='name')) | join(', ') }}"
+    quiet: true
+
 - name: cron
   ansible.builtin.cron:
     user: "{{ app_user }}"
@@ -55,13 +61,15 @@
     day: "{{ item.day | default('*') }}"
     weekday: "{{ item.weekday | default('*') }}"
     job: "{{ app_dir }}/scripts/{{ item.name }}.sh"
-    state: "{{ 'present' if item.enabled | default(true) else 'absent' }}"
+    state: "{{ 'present' if job_on else 'absent' }}"
+  vars:
+    job_on: "{{ (item.enabled | default(true) or item.name in cron_enable) and item.name not in cron_disable }}"
   loop: "{{ cron_jobs }}"
   loop_control:
-    label: "{{ item.name }}{{ '' if item.enabled | default(true) else ' (выкл.)' }}"
+    label: "{{ item.name }}{{ '' if job_on else ' (выкл.)' }}"
 
 - name: Итог
   ansible.builtin.debug:
     msg:
       - "Сайт: {{ ('https://' + coop_domain) if https_enabled | bool else ('http://' + (coop_domain or ansible_host)) }}"
-      - "Обновления дальше — deployment/deploy-from-git/deploy.sh (конфиг: ~/.config/garage-coop/deploy.conf)"
+      - "Обновления дальше — deployment/deploy-from-git/deploy.sh (конфиг: {{ deploy_conf_path }})"

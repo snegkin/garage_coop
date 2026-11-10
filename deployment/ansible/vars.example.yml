@@ -2,9 +2,14 @@
 # остальные настройки и их значения по умолчанию — defaults.yml.
 
 coop_domain: coop.example.ru       # A-запись должна уже смотреть на новый сервер — иначе certbot не выдаст сертификат
+# Кириллический домен — в punycode (xn--…), и в certbot_email тоже:
+#   python3 -c "print('пример.рф'.encode('idna').decode())"
 certbot_email: admin@example.ru
 
 app_branch: master
+
+# Конфиг deploy.sh — рядом со скриптом, а не в ~/.config/garage-coop:
+# deploy_conf_path: "{{ playbook_dir }}/../deploy-from-git/deploy.conf"
 
 deploy_ssh_pubkeys:
   - "{{ lookup('file', '~/.ssh/id_rsa.pub') }}"
@@ -31,5 +36,6 @@ app_env_extra:
 restore_db_file: /home/sne/work/garage_coop/instance/coop.db
 restore_source_instance_dir: /home/sne/work/garage_coop/instance
 
-# cron_jobs — список заменяется целиком: чтобы включить, например,
-# poll_ewelink, скопируйте весь список из defaults.yml и поменяйте enabled.
+# Выключенные по умолчанию cron-задачи (список — cron_jobs в defaults.yml);
+# с dvr_snapshot сам ставится ffmpeg:
+# cron_enable: [dvr_snapshot, poll_telegram, poll_ewelink]

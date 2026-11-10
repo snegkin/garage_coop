@@ -1,6 +1,6 @@
 # Сервер с нуля (Ansible)
 
-Плейбук `site.yml` поднимает сайт кооператива на чистом VPS: Ubuntu 24.04,
+Плейбук `site.yml` поднимает сайт кооператива на чистом VPS: Ubuntu 24.04 или Debian 13 (Debian 12 не подходит: Python 3.11),
 gunicorn за nginx, HTTPS от Let's Encrypt, cron, файрвол. БД и файлы
 (`instance/uploads`, `bank_certs`, `bundles`, `dvr`) переносятся с вашего
 компьютера. Дальнейшие обновления кода делает
@@ -25,6 +25,14 @@ chmod 600 ~/.config/garage-coop/*
 - `vars.yml` — домен, e-mail для Let's Encrypt, ключи и пути к локальной
   БД. Остальное, со значениями по умолчанию, лежит в `defaults.yml`.
   `COOP_VARS=/путь` позволяет взять другой файл.
+
+Можно держать оба файла и прямо в `deployment/ansible/` (они в
+`.gitignore`), тогда пути указываются явно:
+
+```bash
+cd deployment/ansible
+COOP_VARS=vars.yml ansible-playbook -i inventory.ini site.yml
+```
 
 **Ключи шифрования.** `BANK_API_ENCRYPTION_KEY` должен быть тем же, что
 на старом сервере, иначе все сохранённые в БД пароли и токены придётся
@@ -62,7 +70,7 @@ chmod 600 ~/.config/garage-coop/*
 | Снимок локальной БД через backup API (можно при запущенном локальном сайте), проверки целостности и ревизии схемы, заливка; rsync каталогов `instance/` | `restore` |
 | nginx (статика, заглушка, прокси), certbot `--webroot`, HTTPS + HSTS после получения сертификата, reload при продлении | `nginx` |
 | `.env`, systemd-юнит (`repair_db.sh` перед стартом), проверка ответа, cron | `app` |
-| `~/.config/garage-coop/deploy.conf` для `deploy.sh`, если его ещё нет | `app` |
+| Конфиг `deploy.sh` (`deploy_conf_path`: по умолчанию `~/.config/garage-coop/deploy.conf`, можно `deployment/deploy-from-git/deploy.conf`), если его ещё нет | `app` |
 
 ## Повторные прогоны
 
@@ -76,6 +84,7 @@ chmod 600 ~/.config/garage-coop/*
   `--delete`.
 - `.env` генерируется из `vars.yml`: правка руками на сервере пропадёт при
   следующем прогоне.
-- Включить cron-задачу (eWeLink, камеры, Telegram): скопируйте
-  `cron_jobs` из `defaults.yml` в `vars.yml`, выставьте `enabled: true`
-  и запустите `ansible-playbook site.yml --tags app`.
+- Включить cron-задачу (eWeLink, камеры, Telegram): в `vars.yml`
+  `cron_enable: [dvr_snapshot, poll_ewelink]` (выключить —
+  `cron_disable: [...]`), затем `ansible-playbook site.yml --tags system,app`.
+  С `dvr_snapshot` сам ставится `ffmpeg`.

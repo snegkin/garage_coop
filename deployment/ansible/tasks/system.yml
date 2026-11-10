@@ -1,7 +1,7 @@
 - name: Python не старше 3.12
   ansible.builtin.assert:
     that: ansible_facts.python.version.major == 3 and ansible_facts.python.version.minor >= 12
-    fail_msg: "Нужен Python ≥ 3.12 (Ubuntu 24.04), на сервере {{ ansible_facts.python_version }}"
+    fail_msg: "Нужен Python ≥ 3.12 (Ubuntu 24.04 или Debian 13; в Debian 12 — 3.11), на сервере {{ ansible_facts.python_version }}"
 
 - name: Часовой пояс
   community.general.timezone:
@@ -9,12 +9,17 @@
 
 - name: Пакеты
   ansible.builtin.apt:
-    name: "{{ packages + (['ffmpeg'] if install_ffmpeg else []) + (['fail2ban'] if install_fail2ban else []) }}"
+    name: "{{ packages + (['fail2ban'] if install_fail2ban else []) }}"
     update_cache: true
     cache_valid_time: 3600
   vars:
     packages:
       - git
+      # В минимальных образах Debian их нет: sudo — для become_user и
+      # deploy.sh, acl — чтобы become_user передавал модулям временные файлы.
+      - sudo
+      - acl
+      - locales
       - python3
       - python3-venv
       - sqlite3
@@ -30,6 +35,19 @@
       - libpangoft2-1.0-0
       - fonts-liberation
       - fonts-dejavu-core
+
+# Без Recommends: иначе ffmpeg тянет gtk, cups, звук и прочий рабочий стол.
+- name: ffmpeg (кадры с камер)
+  ansible.builtin.apt:
+    name: ffmpeg
+    install_recommends: false
+  when: install_ffmpeg | bool
+
+# ssh передаёт LC_* с рабочей машины (ru_RU.UTF-8); без этой локали на
+# сервере perl/apt сыплют «Setting locale failed».
+- name: Локаль ru_RU.UTF-8
+  community.general.locale_gen:
+    name: ru_RU.UTF-8
 
 - name: Автоматические обновления безопасности
   ansible.builtin.copy:

@@ -1,4 +1,4 @@
-# Сервер сайта кооператива с нуля: Ubuntu 24.04 (Python ≥ 3.12), один
+# Сервер сайта кооператива с нуля: Ubuntu 24.04 / Debian 13 (Python ≥ 3.12), один
 # кооператив, gunicorn за nginx с HTTPS, перенос БД и файлов со своего
 # компьютера. Повторный прогон безопасен: БД и файлы на сервере не
 # перезаписываются (кроме restore_force: true), остальное приводится к
@@ -11,6 +11,9 @@
 - name: Сервер сайта кооператива
   hosts: coop
   become: true
+  # Упал прогон после смены конфига nginx/сервиса — перезагрузить их всё
+  # равно: при следующем прогоне файл уже не изменится и notify не будет.
+  force_handlers: true
   vars_files:
     - defaults.yml
     - "{{ lookup('env', 'COOP_VARS') or lookup('env', 'HOME') + '/.config/garage-coop/vars.yml' }}"
@@ -22,10 +25,13 @@
           - app_secret_key | length >= 32
           - app_bank_api_encryption_key | length > 0
           - coop_domain | length == 0 or certbot_email | length > 0
+          - coop_domain is match('^[A-Za-z0-9.-]*$')
+          - certbot_email | default('') is match('^[!-~]*$')
         fail_msg: >-
           В vars.yml нужны app_secret_key (≥32 символов) и
           app_bank_api_encryption_key — те же, что на старом сервере; при
-          coop_domain — ещё certbot_email.
+          coop_domain — ещё certbot_email. Кириллический домен (и в почте
+          тоже) — в punycode: python3 -c "print('пример.рф'.encode('idna').decode())".
       tags: always
 
     - name: Локальная БД для переноса существует
@@ -73,10 +79,19 @@
       ansible.builtin.import_tasks: tasks/service.yml
       tags: app
 
+    - name: Каталог конфига deploy.sh на этом компьютере
+      ansible.builtin.file:
+        path: "{{ deploy_conf_path | dirname }}"
+        state: directory
+        mode: "0700"
+      delegate_to: localhost
+      become: false
+      tags: app
+
     - name: Конфиг deploy.sh на этом компьютере
       ansible.builtin.template:
         src: deploy.conf.j2
-        dest: "{{ lookup('env', 'HOME') }}/.config/garage-coop/deploy.conf"
+        dest: "{{ deploy_conf_path }}"
         mode: "0600"
         force: false
       delegate_to: localhost

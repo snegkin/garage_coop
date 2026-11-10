@@ -4,9 +4,10 @@
 #   deployment/deploy-from-git/deploy.sh [-c конфиг] [-y] [--force]   обновить сайт
 #   deployment/deploy-from-git/deploy.sh [-c конфиг] maintenance on|off|status
 #
-# Настройки (ветка, сервер, логин, пароль, каталог, сервисы) — в конфиге ВНЕ
-# репозитория: по умолчанию ~/.config/garage-coop/deploy.conf, другой —
-# -c или DEPLOY_CONFIG. Образец — deployment/deploy-from-git/deploy.conf.example.
+# Настройки (ветка, сервер, логин, пароль, каталог, сервисы) — в конфиге,
+# который ищется так: -c ПУТЬ → DEPLOY_CONFIG → deploy.conf рядом со
+# скриптом (в .gitignore) → ~/.config/garage-coop/deploy.conf.
+# Образец — deployment/deploy-from-git/deploy.conf.example.
 #
 # Что делает обновление (всё — на сервере, одним SSH-сеансом):
 #   1. git fetch ветки; локальные правки в коде на сервере — отказ;
@@ -29,7 +30,14 @@
 
 set -euo pipefail
 
-CONFIG="${DEPLOY_CONFIG:-$HOME/.config/garage-coop/deploy.conf}"
+LOCAL_CONFIG="$(dirname "$0")/deploy.conf"
+if [ -n "${DEPLOY_CONFIG:-}" ]; then
+    CONFIG="$DEPLOY_CONFIG"
+elif [ -f "$LOCAL_CONFIG" ]; then
+    CONFIG="$LOCAL_CONFIG"
+else
+    CONFIG="$HOME/.config/garage-coop/deploy.conf"
+fi
 ASSUME_YES=0
 FORCE=0
 ACTION=deploy
@@ -56,9 +64,11 @@ done
 
 if [ ! -f "$CONFIG" ]; then
     echo "Нет конфига деплоя: $CONFIG" >&2
-    echo "Образец: $(dirname "$0")/deploy.conf.example (скопируйте и chmod 600)" >&2
+    echo "Образец: $(dirname "$0")/deploy.conf.example — скопируйте в $LOCAL_CONFIG" >&2
+    echo "или ~/.config/garage-coop/deploy.conf и chmod 600" >&2
     exit 1
 fi
+echo "Конфиг: $CONFIG" >&2
 # Конфиг с паролем, доступный на чтение другим, — предупреждаем.
 if [ -n "$(find "$CONFIG" -perm /044 2>/dev/null)" ]; then
     echo "ВНИМАНИЕ: $CONFIG читается другими пользователями — chmod 600 \"$CONFIG\"" >&2

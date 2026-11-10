@@ -28,6 +28,15 @@ cron её уже удалил, просто отвалится ссылка в �
 сработал event-listener _delete_attachment_file (см. app/models.py),
 убирающий сам файл с диска, а не только строку в БД.
 
+Там же — осиротевшие файлы клиентских сертификатов банка в
+BANK_CERTS_FOLDER (cleanup_bank_certs): PEM с именем, которое выдаёт
+app/bank_sync.py (<uuid>.cert.pem/<uuid>.key.pem), но на которое не
+ссылается ни одна BankApiCredential. Так бывает, если упал commit после
+загрузки нового сертификата или БД заменили копией с другой машины.
+Порог тот же — файлу больше 24 часов (по mtime), чтобы не задеть загрузку,
+которая прямо сейчас ещё не закоммичена. Остальные файлы каталога не
+трогаются.
+
 Запуск вручную:
     cd /path/to/project && python3 scripts/cleanup_orphan_attachments.py
 
@@ -36,14 +45,35 @@ cron, см. docs/deployment.md, раздел «Автоматизация».
 """
 import datetime as dt
 import os
+import re
 import sys
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app import create_app, database
-from app.models import NewsAttachment, WikiAttachment, BulletinAttachment, ForumAttachment
+from app.models import NewsAttachment, WikiAttachment, BulletinAttachment, ForumAttachment, BankApiCredential
 
 ORPHAN_MAX_AGE = dt.timedelta(hours=24)
+_CERT_NAME_RE = re.compile(r"^[0-9a-f]{32}\.(cert|key)\.pem$")
+
+
+def cleanup_bank_certs(certs_dir: str, referenced: set[str], max_age: dt.timedelta = ORPHAN_MAX_AGE,
+                       now: float | None = None) -> list[str]:
+    """Удаляет из certs_dir сгенерированные PEM без ссылки из БД, старше
+    max_age; возвращает имена удалённых."""
+    if not os.path.isdir(certs_dir):
+        return []
+    cutoff = (now if now is not None else time.time()) - max_age.total_seconds()
+    removed = []
+    for name in sorted(os.listdir(certs_dir)):
+        if not _CERT_NAME_RE.match(name) or name in referenced:
+            continue
+        path = os.path.join(certs_dir, name)
+        if os.path.isfile(path) and os.path.getmtime(path) < cutoff:
+            os.remove(path)
+            removed.append(name)
+    return removed
 
 
 def main() -> int:
@@ -83,10 +113,17 @@ def main() -> int:
 
         database.db_session.commit()
 
+        referenced = set()
+        for cert_name, key_name in database.db_session.query(
+            BankApiCredential.tls_cert_filename, BankApiCredential.tls_key_filename,
+        ):
+            referenced.update(name for name in (cert_name, key_name) if name)
+        removed_certs = cleanup_bank_certs(app.config["BANK_CERTS_FOLDER"], referenced)
+
         print(f"[{dt.datetime.now().isoformat(timespec='seconds')}] "
               f"Удалено осиротевших вложений: новости — {len(news_orphans)}, "
               f"вики — {len(wiki_orphans)}, доска объявлений — {len(bulletin_orphans)}, "
-              f"форум — {len(forum_orphans)} "
+              f"форум — {len(forum_orphans)}, файлы сертификатов банка — {len(removed_certs)} "
               f"(старше {ORPHAN_MAX_AGE}).")
         return 0
 

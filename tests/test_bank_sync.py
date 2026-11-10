@@ -2094,6 +2094,58 @@ def test_upload_client_certificate_converts_pkcs12_to_pem(app, db, client):
     assert mode == "600"
 
 
+def _upload_cert(client, account_id):
+    from io import BytesIO
+    return client.post(
+        f"/cooperative/bank-accounts/{account_id}/api-settings",
+        data={
+            "api_provider": "sberbank", "client_id": "cid",
+            "tls_cert_p12": (BytesIO(_make_test_pkcs12(b"pw")), "client.pfx"),
+            "tls_cert_passphrase": "pw",
+        },
+        content_type="multipart/form-data",
+    )
+
+
+def test_replacing_client_certificate_removes_old_files_after_commit(app, db, client):
+    account = make_bank_account(db, provider=BankApiProvider.SBERBANK)
+    make_user(db, "chair11", "pass12345", role=RoleEnum.CHAIRMAN)
+    db.commit()
+    login(client, "chair11", "pass12345")
+    certs_dir = app.config["BANK_CERTS_FOLDER"]
+
+    assert _upload_cert(client, account.id).status_code == 302
+    db.expire_all()
+    cred = database.db_session.get(BankAccount, account.id).api_credential
+    old_files = [os.path.join(certs_dir, cred.tls_cert_filename), os.path.join(certs_dir, cred.tls_key_filename)]
+
+    assert _upload_cert(client, account.id).status_code == 302
+    db.expire_all()
+    cred = database.db_session.get(BankAccount, account.id).api_credential
+    assert not any(os.path.exists(path) for path in old_files)
+    assert os.path.exists(os.path.join(certs_dir, cred.tls_cert_filename))
+
+
+def test_failed_commit_keeps_old_client_certificate_files(app, db, client, monkeypatch):
+    account = make_bank_account(db, provider=BankApiProvider.SBERBANK)
+    make_user(db, "chair12", "pass12345", role=RoleEnum.CHAIRMAN)
+    db.commit()
+    login(client, "chair12", "pass12345")
+    certs_dir = app.config["BANK_CERTS_FOLDER"]
+    assert _upload_cert(client, account.id).status_code == 302
+    db.expire_all()
+    cred = database.db_session.get(BankAccount, account.id).api_credential
+    old_files = [os.path.join(certs_dir, cred.tls_cert_filename), os.path.join(certs_dir, cred.tls_key_filename)]
+
+    def broken_commit():
+        raise RuntimeError("disk I/O error")
+
+    monkeypatch.setattr(database.db_session, "commit", broken_commit)
+    with pytest.raises(RuntimeError):
+        _upload_cert(client, account.id)
+    assert all(os.path.exists(path) for path in old_files)
+
+
 def _token_response(status, payload):
     import requests
     resp = requests.Response()

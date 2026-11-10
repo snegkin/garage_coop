@@ -26,8 +26,9 @@
       - nginx
       - certbot
       - rsync
-      # Внешний бэкап (scripts/backup_offsite.py)
+      # Внешний бэкап (scripts/backup_offsite.py): restic → rclone → Яндекс.Диск
       - restic
+      - rclone
       - curl
       - ufw
       - unattended-upgrades

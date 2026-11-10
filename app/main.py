@@ -1,8 +1,9 @@
 import datetime as dt
 import json
+import os
 from decimal import Decimal
 
-from flask import Blueprint, render_template, redirect, url_for, Response, request, g, jsonify
+from flask import Blueprint, render_template, redirect, url_for, Response, request, g, jsonify, current_app
 from sqlalchemy import func
 
 from . import attention as attention_counts
@@ -18,6 +19,7 @@ from .permissions import is_chairman
 from .setup_wizard import wizard_status
 from . import mail_client
 from . import bank_sync
+from . import backup_status
 from .mail_client import MailError, DEFAULT_FOLDER
 
 bp = Blueprint("main", __name__)
@@ -329,8 +331,15 @@ def dashboard():
         .all()
     )
 
+    # Свежесть внешних копий (app/backup_status.py) — только председателю.
+    backup_warnings = []
+    if is_chairman():
+        log_dir = current_app.config["LOG_FOLDER"]
+        backup_dir = os.environ.get("BACKUP_DIR") or os.path.join(os.path.dirname(log_dir), "backups")
+        backup_warnings = backup_status.backup_warnings(log_dir, backup_dir)
+
     return render_template(
         "dashboard.html", stats=stats, recent_activity=recent_activity, setup_status=setup_status,
         electricity_devices=electricity_devices, mail_preview=_mail_preview(),
-        stale_registries=stale_registries,
+        stale_registries=stale_registries, backup_warnings=backup_warnings,
     )

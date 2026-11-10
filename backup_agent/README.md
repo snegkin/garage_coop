@@ -7,7 +7,7 @@ restic-репозитории с историей версий.
 | Копия | Где | Что защищает |
 |---|---|---|
 | `instance/backups/` | сам сервер (`backup_db`) | от порчи БД, случайного удаления |
-| внешний restic | Yandex Object Storage (`backup_offsite`) | от смерти сервера и хостера |
+| внешний restic | Яндекс.Диск (`backup_offsite`) | от смерти сервера и хостера |
 | **этот агент** | компьютер председателя | от смерти хостера и облака, от взлома сервера |
 
 Что забирается: снимок БД, файл окружения (`.env` с `SECRET_KEY` и
@@ -116,5 +116,5 @@ sudo -E restic restore latest --target /tmp/coop-restore   # или id сним�
 `restore_source_instance_dir` — на `/tmp/coop-restore`, а `SECRET_KEY` и
 `BANK_API_ENCRYPTION_KEY` из `backup_staging/env` переносятся в `vars.yml`.
 
-Тот же снимок есть во внешнем репозитории: `restic -r s3:… restore latest`
-с паролем внешнего репозитория.
+Тот же снимок есть во внешнем репозитории на Яндекс.Диске, см.
+[docs/deployment.md](../docs/deployment.md), «Внешний бэкап».

@@ -37,6 +37,10 @@ app_secret_key: ""
 app_bank_api_encryption_key: ""
 recaptcha_site_key: ""
 recaptcha_secret_key: ""
+# Токен Яндекс.Диска для rclone (вывод `rclone authorize "yandex"`, JSON) —
+# с ним плейбук создаст remote yadisk; в app_env_extra тогда
+# RESTIC_REPOSITORY: rclone:yadisk:coop-backup (см. vars.example.yml).
+rclone_yandex_token: ""
 app_env_extra: {}                  # любые другие переменные .env: {ИМЯ: значение}
 
 # Перенос данных со своего компьютера. Делается ОДИН раз: если БД на

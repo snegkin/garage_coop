@@ -67,7 +67,7 @@ def _persist_rotated_refresh_token(cred: BankApiCredential, client) -> None:
         cred.refresh_token_encrypted = crypto.encrypt(rotated)
 
 
-def _save_client_cert(cred: BankApiCredential, file_storage, passphrase: str) -> None:
+def _save_client_cert(cred: BankApiCredential, file_storage, passphrase: str) -> list[str]:
     """
     Принимает клиентский mTLS-сертификат в формате PKCS#12 (.pfx/.p12) —
     именно в этом формате его выдаёт личный кабинет Sber API — и пароль к
@@ -90,7 +90,7 @@ def _save_client_cert(cred: BankApiCredential, file_storage, passphrase: str) ->
     один листовой сертификат.
     """
     if not file_storage or not file_storage.filename:
-        return
+        return []
     data = file_storage.read()
     try:
         private_key, certificate, extra_certs = pkcs12.load_key_and_certificates(
@@ -120,13 +120,18 @@ def _save_client_cert(cred: BankApiCredential, file_storage, passphrase: str) ->
     cred.tls_cert_filename = cert_name
     cred.tls_key_filename = key_name
 
-    # Заменяем — старые файлы сертификата этого счёта (если был) удаляем,
-    # чтобы в BANK_CERTS_FOLDER не копились ключи от отозванных сертификатов.
-    for old_name in (old_cert, old_key):
-        if old_name:
-            old_path = os.path.join(certs_dir, old_name)
-            if os.path.exists(old_path):
-                os.remove(old_path)
+    # Старые файлы этого счёта удаляет вызывающий — только ПОСЛЕ commit
+    # (_remove_cert_files): удали мы их здесь, а commit упади, в БД остались
+    # бы имена уже стёртых файлов, и API банка встал бы до новой загрузки.
+    # Новые файлы при упавшем commit — сироты, их убирает
+    # scripts/cleanup_orphan_attachments.py.
+    return [os.path.join(certs_dir, name) for name in (old_cert, old_key) if name]
+
+
+def _remove_cert_files(paths: list[str]) -> None:
+    for path in paths:
+        if os.path.exists(path):
+            os.remove(path)
 
 
 # ---------------------------------------------------------------------------
@@ -258,10 +263,11 @@ def save_api_settings(account_id):
     if new_refresh_token:
         cred.refresh_token_encrypted = crypto.encrypt(new_refresh_token.strip())
 
+    replaced_cert_files: list[str] = []
     cert_file = request.files.get("tls_cert_p12")
     if cert_file and cert_file.filename:
         try:
-            _save_client_cert(cred, cert_file, f.get("tls_cert_passphrase") or "")
+            replaced_cert_files = _save_client_cert(cred, cert_file, f.get("tls_cert_passphrase") or "")
         except ValueError as e:
             database.db_session.rollback()
             flash(str(e), "danger")
@@ -275,6 +281,7 @@ def save_api_settings(account_id):
                 f"(провайдер: {account.api_provider.value})",
     )
     database.db_session.commit()
+    _remove_cert_files(replaced_cert_files)
     flash(_("Настройки API банка сохранены."), "success")
     return redirect(url_for("finance.bank_accounts"))
 

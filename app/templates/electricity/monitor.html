@@ -426,7 +426,44 @@
       // Фиксированная толщина в 2px — минимальная гарантированно видимая.
       return { backgroundColor: color, borderColor: color, borderWidth: 0, barThickness: 2, minBarLength: 1 };
     }
-    return { borderColor: color, backgroundColor: color, borderWidth: 1.5, pointRadius: 0, tension: 0.15 };
+    // monotone, а не tension: на вертикальных спусках в ноль (см. linePoints)
+    // обычная кривая Безье «перелетает» ниже нуля, монотонная — нет.
+    return { borderColor: color, backgroundColor: color, borderWidth: 1.5, pointRadius: 0, cubicInterpolationMode: "monotone" };
+  }
+
+  // Точки для линии: пропуск данных опускает линию в ноль, а не тянет её
+  // через время без показаний. Пропуск — это офлайн-отметка (w === null, см.
+  // reading_from_snapshot) или интервал между соседними точками заметно
+  // длиннее обычного шага ряда (поллер не работал, нет сети/токена). Шаг
+  // ряда берётся медианой интервалов, а не фиксированной минутой: старые
+  // данные свёрнуты по часам (compact_old_readings), длинный период ещё и
+  // прорежен (_downsample) — фиксированный порог дал бы там «пропуски»
+  // между каждой парой точек. По краям пропуска ставятся нули в ±1 мс от
+  // соседних точек — спуск и подъём получаются вертикальными.
+  const GAP_MIN_MS = 10 * 60 * 1000;  // как STALE_AFTER в electricity_monitor.py
+  function linePoints(points) {
+    const ts = points.map(function (p) { return new Date(p.t).getTime(); });
+    const steps = [];
+    for (let i = 1; i < ts.length; i++) steps.push(ts[i] - ts[i - 1]);
+    steps.sort(function (a, b) { return a - b; });
+    const median = steps.length ? steps[Math.floor(steps.length / 2)] : 0;
+    const gapMs = Math.max(GAP_MIN_MS, median * 3);
+
+    const out = [];
+    let prevT = null, prevY = null;
+    points.forEach(function (p, i) {
+      const t = ts[i];
+      const y = p.w === null ? null : p.w / 1000;
+      if (prevT !== null) {
+        const gapped = t - prevT > gapMs;
+        if (prevY !== null && (y === null || gapped)) out.push({ x: prevT + 1, y: 0 });
+        if (y !== null && (prevY === null || gapped)) out.push({ x: t - 1, y: 0 });
+      }
+      out.push({ x: t, y: y === null ? 0 : y });
+      prevT = t;
+      prevY = y;
+    });
+    return out;
   }
 
   function render() {
@@ -439,8 +476,11 @@
         if (d.points.length) anyPoints = true;
         return Object.assign({
           label: d.label,
-          // w === null — устройство было офлайн: разрыв линии (spanGaps выключен по умолчанию).
-          data: d.points.map(function (p) { return { x: p.t, y: p.w === null ? null : p.w / 1000 }; }),
+          // Линия: пропуски — в ноль (см. linePoints). Столбцы: офлайн — просто
+          // нет столбца (null), нули-заглушки там дали бы лишние столбики.
+          data: chartType === "line"
+            ? linePoints(d.points)
+            : d.points.map(function (p) { return { x: p.t, y: p.w === null ? null : p.w / 1000 }; }),
         }, datasetStyle(colors[i % colors.length]));
       });
     chart.config.type = chartType;

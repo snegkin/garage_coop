@@ -7,6 +7,32 @@
     mode: "0600"
   notify: restart app
 
+# Яндекс.Диск для внешнего бэкапа (restic → rclone, docs/deployment.md,
+# «Внешний бэкап»). force: false — rclone сам продлевает токен и пишет
+# новый в этот файл; перезаписывать его старым из vars.yml нельзя.
+# Заменить токен: удалить файл на сервере и прогнать плейбук.
+- name: Каталог конфига rclone
+  ansible.builtin.file:
+    path: "/home/{{ app_user }}/.config/rclone"
+    state: directory
+    owner: "{{ app_user }}"
+    group: "{{ app_user }}"
+    mode: "0700"
+  when: rclone_yandex_token | length > 0
+
+- name: rclone.conf — remote yadisk
+  ansible.builtin.copy:
+    dest: "/home/{{ app_user }}/.config/rclone/rclone.conf"
+    content: |
+      [yadisk]
+      type = yandex
+      token = {{ rclone_yandex_token if rclone_yandex_token is string else (rclone_yandex_token | to_json) }}
+    owner: "{{ app_user }}"
+    group: "{{ app_user }}"
+    mode: "0600"
+    force: false
+  when: rclone_yandex_token | length > 0
+
 - name: БД есть
   ansible.builtin.stat:
     path: "{{ app_instance_dir }}/coop.db"

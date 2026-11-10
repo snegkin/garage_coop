@@ -255,7 +255,7 @@ logrotate не нужен.
 | Копия | Чем | Где |
 |---|---|---|
 | снимки БД | `backup_db` (выше) | сам сервер, `instance/backups/` |
-| внешняя | `backup_offsite` → restic | Yandex Object Storage (S3) |
+| внешняя | `backup_offsite` → restic | Яндекс.Диск (через rclone) |
 | локальная | агент [`backup_agent/`](../backup_agent/README.md) | компьютер председателя |
 
 Во внешнюю и локальную копии попадают снимок БД, файл окружения (`.env`:
@@ -284,37 +284,62 @@ logrotate не нужен.
 `OFFSITE_KEEP_DAILY`/`WEEKLY`/`MONTHLY` (14/8/12), по воскресеньям
 `restic check`. Итог запуска — `instance/logs/backup_offsite_status.json`.
 
-Настройка Yandex Object Storage:
+Настройка Яндекс.Диска (restic ходит туда через rclone):
 
-1. В консоли Yandex Cloud создать бакет (приватный, класс «Стандартное»).
-2. Создать сервисный аккаунт с ролью `storage.editor` на этот бакет и
-   выпустить ему **статический ключ доступа**.
+1. На компьютере с браузером (rclone там тоже нужен) войти в Яндекс
+   аккаунтом кооператива, а не личным:
+   ```bash
+   rclone authorize "yandex"
+   ```
+   Браузер откроет страницу входа. После входа в терминале будет JSON
+   между `--->` и `<---`: это токен.
+2. Через ansible: в `vars.yml` вписать `rclone_yandex_token: '<JSON>'`.
+   Плейбук создаст `~/.config/rclone/rclone.conf` пользователя сайта с
+   remote `yadisk`. Дальше rclone сам продлевает токен и пишет новый в
+   этот же файл, поэтому плейбук его не перезаписывает. Чтобы заменить
+   токен, удалите файл на сервере и прогоните плейбук.
+   Без ansible: `sudo -u coop rclone config create yadisk yandex token '<JSON>'`.
 3. В `.env` на сервере (через ansible — `app_env_extra` в `vars.yml`, см.
    `vars.example.yml`):
    ```
-   RESTIC_REPOSITORY=s3:https://storage.yandexcloud.net/<бакет>/coop
+   RESTIC_REPOSITORY=rclone:yadisk:coop-backup
    RESTIC_PASSWORD=<openssl rand -hex 32>
-   AWS_ACCESS_KEY_ID=<идентификатор ключа>
-   AWS_SECRET_ACCESS_KEY=<секрет>
-   AWS_DEFAULT_REGION=ru-central1
    ```
    **`RESTIC_PASSWORD` сохраните вне сервера** (менеджер паролей правления):
    копия `.env` лежит внутри того же зашифрованного репозитория, и без
    пароля её не достать.
-4. Проверка: `python3 scripts/backup_offsite.py` (первый запуск сам
-   выполнит `restic init`), затем
-   `set -a; . ./.env; set +a; restic snapshots`.
+4. Проверка под пользователем сайта: `sudo -u coop rclone lsd yadisk:`,
+   затем `sudo -u coop scripts/backup_offsite.sh` (первый запуск сам
+   выполнит `restic init`, лог — `instance/logs/backup_offsite.log`) и
+   `sudo -u coop sh -c 'set -a; . ./.env; set +a; restic snapshots'`.
 
-Восстановление на новом сервере:
+На Диске появится папка `coop-backup` с файлами restic. Они зашифрованы:
+открывать и переносить их руками бессмысленно, а удалять нельзя.
+Бесплатных 5–10 ГБ при нынешнем объёме (около 0,7 ГБ, дальше в основном
+прирост) хватит надолго.
+
+Вместо Диска можно взять Yandex Object Storage (S3, платно, копейки):
+`RESTIC_REPOSITORY=s3:https://storage.yandexcloud.net/<бакет>/coop` и
+статический ключ сервисного аккаунта с ролью `storage.editor` на бакет в
+`AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`, `AWS_DEFAULT_REGION=ru-central1`.
+
+Восстановление на новом сервере (rclone с тем же токеном или новым из
+`rclone authorize "yandex"`):
 
 ```bash
-export RESTIC_REPOSITORY=… RESTIC_PASSWORD=… AWS_ACCESS_KEY_ID=… AWS_SECRET_ACCESS_KEY=… AWS_DEFAULT_REGION=ru-central1
+rclone config create yadisk yandex token '<JSON>'
+export RESTIC_REPOSITORY=rclone:yadisk:coop-backup RESTIC_PASSWORD=…
 restic snapshots
 restic restore latest --target /tmp/coop-restore
 ```
 
 Дальше так же, как из локальной копии: раскладка каталогов и подъём
 сервера ansible-плейбуком описаны в [backup_agent/README.md](../backup_agent/README.md#восстановление).
+
+Свежесть копий видна председателю на панели: красное предупреждение,
+если внешний бэкап упал, не запускался больше 36 часов или не настроен,
+или если агент председателя не забирал данные больше трёх дней
+(`app/backup_status.py`).
 
 Агент председателя заходит на сервер ssh-ключом, ограниченным
 `scripts/backup_pull_gate.sh` (rrsync на чтение внутри `INSTANCE_DIR`).

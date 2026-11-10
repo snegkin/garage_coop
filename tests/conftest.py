@@ -46,10 +46,14 @@ def app(_migrated_db_template):
     db_fd, db_path = tempfile.mkstemp(suffix=".db")
     shutil.copyfile(_migrated_db_template, db_path)
     upload_dir = tempfile.mkdtemp()
+    # Иначе тесты загрузки сертификата банка пишут ключи в настоящий
+    # instance/bank_certs разработчика.
+    certs_dir = tempfile.mkdtemp()
 
     class _Config(TestConfig):
         SQLALCHEMY_DATABASE_URI = f"sqlite:///{db_path}"
         UPLOAD_FOLDER = upload_dir
+        BANK_CERTS_FOLDER = certs_dir
 
     application = create_app(_Config)
     application.testing = True
@@ -58,6 +62,7 @@ def app(_migrated_db_template):
 
     os.close(db_fd)
     os.unlink(db_path)
+    shutil.rmtree(certs_dir, ignore_errors=True)
 
 
 @pytest.fixture()

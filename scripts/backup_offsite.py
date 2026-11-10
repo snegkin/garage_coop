@@ -17,14 +17,14 @@ scripts/backup_db.py кладёт снимки на тот же диск, что
    файл подменяется атомарно, так что rsync посреди обновления не увидит
    недописанного.
 
-2. restic-репозиторий, если задан RESTIC_REPOSITORY (например Yandex
-   Object Storage: s3:https://storage.yandexcloud.net/<бакет>/coop).
+2. restic-репозиторий, если задан RESTIC_REPOSITORY (Яндекс.Диск через
+   rclone: rclone:yadisk:coop-backup; или S3 — Yandex Object Storage).
    restic шифрует на сервере, хранит историю версий и передаёт только
    изменения: снимок БД кладётся несжатым, чтобы между днями
    дедуплицировались неизменившиеся страницы SQLite (restic сжимает сам).
-   Пароль репозитория — RESTIC_PASSWORD или RESTIC_PASSWORD_FILE, ключи
-   S3 — AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY; restic читает их из
-   окружения сам. Пароль restic обязательно храните ещё где-то вне сервера:
+   Пароль репозитория — RESTIC_PASSWORD или RESTIC_PASSWORD_FILE (для S3
+   ещё AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY); restic читает их из
+   окружения сам, rclone — свой ~/.config/rclone/rclone.conf. Пароль restic обязательно храните ещё где-то вне сервера:
    без него репозиторий не расшифровать.
 
 Ротация в репозитории: OFFSITE_KEEP_DAILY/WEEKLY/MONTHLY (14/8/12);

@@ -40,6 +40,8 @@ if [ -n "${ENV_FILE:-}" ]; then
 else
     ENV_FILE="$PROJECT_DIR/.env"
 fi
+# Экспорт — backup_offsite.py кладёт копию этого файла в бэкап.
+export ENV_FILE
 if [ -f "$ENV_FILE" ]; then
     set -a
     . "$ENV_FILE"

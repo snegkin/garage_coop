@@ -26,6 +26,8 @@
       - nginx
       - certbot
       - rsync
+      # Внешний бэкап (scripts/backup_offsite.py)
+      - restic
       - curl
       - ufw
       - unattended-upgrades

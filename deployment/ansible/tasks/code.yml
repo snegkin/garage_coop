@@ -16,6 +16,13 @@
     key: "{{ item }}"
   loop: "{{ deploy_ssh_pubkeys }}"
 
+- name: Ключи агента локального бэкапа — только rsync на чтение
+  ansible.posix.authorized_key:
+    user: "{{ app_user }}"
+    key: "{{ item }}"
+    key_options: 'command="{{ app_dir }}/scripts/backup_pull_gate.sh",restrict'
+  loop: "{{ backup_agent_pubkeys }}"
+
 - name: deploy.sh перезапускает сервис без пароля — и больше ничего
   ansible.builtin.copy:
     dest: "/etc/sudoers.d/{{ service_name }}-deploy"

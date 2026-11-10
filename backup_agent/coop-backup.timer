@@ -1,0 +1,15 @@
+# /etc/systemd/system/coop-backup.timer
+# systemctl daemon-reload && systemctl enable --now coop-backup.timer
+# Проверка: systemctl list-timers coop-backup.timer
+[Unit]
+Description=Ежедневный локальный бэкап данных кооператива
+
+[Timer]
+# Днём: компьютер скорее включён, а ночной бэкап на сервере (3:20) уже готов.
+OnCalendar=*-*-* 12:00
+# Компьютер был выключен в 12:00 — запуск сразу после включения.
+Persistent=true
+RandomizedDelaySec=10min
+
+[Install]
+WantedBy=timers.target

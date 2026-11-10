@@ -1,0 +1,22 @@
+# Агент локального бэкапа — /etc/systemd/system/coop-backup.service
+# Запускается таймером coop-backup.timer, вручную: systemctl start coop-backup
+# Логи: journalctl -u coop-backup
+[Unit]
+Description=Локальный бэкап данных кооператива с сервера
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=coop-backup
+Group=coop-backup
+ExecStart=/usr/bin/python3 /opt/coop-backup/coop_backup_agent.py --config /etc/coop-backup/coop_backup.ini run
+# Код 2 — бэкап сделан, но снимок БД на сервере несвежий: тоже «failed»,
+# чтобы было видно в systemctl --failed.
+StateDirectory=coop-backup
+StateDirectoryMode=0700
+UMask=0077
+Nice=10
+IOSchedulingClass=idle
+NoNewPrivileges=yes
+PrivateTmp=yes

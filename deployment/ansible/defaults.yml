@@ -22,6 +22,11 @@ certbot_email: ""
 # Публичные ключи, с которыми можно войти под app_user (для deploy.sh).
 deploy_ssh_pubkeys: []
 
+# Ключи агента локального бэкапа (backup_agent/ на компьютере председателя):
+# входят под app_user, но только в scripts/backup_pull_gate.sh — rsync на
+# чтение внутри instance/, ни shell, ни проброса портов.
+backup_agent_pubkeys: []
+
 # Куда на ЭТОМ компьютере записать конфиг deploy.sh (если файла ещё нет).
 # Рядом со скриптом (в .gitignore) — "{{ playbook_dir }}/../deploy-from-git/deploy.conf";
 # deploy.sh сам ищет и там, и здесь.
@@ -51,7 +56,9 @@ cron_jobs:
   - {name: reconcile_sms_charges,      minute: "30",  hour: "3"}
   - {name: sync_bank_accounts,         minute: "0",   hour: "7", weekday: "1-5"}
   - {name: sync_counterparty_balances, minute: "10",  hour: "7"}
+  - {name: backup_mailbox,             minute: "50",  hour: "2"}
   - {name: backup_db,                  minute: "0",   hour: "3"}
+  - {name: backup_offsite,             minute: "20",  hour: "3"}
   - {name: cleanup_orphan_attachments, minute: "40",  hour: "3"}
   - {name: board_chat_digest,          minute: "*/5"}
   - {name: poll_mailbox,               minute: "*/5"}

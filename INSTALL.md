@@ -185,8 +185,10 @@ sudo certbot --nginx -d coop.example.ru     # HTTPS и редирект с http 
 на время обновления сайт показывает заглушку «Ведутся технические
 работы», перед миграциями делается бэкап БД, после перезапуска — проверка,
 что сайт отвечает; при сбое до перезапуска код откатывается. Настройки
-(ветка, сервер, логин, пароль) — в `~/.config/garage-coop/deploy.conf`
-вне git, образец — `deployment/deploy-from-git/deploy.conf.example`.
+(ветка, сервер, логин, пароль) — в `deploy.conf` вне git: рядом со
+скриптом или в `~/.config/garage-coop/`, образец —
+`deployment/deploy-from-git/deploy.conf.example`. Подробно —
+[`deployment/deploy-from-git/README.md`](deployment/deploy-from-git/README.md).
 
 ```bash
 deployment/deploy-from-git/deploy.sh                    # обновить

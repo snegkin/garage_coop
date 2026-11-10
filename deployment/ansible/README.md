@@ -4,7 +4,7 @@
 gunicorn за nginx, HTTPS от Let's Encrypt, cron, файрвол. БД и файлы
 (`instance/uploads`, `bank_certs`, `bundles`, `dvr`) переносятся с вашего
 компьютера. Дальнейшие обновления кода делает
-[`deploy-from-git/deploy.sh`](../deploy-from-git/deploy.sh): с заглушкой
+[`deploy-from-git/deploy.sh`](../deploy-from-git/README.md): с заглушкой
 «Ведутся технические работы», бэкапом и проверкой. Плейбук код только
 клонирует и повторно не обновляет.
 

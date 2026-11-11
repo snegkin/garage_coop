@@ -2,6 +2,8 @@
 import os
 import uuid
 
+from .images import shrink_image
+
 # Дефолтный белый список для "документных" загрузок (новости, протоколы,
 # документы, акты сверки и т.п.). Раньше все вызовы save_upload() шли без
 # allowed_ext вообще — можно было залить .html/.svg/.js и получить их обратно
@@ -46,5 +48,8 @@ def save_upload(file_storage, upload_folder: str, allowed_ext: set[str] | None =
     if allowed_ext is not None and ext not in allowed_ext:
         return None
     stored_name = f"{uuid.uuid4().hex}{ext}"
-    file_storage.save(os.path.join(upload_folder, stored_name))
+    path = os.path.join(upload_folder, stored_name)
+    file_storage.save(path)
+    # Фото с телефона — до MAX_SIDE px и пережать (app/images.py).
+    shrink_image(path)
     return stored_name

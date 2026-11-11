@@ -47,8 +47,8 @@ app_env_extra:
 # rclone_yandex_token: '{"access_token":"…","token_type":"OAuth","refresh_token":"…","expiry":"…"}'
 
 # Агент локального бэкапа на компьютере председателя (backup_agent/README.md):
-# backup_agent_pubkeys:
-#   - "ssh-ed25519 AAAA… coop-backup"
+backup_agent_pubkeys:
+  - "ssh-ed25519 AAAA... coop-backup"
 
 # Данные со своего компьютера
 restore_db_file: /home/sne/work/garage_coop/instance/coop.db
@@ -56,4 +56,4 @@ restore_source_instance_dir: /home/sne/work/garage_coop/instance
 
 # Выключенные по умолчанию cron-задачи (список — cron_jobs в defaults.yml);
 # с dvr_snapshot сам ставится ffmpeg:
-# cron_enable: [dvr_snapshot, poll_telegram, poll_ewelink]
+cron_enable: [dvr_snapshot, poll_telegram, poll_ewelink]

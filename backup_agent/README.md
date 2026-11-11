@@ -51,6 +51,11 @@ restic-репозитории с историей версий.
    ssh-keyscan -p 22 coop.example.ru | sudo tee /etc/coop-backup/known_hosts
    ```
    Отпечаток сверить с `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` на сервере.
+   Кириллический домен — в punycode, как в `host` конфига: ssh сравнивает
+   имя буквально (`python3 -c "print('пример.рф'.encode('idna').decode())"`).
+   Файл должен читаться пользователем `coop-backup`
+   (`sudo chmod 0644 /etc/coop-backup/known_hosts`), иначе ssh молча его
+   пропустит и ответит «Host key verification failed».
 
 4. **Пароль репозитория:**
    ```bash
@@ -77,6 +82,10 @@ restic-репозитории с историей версий.
    journalctl -u coop-backup -n 50
    sudo systemctl enable --now coop-backup.timer
    ```
+   Забирать агенту есть что только после первого запуска `backup_offsite`
+   на сервере. Плейбук делает такой запуск сам, если задан
+   `backup_agent_pubkeys`; без ansible запустите вручную:
+   `scripts/backup_offsite.sh` под пользователем сайта.
 
 ## Повседневное
 

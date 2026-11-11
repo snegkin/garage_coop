@@ -96,13 +96,6 @@ def test_get_client_none_when_provider_is_none(app, db):
         assert get_client(account) is None
 
 
-def test_get_client_none_for_unsupported_provider(app, db):
-    account = make_bank_account(db, provider=BankApiProvider.VTB)
-    make_credential(db, account)
-    with app.app_context():
-        assert get_client(account) is None
-
-
 def test_get_client_none_without_credentials(app, db):
     account = make_bank_account(db, provider=BankApiProvider.SBERBANK)
     with app.app_context():

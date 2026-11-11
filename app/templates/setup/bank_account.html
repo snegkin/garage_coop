@@ -49,7 +49,7 @@
   <div class="mb-3">
     <label class="form-label">{{ _("% банка за зачисление") }}</label>
     <input class="form-control" type="text" inputmode="decimal" name="bank_fee_percent">
-    <div class="form-text">{{ _("Комиссия банка с поступлений на этот счёт (напр. 1.6 — Сбербанк, 1 — ВТБ «Простой процент»). Добавляется к сумме к оплате, если платёж придёт на этот счёт.") }}</div>
+    <div class="form-text">{{ _("Комиссия банка с поступлений на этот счёт по вашему тарифу (напр. 1.6 — Сбербанк). Добавляется к сумме к оплате, если платёж придёт на этот счёт.") }}</div>
   </div>
   <div class="form-check mb-3">
     <input class="form-check-input" type="checkbox" name="is_primary" id="isPrimary" {{ "checked" if not accounts }}>

@@ -1,7 +1,7 @@
 """
 Общий интерфейс клиента API банка — одинаковый для всех банков, чтобы
-app/bank_sync.py не знал, с каким именно банком работает. Сейчас реализован
-только SberbankClient (см. sberbank.py); ВТБ и Т-Банк — см. app/bank_api/__init__.py.
+app/bank_sync.py не знал, с каким именно банком работает. Реализованы
+SberbankClient (sberbank.py) и ModulbankClient (modulbank.py), см. app/bank_api/__init__.py.
 """
 from __future__ import annotations
 

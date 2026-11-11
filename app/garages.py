@@ -1,6 +1,5 @@
 import datetime as dt
 import os
-import uuid
 from decimal import Decimal, InvalidOperation
 
 from flask import (
@@ -207,8 +206,7 @@ def create():
         if upload and upload.filename:
             ext = os.path.splitext(upload.filename)[1].lower()
             if ext in ALLOWED_PHOTO_EXT:
-                stored_name = f"{uuid.uuid4().hex}{ext}"
-                upload.save(os.path.join(current_app.config["UPLOAD_FOLDER"], stored_name))
+                stored_name = save_upload(upload, current_app.config["UPLOAD_FOLDER"], allowed_ext=ALLOWED_PHOTO_EXT)
                 database.db_session.add(GaragePhoto(garage_id=garage.id, file_path=stored_name))
             else:
                 flash(_("Фото не сохранено: поддерживаются только изображения (jpg, png, webp, gif)."), "warning")
@@ -856,8 +854,7 @@ def add_photo(garage_id):
         flash(_("Поддерживаются только изображения (jpg, png, webp, gif)."), "danger")
         return redirect(url_for("garages.detail", garage_id=garage_id))
 
-    stored_name = f"{uuid.uuid4().hex}{ext}"
-    upload.save(os.path.join(current_app.config["UPLOAD_FOLDER"], stored_name))
+    stored_name = save_upload(upload, current_app.config["UPLOAD_FOLDER"], allowed_ext=ALLOWED_PHOTO_EXT)
 
     photo = GaragePhoto(garage_id=garage.id, file_path=stored_name, caption=request.form.get("caption") or None)
     database.db_session.add(photo)
@@ -885,9 +882,7 @@ def edit_photo(garage_id, photo_id):
         old_path = os.path.join(current_app.config["UPLOAD_FOLDER"], photo.file_path)
         if os.path.exists(old_path):
             os.remove(old_path)
-        stored_name = f"{uuid.uuid4().hex}{ext}"
-        upload.save(os.path.join(current_app.config["UPLOAD_FOLDER"], stored_name))
-        photo.file_path = stored_name
+        photo.file_path = save_upload(upload, current_app.config["UPLOAD_FOLDER"], allowed_ext=ALLOWED_PHOTO_EXT)
 
     audit.record(
         "garage_photo.edit", f"Гараж №{photo.garage.number}: изменено фото", entity_type="garage", entity_id=garage_id,

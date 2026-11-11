@@ -5,6 +5,7 @@ SQLAlchemy>=2.0
 alembic>=1.13
 segno>=1.6
 weasyprint>=69.0
+Pillow>=10.0           # ужатие фото при загрузке (app/images.py); и так приходит с weasyprint
 Markdown>=3.6
 bleach>=6.1
 Petrovich>=2.0

@@ -263,6 +263,17 @@ logrotate не нужен.
 не расшифровать), `uploads/`, `bank_certs/`, `bundles/` и архив почты
 `mail_backup/`. Каталог `dvr/` не входит.
 
+Фото (jpg/png/webp) при загрузке на сайт уменьшаются до 2000 px по
+длинной стороне и пережимаются, EXIF убирается
+([`app/images.py`](../app/images.py)). Снимок с телефона занимает около
+0,8 МБ вместо 5–8 МБ. Фото, загруженные до этого, ужимаются один раз
+вручную, имена файлов и БД при этом не меняются:
+
+```bash
+sudo -u coop /home/coop/garage_coop/scripts/shrink_uploads.sh --dry-run   # сколько освободится
+sudo -u coop /home/coop/garage_coop/scripts/shrink_uploads.sh
+```
+
 ```bash
 # crontab -e (ansible ставит эти строки сам, см. cron_jobs в defaults.yml)
 50 2 * * * /путь/к/проекту/scripts/backup_mailbox.sh

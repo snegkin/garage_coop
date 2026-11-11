@@ -1,0 +1,20 @@
+# {{ ansible_managed }} — local_backup_* в vars.yml
+# Образец с пояснениями — backup_agent/coop_backup.example.ini
+
+[server]
+host = {{ local_backup_server_host }}
+port = {{ ssh_port }}
+user = {{ app_user }}
+identity_file = /etc/coop-backup/id_ed25519
+known_hosts = /etc/coop-backup/known_hosts
+
+[local]
+mirror_dir = /var/lib/coop-backup/mirror
+repository = {{ local_backup_repository }}
+password_file = /etc/coop-backup/restic-password
+state_dir = /var/lib/coop-backup
+keep_daily = {{ local_backup_keep_daily }}
+keep_weekly = {{ local_backup_keep_weekly }}
+keep_monthly = {{ local_backup_keep_monthly }}
+keep_yearly = {{ local_backup_keep_yearly }}
+max_age_hours = {{ local_backup_max_age_hours }}

@@ -1,0 +1,15 @@
+; {{ ansible_managed }} — образец с пояснениями: ezp_agent/stunnel.conf.example
+foreground = yes
+pid =
+output = /dev/stdout
+socket = l:TCP_NODELAY=1
+socket = r:TCP_NODELAY=1
+debug = 5
+
+[ezp]
+client = yes
+accept = 127.0.0.1:3080
+; ezp_production: {{ ezp_production | bool | lower }}
+connect = {{ 'api.zakaznoe.pochta.ru:3080' if ezp_production | bool else '91.215.37.229:3080' }}
+cert = /etc/ezp-agent/client.cer
+verify = 0

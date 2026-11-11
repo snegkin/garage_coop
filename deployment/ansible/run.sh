@@ -8,6 +8,7 @@
 #   ./run.sh                    полный прогон
 #   ./run.sh --tags app         аргументы передаются в ansible-playbook
 #   ./run.sh --check --diff
+#   ./run.sh --tags local       только агенты на этом компьютере (бэкап, ЭЗП)
 #
 # Настройки — как в README.md: ~/.config/garage-coop/{inventory.ini,vars.yml};
 # если их там нет, берутся inventory.ini/vars.yml рядом со скриптом.
@@ -75,15 +76,26 @@ case " $* " in
         ;;
 esac
 
+# Агенты на этом компьютере (local_backup_agent / local_ezp_agent) ставятся
+# через sudo — спросить пароль, если sudo без него не пускает.
+VARS_FILE="${COOP_VARS:-$CONF_DIR/vars.yml}"
+BECOME=""
+if [ -f "$VARS_FILE" ] && grep -Eq '^local_(backup|ezp)_agent:[[:space:]]*(true|yes|True)' "$VARS_FILE"; then
+    case " $* " in
+        *" -K "*|*" --ask-become-pass "*) ;;
+        *) sudo -n true 2>/dev/null || BECOME="--ask-become-pass" ;;
+    esac
+fi
+
 echo "Плейбук: $SCRIPT_DIR/site.yml"
 echo "Настройки: ${COOP_VARS:-$CONF_DIR/vars.yml}"
 echo "Инвентарь: ${INVENTORY:-по ansible.cfg ($CONF_DIR/inventory.ini) или из аргументов}"
 echo
 
 if [ -n "$INVENTORY" ]; then
-    ansible-playbook -i "$INVENTORY" site.yml "$@"
+    ansible-playbook -i "$INVENTORY" $BECOME site.yml "$@"
 else
-    ansible-playbook site.yml "$@"
+    ansible-playbook $BECOME site.yml "$@"
 fi
 rc=$?
 

@@ -46,9 +46,25 @@ app_env_extra:
 # вставить JSON из вывода (между ---> и <---) одной строкой в кавычках:
 # rclone_yandex_token: '{"access_token":"…","token_type":"OAuth","refresh_token":"…","expiry":"…"}'
 
-# Агент локального бэкапа на компьютере председателя (backup_agent/README.md):
-backup_agent_pubkeys:
-  - "ssh-ed25519 AAAA... coop-backup"
+# Агенты на ЭТОМ компьютере (компьютер председателя) — ставит сам плейбук,
+# ./run.sh --tags local (спросит пароль sudo). Остальные local_backup_*/ezp_* —
+# в defaults.yml.
+# local_backup_agent: true
+# local_backup_repository: /mnt/backup/coop-restic
+# local_backup_mount: /mnt/backup
+#
+# local_ezp_agent: true          # .deb КриптоПро — в ezp_agent/cryptopro/ (см. README там)
+# ezp_client_cert: gm-voshod.cer # в ezp_agent/certs/
+# ezp_agent_token: "…"
+# ezp_id: "…"
+# ezp_token: "…"
+# ezp_pin: "…"
+# ezp_production: false
+
+# Агент бэкапа на ДРУГОМ компьютере (ставится руками, backup_agent/README.md) —
+# его открытый ключ. Для агента на этом компьютере не нужно:
+# backup_agent_pubkeys:
+#   - "ssh-ed25519 AAAA… coop-backup"
 
 # Данные со своего компьютера
 restore_db_file: /home/sne/work/garage_coop/instance/coop.db

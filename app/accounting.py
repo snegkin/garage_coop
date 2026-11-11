@@ -1075,6 +1075,18 @@ def account_digits(value: str | None) -> str:
     return _NON_DIGIT_RE.sub("", value or "")
 
 
+def pd4_purpose(account_number: str, fee_name: str, garage_number=None) -> str:
+    """«Назначение платежа» для ПД-4 и её QR-кода: «ЛС 10640; Членский взнос,
+    гараж №12». Номер лицевого счёта — В НАЧАЛЕ: межбанковский перевод не
+    несёт отдельного поля «лицевой счёт» (PersAcc из QR до банка
+    получателя не доходит), остаётся только этот текст, а банки обрезают
+    назначение до 210 символов и часть приложений показывает человеку для
+    правки лишь его начало. Формат «ЛС <номер>» распознаёт
+    bank_sync.extract_account_number. Не переводится: это текст для банка."""
+    garage = f", гараж №{garage_number}" if garage_number is not None else ""
+    return f"ЛС {account_number}; {fee_name}{garage}"
+
+
 def pd4_qr_payload(coop: Cooperative, bank_account, member_account: MemberAccount, amount: Decimal) -> str:
     """
     Строка для QR-кода платёжки по стандарту ГОСТ Р 56042-2014 (тот же формат,
@@ -1089,10 +1101,9 @@ def pd4_qr_payload(coop: Cooperative, bank_account, member_account: MemberAccoun
         "CorrespAcc": account_digits(bank_account.correspondent_account) if bank_account else "",
         "PayeeINN": coop.inn,
         "KPP": coop.kpp,
-        "Purpose": (
-            f"{member_account.fee_type.name}, гараж №{member_account.garage.number}, л/с {member_account.account_number}"
-            if member_account.garage else
-            f"{member_account.fee_type.name}, л/с {member_account.account_number}"
+        "Purpose": pd4_purpose(
+            member_account.account_number, member_account.fee_type.name,
+            member_account.garage.number if member_account.garage else None,
         ),
         "Sum": str(int((amount * 100).to_integral_value())),
         "LastName": payer.full_name,
@@ -1119,7 +1130,7 @@ def pd4_qr_payload_electricity(coop: Cooperative, bank_account, garage: Garage, 
         "CorrespAcc": account_digits(bank_account.correspondent_account) if bank_account else "",
         "PayeeINN": coop.inn,
         "KPP": coop.kpp,
-        "Purpose": f"{purpose_label}, гараж №{garage.number}, л/с {personal_account.account_number}",
+        "Purpose": pd4_purpose(personal_account.account_number, purpose_label, garage.number),
         "Sum": str(int((amount * 100).to_integral_value())),
         "LastName": payer_name,
         "PersAcc": personal_account.account_number,

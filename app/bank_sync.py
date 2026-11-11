@@ -389,9 +389,10 @@ def statement(account_id):
             continue
         if is_aggregate_registry_payment(line.payment_purpose):
             continue
-        account_number = extract_account_number(line.payment_purpose)
-        if not account_number:
-            _kind, _target, account_number = _resolve_account_by_name(line.counterparty_name, line.payment_purpose)
+        _kind, _target, account_number = _resolve_target(
+            extract_account_number(line.payment_purpose), line.counterparty_name, line.payment_purpose,
+            payer_account=line.counterparty_account,
+        )
         if account_number:
             suggested_numbers[line.id] = account_number
 
@@ -489,6 +490,8 @@ def _save_fetched_statement(account: BankAccount, fetched, date_from: dt.date, d
                 existing.counterparty_name = line.counterparty_name
             if not existing.counterparty_inn and line.counterparty_inn:
                 existing.counterparty_inn = line.counterparty_inn
+            if not existing.counterparty_account and line.counterparty_account:
+                existing.counterparty_account = line.counterparty_account
             continue
         account_number = extract_account_number(line.payment_purpose)
         row = BankStatementLine(
@@ -499,6 +502,7 @@ def _save_fetched_statement(account: BankAccount, fetched, date_from: dt.date, d
             amount=line.amount,
             counterparty_name=line.counterparty_name,
             counterparty_inn=line.counterparty_inn,
+            counterparty_account=line.counterparty_account,
             payment_purpose=line.payment_purpose,
             document_number=line.document_number,
             account_number=account_number,
@@ -521,12 +525,16 @@ def _save_fetched_statement(account: BankAccount, fetched, date_from: dt.date, d
             payment, resolved_number = _allocate_payment_to_account(
                 line.operation_date, line.amount, comment,
                 account_number=account_number, payer_name=line.counterparty_name, purpose=line.payment_purpose,
+                payer_account=line.counterparty_account,
                 garage_amount=amount_without_bank_fee(line.amount, account),
             )
             if payment is not None:
                 row.matched_payment_id = payment.id
                 row.account_number = resolved_number
                 auto_allocated += 1
+                # Следующая строка этой же выгрузки с того же счёта плательщика
+                # должна видеть это разнесение (см. _resolve_account_by_payer_account).
+                database.db_session.flush()
 
     # В журнал — только если что-то реально произошло: выписка за период
     # часто пустая или целиком уже загружена раньше (added=0) — такой
@@ -635,6 +643,7 @@ def allocate_statement_line(account_id, line_id):
     payment, resolved_number = _allocate_payment_to_account(
         line.operation_date, line.amount, comment,
         account_number=account_number, payer_name=line.counterparty_name, purpose=line.payment_purpose,
+        payer_account=line.counterparty_account,
         strict_account_number=strict, garage_amount=amount_without_bank_fee(line.amount, account),
     )
     if payment is None:
@@ -733,12 +742,14 @@ def allocate_all_statement_lines(account_id):
         payment, resolved_number = _allocate_payment_to_account(
             line.operation_date, line.amount, comment,
             account_number=account_number, payer_name=line.counterparty_name, purpose=line.payment_purpose,
+            payer_account=line.counterparty_account,
             garage_amount=amount_without_bank_fee(line.amount, account),
         )
         if payment is not None:
             line.matched_payment_id = payment.id
             line.account_number = resolved_number
             allocated += 1
+            database.db_session.flush()  # см. то же в _save_fetched_statement
 
     if allocated:
         audit.record(
@@ -1156,7 +1167,53 @@ def extract_account_number(text: str | None) -> str | None:
 
 
 def _normalize_full_name(text: str) -> str:
-    return " ".join(text.upper().split())
+    return " ".join(text.upper().replace("Ё", "Е").split())
+
+
+# Плательщик-физлицо у банков нередко приходит с хвостом через «//»:
+# «ИВАНОВ ИВАН ИВАНОВИЧ//Г. ЯРОСЛАВЛЬ, УЛ. ...//» — адрес по требованиям к
+# переводам. Для сравнения с ФИО в справочнике берём часть до первого «//».
+def _clean_payer_name(payer_name: str | None) -> str | None:
+    if not payer_name:
+        return None
+    return payer_name.split("//", 1)[0].strip() or None
+
+
+# Счета, с которых человек платит сам: 40817/40820 — текущие и карточные
+# счета физлиц, 423 — вклады, 40802 — ИП. Транзитные и корреспондентские
+# счета банков (30…, 47…, 40911 …) общие для тысяч клиентов банка: «плательщиком»
+# там значится сам банк, а настоящее ФИО — в назначении платежа.
+_PERSONAL_ACCOUNT_PREFIXES = ("40817", "40820", "423", "40802")
+_ORGANIZATION_NAME_RE = re.compile(r"(?<![А-ЯЁA-Z])(?:ПАО|АО|ООО|ЗАО|ОАО|НКО|АКБ|КБ|БАНК|BANK)(?![А-ЯЁA-Z])", re.IGNORECASE)
+
+
+def _is_personal_payer_account(payer_account: str | None) -> bool:
+    return bool(payer_account) and len(payer_account) == 20 and payer_account.startswith(_PERSONAL_ACCOUNT_PREFIXES)
+
+
+def _payer_is_not_a_person(payer_name: str | None, payer_account: str | None) -> bool:
+    """Плательщиком значится банк или организация, а не сам человек — тогда
+    его «ФИО» сравнивать бессмысленно, а человека ищем в назначении."""
+    if payer_account and not _is_personal_payer_account(payer_account):
+        return True
+    return bool(payer_name) and bool(_ORGANIZATION_NAME_RE.search(payer_name))
+
+
+def _persons_named_in_text(text: str | None) -> list[Person]:
+    """Люди, чьё полное ФИО (не меньше двух слов) целиком встречается в
+    тексте как отдельные слова — для случая, когда плательщиком значится
+    банк, а ФИО вписано в назначение («Перевод от ИВАНОВ ИВАН ИВАНОВИЧ ...»)."""
+    if not text:
+        return []
+    normalized_text = _normalize_full_name(text)
+    found = []
+    for person in database.db_session.query(Person).all():
+        name = _normalize_full_name(person.full_name)
+        if len(name.split()) < 2:
+            continue
+        if re.search(r"(?<![А-ЯA-Z])" + re.escape(name) + r"(?![А-ЯA-Z])", normalized_text):
+            found.append(person)
+    return found
 
 
 def _initials_key(full_name: str) -> str | None:
@@ -1180,7 +1237,7 @@ def _extract_initials_candidates(text: str | None) -> set[str]:
     }
 
 
-def _find_persons_by_name(payer_name: str | None, purpose: str | None) -> list[Person]:
+def _find_persons_by_name(payer_name: str | None, purpose: str | None, payer_account: str | None = None) -> list[Person]:
     """Ищет людей по тому, что банк прислал текстом — как полное ФИО
     (обычно поле «плательщик»), так и по форме «Фамилия И.О.», которую
     банк нередко указывает в САМОМ назначении платежа для того, за кого
@@ -1192,7 +1249,17 @@ def _find_persons_by_name(payer_name: str | None, purpose: str | None) -> list[P
     Полный перебор Person в Python (не SQL ILIKE) — приемлемо для размера
     обычного ГСК (десятки-сотни человек, не тысячи); сравнение по
     сокращённой форме ФИО в любом случае требует вычисления на стороне
-    Python, единым проходом заодно делаем и точное сравнение."""
+    Python, единым проходом заодно делаем и точное сравнение.
+
+    Если плательщиком значится банк или организация (транзитный счёт,
+    «ПАО …») — его название не сравниваем, а ищем полное ФИО человека в
+    назначении платежа (_persons_named_in_text)."""
+    if _payer_is_not_a_person(payer_name, payer_account):
+        named = _persons_named_in_text(purpose)
+        if named:
+            return named
+        payer_name = None
+    payer_name = _clean_payer_name(payer_name)
     full_candidates = {_normalize_full_name(payer_name)} if payer_name else set()
     initials_candidates = _extract_initials_candidates(purpose) | _extract_initials_candidates(payer_name)
     if not full_candidates and not initials_candidates:
@@ -1310,6 +1377,12 @@ def _narrow_by_fee_type(candidates: list[tuple[str, object]], purpose: str | Non
         if kind == "member" and _fee_type_matches_purpose(obj.fee_type.name, purpose_upper)
     ]
     if not matched:
+        # Электричество — гаражный счёт, не вид членского взноса: узнаём по
+        # слову в назначении («ЭЛЕКТРОЭНЕРГИЯ», «за электричество»).
+        if "ЭЛЕКТР" in purpose_upper:
+            garages = [(kind, obj) for kind, obj in candidates if kind == "garage"]
+            if garages:
+                return garages
         return candidates
     best_score = max(_fee_type_word_count(obj.fee_type.name) for _kind, obj in matched)
     return [(kind, obj) for kind, obj in matched if _fee_type_word_count(obj.fee_type.name) == best_score]
@@ -1344,7 +1417,88 @@ def _narrow_by_trailing_number(candidates: list[tuple[str, object]], purpose: st
     return narrowed or candidates
 
 
-def _resolve_account_by_name(payer_name: str | None, purpose: str | None):
+def _target_account_number(kind: str, target) -> str | None:
+    if kind == "member":
+        return target.account_number
+    return target.account.account_number if target.account else None
+
+
+def _resolve_account_by_payer_account(payer_account: str | None, purpose: str | None):
+    """«Память» плательщика: (kind, target, номер_счёта) по счёту, с которого
+    уже приходили разнесённые платежи, иначе (None, None, None).
+
+    Отдельной таблицы связей нет — связь берётся из истории: строки выписки
+    с тем же counterparty_account, у которых есть платёж. Отменили ошибочное
+    разнесение — связь пропала сама.
+
+    История говорит, ЧЕЙ это счёт (за кого платят), но не за ЧТО: тот же
+    человек сегодня платит членский взнос, завтра — земельный налог. Поэтому
+    кандидаты — все лицевые счета людей, за которых с этого счёта уже
+    платили (как в поиске по имени, включая гаражи), и выбор среди них — тем
+    же сужением по виду взноса в назначении. Автоматически — только при
+    однозначном результате, как везде.
+
+    Только для счетов физлиц/ИП (_is_personal_payer_account): с транзитного
+    счёта банка платят тысячи людей."""
+    if not _is_personal_payer_account(payer_account):
+        return None, None, None
+    payments = (
+        database.db_session.query(Payment)
+        .join(BankStatementLine, BankStatementLine.matched_payment_id == Payment.id)
+        .filter(BankStatementLine.counterparty_account == payer_account)
+        .all()
+    )
+    persons: dict[int, Person] = {}
+    for payment in payments:
+        if payment.account_id is not None:
+            if not payment.account.is_archived:  # гараж сменил хозяина — старая связь не в счёт
+                persons[payment.account.person_id] = payment.account.person
+        elif payment.garage is not None:
+            for ownership in payment.garage.ownerships:
+                persons[ownership.person_id] = ownership.person
+    if not persons:
+        return None, None, None
+
+    candidates: list[tuple[str, object]] = []
+    seen: set[tuple[str, int]] = set()
+    for person in persons.values():
+        for kind, obj in _accounts_for_person(person):
+            if kind == "member" and obj.is_archived:
+                continue
+            if (kind, obj.id) not in seen:
+                seen.add((kind, obj.id))
+                candidates.append((kind, obj))
+    candidates = _narrow_by_fee_type(candidates, purpose)
+    candidates = _narrow_by_trailing_number(candidates, purpose)
+    if len(candidates) != 1:
+        return None, None, None
+    kind, target = candidates[0]
+    return kind, target, _target_account_number(kind, target)
+
+
+def _resolve_target(
+    account_number: str | None, payer_name: str | None, purpose: str | None,
+    payer_account: str | None = None, strict_account_number: bool = False,
+):
+    """Кому отнести зачисление: (kind, target, номер_счёта) или (None, None, None).
+    Порядок — от надёжного к менее надёжному:
+    1) номер лицевого счёта (из назначения или введённый председателем);
+    2) память плательщика по его счёту (_resolve_account_by_payer_account);
+    3) имя плательщика / того, за кого платят (_resolve_account_by_name).
+    strict_account_number — номер ввёл председатель: не нашли — не угадываем."""
+    if account_number:
+        kind, target = _find_account_by_number(account_number)
+        if kind is not None:
+            return kind, target, account_number
+        if strict_account_number:
+            return None, None, None
+    kind, target, number = _resolve_account_by_payer_account(payer_account, purpose)
+    if kind is not None:
+        return kind, target, number
+    return _resolve_account_by_name(payer_name, purpose, payer_account)
+
+
+def _resolve_account_by_name(payer_name: str | None, purpose: str | None, payer_account: str | None = None):
     """Возвращает (kind, target, номер_счёта) при ОДНОЗНАЧНОМ совпадении
     по имени, иначе (None, None, None) — в том числе если найдено
     НЕСКОЛЬКО кандидатов даже после сужения по виду взноса и голому номеру
@@ -1355,7 +1509,7 @@ def _resolve_account_by_name(payer_name: str | None, purpose: str | None):
     людей с похожим ФИО) — риск отнести чужой платёж не туда, поэтому в
     неоднозначных случаях платёж остаётся неразнесённым для решения
     председателем вручную, как и при отсутствии совпадений вовсе."""
-    persons = _find_persons_by_name(payer_name, purpose)
+    persons = _find_persons_by_name(payer_name, purpose, payer_account)
     if not persons:
         return None, None, None
 
@@ -1384,17 +1538,17 @@ def _resolve_account_by_name(payer_name: str | None, purpose: str | None):
 def _allocate_payment_to_account(
     date: dt.date, amount: Decimal, comment: str,
     account_number: str | None = None, payer_name: str | None = None, purpose: str | None = None,
-    strict_account_number: bool = False, garage_amount: Decimal | None = None,
+    strict_account_number: bool = False, garage_amount: Decimal | None = None, payer_account: str | None = None,
 ) -> tuple[Payment | None, str | None]:
     """Общая точка для «нашли лицевой счёт — завести Payment на полную
     сумму и разнести по FIFO» — используется и для реестра платежей
     (allocate_payment_registry_entry), и для автоматического/ручного
     разнесения строк выписки (см. ниже).
 
-    Поиск в два шага: сначала по номеру лицевого счёта (если он есть и
-    найден — самый надёжный источник, используется как есть); если номера
-    нет или счёт с таким номером не найден — по имени плательщика/тому,
-    за кого платят (см. _resolve_account_by_name), включая лиц для связи.
+    Поиск — _resolve_target: номер лицевого счёта (самый надёжный источник),
+    затем память по счёту плательщика (payer_account, см.
+    _resolve_account_by_payer_account), затем имя плательщика/того, за
+    кого платят (см. _resolve_account_by_name), включая лиц для связи.
     Исключение — strict_account_number=True: это явное переопределение
     номера счёта председателем через поле ввода (см. allocate_statement_line/
     allocate_payment_registry_entry), а не подсказка из текста/файла —
@@ -1422,14 +1576,10 @@ def _allocate_payment_to_account(
     к оплате за электричество выставляется долг уже с надбавкой на
     комиссию (реестр начислений и ПД-4, см. accounting.amount_with_bank_fee),
     и полная сумма дала бы гаражу переплату на размер этой надбавки."""
-    kind, target = (None, None)
-    resolved_account_number = account_number
-    if account_number:
-        kind, target = _find_account_by_number(account_number)
-    if kind is None and strict_account_number:
-        return None, None
-    if kind is None:
-        kind, target, resolved_account_number = _resolve_account_by_name(payer_name, purpose)
+    kind, target, resolved_account_number = _resolve_target(
+        account_number, payer_name, purpose, payer_account=payer_account,
+        strict_account_number=strict_account_number,
+    )
     if kind is None:
         return None, None
 

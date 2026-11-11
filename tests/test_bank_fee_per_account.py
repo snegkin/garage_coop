@@ -1,7 +1,7 @@
 """
 Комиссия банка за зачисление — настройка расчётного счёта
 (BankAccount.bank_fee_percent), а не кооператива: у каждого банка свой
-процент (Сбербанк 1,6%, ВТБ «Простой процент» 1%), и надбавка в сумме к
+процент (Сбербанк 1,6%, другой банк 1%), и надбавка в сумме к
 оплате зависит от того, на какой счёт придёт платёж. ПД-4 и земельный
 налог — по основному счёту (его реквизиты на платёжке), реестр начислений —
 по счёту, для которого он формируется, разнесение строки выписки на
@@ -47,11 +47,11 @@ def _make_account(db, bank_name, percent, is_primary=False, checking_account="40
     return account
 
 
-def _sber_and_vtb(db, primary="sber"):
+def _sber_and_modul(db, primary="sber"):
     sber = _make_account(db, "ПАО СБЕРБАНК", Decimal("1.6"), is_primary=primary == "sber")
-    vtb = _make_account(db, "Банк ВТБ (ПАО)", Decimal("1"), is_primary=primary == "vtb",
+    modul = _make_account(db, "АО КБ «Модульбанк»", Decimal("1"), is_primary=primary == "modul",
                         checking_account="40703810000000000002")
-    return sber, vtb
+    return sber, modul
 
 
 # ---------------------------------------------------------------------------
@@ -77,20 +77,20 @@ def test_amount_without_bank_fee_inverts_amount_with_bank_fee(db):
 
 def test_land_tax_uses_primary_account_fee(db):
     _make_coop(db)
-    sber, vtb = _sber_and_vtb(db, primary="sber")
+    sber, modul = _sber_and_modul(db, primary="sber")
     garage = make_garage(db, number="1")
     db.commit()
 
     with_sber = compute_land_tax(2026)[garage.id]
-    sber.is_primary, vtb.is_primary = False, True
+    sber.is_primary, modul.is_primary = False, True
     db.commit()
-    with_vtb = compute_land_tax(2026)[garage.id]
+    with_modul = compute_land_tax(2026)[garage.id]
 
     # Одна и та же база налога, разные надбавки: / (1 − 1,6%) против / (1 − 1%).
     base_from_sber = with_sber * Decimal("0.984")
-    base_from_vtb = with_vtb * Decimal("0.99")
-    assert abs(base_from_sber - base_from_vtb) <= Decimal("0.02")
-    assert with_vtb < with_sber
+    base_from_modul = with_modul * Decimal("0.99")
+    assert abs(base_from_sber - base_from_modul) <= Decimal("0.02")
+    assert with_modul < with_sber
 
 
 # ---------------------------------------------------------------------------
@@ -109,10 +109,10 @@ def _electricity_owner(db, username):
 
 def test_electricity_slip_uses_primary_account_fee(db, client):
     _make_coop(db)
-    sber, vtb = _sber_and_vtb(db, primary="vtb")
-    garage = _electricity_owner(db, "elecvtb")
+    sber, modul = _sber_and_modul(db, primary="modul")
+    garage = _electricity_owner(db, "elecmodul")
     db.commit()
-    login(client, "elecvtb", "pass12345")
+    login(client, "elecmodul", "pass12345")
 
     body = client.get(f"/pd4/print?garage_id={garage.id}").get_data(as_text=True)
     assert "1010,10" in body  # 1000 / (1 − 0,01)
@@ -122,13 +122,13 @@ def test_electricity_slip_uses_primary_account_fee(db, client):
 
 def test_electricity_slip_follows_primary_account_switch(db, client):
     _make_coop(db)
-    sber, vtb = _sber_and_vtb(db, primary="sber")
+    sber, modul = _sber_and_modul(db, primary="sber")
     garage = _electricity_owner(db, "elecswitch")
     db.commit()
     login(client, "elecswitch", "pass12345")
 
     assert "1016,26" in client.get(f"/pd4/print?garage_id={garage.id}").get_data(as_text=True)
-    sber.is_primary, vtb.is_primary = False, True
+    sber.is_primary, modul.is_primary = False, True
     db.commit()
     assert "1010,10" in client.get(f"/pd4/print?garage_id={garage.id}").get_data(as_text=True)
 
@@ -139,18 +139,18 @@ def test_electricity_slip_follows_primary_account_switch(db, client):
 
 def test_charge_registry_items_use_registry_account_fee(app, db):
     _make_coop(db)
-    sber, vtb = _sber_and_vtb(db, primary="sber")
+    sber, modul = _sber_and_modul(db, primary="sber")
     garage = make_garage(db, number="7")
     db.add(Charge(garage_id=garage.id, year=2026, amount=Decimal("1000.00")))
     db.add(PersonalAccount(garage_id=garage.id, account_number="90070"))
     db.commit()
 
     sber_item = {i.account_number: i for i in bank_sync._charge_registry_items(sber)}["90070"]
-    vtb_item = {i.account_number: i for i in bank_sync._charge_registry_items(vtb)}["90070"]
+    modul_item = {i.account_number: i for i in bank_sync._charge_registry_items(modul)}["90070"]
     assert sber_item.amount == Decimal("1016.26")
     assert sber_item.purpose == "Электричество, гараж №7 (1,60% - комиссия банка)"
-    assert vtb_item.amount == Decimal("1010.10")
-    assert vtb_item.purpose == "Электричество, гараж №7 (1,00% - комиссия банка)"
+    assert modul_item.amount == Decimal("1010.10")
+    assert modul_item.purpose == "Электричество, гараж №7 (1,00% - комиссия банка)"
 
 
 # ---------------------------------------------------------------------------
@@ -167,21 +167,21 @@ def _statement_line(db, bank_account, amount, purpose, uid):
 
 
 def test_statement_line_to_electricity_credits_amount_net_of_account_fee(db, client):
-    """ВТБ не удерживает комиссию из платежа (списывает 1% с поступлений
-    отдельно) — в выписке полная оплаченная сумма с надбавкой ПД-4, а
+    """Банк, который не удерживает комиссию из платежа (у Модульбанка в
+    истории операций amount — без учёта комиссии), — в выписке полная оплаченная сумма с надбавкой ПД-4, а
     гаражу должен зачесться ровно долг."""
     _make_coop(db)
-    sber, vtb = _sber_and_vtb(db, primary="vtb")
+    sber, modul = _sber_and_modul(db, primary="modul")
     garage = make_garage(db, number="12")
     db.add(PersonalAccount(garage_id=garage.id, account_number="91200"))
     db.add(Charge(garage_id=garage.id, year=2026, amount=Decimal("1000.00")))
-    line = _statement_line(db, vtb, Decimal("1010.10"), "Электричество, гараж №12", "vtb-el-1")
+    line = _statement_line(db, modul, Decimal("1010.10"), "Электричество, гараж №12", "modul-el-1")
     make_user(db, "chairfee1", "pass12345", role=RoleEnum.CHAIRMAN)
     db.commit()
     login(client, "chairfee1", "pass12345")
 
     resp = client.post(
-        f"/cooperative/bank-accounts/{vtb.id}/statement/{line.id}/allocate", data={"account_number": "91200"},
+        f"/cooperative/bank-accounts/{modul.id}/statement/{line.id}/allocate", data={"account_number": "91200"},
     )
     assert resp.status_code == 302
     assert balance(garage) == Decimal("0.00")
@@ -190,7 +190,7 @@ def test_statement_line_to_electricity_credits_amount_net_of_account_fee(db, cli
 def test_statement_line_to_member_account_credits_full_amount(db, client):
     """Взносы: комиссия уже в начислении — разносится полная сумма."""
     _make_coop(db)
-    sber, vtb = _sber_and_vtb(db, primary="vtb")
+    sber, modul = _sber_and_modul(db, primary="modul")
     person = make_person(db)
     garage = make_garage(db, number="13")
     fee_type = FeeType(code="10", name="Членский взнос")
@@ -202,30 +202,30 @@ def test_statement_line_to_member_account_credits_full_amount(db, client):
     db.add(member_account)
     db.flush()
     db.add(Charge(account_id=member_account.id, year=2026, amount=Decimal("1500.00")))
-    line = _statement_line(db, vtb, Decimal("1500.00"), "Членский взнос", "vtb-mem-1")
+    line = _statement_line(db, modul, Decimal("1500.00"), "Членский взнос", "modul-mem-1")
     make_user(db, "chairfee2", "pass12345", role=RoleEnum.CHAIRMAN)
     db.commit()
     login(client, "chairfee2", "pass12345")
 
     client.post(
-        f"/cooperative/bank-accounts/{vtb.id}/statement/{line.id}/allocate", data={"account_number": "10130"},
+        f"/cooperative/bank-accounts/{modul.id}/statement/{line.id}/allocate", data={"account_number": "10130"},
     )
     assert balance(member_account) == Decimal("0.00")
 
 
 def test_allocate_all_nets_electricity_by_account_fee(db, client):
     _make_coop(db)
-    sber, vtb = _sber_and_vtb(db, primary="vtb")
+    sber, modul = _sber_and_modul(db, primary="modul")
     garage = make_garage(db, number="14")
     db.add(PersonalAccount(garage_id=garage.id, account_number="91400"))
     db.add(Charge(garage_id=garage.id, year=2026, amount=Decimal("500.00")))
-    _statement_line(db, vtb, Decimal("505.05"), "Оплата по ЛС 91400 электроэнергия", "vtb-el-2")
+    _statement_line(db, modul, Decimal("505.05"), "Оплата по ЛС 91400 электроэнергия", "modul-el-2")
     make_user(db, "chairfee3", "pass12345", role=RoleEnum.CHAIRMAN)
     db.commit()
     login(client, "chairfee3", "pass12345")
 
     client.post(
-        f"/cooperative/bank-accounts/{vtb.id}/statement/allocate-all",
+        f"/cooperative/bank-accounts/{modul.id}/statement/allocate-all",
         data={"date_from": "2026-11-01", "date_to": "2026-11-30"},
     )
     assert balance(garage) == Decimal("0.00")
@@ -237,7 +237,7 @@ def test_allocate_all_nets_electricity_by_account_fee(db, client):
 
 def _bank_account_form(**overrides):
     data = {
-        "bank_name": "Банк ВТБ (ПАО)", "bik": "047888760", "checking_account": "40703810000000000009",
+        "bank_name": "АО КБ «Модульбанк»", "bik": "047888760", "checking_account": "40703810000000000009",
         "api_provider": "none", "bank_fee_percent": "1",
     }
     data.update(overrides)
@@ -263,7 +263,7 @@ def test_create_and_edit_bank_account_saves_fee_percent(db, client):
 
 
 def test_bank_accounts_page_shows_fee_percent(db, client):
-    _sber_and_vtb(db)
+    _sber_and_modul(db)
     make_user(db, "chairfee5", "pass12345", role=RoleEnum.CHAIRMAN)
     db.commit()
     login(client, "chairfee5", "pass12345")

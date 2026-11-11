@@ -28,13 +28,12 @@
       <td>
         {% if account.api_provider.value == "none" %}
           <span class="text-muted">{{ _("не используется") }}</span>
-        {% elif account.api_provider.value == "sberbank" %}
-          <span class="badge bg-success">{{ _("Сбербанк") }}</span>
+        {% else %}
+          <span class="badge bg-success">{{ _("Сбербанк") if account.api_provider.value == "sberbank" else _("Модульбанк") }}</span>
+          {% if account.api_credential and account.api_credential.sandbox %}<span class="badge bg-warning text-dark">{{ _("песочница") }}</span>{% endif %}
           {% if account.api_credential and account.api_credential.last_error %}
             <span class="badge bg-danger" title="{{ account.api_credential.last_error }}">{{ _("ошибка") }}</span>
           {% endif %}
-        {% else %}
-          <span class="badge bg-secondary">{{ _("выбран, не реализовано") }}</span>
         {% endif %}
       </td>
       <td>{{ account.comment or "—" }}</td>
@@ -137,13 +136,28 @@
           {% if cred and cred.last_error %}
           <div class="alert alert-danger small">{{ _("Последняя ошибка обращения к банку:") }} {{ cred.last_error }}</div>
           {% endif %}
-          {% if account.api_provider.value != "sberbank" %}
-          <div class="alert alert-warning">{{ _("Интеграция для этого банка ещё не реализована — реквизиты можно сохранить заранее, но синхронизация работать не будет.") }}</div>
-          {% endif %}
           <div class="form-check mb-3">
             <input class="form-check-input" type="checkbox" name="sandbox" id="sandbox{{ account.id }}" {{ "checked" if not cred or cred.sandbox }}>
             <label class="form-check-label" for="sandbox{{ account.id }}">{{ _("Тестовый контур банка (песочница)") }}</label>
+            {% if account.api_provider.value == "modulbank" %}
+            <div class="form-text">{{ _("В песочнице Модульбанка данные тестовые, токен вводить не нужно. Снимите галочку, когда вставите настоящий токен.") }}</div>
+            {% endif %}
           </div>
+          {% if account.api_provider.value == "modulbank" %}
+          <div class="mb-3">
+            <label class="form-label">{{ _("Токен API") }}</label>
+            <textarea class="form-control" name="api_token" rows="2" placeholder="{{ _("оставьте пустым, чтобы не менять") if cred and cred.api_token_encrypted else '' }}" autocomplete="off"></textarea>
+            <div class="form-text">
+              {{ _("Сгенерируйте токен в личном кабинете Модульбанка: меню «+» → «Интеграция с банком». Токен привязан к вашей учётной записи — не передавайте его третьим лицам. Хранится в зашифрованном виде.") }}
+              {% if cred and cred.api_token_encrypted %}{{ _("Уже сохранён — заполните заново только чтобы заменить.") }}{% endif %}
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">{{ _("Номер счёта для запросов к банку") }}</label>
+            <input class="form-control" name="account_number" value="{{ cred.account_number if cred and cred.account_number else '' }}" placeholder="{{ account.checking_account }}">
+            <div class="form-text">{{ _("Заполнять, только если отличается от расчётного счёта выше.") }}</div>
+          </div>
+          {% else %}
           <div class="row g-2 mb-3">
             <div class="col-6">
               <label class="form-label">Client ID</label>
@@ -199,6 +213,7 @@
           <div class="alert alert-warning small">
             {{ _("Также обязательны доверенные сертификаты банка (УЦ Сбера и НУЦ Минцифры) на сервере приложения — переменная окружения SBERBANK_API_CA_BUNDLE, см. .env.example (там же прямые ссылки на архивы с цепочкой сертификатов от банка). Без неё соединение с банком не установится, даже если всё остальное настроено верно.") }}
           </div>
+          {% endif %}
           {% if cred %}
           <div class="text-muted small">
             {{ _("Баланс синхронизирован") }}: {{ fmt_date(cred.last_balance_sync_at) if cred.last_balance_sync_at else "—" }}<br>

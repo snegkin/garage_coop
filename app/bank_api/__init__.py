@@ -3,13 +3,10 @@
 знает, какие банки реально поддержаны. app/bank_sync.py вызывает только
 get_client() и не импортирует конкретные клиенты банков напрямую.
 
-Добавление нового банка (когда дойдут руки до ВТБ/Т-Банка — у обоих есть
-публичное API для организаций, см. models.BankApiProvider): реализовать
-BankApiClient в отдельном модуле рядом с sberbank.py и добавить сюда одну
-строку в SUPPORTED_PROVIDERS. Само поле BankAccount.api_provider уже
-позволяет их выбрать — get_client() для них сейчас всегда вернёт None,
-и app/bank_sync.py показывает пользователю понятное сообщение об этом
-(«интеграция ещё не реализована»), а не падает.
+Поддержаны Сбербанк (sberbank.py) и Модульбанк (modulbank.py). Добавление
+нового банка: значение в models.BankApiProvider (+ миграция), клиент
+BankApiClient в отдельном модуле рядом, ветка в get_client() и строка в
+SUPPORTED_PROVIDERS.
 """
 from __future__ import annotations
 
@@ -22,9 +19,10 @@ from ..models import BankAccount, BankApiProvider, BankRegistryFormat
 from . import crypto
 from .base import BankApiClient
 from .sberbank import SberbankClient
+from .modulbank import ModulbankClient
 from . import registry_file
 
-SUPPORTED_PROVIDERS = {BankApiProvider.SBERBANK}
+SUPPORTED_PROVIDERS = {BankApiProvider.SBERBANK, BankApiProvider.MODULBANK}
 
 
 def build_registry_format(bank_account: BankAccount) -> registry_file.RegistryFormat:
@@ -57,14 +55,27 @@ def build_registry_format(bank_account: BankAccount) -> registry_file.RegistryFo
 
 def get_client(bank_account: BankAccount) -> BankApiClient | None:
     """None означает «для этого счёта нет рабочей интеграции» — либо API не
-    выбран (NONE), либо банк выбран, но клиент ещё не реализован (VTB/TBANK),
-    либо не заполнены обязательные реквизиты подключения (включая
-    клиентский mTLS-сертификат и refresh_token — без них СберБизнес не даст
-    даже авторизоваться, см. комментарии в sberbank.py)."""
+    выбран (NONE), либо не заполнены обязательные реквизиты подключения (у Сбера — client_id,
+    секрет и refresh_token, без них СберБизнес не даст даже авторизоваться,
+    см. sberbank.py; у Модульбанка — токен API, кроме песочницы)."""
     if bank_account.api_provider not in SUPPORTED_PROVIDERS:
         return None
     cred = bank_account.api_credential
-    if cred is None or not cred.client_id or not cred.client_secret_encrypted or not cred.refresh_token_encrypted:
+    if cred is None:
+        return None
+
+    if bank_account.api_provider == BankApiProvider.MODULBANK:
+        token = crypto.decrypt(cred.api_token_encrypted) if cred.api_token_encrypted else None
+        if not token and not cred.sandbox:
+            return None
+        return ModulbankClient(
+            token=token or "",
+            account_number=cred.account_number or bank_account.checking_account,
+            sandbox=cred.sandbox,
+            base_url=current_app.config.get("MODULBANK_API_BASE_URL"),
+        )
+
+    if not cred.client_id or not cred.client_secret_encrypted or not cred.refresh_token_encrypted:
         return None
     secret = crypto.decrypt(cred.client_secret_encrypted)
     refresh_token = crypto.decrypt(cred.refresh_token_encrypted)

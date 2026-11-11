@@ -536,7 +536,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Фактический баланс (счета + касса), вносится вручную. Не путать с внутренним учётным балансом на дашборде — тот считается автоматически как сумма лицевых счетов.":
             "Actual balance (bank accounts + cash on hand), entered manually. Not to be confused with the internal accounting balance on the dashboard, which is calculated automatically as the sum of personal accounts.",
         "Вносится вручную, нет интеграции с банком.": "Entered manually, no bank integration.",
-        "Комиссия банка с поступлений на этот счёт (напр. 1.6 — Сбербанк, 1 — ВТБ «Простой процент»). Добавляется к сумме к оплате, если платёж придёт на этот счёт.": "Bank fee on incoming payments to this account (e.g. 1.6 for Sberbank, 1 for VTB \"Simple percent\"). Added to the amount due when the payment goes to this account.",
+        "Комиссия банка с поступлений на этот счёт по вашему тарифу (напр. 1.6 — Сбербанк). Добавляется к сумме к оплате, если платёж придёт на этот счёт.": "Bank fee on incoming payments to this account under your plan (e.g. 1.6 for Sberbank). Added to the amount due when the payment goes to this account.",
         "% банка": "Bank fee %",
         "Стандартная площадь под гараж, м²": "Standard garage land plot, m²",
         "Для расчёта налога на землю под неприватизированным гаражом. По умолчанию 30 м².": "Used to calculate land tax for a non-privatized garage. Default is 30 m².",
@@ -1639,14 +1639,18 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "API банка": "Bank API",
         "Не используется — баланс вручную": "Not used — enter balance manually",
         "Сбербанк (СберБизнес)": "Sberbank (SberBusiness)",
-        "ВТБ (интеграция ещё не реализована)": "VTB (integration not implemented yet)",
-        "Т-Банк (интеграция ещё не реализована)": "T-Bank (integration not implemented yet)",
-        "Автоматическое получение баланса, выписки и работа с реестрами начислений/платежей — пока только для Сбербанка.":
-            "Automatic balance, statement, and charge/payment registry sync — Sberbank only for now.",
-        "Реквизиты подключения (client_id и т.п.) задаются отдельно, кнопкой «Настроить API» после сохранения счёта.":
-            "Connection credentials (client_id etc.) are set separately, with the «Configure API» button after saving the account.",
+        "Модульбанк": "Modulbank",
+        "Автоматическое получение баланса и выписки — для Сбербанка и Модульбанка.":
+            "Automatic balance and statement sync — for Sberbank and Modulbank.",
+        "Реквизиты подключения (токен и т.п.) задаются отдельно, кнопкой «Настроить API» после сохранения счёта.":
+            "Connection credentials (token etc.) are set separately, with the «Configure API» button after saving the account.",
+        "песочница": "sandbox",
+        "Токен API": "API token",
+        "В песочнице Модульбанка данные тестовые, токен вводить не нужно. Снимите галочку, когда вставите настоящий токен.":
+            "Modulbank sandbox uses test data, no token is needed. Uncheck this once you paste a real token.",
+        "Сгенерируйте токен в личном кабинете Модульбанка: меню «+» → «Интеграция с банком». Токен привязан к вашей учётной записи — не передавайте его третьим лицам. Хранится в зашифрованном виде.":
+            "Generate the token in your Modulbank online account: «+» menu → «Bank integration». The token is tied to your account — do not share it. It is stored encrypted.",
         "не используется": "not used",
-        "выбран, не реализовано": "selected, not implemented",
         "ошибка": "error",
         "Выписка": "Statement",
         "Реестр начислений": "Charge registry",
@@ -1654,8 +1658,6 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Обновить баланс": "Update balance",
         "Настроить API": "Configure API",
         "Настройка API": "API settings",
-        "Интеграция для этого банка ещё не реализована — реквизиты можно сохранить заранее, но синхронизация работать не будет.":
-            "Integration for this bank isn't implemented yet — you can save credentials in advance, but sync won't work.",
         "Тестовый контур банка (песочница)": "Bank sandbox environment",
         "оставьте пустым, чтобы не менять": "leave blank to keep unchanged",
         "Секрет уже сохранён — заполните заново только чтобы заменить его.": "A secret is already saved — fill this in again only to replace it.",

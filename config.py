@@ -46,6 +46,10 @@ class Config:
     # выводится из базового адреса API, не отдельно задокументирован для
     # каждого контура.
     SBERBANK_API_TOKEN_URL = os.environ.get("SBERBANK_API_TOKEN_URL")
+    # Адрес API Модульбанка, если отличается от https://api.modulbank.ru/v1
+    # (app/bank_api/modulbank.py: DEFAULT_BASE_URL). Песочница — тот же адрес
+    # с заголовком sandbox: on, отдельного хоста нет.
+    MODULBANK_API_BASE_URL = os.environ.get("MODULBANK_API_BASE_URL")
 
     # Каталог клиентских mTLS-сертификатов для API банка (см.
     # app/bank_api/sberbank.py) — НЕ раздаётся ни одним роутом на скачивание

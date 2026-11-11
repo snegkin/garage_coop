@@ -1,7 +1,7 @@
 """
 Синхронизация расчётного счёта с API банка — баланс, выписка (зачисления и
-списания), реестр начислений, реестр платежей. Пока реально работает
-только для api_provider == SBERBANK (см. app/bank_api/), для остальных
+списания), реестр начислений, реестр платежей. Реально работает для
+api_provider SBERBANK и MODULBANK (см. app/bank_api/), для остальных
 get_client() вернёт None и роуты покажут понятное сообщение вместо ошибки.
 
 Настройки подключения (client_id/client_secret и т.п.) хранятся отдельно
@@ -262,6 +262,10 @@ def save_api_settings(account_id):
     new_refresh_token = f.get("refresh_token")
     if new_refresh_token:
         cred.refresh_token_encrypted = crypto.encrypt(new_refresh_token.strip())
+    # Токен Модульбанка — тот же принцип «пусто = не менять».
+    new_api_token = (f.get("api_token") or "").strip()
+    if new_api_token:
+        cred.api_token_encrypted = crypto.encrypt(new_api_token)
 
     replaced_cert_files: list[str] = []
     cert_file = request.files.get("tls_cert_p12")

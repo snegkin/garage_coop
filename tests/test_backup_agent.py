@@ -114,6 +114,21 @@ def test_missing_repository_initialised(cfg, fake_run):
     assert [argv[1] for argv, _ in calls if argv[0] != "rsync"][:3] == ["cat", "init", "backup"]
 
 
+@pytest.mark.parametrize("stderr, hint", [
+    ("rrsync error: post-realpath open failed (race detected): backup_staging/ No such file or directory",
+     "ни разу не запускался backup_offsite"),
+    ("No ED25519 host key is known for coop.example.ru and you have requested strict checking.\n"
+     "Host key verification failed.", "нет ключа сервера coop.example.ru"),
+])
+def test_rsync_failure_explained(cfg, fake_run, monkeypatch, stderr, hint):
+    def run(argv, **kwargs):
+        return subprocess.CompletedProcess(argv, 12, "", stderr)
+
+    monkeypatch.setattr(agent.subprocess, "run", run)
+    assert agent.run(cfg) == 1
+    assert hint in _status(cfg)["error"]
+
+
 def test_rsync_failure_is_error_without_backup(cfg, fake_run):
     calls, state = fake_run
     state["rsync_rc"] = 255

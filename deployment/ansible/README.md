@@ -55,6 +55,11 @@ COOP_VARS=vars.yml ansible-playbook -i inventory.ini site.yml
    ansible-playbook site.yml
    ```
 
+   Или `./run.sh` (аргументы те же, что у `ansible-playbook`): запущенный
+   двойным щелчком из файлового менеджера, он сам откроет окно терминала,
+   а после прогона подождёт Enter. Без `~/.config/garage-coop/vars.yml` и
+   `inventory.ini` он берёт одноимённые файлы рядом с собой.
+
    При первом прогоне сервер создаёт себе deploy key, плейбук печатает его
    и ждёт. Добавьте ключ в GitHub → Settings → Deploy keys (только чтение)
    и нажмите Enter.
@@ -69,7 +74,7 @@ COOP_VARS=vars.yml ansible-playbook -i inventory.ini site.yml
 | Пользователь `coop`, ключи для `deploy.sh`, sudo без пароля **только** на `systemctl restart garage-coop`, deploy key, клон, venv, gunicorn | `app` |
 | Снимок локальной БД через backup API (можно при запущенном локальном сайте), проверки целостности и ревизии схемы, заливка; rsync каталогов `instance/` | `restore` |
 | nginx (статика, заглушка, прокси), certbot `--webroot`, HTTPS + HSTS после получения сертификата, reload при продлении | `nginx` |
-| `.env`, systemd-юнит (`repair_db.sh` перед стартом), проверка ответа, cron | `app` |
+| `.env`, systemd-юнит (`repair_db.sh` перед стартом), проверка ответа, cron; при `backup_agent_pubkeys` — первый запуск `backup_offsite`, если `instance/backup_staging/` ещё нет: агент председателя сразу находит, что забрать | `app` |
 | Конфиг `deploy.sh` (`deploy_conf_path`: по умолчанию `~/.config/garage-coop/deploy.conf`, можно `deployment/deploy-from-git/deploy.conf`), если его ещё нет | `app` |
 
 ## Повторные прогоны

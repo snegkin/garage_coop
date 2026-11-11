@@ -108,7 +108,23 @@ def rsync_dir(cfg: Config, name: str) -> None:
     except subprocess.TimeoutExpired as exc:
         raise AgentError(f"rsync {name}: не уложился в {RSYNC_TIMEOUT} с") from exc
     if result.returncode != 0:
-        raise AgentError(f"rsync {name} (код {result.returncode}): {result.stderr.strip()[-2000:]}")
+        stderr = result.stderr.strip()
+        raise AgentError(f"rsync {name} (код {result.returncode}){_rsync_hint(cfg, name, stderr)}: {stderr[-2000:]}")
+
+
+def _rsync_hint(cfg: Config, name: str, stderr: str) -> str:
+    """Понятная причина для частых ошибок первого запуска — перед сырым
+    выводом rsync/ssh."""
+    if "Host key verification failed" in stderr or "host key is known" in stderr:
+        return (f" — в {cfg.known_hosts or '~/.ssh/known_hosts'} нет ключа сервера {cfg.host} "
+                f"(или файл не читается пользователем агента): ssh-keyscan -p {cfg.port} {cfg.host} "
+                f"| sudo tee {cfg.known_hosts or '/etc/coop-backup/known_hosts'}; домен — в punycode")
+    if "No such file or directory" in stderr and name == STAGING:
+        return (f" — на сервере нет instance/{STAGING}/: ни разу не запускался backup_offsite "
+                f"(cron в 03:20 или вручную: scripts/backup_offsite.sh под пользователем сайта)")
+    if "No such file or directory" in stderr:
+        return f" — на сервере нет каталога instance/{name}/"
+    return ""
 
 
 def read_manifest(cfg: Config) -> dict:

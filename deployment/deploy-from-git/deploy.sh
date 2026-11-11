@@ -30,6 +30,12 @@
 
 set -euo pipefail
 
+# Не из консоли (двойной щелчок) — открыть терминал и перезапуститься в нём;
+# по завершении окно ждёт Enter. Подтверждение выкатки там же спросится.
+# shellcheck source=../in_terminal.sh
+. "$(dirname "$0")/../in_terminal.sh"
+in_terminal "Обновление сайта кооператива" "$0" "$@"
+
 LOCAL_CONFIG="$(dirname "$0")/deploy.conf"
 if [ -n "${DEPLOY_CONFIG:-}" ]; then
     CONFIG="$DEPLOY_CONFIG"

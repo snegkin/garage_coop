@@ -14,6 +14,11 @@ deployment/deploy-from-git/deploy.sh --force          # перезапустит
 deployment/deploy-from-git/deploy.sh maintenance on   # заглушка вручную (off, status)
 ```
 
+Если запустить `deploy.sh` двойным щелчком из файлового менеджера, он сам
+откроет окно терминала, спросит подтверждение и после выкатки подождёт
+Enter, чтобы можно было прочитать итог. Общая часть с `ansible/run.sh`
+лежит в `deployment/in_terminal.sh`.
+
 ## Конфиг
 
 Ветка, сервер, логин, каталог и сервисы задаются в `deploy.conf`. Это файл

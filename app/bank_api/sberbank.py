@@ -289,6 +289,9 @@ def _parse_transaction(t: dict, fallback_date: dt.date) -> StatementLine:
         counterparty_inn=counterparty.get("payerInn") if is_credit else (counterparty.get("payeeInn") or counterparty.get("receiverInn")),
         payment_purpose=t.get("paymentPurpose"),
         document_number=t.get("number"),
+        # Имена полей счёта — по аналогии с payerName/payeeName, живым
+        # ответом не подтверждены; нет поля — память плательщика просто не работает.
+        counterparty_account=(counterparty.get("payerAccount") if is_credit else counterparty.get("payeeAccount")) or None,
     )
 
 

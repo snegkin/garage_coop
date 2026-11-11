@@ -70,6 +70,7 @@ def create_app(config_class=Config):
     vendor.init_app(app)
     theme.init_app(app)
     app.jinja_env.globals["audit_entity_url"] = audit.entity_url
+    app.jinja_env.globals["pd4_purpose"] = accounting.pd4_purpose
     app.jinja_env.globals["render_news_html"] = news_format.render_html
     app.jinja_env.globals["news_excerpt"] = news_format.excerpt
     # Вики использует тот же markdown-рендер, что и новости (news_format.py

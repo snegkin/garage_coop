@@ -287,6 +287,11 @@ class BankStatementLine(Base):
     amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
     counterparty_name: Mapped[str | None] = mapped_column(String(255))
     counterparty_inn: Mapped[str | None] = mapped_column(String(12))
+    # Счёт контрагента в его банке (у зачисления — счёт плательщика). Нужен
+    # для «памяти» плательщика: однажды разнесённый платёж с этого счёта
+    # подсказывает лицевой счёт для следующих, см.
+    # bank_sync._resolve_account_by_payer_account.
+    counterparty_account: Mapped[str | None] = mapped_column(String(25), index=True)
     payment_purpose: Mapped[str | None] = mapped_column(Text)
     document_number: Mapped[str | None] = mapped_column(String(50))
     account_number: Mapped[str | None] = mapped_column(String(20))  # лицевой счёт, распознанный в назначении платежа

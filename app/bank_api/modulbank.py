@@ -236,6 +236,7 @@ def _parse_operation(op: dict) -> StatementLine | None:
         counterparty_inn=op.get("contragentInn") or None,
         payment_purpose=op.get("paymentPurpose") or None,
         document_number=op.get("docNumber") or None,
+        counterparty_account=_normalize_number(op.get("contragentBankAccountNumber")) or None,
     )
 
 

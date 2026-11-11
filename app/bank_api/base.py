@@ -32,6 +32,7 @@ class StatementLine:
     counterparty_name: str | None = None
     counterparty_inn: str | None = None
     payment_purpose: str | None = None
+    counterparty_account: str | None = None  # счёт контрагента в его банке (у зачисления — плательщика)
     document_number: str | None = None
 
 

@@ -7,6 +7,7 @@
 #   cd deployment/ansible && ansible-playbook site.yml
 #   ansible-playbook site.yml --tags app         # только код/.env/сервис
 #   ansible-playbook site.yml --check --diff     # что изменится
+#   ansible-playbook site.yml --tags local -K    # только агенты на этом компьютере
 
 - name: Сервер сайта кооператива
   hosts: coop
@@ -109,3 +110,37 @@
         name: "{{ service_name }}"
         state: restarted
         daemon_reload: true
+
+# Агенты на ЭТОМ компьютере (компьютер председателя): локальный бэкап и ЭЗП.
+# Включаются local_backup_agent / local_ezp_agent в vars.yml. Нужен sudo
+# здесь — ключ -K (run.sh добавляет его сам).
+- name: Агенты на этом компьютере
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: true
+  vars_files:
+    - defaults.yml
+    - "{{ lookup('env', 'COOP_VARS') or lookup('env', 'HOME') + '/.config/garage-coop/vars.yml' }}"
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
+    repo_root: "{{ (playbook_dir + '/../..') | realpath }}"
+    coop_server: "{{ groups['coop'] | first }}"
+    local_backup_server_host: "{{ coop_domain or hostvars[coop_server].ansible_host | default(coop_server) }}"
+
+  tasks:
+    - name: Агент локального бэкапа
+      ansible.builtin.include_tasks:
+        file: tasks/local_backup_agent.yml
+        apply:
+          tags: local
+      when: local_backup_agent | bool
+      tags: local
+
+    - name: Агент ЭЗП
+      ansible.builtin.include_tasks:
+        file: tasks/local_ezp_agent.yml
+        apply:
+          tags: local
+      when: local_ezp_agent | bool
+      tags: local

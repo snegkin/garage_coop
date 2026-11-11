@@ -106,25 +106,25 @@
   become_user: "{{ app_user }}"
   register: first_offsite
   failed_when: false
-  when: backup_agent_pubkeys | length > 0
+  when: backup_agent_pubkeys | length > 0 or local_backup_agent | bool
 
 - name: Снимок для агента готов
   ansible.builtin.stat:
     path: "{{ app_instance_dir }}/backup_staging/MANIFEST.json"
   register: staging_manifest
-  when: backup_agent_pubkeys | length > 0
+  when: backup_agent_pubkeys | length > 0 or local_backup_agent | bool
 
 - name: backup_staging создан
   ansible.builtin.assert:
     that: staging_manifest.stat.exists
     fail_msg: "backup_offsite не создал backup_staging/MANIFEST.json — см. {{ app_instance_dir }}/logs/backup_offsite.log"
     quiet: true
-  when: backup_agent_pubkeys | length > 0
+  when: backup_agent_pubkeys | length > 0 or local_backup_agent | bool
 
 - name: Внешний бэкап при первом запуске не прошёл (staging для агента готов)
   ansible.builtin.debug:
     msg: "backup_offsite завершился с кодом {{ first_offsite.rc }} — см. {{ app_instance_dir }}/logs/backup_offsite.log и backup_offsite_status.json"
-  when: backup_agent_pubkeys | length > 0 and first_offsite.rc | default(0) != 0
+  when: (backup_agent_pubkeys | length > 0 or local_backup_agent | bool) and first_offsite.rc | default(0) != 0
 
 - name: Итог
   ansible.builtin.debug:

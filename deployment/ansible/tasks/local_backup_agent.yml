@@ -1,0 +1,185 @@
+# Агент локального бэкапа на ЭТОМ компьютере — то же, что шаги установки
+# в backup_agent/README.md. Ключ, пароль репозитория и known_hosts
+# создаются один раз и дальше не трогаются.
+
+- name: "[бэкап] Пакеты"
+  ansible.builtin.apt:
+    name: [python3, rsync, restic, openssh-client]
+    state: present
+
+- name: "[бэкап] Пользователь coop-backup"
+  ansible.builtin.user:
+    name: coop-backup
+    system: true
+    home: /var/lib/coop-backup
+    create_home: false
+    shell: /usr/sbin/nologin
+
+- name: "[бэкап] Каталоги"
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner | default('root') }}"
+    group: "{{ item.group | default('root') }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - {path: /etc/coop-backup, group: coop-backup, mode: "0750"}
+    - {path: /opt/coop-backup, mode: "0755"}
+
+- name: "[бэкап] Программа агента"
+  ansible.builtin.copy:
+    src: "{{ repo_root }}/backup_agent/coop_backup_agent.py"
+    dest: /opt/coop-backup/coop_backup_agent.py
+    mode: "0755"
+
+- name: "[бэкап] Юнит и таймер systemd"
+  ansible.builtin.copy:
+    src: "{{ repo_root }}/backup_agent/{{ item }}"
+    dest: "/etc/systemd/system/{{ item }}"
+    mode: "0644"
+  loop: [coop-backup.service, coop-backup.timer]
+  register: backup_units
+
+# --- доступ к серверу ------------------------------------------------------
+
+- name: "[бэкап] ssh-ключ агента"
+  ansible.builtin.command: ssh-keygen -q -t ed25519 -N '' -C coop-backup -f /etc/coop-backup/id_ed25519
+  args:
+    creates: /etc/coop-backup/id_ed25519
+
+- name: "[бэкап] Права на ключ"
+  ansible.builtin.file:
+    path: /etc/coop-backup/id_ed25519
+    owner: root
+    group: coop-backup
+    mode: "0640"
+
+- name: "[бэкап] Открытая часть ключа"
+  ansible.builtin.slurp:
+    src: /etc/coop-backup/id_ed25519.pub
+  register: backup_pubkey
+
+- name: "[бэкап] Ключ агента на сервере — только rsync на чтение"
+  ansible.posix.authorized_key:
+    user: "{{ app_user }}"
+    key: "{{ backup_pubkey.content | b64decode | trim }}"
+    key_options: 'command="{{ app_dir }}/scripts/backup_pull_gate.sh",restrict'
+  delegate_to: "{{ coop_server }}"
+
+# Ключ берём у самого сервера, а не ssh-keyscan по сети: подменить его
+# по дороге нельзя, сверять отпечаток руками не нужно.
+- name: "[бэкап] Ключ ssh сервера"
+  ansible.builtin.slurp:
+    src: /etc/ssh/ssh_host_ed25519_key.pub
+  register: server_hostkey
+  delegate_to: "{{ coop_server }}"
+
+- name: "[бэкап] known_hosts агента"
+  ansible.builtin.copy:
+    dest: /etc/coop-backup/known_hosts
+    # Имя — ровно как host в конфиге (punycode), с портом — в [скобках].
+    content: >-
+      {{ local_backup_server_host if ssh_port | int == 22 else '[' + local_backup_server_host + ']:' + ssh_port | string }}
+      {{ (server_hostkey.content | b64decode).split()[:2] | join(' ') }}
+    # Читает ssh под coop-backup: недоступный файл ssh молча пропускает.
+    mode: "0644"
+
+# --- репозиторий -------------------------------------------------------------
+
+- name: "[бэкап] Диск с репозиторием смонтирован"
+  ansible.builtin.command: findmnt -n --mountpoint {{ local_backup_mount | quote }}
+  changed_when: false
+  register: backup_mount
+  failed_when: backup_mount.rc != 0
+  when: local_backup_mount | length > 0
+
+- name: "[бэкап] Каталог репозитория"
+  ansible.builtin.file:
+    path: "{{ local_backup_repository }}"
+    state: directory
+    owner: coop-backup
+    group: coop-backup
+    mode: "0700"
+
+- name: "[бэкап] Пароль репозитория (один раз)"
+  ansible.builtin.shell: umask 077 && openssl rand -base64 32 > /etc/coop-backup/restic-password
+  args:
+    creates: /etc/coop-backup/restic-password
+  register: restic_password_new
+
+- name: "[бэкап] Права на пароль"
+  ansible.builtin.file:
+    path: /etc/coop-backup/restic-password
+    owner: root
+    group: coop-backup
+    mode: "0640"
+
+- name: "[бэкап] Конфиг агента"
+  ansible.builtin.template:
+    src: coop_backup.ini.j2
+    dest: /etc/coop-backup/coop_backup.ini
+    owner: root
+    group: coop-backup
+    mode: "0640"
+    backup: true
+
+# --- первый проход и таймер ----------------------------------------------------
+
+# Агенту нужен instance/backup_staging/ — его создаёт backup_offsite (cron
+# в 03:20). На свежем сервере — запустить сейчас (как и в tasks/service.yml:
+# при --tags local тот шаг не выполняется).
+- name: "[бэкап] Снимок на сервере есть (backup_offsite)"
+  ansible.builtin.command: "{{ app_dir }}/scripts/backup_offsite.sh"
+  args:
+    creates: "{{ app_instance_dir }}/backup_staging/MANIFEST.json"
+  become_user: "{{ app_user }}"
+  delegate_to: "{{ coop_server }}"
+  failed_when: false
+
+- name: "[бэкап] Таймер включён"
+  ansible.builtin.systemd_service:
+    name: coop-backup.timer
+    enabled: true
+    state: started
+    daemon_reload: "{{ backup_units is changed }}"
+
+- name: "[бэкап] Итог прошлого прохода"
+  ansible.builtin.slurp:
+    src: /var/lib/coop-backup/status.json
+  register: backup_status_old
+  failed_when: false
+
+# Первый проход — сразу, а не завтра в 12:00; и повторно, пока последний
+# проход неудачный. Удачный — дальше только таймер.
+- name: "[бэкап] Проход агента (первый — несколько минут)"
+  ansible.builtin.command: systemctl start coop-backup.service
+  register: backup_run
+  failed_when: false
+  when: >-
+    backup_status_old.content is not defined
+    or not ((backup_status_old.content | b64decode | from_json).ok | default(false))
+
+- name: "[бэкап] Итог прохода"
+  ansible.builtin.slurp:
+    src: /var/lib/coop-backup/status.json
+  register: backup_status
+  failed_when: false
+
+- name: "[бэкап] Проход удался"
+  ansible.builtin.assert:
+    that: backup_status.content is defined and (backup_status.content | b64decode | from_json).ok
+    fail_msg: >-
+      Агент бэкапа: {{ (backup_status.content | b64decode | from_json).error
+      if backup_status.content is defined else 'нет status.json' }}.
+      Подробности — journalctl -u coop-backup -n 50
+    success_msg: >-
+      Агент бэкапа работает: снимок {{ (backup_status.content | b64decode | from_json).snapshot_id }},
+      {{ (backup_status.content | b64decode | from_json).warning or 'без предупреждений' }}
+
+- name: "[бэкап] Пароль репозитория создан — сохраните его"
+  ansible.builtin.debug:
+    msg:
+      - "Создан пароль restic-репозитория /etc/coop-backup/restic-password."
+      - "Без него копию не расшифровать. Сохраните его вне этого компьютера (менеджер паролей, бумага в сейфе):"
+      - "  sudo cat /etc/coop-backup/restic-password"
+  when: restic_password_new is changed

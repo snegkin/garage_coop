@@ -26,6 +26,13 @@ venv/
 ezp_agent/certs/*
 !ezp_agent/certs/README.md
 
+# Пакеты КриптоПро CSP (лицензионный дистрибутив) — в git только README
+ezp_agent/cryptopro/*
+!ezp_agent/cryptopro/README.md
+# Распакованный дистрибутив КриптоПро, где бы ни лежал
+linux-amd64_deb/
+linux-amd64_deb.tgz
+
 # Флаг заглушки «Технические работы» (deployment/deploy-from-git/deploy.sh)
 deployment/deploy-from-git/maintenance.on
 

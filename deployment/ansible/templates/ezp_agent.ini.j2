@@ -1,0 +1,22 @@
+# {{ ansible_managed }} — ezp_* в vars.yml
+# Образец с пояснениями — ezp_agent/ezp_agent.example.ini
+
+[site]
+url = {{ ezp_site_url }}
+agent_token = {{ ezp_agent_token }}
+
+[ezp]
+id = {{ ezp_id }}
+token = {{ ezp_token }}
+url = http://127.0.0.1:3080
+
+[crypto]
+cryptcp = /opt/cprocsp/bin/amd64/cryptcp
+thumbprint = {{ ezp_thumb }}
+pin = {{ ezp_pin }}
+sign_extra_args = {{ ezp_sign_extra_args }}
+
+[agent]
+poll_interval = {{ ezp_poll_interval }}
+state_dir = /var/lib/ezp-agent
+lock_file = /run/ezp-agent/ezp_agent.lock

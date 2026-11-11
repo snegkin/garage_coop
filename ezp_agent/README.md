@@ -27,6 +27,17 @@
 
 ## Установка
 
+**Через ansible:** положить `.deb` КриптоПро в [`cryptopro/`](cryptopro/README.md),
+сертификаты в [`certs/`](certs/README.md), вставить Рутокен. В `vars.yml`
+задать `local_ezp_agent: true`, `ezp_client_cert`, `ezp_agent_token`,
+`ezp_id`, `ezp_token`, `ezp_pin` (образец — `deployment/ansible/vars.example.yml`)
+и выполнить `deployment/ansible/run.sh --tags local`. Шаги 1–5, 7 и 8 ниже
+плейбук сделает сам. Пока чего-то не хватает (ID от Почты, токен не
+вставлен), он ставит всё остальное, службы не запускает и пишет, чего
+именно не хватает. Письмо в Почту (шаг 6) и тестовые письма — вручную.
+
+Вручную:
+
 Пути утилит КриптоПро ниже — `/opt/cprocsp/bin/amd64/`.
 
 1. **КриптоПро CSP** (уже есть) и пакет **`cprocsp-stunnel`** из того же

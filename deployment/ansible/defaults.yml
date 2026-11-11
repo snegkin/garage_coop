@@ -75,3 +75,51 @@ cron_jobs:
 #   cron_disable: [poll_mailbox]
 cron_enable: []
 cron_disable: []
+
+# --- Агенты на ЭТОМ компьютере (компьютер председателя) -------------------
+# Второй play в site.yml, тег local: ./run.sh --tags local. Нужен sudo на
+# этом компьютере — run.sh сам добавляет -K (--ask-become-pass).
+
+# Агент локального бэкапа (backup_agent/README.md). Ключ агента сам
+# попадает в authorized_keys сервера, known_hosts — ключ из
+# /etc/ssh/ssh_host_ed25519_key.pub сервера (без ssh-keyscan).
+local_backup_agent: false
+local_backup_repository: /var/lib/coop-backup/restic
+# Точка монтирования диска с репозиторием: если не смонтирован — стоп,
+# иначе restic создал бы новый пустой репозиторий на системном диске.
+local_backup_mount: ""
+local_backup_keep_daily: 14
+local_backup_keep_weekly: 8
+local_backup_keep_monthly: 12
+local_backup_keep_yearly: 5
+local_backup_max_age_hours: 36
+
+# Агент ЭЗП (ezp_agent/README.md). Сертификат с Рутокена ставится в
+# хранилище ezp-agent, если токен вставлен; службы запускаются, только
+# когда заполнены все ezp_* ниже и сертификат с ключом на месте.
+local_ezp_agent: false
+ezp_cryptopro_dir: "{{ playbook_dir }}/../../ezp_agent/cryptopro"   # .deb КриптоПро, см. README там
+ezp_cryptopro_packages:
+  - lsb-cprocsp-base
+  - lsb-cprocsp-rdr-64
+  - lsb-cprocsp-kc1-64
+  - lsb-cprocsp-capilite-64
+  - cprocsp-curl-64
+  - lsb-cprocsp-ca-certs
+  - cprocsp-rdr-pcsc-64
+  - cprocsp-rdr-rutoken-64
+  - cprocsp-stunnel-64
+  - ifd-rutokens
+ezp_cert_dir: "{{ playbook_dir }}/../../ezp_agent/certs"
+ezp_root_certs: [Mincifry_Rossii_root_guc2022.cer]   # → хранилище mRoot компьютера
+ezp_ca_certs: [CA_FNS_Russia_2025_01.crt]            # → mCA
+ezp_client_cert: ""          # открытая часть КЭП в ezp_cert_dir, например gm-voshod.cer
+ezp_container: ""            # контейнер на токене; пусто — единственный найденный
+ezp_site_url: "{{ ('https://' + coop_domain) if coop_domain else '' }}"
+ezp_agent_token: ""          # сайт → Заказные письма → Настройки API Почты → «Выпустить токен агента»
+ezp_id: ""                   # ID и токен отправителя от Почты
+ezp_token: ""
+ezp_pin: ""                  # ПИН Рутокена
+ezp_production: false        # false — интеграционный контур Почты
+ezp_poll_interval: 300
+ezp_sign_extra_args: "-errchain"

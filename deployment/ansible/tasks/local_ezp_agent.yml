@@ -1,0 +1,296 @@
+# Агент ЭЗП на ЭТОМ компьютере — шаги установки из ezp_agent/README.md.
+# Всё, кроме письма в Почту и тестовых писем. Службы запускаются только
+# когда готово всё: пакеты, цепочка, сертификат с ключом на токене,
+# client.cer и заполненный конфиг. Иначе — список, чего не хватает.
+
+- name: "[ЭЗП] Пакеты системы"
+  ansible.builtin.apt:
+    name: [python3, python3-requests, pcscd, libccid]
+    state: present
+
+- name: "[ЭЗП] Служба смарт-карт"
+  ansible.builtin.systemd_service:
+    name: pcscd.socket
+    enabled: true
+    state: started
+
+# --- КриптоПро CSP из ezp_cryptopro_dir --------------------------------------
+
+- name: "[ЭЗП] Установленные пакеты"
+  ansible.builtin.package_facts:
+
+- name: "[ЭЗП] Каких пакетов КриптоПро нет"
+  ansible.builtin.set_fact:
+    cpro_missing: "{{ ezp_cryptopro_packages | reject('in', ansible_facts.packages) | list }}"
+
+# lsb-cprocsp-base зависит от lsb-base. В Ubuntu/Debian он есть в
+# репозитории; если нет — его даёт cprocsp-compat-debian (как в install.sh).
+- name: "[ЭЗП] lsb-base"
+  ansible.builtin.apt:
+    name: lsb-base
+    state: present
+  failed_when: false
+  when: cpro_missing | length > 0
+
+- name: "[ЭЗП] lsb-base установлен"
+  ansible.builtin.command: dpkg-query -W lsb-base
+  register: lsb_check
+  changed_when: false
+  failed_when: false
+  when: cpro_missing | length > 0
+
+- name: "[ЭЗП] Список пакетов к установке"
+  ansible.builtin.set_fact:
+    cpro_install: "{{ cpro_missing + (['cprocsp-compat-debian'] if lsb_check.rc | default(0) != 0 else []) }}"
+
+- name: "[ЭЗП] Файлы пакетов КриптоПро"
+  ansible.builtin.set_fact:
+    cpro_debs: "{{ cpro_debs | default([]) + [lookup('ansible.builtin.fileglob', ezp_cryptopro_dir + '/' + item + '_*.deb', wantlist=True) | sort | last | default('')] }}"
+  loop: "{{ cpro_install }}"
+
+- name: "[ЭЗП] Все нужные .deb на месте"
+  ansible.builtin.assert:
+    that: cpro_debs | default([]) | select('equalto', '') | list | length == 0
+    fail_msg: >-
+      Не хватает пакетов КриптоПро в {{ ezp_cryptopro_dir }}:
+      {{ cpro_install | zip(cpro_debs) | selectattr(1, 'equalto', '') | map(attribute=0) | join(', ') }}.
+      Что и откуда копировать — ezp_agent/cryptopro/README.md
+    quiet: true
+  when: cpro_missing | length > 0
+
+# apt, а не dpkg -i: сам разберёт порядок между файлами и доставит
+# зависимости из репозитория.
+- name: "[ЭЗП] Установка КриптоПро CSP"
+  ansible.builtin.command:
+    argv: "{{ ['apt-get', 'install', '-y', '--no-install-recommends'] + cpro_debs }}"
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+  when: cpro_missing | length > 0
+
+- name: "[ЭЗП] stunnel КриптоПро на месте"
+  ansible.builtin.stat:
+    path: /opt/cprocsp/sbin/amd64/stunnel_thread
+  register: stunnel_bin
+  failed_when: not stunnel_bin.stat.exists
+
+# --- пользователь, программа, юниты --------------------------------------------
+
+# Хранилище сертификатов КриптоПро у каждого пользователя своё (в home).
+- name: "[ЭЗП] Пользователь ezp-agent"
+  ansible.builtin.user:
+    name: ezp-agent
+    system: true
+    home: /var/lib/ezp-agent-home
+    create_home: true
+    shell: /usr/sbin/nologin
+
+- name: "[ЭЗП] Каталоги"
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: root
+    group: "{{ item.group | default('root') }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - {path: /etc/ezp-agent, group: ezp-agent, mode: "0750"}
+    - {path: /opt/ezp-agent, mode: "0755"}
+
+- name: "[ЭЗП] Программа агента"
+  ansible.builtin.copy:
+    src: "{{ repo_root }}/ezp_agent/ezp_agent.py"
+    dest: /opt/ezp-agent/ezp_agent.py
+    mode: "0755"
+  register: ezp_code
+
+- name: "[ЭЗП] Юниты systemd"
+  ansible.builtin.copy:
+    src: "{{ repo_root }}/ezp_agent/{{ item }}"
+    dest: "/etc/systemd/system/{{ item }}"
+    mode: "0644"
+  loop: [ezp-stunnel.service, ezp-agent.service]
+  register: ezp_units
+
+# --- цепочка сертификатов в хранилищах компьютера ------------------------------
+
+- name: "[ЭЗП] Файлы цепочки на месте"
+  ansible.builtin.assert:
+    that: (ezp_cert_dir + '/' + item) is file
+    fail_msg: "Нет {{ ezp_cert_dir }}/{{ item }} — откуда взять: ezp_agent/certs/README.md"
+    quiet: true
+  loop: "{{ ezp_root_certs + ezp_ca_certs }}"
+
+- name: "[ЭЗП] Корневые и промежуточные сертификаты в хранилищах компьютера"
+  ansible.builtin.shell: |
+    set -eu
+    thumb=$(python3 - "$FILE" <<'PY'
+    import base64, hashlib, re, sys
+    raw = open(sys.argv[1], "rb").read()
+    text = raw.decode("ascii", "ignore")
+    if re.fullmatch(r"[\sA-Za-z0-9+/=-]*", text) and "MII" in text:
+        text = re.sub(r"-----[^-]+-----", "", text)
+        raw = base64.b64decode("".join(text.split()))
+    print(hashlib.sha1(raw).hexdigest())
+    PY
+    )
+    if /opt/cprocsp/bin/amd64/certmgr -list -store "$STORE" </dev/null 2>/dev/null | grep -qi "$thumb"; then
+        echo "есть"
+    else
+        /opt/cprocsp/bin/amd64/certmgr -inst -store "$STORE" -file "$FILE" </dev/null
+        echo "установлен"
+    fi
+  environment:
+    FILE: "{{ ezp_cert_dir }}/{{ item.file }}"
+    STORE: "{{ item.store }}"
+  register: chain_certs
+  changed_when: "'установлен' in chain_certs.stdout"
+  loop: "{{ ezp_root_certs | map('community.general.dict_kv', 'file') | map('combine', {'store': 'mRoot'}) | list
+            + ezp_ca_certs | map('community.general.dict_kv', 'file') | map('combine', {'store': 'mCA'}) | list }}"
+  loop_control:
+    label: "{{ item.store }}: {{ item.file }}"
+
+# --- КЭП: client.cer, отпечаток, сертификат со ссылкой на ключ -----------------
+
+# client.cer для stunnel — PEM. Исходный файл бывает DER, PEM или голым
+# base64 (как certmgr -export без заголовков); отпечаток считаем по DER.
+- name: "[ЭЗП] Открытая часть КЭП → /etc/ezp-agent/client.cer"
+  ansible.builtin.shell: |
+    set -eu
+    python3 - "$SRC" /etc/ezp-agent/client.cer.new <<'PY'
+    import base64, hashlib, re, sys, textwrap
+    raw = open(sys.argv[1], "rb").read()
+    text = raw.decode("ascii", "ignore")
+    if re.fullmatch(r"[\sA-Za-z0-9+/=-]*", text) and "MII" in text:
+        raw = base64.b64decode("".join(re.sub(r"-----[^-]+-----", "", text).split()))
+    b64 = base64.b64encode(raw).decode()
+    with open(sys.argv[2], "w") as fh:
+        fh.write("-----BEGIN CERTIFICATE-----\n" + "\n".join(textwrap.wrap(b64, 64)) + "\n-----END CERTIFICATE-----\n")
+    print(hashlib.sha1(raw).hexdigest())
+    PY
+    if cmp -s /etc/ezp-agent/client.cer.new /etc/ezp-agent/client.cer; then
+        rm /etc/ezp-agent/client.cer.new
+    else
+        chmod 0644 /etc/ezp-agent/client.cer.new && mv /etc/ezp-agent/client.cer.new /etc/ezp-agent/client.cer
+        echo CHANGED >&2
+    fi
+  environment:
+    SRC: "{{ ezp_cert_dir }}/{{ ezp_client_cert }}"
+  register: client_cert
+  changed_when: "'CHANGED' in client_cert.stderr"
+  when: ezp_client_cert | length > 0 and (ezp_cert_dir + '/' + ezp_client_cert) is file
+
+- name: "[ЭЗП] Отпечаток КЭП"
+  ansible.builtin.set_fact:
+    ezp_thumb: "{{ client_cert.stdout | default('') | trim }}"
+
+- name: "[ЭЗП] Сертификаты в хранилище ezp-agent"
+  ansible.builtin.command: runuser -u ezp-agent -- /opt/cprocsp/bin/amd64/certmgr -list -store uMy
+  register: umy_before
+  changed_when: false
+  failed_when: false
+
+- name: "[ЭЗП] Сертификат со ссылкой на ключ уже стоит"
+  ansible.builtin.set_fact:
+    ezp_cert_linked: "{{ ezp_thumb | length > 0 and (umy_before.stdout | lower | regex_findall(link_re) | first | default('no')) == 'yes' }}"
+  vars:
+    # После SHA1 Thumbprint в том же блоке certmgr — PrivateKey Link : Yes/No
+    link_re: '(?s){{ ezp_thumb }}.*?privatekey link\s*:\s*(yes|no)'
+
+- name: "[ЭЗП] Контейнеры на токене"
+  ansible.builtin.command: runuser -u ezp-agent -- /opt/cprocsp/bin/amd64/csptest -keyset -enum_containers -verifycontext -fqcn
+  register: containers
+  changed_when: false
+  failed_when: false
+  when: not ezp_cert_linked and ezp_thumb | length > 0
+
+- name: "[ЭЗП] Контейнер ключа"
+  ansible.builtin.set_fact:
+    ezp_cont: "{{ ezp_container or ((found | length == 1) | ternary(found | first, '')) }}"
+  vars:
+    found: "{{ containers.stdout_lines | default([]) | map('trim') | select('match', container_re) | list }}"
+    container_re: '^\\\\[.]\\'   # строка контейнера начинается с \\.\
+  when: not ezp_cert_linked and ezp_thumb | length > 0
+
+- name: "[ЭЗП] Сертификат с токена → хранилище ezp-agent"
+  ansible.builtin.command:
+    argv: [runuser, -u, ezp-agent, --, /opt/cprocsp/bin/amd64/certmgr, -inst, -store, uMy, -container, "{{ ezp_cont }}"]
+    stdin: ""
+  register: cert_inst
+  failed_when: false
+  when: not ezp_cert_linked and ezp_cont | default('') | length > 0
+
+- name: "[ЭЗП] Сертификаты в хранилище ezp-agent (после установки)"
+  ansible.builtin.command: runuser -u ezp-agent -- /opt/cprocsp/bin/amd64/certmgr -list -store uMy
+  register: umy_after
+  changed_when: false
+  failed_when: false
+  when: cert_inst is not skipped
+
+- name: "[ЭЗП] Сертификат со ссылкой на ключ"
+  ansible.builtin.set_fact:
+    ezp_cert_linked: "{{ ezp_thumb | length > 0 and (umy_after.stdout | lower | regex_findall(link_re) | first | default('no')) == 'yes' }}"
+  vars:
+    link_re: '(?s){{ ezp_thumb }}.*?privatekey link\s*:\s*(yes|no)'
+  when: cert_inst is not skipped
+
+# --- конфиги ------------------------------------------------------------------
+
+- name: "[ЭЗП] Чего не хватает"
+  ansible.builtin.set_fact:
+    ezp_missing: "{{ checks | dict2items | rejectattr('value') | map(attribute='key') | list }}"
+  vars:
+    checks:
+      "ezp_client_cert (файл открытой части КЭП в {{ ezp_cert_dir }})": "{{ ezp_thumb | length > 0 }}"
+      "сертификат КЭП в хранилище ezp-agent со ссылкой на ключ (вставьте Рутокен{{ '' if ezp_container else ' или задайте ezp_container' }})": "{{ ezp_cert_linked | bool }}"
+      "ezp_site_url (или coop_domain)": "{{ ezp_site_url | length > 0 }}"
+      "ezp_agent_token": "{{ ezp_agent_token | length > 0 }}"
+      "ezp_id / ezp_token от Почты": "{{ ezp_id | length > 0 and ezp_token | length > 0 }}"
+      "ezp_pin": "{{ ezp_pin | length > 0 }}"
+
+# Пока настройки неполные — существующий конфиг (заполненный руками) не
+# перезаписывается.
+- name: "[ЭЗП] Конфиг агента"
+  ansible.builtin.template:
+    src: ezp_agent.ini.j2
+    dest: /etc/ezp-agent/ezp_agent.ini
+    owner: root
+    group: ezp-agent
+    mode: "0640"
+    force: "{{ ezp_missing | length == 0 }}"
+  register: ezp_ini
+
+- name: "[ЭЗП] Конфиг stunnel"
+  ansible.builtin.template:
+    src: ezp_stunnel.conf.j2
+    dest: /etc/ezp-agent/stunnel.conf
+    owner: root
+    group: ezp-agent
+    mode: "0640"
+  register: ezp_stunnel_conf
+
+# --- службы -------------------------------------------------------------------
+
+- name: "[ЭЗП] Службы"
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    enabled: true
+    state: "{{ 'restarted' if (ezp_units is changed or ezp_code is changed or ezp_ini is changed
+              or ezp_stunnel_conf is changed or client_cert is changed) else 'started' }}"
+    daemon_reload: true
+  loop: [ezp-stunnel.service, ezp-agent.service]
+  when: ezp_missing | length == 0
+
+- name: "[ЭЗП] Проверка канала до Почты (ожидается статус UNKNOWN)"
+  ansible.builtin.command: runuser -u ezp-agent -- python3 /opt/ezp-agent/ezp_agent.py --config /etc/ezp-agent/ezp_agent.ini check
+  register: ezp_check
+  changed_when: false
+  failed_when: false
+  when: ezp_missing | length == 0
+
+- name: "[ЭЗП] Итог"
+  ansible.builtin.debug:
+    msg: >-
+      {{ ['Агент ЭЗП запущен. check: ' + ((ezp_check.stdout + ' ' + ezp_check.stderr) | trim | truncate(600))]
+         if ezp_missing | length == 0 else
+         ['Агент ЭЗП установлен, но службы не запущены. Не хватает:'] + ezp_missing
+         + (['certmgr -inst: ' + (cert_inst.stdout + ' ' + cert_inst.stderr) | trim | truncate(400)]
+            if cert_inst is defined and cert_inst is not skipped and cert_inst.rc | default(0) != 0 else []) }}

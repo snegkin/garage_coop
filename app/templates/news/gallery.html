@@ -34,7 +34,7 @@
           {# Замена: выбор файла сразу отправляет форму (подпись и счётчик сохраняются). #}
           <form method="post" action="{{ url_for('news_gallery.replace', image_id=image.id) }}" enctype="multipart/form-data">
             <label class="btn btn-sm btn-outline-secondary mb-0" title="{{ _('Заменить картинку') }}">
-              <i class="bi bi-arrow-repeat" aria-hidden="true"></i><span class="visually-hidden">{{ _("Заменить картинку") }}</span>
+              <i class="bi bi-pencil" aria-hidden="true"></i><span class="visually-hidden">{{ _("Заменить картинку") }}</span>
               <input type="file" name="image" accept="image/jpeg,image/png,image/webp,image/gif" hidden onchange="if (this.files.length) this.form.submit()">
             </label>
           </form>

@@ -71,11 +71,11 @@ Debian/Ubuntu, на другой ОС пути и команды будут св
 
 Сервер с нуля, с переносом БД и файлов `instance/` — Ansible-плейбук
 [`deployment/ansible`](../deployment/ansible/README.md). Обновления —
-[`deployment/deploy-from-git/deploy.sh`](../deployment/deploy-from-git/deploy.sh)
+[`deployment/deploy.sh`](../deployment/deploy.sh)
 с заглушкой «Ведутся технические работы» на время обновления
-(`deployment/deploy-from-git/maintenance.html`, nginx отдаёт её с кодом 503 по флагу
-`deployment/deploy-from-git/maintenance.on`, а также при 502/504 — пока gunicorn
-перезапускается; фрагмент конфига — `deployment/deploy-from-git/nginx-maintenance.conf`),
+(`deployment/deploy/maintenance.html`, nginx отдаёт её с кодом 503 по флагу
+`deployment/deploy/maintenance.on`, а также при 502/504 — пока gunicorn
+перезапускается; фрагмент конфига — `deployment/deploy/nginx-maintenance.conf`),
 см. [INSTALL.md](../INSTALL.md#обновление).
 
 Чек-лист перед первым реальным запуском:

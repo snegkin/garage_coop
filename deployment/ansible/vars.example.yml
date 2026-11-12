@@ -8,8 +8,8 @@ certbot_email: admin@example.ru
 
 app_branch: master
 
-# Конфиг deploy.sh — рядом со скриптом, а не в ~/.config/garage-coop:
-# deploy_conf_path: "{{ playbook_dir }}/../deploy-from-git/deploy.conf"
+# Конфиг deploy.sh — в deployment/deploy/, а не в ~/.config/garage-coop:
+# deploy_conf_path: "{{ playbook_dir }}/../deploy/deploy.conf"
 
 deploy_ssh_pubkeys:
   - "{{ lookup('file', '~/.ssh/id_rsa.pub') }}"
@@ -47,7 +47,7 @@ app_env_extra:
 # rclone_yandex_token: '{"access_token":"…","token_type":"OAuth","refresh_token":"…","expiry":"…"}'
 
 # Агенты на ЭТОМ компьютере (компьютер председателя) — ставит сам плейбук,
-# ./run.sh --tags local (спросит пароль sudo). Остальные local_backup_*/ezp_* —
+# deployment/setup.sh --tags local (спросит пароль sudo). Остальные local_backup_*/ezp_* —
 # в defaults.yml.
 # local_backup_agent: true
 # local_backup_repository: /mnt/backup/coop-restic

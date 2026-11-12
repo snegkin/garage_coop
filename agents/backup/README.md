@@ -25,7 +25,7 @@ restic-репозитории с историей версий.
 **Через ansible** (если сервер разворачивается с этого же компьютера): в
 `vars.yml` задать `local_backup_agent: true`, при отдельном диске — ещё
 `local_backup_repository` и `local_backup_mount`. Затем выполнить
-`deployment/ansible/run.sh --tags local`. Шаги 1–6 ниже плейбук сделает
+`deployment/setup.sh --tags local`. Шаги 1–6 ниже плейбук сделает
 сам, включая первый проход. Руками останется сохранить пароль
 репозитория: плейбук напомнит.
 

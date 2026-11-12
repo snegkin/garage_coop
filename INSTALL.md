@@ -128,17 +128,17 @@ server {
 
     # Заглушка «Ведутся технические работы» — на время обновления (флаг
     # ставит deploy.sh) и пока gunicorn перезапускается. Подробнее —
-    # deployment/deploy-from-git/nginx-maintenance.conf.
+    # deployment/deploy/nginx-maintenance.conf.
     error_page 502 503 504 @maintenance;
     location @maintenance {
-        root /home/coop/garage_coop/deployment/deploy-from-git;
+        root /home/coop/garage_coop/deployment/deploy;
         rewrite ^ /maintenance.html break;
         add_header Retry-After 120 always;
         add_header Cache-Control "no-store" always;
     }
 
     location / {
-        if (-f /home/coop/garage_coop/deployment/deploy-from-git/maintenance.on) {
+        if (-f /home/coop/garage_coop/deployment/deploy/maintenance.on) {
             return 503;
         }
         proxy_pass http://127.0.0.1:8000;
@@ -181,18 +181,18 @@ sudo certbot --nginx -d coop.example.ru     # HTTPS и редирект с http 
 ## Обновление
 
 Со своего компьютера — одной командой
-[`deployment/deploy-from-git/deploy.sh`](deployment/deploy-from-git/deploy.sh):
+[`deployment/deploy.sh`](deployment/deploy.sh):
 на время обновления сайт показывает заглушку «Ведутся технические
 работы», перед миграциями делается бэкап БД, после перезапуска — проверка,
 что сайт отвечает; при сбое до перезапуска код откатывается. Настройки
 (ветка, сервер, логин, пароль) — в `deploy.conf` вне git: рядом со
 скриптом или в `~/.config/garage-coop/`, образец —
-`deployment/deploy-from-git/deploy.conf.example`. Подробно —
-[`deployment/deploy-from-git/README.md`](deployment/deploy-from-git/README.md).
+`deployment/deploy/deploy.conf.example`. Подробно —
+[`deployment/deploy/README.md`](deployment/deploy/README.md).
 
 ```bash
-deployment/deploy-from-git/deploy.sh                    # обновить
-deployment/deploy-from-git/deploy.sh maintenance on     # заглушка вручную (off, status)
+deployment/deploy.sh                    # обновить
+deployment/deploy.sh maintenance on     # заглушка вручную (off, status)
 ```
 
 Без SSH-ключа (`DEPLOY_PASSWORD` в конфиге) нужен `sshpass`. Для

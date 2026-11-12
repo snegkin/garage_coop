@@ -14,7 +14,7 @@ import re
 from email.message import EmailMessage
 import email.policy
 
-from app import database, mail_client, notifications
+from app import database, mail_client, mail_diagnostics, notifications
 from app.mailbox import refresh_unread_counts
 from app.models import RoleEnum, MailboxSettings, MailProtocol, MailEncryption, AuditLog, Charge, Expense, MailboxPop3MessageState, User
 from app.bank_api import crypto
@@ -742,11 +742,8 @@ def test_failed_connection_test_is_not_audited(db, client, monkeypatch):
     _make_chairman(db)
     _make_settings(db)
 
-    def boom(settings):
-        raise mail_client.MailError("boom")
-
-    monkeypatch.setattr(mail_client, "test_incoming_connection", boom)
-    monkeypatch.setattr(mail_client, "test_smtp_connection", boom)
+    monkeypatch.setattr(mail_diagnostics, "run", lambda settings: iter(
+        [{"type": "done", "ok": False, "errors": ["SMTP: boom"]}]))
     login(client, "chair1", "pass1234")
 
     client.post("/mailbox/settings/test-connection", follow_redirects=True)

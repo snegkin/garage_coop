@@ -22,7 +22,8 @@ import re
 from html.parser import HTMLParser
 from sqlalchemy.exc import IntegrityError
 
-from flask import Blueprint, render_template, request, redirect, url_for, flash, abort, send_file, jsonify, g
+from flask import (Blueprint, Response, render_template, request, redirect, url_for, flash, abort, send_file,
+                   jsonify, g, stream_with_context)
 
 from . import database
 from . import audit
@@ -31,6 +32,7 @@ from .i18n import translate as _
 from .auth import roles_required, ROLE_LEVEL
 from .models import RoleEnum, MailboxSettings, MailProtocol, MailEncryption, MailboxPop3MessageState, User
 from . import mail_client
+from . import mail_diagnostics
 from .mail_client import MailError, DEFAULT_FOLDER, MessageDetail
 from .mail_html import render_email_body, sanitize_email_body
 from .news_format import render_html
@@ -867,32 +869,49 @@ def save_settings():
     return redirect(url_for("mailbox.inbox"))
 
 
+NDJSON = "application/x-ndjson"
+
+
+def _save_check_result(settings: MailboxSettings, errors: list[str]) -> None:
+    settings.last_error = "; ".join(errors) or None
+    database.db_session.commit()
+
+
 @bp.route("/settings/test-connection", methods=["POST"])
 @roles_required(RoleEnum.CHAIRMAN)
 def test_connection():
+    """Пошаговая проверка (app/mail_diagnostics.py). Окно на странице почты
+    шлёт Accept: application/x-ndjson и получает шаги по мере выполнения —
+    строка JSON на событие; без JS — как раньше, итог во flash."""
     settings = _get_or_create_settings()
+    streaming = NDJSON in request.headers.get("Accept", "")
     if not _is_configured(settings):
-        flash(_("Сначала заполните и сохраните настройки подключения."), "warning")
+        message = _("Сначала заполните и сохраните настройки подключения.")
+        if streaming:
+            return Response(json.dumps({"type": "done", "ok": False, "errors": [message]},
+                                       ensure_ascii=False) + "\n", mimetype=NDJSON)
+        flash(message, "warning")
         return redirect(url_for("mailbox.inbox"))
 
+    if streaming:
+        def events():
+            for event in mail_diagnostics.run(settings):
+                if event["type"] == "done":
+                    _save_check_result(settings, event["errors"])
+                    event["last_error"] = settings.last_error
+                yield json.dumps(event, ensure_ascii=False) + "\n"
+
+        # X-Accel-Buffering — чтобы nginx отдавал строки сразу, а не в конце.
+        return Response(stream_with_context(events()), mimetype=NDJSON,
+                        headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
+
     errors = []
-    try:
-        mail_client.test_incoming_connection(settings)
-    except MailError as exc:
-        errors.append(str(exc))
-
-    try:
-        mail_client.test_smtp_connection(settings)
-    except MailError as exc:
-        errors.append(str(exc))
-
+    for event in mail_diagnostics.run(settings):
+        if event["type"] == "done":
+            errors = event["errors"]
+    _save_check_result(settings, errors)
     if errors:
-        settings.last_error = "; ".join(errors)
-        database.db_session.commit()
         flash(_("Ошибка подключения: {error}", error="; ".join(errors)), "danger")
     else:
-        settings.last_error = None
-        database.db_session.commit()
         flash(_("Подключение к почте работает (входящие и исходящие)."), "success")
-
     return redirect(url_for("mailbox.inbox"))

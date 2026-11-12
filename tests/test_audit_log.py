@@ -230,3 +230,78 @@ def test_audit_log_page_shows_entity_link_for_person(app, db, client):
     html = resp.get_data(as_text=True)
     assert f'href="/persons/{person.id}"' in html
     assert "Ссылков П.С." in html
+
+
+# ---------------------------------------------------------------------------
+# Схлопывание повторных правок одной сущности (audit._coalesce_target)
+# ---------------------------------------------------------------------------
+
+def _wiki_entries(db, page_id):
+    return db.query(AuditLog).filter_by(entity_type="wiki", entity_id=page_id).order_by(AuditLog.id).all()
+
+
+def _board_login(db, client, username="boarduser"):
+    make_user(db, username, "pass1234", role=RoleEnum.BOARD, person=make_person(db, full_name=username))
+    db.commit()
+    login(client, username, "pass1234")
+
+
+def test_repeated_edits_of_same_page_collapse_into_one_entry(app, db, client):
+    from app.models import WikiPage
+    page = WikiPage(title="Модульбанк", slug="modulbank", body="x")
+    db.add(page)
+    db.commit()
+    _board_login(db, client)
+
+    client.post(f"/wiki/{page.id}/edit", data={"title": "Модульбанк", "body": "1"})
+    first = _wiki_entries(db, page.id)[0]
+    first.created_at -= dt.timedelta(minutes=30)
+    db.commit()
+    old_time = first.created_at
+    client.post(f"/wiki/{page.id}/edit", data={"title": "Модульбанк 2", "body": "2"})
+
+    entries = _wiki_entries(db, page.id)
+    assert len(entries) == 1
+    assert entries[0].created_at > old_time  # время сдвинуто на последнюю правку
+    assert "Модульбанк 2" in entries[0].summary
+
+
+def test_edit_right_after_create_updates_create_entry(app, db, client):
+    from app.models import WikiPage
+    _board_login(db, client)
+    client.post("/wiki/new", data={"title": "Модульбанк", "body": "1"})
+    page = db.query(WikiPage).filter_by(title="Модульбанк").one()
+    client.post(f"/wiki/{page.id}/edit", data={"title": "Модульбанк", "body": "2"})
+
+    entries = _wiki_entries(db, page.id)
+    assert [e.action for e in entries] == ["wiki.create"]
+
+
+def test_edit_after_window_or_by_other_user_is_separate_entry(app, db, client):
+    from app.models import WikiPage
+    page = WikiPage(title="Стр", slug="str", body="x")
+    db.add(page)
+    db.commit()
+    _board_login(db, client)
+    client.post(f"/wiki/{page.id}/edit", data={"title": "Стр", "body": "1"})
+    entry = _wiki_entries(db, page.id)[0]
+    entry.created_at -= audit.COALESCE_WINDOW + dt.timedelta(minutes=1)
+    db.commit()
+    client.post(f"/wiki/{page.id}/edit", data={"title": "Стр", "body": "2"})
+    assert len(_wiki_entries(db, page.id)) == 2
+
+    client.get("/logout")
+    _board_login(db, client, "otherboard")
+    client.post(f"/wiki/{page.id}/edit", data={"title": "Стр", "body": "3"})
+    assert len(_wiki_entries(db, page.id)) == 3
+
+
+def test_non_edit_actions_never_collapse(app, db):
+    user = make_user(db, "boarduser", "pass1234", role=RoleEnum.BOARD, person=make_person(db))
+    db.commit()
+    with app.test_request_context():
+        audit.record("payment.create", "Платёж 1", entity_type="member_account", entity_id=1, actor=user)
+        db.flush()
+        audit.record("payment.create", "Платёж 2", entity_type="member_account", entity_id=1, actor=user)
+        db.commit()
+    assert db.query(AuditLog).filter_by(action="payment.create").count() == 2

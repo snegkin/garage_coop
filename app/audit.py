@@ -10,7 +10,16 @@ record() только добавляет запись в сессию (flush, б
 
 Не логируем сам факт вызова record() через flash/логгер — это внутренний
 механизм, отдельный от пользовательских уведомлений.
+
+Повторные правки одной сущности схлопываются (см. _coalesce_target): если
+тот же пользователь снова правит ту же страницу/гараж/… в пределах
+COALESCE_WINDOW после своей же правки (или создания), новая запись не
+добавляется — у последней лишь сдвигается время. Иначе журнал зарастает
+«Изменена страница … / Изменена страница …» на каждое сохранение. Касается
+только *.edit-действий с указанной сущностью — деньги, роли, вход и т.п.
+(create/delete/прочее) всегда пишутся отдельными записями.
 """
+import datetime as dt
 from decimal import Decimal
 
 from flask import g, url_for
@@ -39,6 +48,12 @@ def record(action: str, summary: str, entity_type: str | None = None, entity_id:
     страницы, см. proposals.resolve_if_due).
     """
     user = actor if actor is not None else g.get("user", None)
+    previous = _coalesce_target(action, entity_type, entity_id, user)
+    if previous is not None:
+        if previous.action == action:
+            previous.summary = summary  # заголовок могли переименовать
+        previous.created_at = dt.datetime.utcnow()
+        return  # и без повторного уведомления правлению
     database.db_session.add(AuditLog(
         actor_user_id=user.id if user else None,
         actor_username=user.username if user else None,
@@ -54,6 +69,37 @@ def record(action: str, summary: str, entity_type: str | None = None, entity_id:
         actor_user_id=user.id if user and notify_exclude_actor else None,
         actor_name=_actor_name(user) if user and notify_exclude_actor else None,
     )
+
+
+COALESCE_WINDOW = dt.timedelta(days=1)
+
+
+def _is_edit_action(action: str) -> bool:
+    return action.endswith(".edit") or action.endswith("_edit")
+
+
+def _coalesce_target(action: str, entity_type: str | None, entity_id: int | None, user) -> AuditLog | None:
+    """Запись, в которую можно влить эту правку: последняя по той же
+    сущности (кем бы ни сделана), если она от того же пользователя, не
+    старше COALESCE_WINDOW и это та же правка или создание этой сущности
+    (wiki.create → wiki.edit, power.reading_add → power.reading_edit).
+    Чужая запись между правками разрывает цепочку."""
+    if not _is_edit_action(action) or entity_type is None or entity_id is None or user is None:
+        return None
+    last = (
+        database.db_session.query(AuditLog)
+        .filter(AuditLog.entity_type == entity_type, AuditLog.entity_id == entity_id)
+        .order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
+        .first()
+    )
+    if last is None or last.actor_user_id != user.id:
+        return None
+    if dt.datetime.utcnow() - last.created_at > COALESCE_WINDOW:
+        return None
+    stem = action[:-len("edit")]
+    if last.action not in (action, stem + "create", stem + "add"):
+        return None
+    return last
 
 
 def _actor_name(user) -> str:

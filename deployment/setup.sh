@@ -50,7 +50,8 @@ case " $* " in
 esac
 
 # Агенты на этом компьютере (local_backup_agent / local_ezp_agent) ставятся
-# через sudo — спросить пароль, если sudo без него не пускает. Спрашиваем
+# через sudo — спросить пароль, если sudo без него не пускает и этот play
+# вообще будет выполняться (см. local_play_runs). Спрашиваем
 # сами, а не через -K: у ansible приглашение «BECOME password:». Пароль
 # сразу проверяется через sudo и передаётся в ansible файлом (0600, удаляется
 # по выходу).
@@ -61,7 +62,32 @@ cleanup() { if [ -n "$PASS_FILE" ]; then rm -f "$PASS_FILE"; fi; }
 in_terminal_on_exit cleanup
 trap 'exit 130' INT TERM HUP
 
-if [ -f "$VARS_FILE" ] && grep -Eq '^local_(backup|ezp)_agent:[[:space:]]*(true|yes|True)' "$VARS_FILE"; then
+# Выполнится ли вообще play «Агенты на этом компьютере»: все его задачи —
+# с тегом local, поэтому при --tags app / --tags nginx и т.п. (без local/all)
+# или --skip-tags local он пустой и sudo здесь не нужен — пароль не спрашиваем.
+# Так же для режимов, которые ничего не выполняют (--list-tasks и т.п.).
+local_play_runs() {
+    tags="" skip="" prev=""
+    for arg in "$@"; do
+        case "$prev" in
+            --tags|-t) tags="$tags,$arg" ;;
+            --skip-tags) skip="$skip,$arg" ;;
+        esac
+        case "$arg" in
+            --tags=*) tags="$tags,${arg#--tags=}" ;;
+            --skip-tags=*) skip="$skip,${arg#--skip-tags=}" ;;
+            --syntax-check|--list-tasks|--list-tags|--list-hosts) return 1 ;;
+        esac
+        prev="$arg"
+    done
+    case ",$skip," in *,local,*|*,all,*) return 1 ;; esac
+    [ -z "$tags" ] && return 0
+    case ",$tags," in *,local,*|*,all,*) return 0 ;; esac
+    return 1
+}
+
+if [ -f "$VARS_FILE" ] && grep -Eq '^local_(backup|ezp)_agent:[[:space:]]*(true|yes|True)' "$VARS_FILE" \
+        && local_play_runs "$@"; then
     case " $* " in
         *" -K "*|*" --ask-become-pass "*|*" --become-password-file"*|*" --become-pass-file"*) ;;
         *)

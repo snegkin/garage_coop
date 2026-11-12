@@ -101,12 +101,16 @@ cron_jobs:
   - {name: cleanup_orphan_attachments, minute: "40",  hour: "3"}
   - {name: board_chat_digest,          minute: "*/5"}
   - {name: poll_mailbox,               minute: "*/5"}
-  - {name: poll_telegram,              minute: "*",   enabled: false}
+  - {name: poll_messengers,            minute: "*",   enabled: false}
+  # Переименована в poll_messengers (Telegram + MAX) в ноябре 2026: старая
+  # cron-строка звала бы удалённый poll_telegram.sh — retired снимает её с
+  # сервера при деплое. Убрать, когда все серверы обновлены.
+  - {name: poll_telegram,              minute: "*",   retired: true}
   - {name: poll_ewelink,               minute: "*",   enabled: false}
   - {name: dvr_snapshot,               minute: "*",   enabled: false}
 
 # Включить/выключить задачи из списка выше по имени, не копируя его целиком:
-#   cron_enable: [dvr_snapshot, poll_telegram]
+#   cron_enable: [dvr_snapshot, poll_messengers]
 #   cron_disable: [poll_mailbox]
 cron_enable: []
 cron_disable: []

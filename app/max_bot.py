@@ -21,7 +21,7 @@ Bot API (dev.max.ru/docs-api, ноябрь 2026):
     обрабатывает (ошибка attachment.not.ready) — повторяем с паузой;
   - не больше 2 сообщений в секунду в один чат;
   - список чатов бота (GET /chats) API больше не отдаёт: ID канала
-    узнаём из апдейта bot_added (GET /updates, scripts/poll_telegram.py ->
+    узнаём из апдейта bot_added (GET /updates, scripts/poll_messengers.py ->
     poll_updates) и показываем на странице настроек (app/max_settings.py).
 Бот должен быть администратором канала/группы.
 """

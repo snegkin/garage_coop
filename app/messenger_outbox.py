@@ -12,7 +12,7 @@ Telegram (app/telegram_bot.py) — новости и уведомления, MAX
   - news.create / notifications._send ставят сообщение в очередь
     (enqueue_news/enqueue_message) и сразу возвращаются — сохранение новости
     не ждёт загрузку фото;
-  - scripts/poll_telegram.py (cron раз в минуту) вызывает process():
+  - scripts/poll_messengers.py (cron раз в минуту) вызывает process():
     отправляет всё, чему подошёл срок, при сбое — повтор с нарастающей
     паузой (RETRY_DELAYS), через MAX_AGE — отказ.
 

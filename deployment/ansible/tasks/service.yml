@@ -119,10 +119,12 @@
     job: "{{ app_dir }}/scripts/{{ item.name }}.sh"
     state: "{{ 'present' if job_on else 'absent' }}"
   vars:
-    job_on: "{{ (item.enabled | default(true) or item.name in cron_enable) and item.name not in cron_disable }}"
+    # retired — задача удалена из проекта: строку снимаем, даже если она
+    # осталась в cron_enable.
+    job_on: "{{ not item.retired | default(false) and (item.enabled | default(true) or item.name in cron_enable) and item.name not in cron_disable }}"
   loop: "{{ cron_jobs }}"
   loop_control:
-    label: "{{ item.name }}{{ '' if job_on else ' (выкл.)' }}"
+    label: "{{ item.name }}{{ ' (удалена)' if item.retired | default(false) else ('' if job_on else ' (выкл.)') }}"
 
 # Агент локального бэкапа забирает instance/backup_staging/, а его создаёт
 # только backup_offsite (cron в 03:20). Без первого запуска агент на

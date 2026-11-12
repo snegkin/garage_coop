@@ -184,11 +184,11 @@
     job: "{{ app_dir }}/scripts/{{ job.name }}.sh"
     state: "{{ 'present' if job_on else 'absent' }}"
   vars:
-    job_on: "{{ (job.enabled | default(true) or job.name in inst.cron_enable) and job.name not in inst.cron_disable }}"
+    job_on: "{{ not job.retired | default(false) and (job.enabled | default(true) or job.name in inst.cron_enable) and job.name not in inst.cron_disable }}"
   loop: "{{ cron_jobs }}"
   loop_control:
     loop_var: job
-    label: "{{ job.name }}{{ '' if job_on else ' (выкл.)' }}"
+    label: "{{ job.name }}{{ ' (удалена)' if job.retired | default(false) else ('' if job_on else ' (выкл.)') }}"
 
 # Как у основного (service.yml): агенту председателя нужен backup_staging/.
 - name: "[{{ inst.name }}] Первый снимок для агента бэкапа (backup_offsite)"

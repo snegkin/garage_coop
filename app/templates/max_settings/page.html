@@ -64,5 +64,5 @@
 
 {% with outbox_endpoint="max_settings.outbox_action", channel_label="MAX" %}{% include "_messenger_outbox.html" %}{% endwith %}
 
-<p class="text-muted small mt-4">{{ _("Очередь отправки и список чатов разбирает cron-скрипт scripts/poll_telegram.sh (см. docs/deployment.md, раздел «Автоматизация») — общий для Telegram и MAX.") }}</p>
+<p class="text-muted small mt-4">{{ _("Очередь отправки и список чатов разбирает cron-скрипт scripts/poll_messengers.sh (см. docs/deployment.md, раздел «Автоматизация») — общий для Telegram и MAX.") }}</p>
 {% endblock %}

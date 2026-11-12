@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Опрос Telegram-бота через getUpdates (long polling) — для запуска по cron
-раз в минуту (см. scripts/poll_telegram.sh и docs/deployment.md, раздел
+Мессенджеры (Telegram и MAX) по cron раз в минуту: очередь исходящих и
+опрос обоих ботов (до ноября 2026 — scripts/poll_telegram.py) (см. scripts/poll_messengers.sh и docs/deployment.md, раздел
 «Автоматизация»). По аналогии с scripts/poll_ewelink.py — отдельный
 скрипт, не фоновый поток внутри веб-процесса.
 
@@ -14,7 +14,7 @@ MAX, и события бота MAX (app/max_bot.py: poll_updates — привя
 по диплинку и каналы, куда бота добавили). Сбой одного мессенджера не мешает другому.
 
 Запуск вручную:
-    cd /path/to/project && python3 scripts/poll_telegram.py
+    cd /path/to/project && python3 scripts/poll_messengers.py
 """
 import datetime as dt
 import os

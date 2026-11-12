@@ -188,7 +188,7 @@ def test_telegram_unlink_clears_chat_id(db, client):
 
 
 # ---------------------------------------------------------------------------
-# scripts/poll_telegram.py: app/telegram_bot.py:poll_and_link_accounts
+# scripts/poll_messengers.py: app/telegram_bot.py:poll_and_link_accounts
 # ---------------------------------------------------------------------------
 
 def test_poll_and_link_accounts_links_matching_token(app, db, monkeypatch):

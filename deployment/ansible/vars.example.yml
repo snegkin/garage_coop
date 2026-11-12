@@ -81,4 +81,4 @@ restore_source_instance_dir: /home/sne/work/garage_coop/instance
 
 # Выключенные по умолчанию cron-задачи (список — cron_jobs в defaults.yml);
 # с dvr_snapshot сам ставится ffmpeg:
-cron_enable: [dvr_snapshot, poll_telegram, poll_ewelink]
+cron_enable: [dvr_snapshot, poll_messengers, poll_ewelink]

@@ -30,6 +30,7 @@ import re
 import requests
 
 from . import database
+from .api_log import mask_secrets_in_text
 from .bank_api import crypto
 from .models import News, Person, TelegramSettings
 
@@ -75,7 +76,7 @@ def send_message(settings: TelegramSettings, chat_id: int | str, text: str,
             timeout=REQUEST_TIMEOUT,
         )
     except requests.RequestException as exc:
-        raise TelegramError(f"Telegram: {exc}") from exc
+        raise TelegramError(f"Telegram: {mask_secrets_in_text(str(exc))}") from exc
     if resp.status_code != 200:
         raise TelegramError(f"Telegram: HTTP {resp.status_code}: {resp.text[:200]}")
 
@@ -91,7 +92,7 @@ def get_updates(settings: TelegramSettings, offset: int | None, timeout: int = 0
     try:
         resp = requests.get(f"{API_BASE}/bot{token}/getUpdates", params=params, timeout=REQUEST_TIMEOUT + timeout)
     except requests.RequestException as exc:
-        raise TelegramError(f"Telegram: {exc}") from exc
+        raise TelegramError(f"Telegram: {mask_secrets_in_text(str(exc))}") from exc
     if resp.status_code != 200:
         raise TelegramError(f"Telegram: HTTP {resp.status_code}: {resp.text[:200]}")
     data = resp.json()
@@ -107,7 +108,7 @@ def get_me(settings: TelegramSettings) -> dict:
     try:
         resp = requests.get(f"{API_BASE}/bot{token}/getMe", timeout=REQUEST_TIMEOUT)
     except requests.RequestException as exc:
-        raise TelegramError(f"Telegram: {exc}") from exc
+        raise TelegramError(f"Telegram: {mask_secrets_in_text(str(exc))}") from exc
     data = resp.json()
     if not data.get("ok"):
         raise TelegramError(f"Telegram: {data.get('description', 'unknown error')}")
@@ -271,7 +272,7 @@ def _upload(settings: TelegramSettings, method: str, data: dict, files: dict) ->
             handles[field] = (filename, open(path, "rb"))
         resp = requests.post(f"{API_BASE}/bot{token}/{method}", data=data, files=handles, timeout=UPLOAD_TIMEOUT)
     except requests.RequestException as exc:
-        raise TelegramError(f"Telegram: {exc}") from exc
+        raise TelegramError(f"Telegram: {mask_secrets_in_text(str(exc))}") from exc
     except OSError as exc:
         raise TelegramError(f"Файл вложения недоступен: {exc}") from exc
     finally:

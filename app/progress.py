@@ -152,7 +152,8 @@ NULL = Progress(None)
 
 
 def _exc_text(exc: Exception) -> str:
-    text = " ".join(str(exc).split())
+    from .api_log import mask_secrets_in_text
+    text = " ".join(mask_secrets_in_text(str(exc)).split())
     return (text[:300] + "…" if len(text) > 300 else text) or type(exc).__name__
 
 
@@ -222,6 +223,8 @@ def _connection_error_text(exc: Exception) -> str:
         return "сервер отказал в подключении"
     if "timed out" in text:
         return "сервер не ответил вовремя"
+    if "Network is unreachable" in text:
+        return "сеть недоступна: с сервера нет маршрута до этого адреса"
     return "нет соединения: " + _exc_text(exc)
 
 

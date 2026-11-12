@@ -192,7 +192,7 @@ def _parse_utc(value: str | None) -> dt.datetime | None:
 def _publish(item: News, channel: dict) -> None:
     """Ставит новость в очередь отправки в мессенджер channel
     (app/messenger_outbox.py) — уйдёт с ближайшим запуском cron
-    scripts/poll_telegram.py, с повторами, если сервис недоступен. Варианты —
+    scripts/poll_messengers.py, с повторами, если сервис недоступен. Варианты —
     из полей формы с префиксом channel["id"] (news/_send_options.html)."""
     prefix = channel["id"]
     send_at = _parse_utc(request.form.get(f"{prefix}_send_at_utc"))

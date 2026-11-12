@@ -252,7 +252,7 @@ def test_notification():
 @login_required
 def telegram_link_start():
     """Генерирует одноразовый токен привязки Telegram (см. app/telegram_bot.py
-    докстринг — сама привязка завершается scripts/poll_telegram.py, когда
+    докстринг — сама привязка завершается scripts/poll_messengers.py, когда
     бот получит /start с этим токеном)."""
     person = _current_person()
     if person is None:
@@ -396,7 +396,7 @@ def garages():
 @login_required
 def max_link_start():
     """Одноразовый токен привязки MAX (см. app/max_bot.py докстринг — привязка
-    завершается scripts/poll_telegram.py, когда бот получит bot_started с
+    завершается scripts/poll_messengers.py, когда бот получит bot_started с
     этим токеном). Шестнадцатеричный: какие символы MAX пропускает в
     ?start=, не документировано, а длина — до 128."""
     person = _current_person()

@@ -13,7 +13,7 @@ Bot API не позволяет написать произвольному @use
      https://t.me/<bot_username>?start=<token>.
   2. Человек открывает диплинк в Telegram и нажимает «Start» — Telegram
      отправляет боту апдейт с текстом "/start <token>".
-  3. scripts/poll_telegram.py (cron, long polling через getUpdates) видит
+  3. scripts/poll_messengers.py (cron, long polling через getUpdates) видит
      этот апдейт, находит Person по токену, сохраняет chat_id, сбрасывает
      токен (одноразовый) и отвечает приветственным сообщением.
 
@@ -182,7 +182,7 @@ def _reply_chat_id(settings: TelegramSettings, chat: dict) -> None:
 
 
 def poll_and_link_accounts() -> tuple[int, int]:
-    """Сама логика cron-скрипта scripts/poll_telegram.py (тонкая обёртка,
+    """Сама логика cron-скрипта scripts/poll_messengers.py (тонкая обёртка,
     тот же принцип, что у app/notifications.py:run_board_chat_digest и
     app/penalty.py:accrue_penalties). Возвращает (число апдейтов, число
     привязанных аккаунтов). Ничего не делает и не поднимает исключение,

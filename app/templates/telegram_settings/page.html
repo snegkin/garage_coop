@@ -60,5 +60,5 @@
 
 {% with outbox_endpoint="telegram_settings.outbox_action", channel_label="Telegram" %}{% include "_messenger_outbox.html" %}{% endwith %}
 
-<p class="text-muted small mt-4">{{ _("Отдельно нужен cron-скрипт scripts/poll_telegram.sh (см. docs/deployment.md, раздел «Автоматизация») — он получает от Telegram сообщения /start для привязки аккаунтов и без него привязка не заработает, даже если бот настроен здесь.") }}</p>
+<p class="text-muted small mt-4">{{ _("Отдельно нужен cron-скрипт scripts/poll_messengers.sh (см. docs/deployment.md, раздел «Автоматизация») — он получает от Telegram сообщения /start для привязки аккаунтов и без него привязка не заработает, даже если бот настроен здесь.") }}</p>
 {% endblock %}

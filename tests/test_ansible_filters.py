@@ -19,7 +19,7 @@ PRIMARY = {
     "coop_domain": "xn--main.xn--p1ai",
     "app_secret_key": "p" * 40,
     "service_name": "garage-coop",
-    "cron_jobs": [{"name": "backup_db"}, {"name": "poll_telegram"}],
+    "cron_jobs": [{"name": "backup_db"}, {"name": "poll_messengers"}],
 }
 
 

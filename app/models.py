@@ -1408,7 +1408,7 @@ class Person(Base):
     # написать по одному @username Bot API не даёт.
     telegram_chat_id: Mapped[int | None] = mapped_column(BigInteger, index=True)
     # Одноразовый токен для привязки (см. cabinet.telegram_link_start) —
-    # зашивается в диплинк https://t.me/<bot>?start=<token>; scripts/poll_telegram.py
+    # зашивается в диплинк https://t.me/<bot>?start=<token>; scripts/poll_messengers.py
     # находит по нему человека, когда бот получает /start с этим токеном,
     # заполняет telegram_chat_id и сбрасывает токен в NULL (одноразовый).
     telegram_link_token: Mapped[str | None] = mapped_column(String(64), unique=True, index=True)
@@ -3060,7 +3060,7 @@ class TelegramSettings(Base):
     (см. app/telegram_bot.py, app/notifications.py). Токен создаётся у
     @BotFather, шифруется тем же Fernet, что и остальные секреты API
     (app/bank_api/crypto.py). last_update_id — курсор long polling
-    (scripts/poll_telegram.py: getUpdates(offset=last_update_id+1)), чтобы
+    (scripts/poll_messengers.py: getUpdates(offset=last_update_id+1)), чтобы
     повторный запуск не обрабатывал уже виденные апдейты дважды."""
     __tablename__ = "telegram_settings"
 
@@ -3103,7 +3103,7 @@ class MaxSettings(Base):
     в канал/группу (app/max_bot.py, настройки — app/max_settings.py).
     Бота создаёт подтверждённая организация на business.max.ru, токен
     шифруется тем же Fernet, что и остальные секреты API. last_marker —
-    курсор GET /updates (scripts/poll_telegram.py). known_chats — JSON-список
+    курсор GET /updates (scripts/poll_messengers.py). known_chats — JSON-список
     чатов/каналов, куда добавили бота (из апдейтов bot_added): готового
     способа узнать ID канала API MAX не даёт, страница настроек показывает
     их для выбора."""
@@ -3124,7 +3124,7 @@ class MaxSettings(Base):
 
 class MessengerOutbox(Base):
     """Очередь исходящих сообщений в мессенджеры (app/messenger_outbox.py) —
-    разбирается cron-скриптом scripts/poll_telegram.py раз в минуту, с
+    разбирается cron-скриптом scripts/poll_messengers.py раз в минуту, с
     повторами при недоступности сервиса/прокси. channel — куда: "telegram"
     или "max". kind="message" — текст text в chat_id (для MAX — user_id)
     (уведомления), kind="news" — новость news_id в группу из настроек:

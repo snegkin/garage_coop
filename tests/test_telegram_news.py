@@ -688,3 +688,84 @@ def test_truncation_does_not_cut_inside_quote():
     text = telegram_bot.news_text("Т", body, "https://coop.example/news/1")
     assert telegram_bot._balanced(text)
     assert telegram_bot._visible_length(text) < 4096
+
+
+# ---------------------------------------------------------------------------
+# Отправка уже существующей новости из меню
+# ---------------------------------------------------------------------------
+
+def test_menu_item_shown_only_when_group_configured(app, db, client):
+    from app.models import News
+    db.add(News(title="Старая", body="Текст"))
+    db.commit()
+    _login_board(db, client)
+    assert "/news/1/telegram" not in client.get("/").get_data(as_text=True)
+    _settings(db)
+    assert "/news/1/telegram" in client.get("/").get_data(as_text=True)
+
+
+def test_send_existing_news_with_options(app, db, client, monkeypatch):
+    import datetime as dt
+    from app.models import News, TelegramOutbox
+    _settings(db)
+    sent = _capture_posts(monkeypatch)
+    item = News(title="Старая новость", body="Текст")
+    db.add(item)
+    db.commit()
+    _login_board(db, client)
+
+    page = client.get(f"/news/{item.id}/telegram").get_data(as_text=True)
+    assert "Старая новость" in page and "telegram_silent" in page
+    assert "уже отправляли" not in page
+
+    resp = client.post(f"/news/{item.id}/telegram", data={"telegram_silent": "1"}, follow_redirects=True)
+    assert "в очереди" in resp.get_data(as_text=True) or "поставлена в очередь" in resp.get_data(as_text=True)
+    out = db.query(TelegramOutbox).one()
+    assert out.news_id == item.id and out.silent
+    _process(app)
+    assert sent[0]["json"]["disable_notification"] is True
+
+    page = client.get(f"/news/{item.id}/telegram").get_data(as_text=True)
+    assert "уже отправляли" in page and "отправлена" in page
+
+
+def test_send_existing_news_scheduled(app, db, client, monkeypatch):
+    import datetime as dt
+    from app.models import News, TelegramOutbox
+    _settings(db)
+    item = News(title="Н", body="Т")
+    db.add(item)
+    db.commit()
+    _login_board(db, client)
+    when = dt.datetime.utcnow().replace(microsecond=0) + dt.timedelta(days=1)
+    client.post(f"/news/{item.id}/telegram", data={"telegram_send_at_utc": when.isoformat() + "Z"})
+    assert db.query(TelegramOutbox).one().scheduled_at == when
+    assert "запланирована" in client.get(f"/news/{item.id}/telegram").get_data(as_text=True)
+
+
+def test_send_existing_news_order_switch_shown_for_long_text_with_photos(app, db, client):
+    _settings(db)
+    item = _news_with_files(app, db, "длинно " * 300, [("a.jpg", b"A", False)])
+    _login_board(db, client)
+    page = client.get(f"/news/{item.id}/telegram").get_data(as_text=True)
+    assert 'mb-3 ms-4 " id="telegramOrderBlock"' in page
+
+
+def test_send_existing_news_requires_group_and_board(app, db, client):
+    from app.models import News
+    item = News(title="Н", body="Т")
+    db.add(item)
+    db.commit()
+    _login_board(db, client)
+    resp = client.get(f"/news/{item.id}/telegram")
+    assert resp.status_code == 302  # группа не настроена
+    assert client.get("/news/999/telegram").status_code in (302, 404)
+
+    _settings(db)
+    client.get("/logout")
+    make_user(db, "tg_member", "pass1234", role=RoleEnum.MEMBER)
+    db.commit()
+    login(client, "tg_member", "pass1234")
+    assert client.post(f"/news/{item.id}/telegram").status_code in (302, 403)
+    from app.models import TelegramOutbox
+    assert db.query(TelegramOutbox).count() == 0

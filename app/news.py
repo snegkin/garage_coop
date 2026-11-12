@@ -14,7 +14,7 @@ from . import telegram_bot
 from . import telegram_outbox
 from .i18n import translate as _
 from .auth import roles_required
-from .models import News, NewsAttachment, RoleEnum
+from .models import News, NewsAttachment, RoleEnum, TelegramOutbox, TelegramOutboxStatus
 from .uploads import save_upload
 from .garages import ALLOWED_PHOTO_EXT
 from .news_format import render_html, excerpt
@@ -193,6 +193,42 @@ def _publish_to_telegram(item: News) -> None:
     if skipped:
         flash(_("В Telegram не отправлены слишком большие файлы (больше 50 МБ): {names}",
                 names=", ".join(skipped)), "warning")
+
+
+@bp.route("/<int:news_id>/telegram", methods=["GET", "POST"])
+@roles_required(RoleEnum.BOARD)
+def send_telegram(news_id):
+    """«Отправить в Telegram» из меню новости в ленте — для уже
+    опубликованных (в том числе до появления бота или если при создании
+    галочку сняли). Те же варианты, что в форме новой новости; прошлые
+    отправки этой новости показываются, чтобы не задвоить пост в группе."""
+    item = database.db_session.get(News, news_id)
+    if item is None:
+        abort(404)
+    settings = telegram_bot.get_settings()
+    if not telegram_bot.news_group_enabled(settings):
+        flash(_("Группа Telegram для новостей не настроена."), "warning")
+        return redirect(url_for("main.index"))
+
+    if request.method == "POST":
+        _publish_to_telegram(item)
+        if not request.form.get("telegram_send_at_utc"):
+            flash(_("Новость поставлена в очередь — в группе появится в течение минуты."), "success")
+        audit.record("news.telegram", f"Новость «{item.title}» отправлена в Telegram", entity_type="news", entity_id=item.id)
+        database.db_session.commit()
+        return redirect(url_for("main.index"))
+
+    photos, _documents, _skipped = telegram_bot._split_attachments(item, current_app.config["UPLOAD_FOLDER"])
+    history = (
+        database.db_session.query(TelegramOutbox)
+        .filter(TelegramOutbox.news_id == item.id, TelegramOutbox.status != TelegramOutboxStatus.CANCELLED)
+        .order_by(TelegramOutbox.id.desc())
+        .all()
+    )
+    return render_template(
+        "news/telegram.html", item=item, history=history,
+        order_visible=bool(photos) and not telegram_bot.fits_caption(item.title, item.body),
+    )
 
 
 @bp.route("/telegram-layout", methods=["POST"])

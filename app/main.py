@@ -153,8 +153,11 @@ def index():
     from .bulletin import latest_posts, CATEGORY_LABELS
 
     recorders, combined_updated_at = recorders_with_combined_snapshots()
+    from . import telegram_bot
+
     return render_template(
         "home.html", news_items=latest_news(),
+        telegram_group=bool(g.get("user")) and telegram_bot.news_group_enabled(telegram_bot.get_settings()),
         recorders=recorders, combined_updated_at=combined_updated_at,
         bulletin_posts=latest_posts(), bulletin_category_labels=CATEGORY_LABELS,
     )

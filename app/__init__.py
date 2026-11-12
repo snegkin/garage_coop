@@ -256,6 +256,7 @@ def create_app(config_class=Config):
     from .applications import bp as applications_bp
     from .certificates import bp as certificates_bp
     from .news import bp as news_bp
+    from .news_gallery import bp as news_gallery_bp
     from .bulletin import bp as bulletin_bp
     from .forum import bp as forum_bp
     from .wiki import bp as wiki_bp
@@ -297,6 +298,7 @@ def create_app(config_class=Config):
     app.register_blueprint(applications_bp)
     app.register_blueprint(certificates_bp)
     app.register_blueprint(news_bp)
+    app.register_blueprint(news_gallery_bp)
     app.register_blueprint(bulletin_bp)
     app.register_blueprint(forum_bp)
     app.register_blueprint(wiki_bp)

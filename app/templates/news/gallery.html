@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Галерея картинок для новостей") }}{% endblock %}
+{% block content %}
+<h3 class="mb-3">{{ _("Галерея картинок для новостей") }}</h3>
+<p class="text-muted">{{ _("Картинки, которые нужны из года в год: субботник, собрание, подорожание электроэнергии. В форме новости кнопка «Из галереи» вставляет выбранную в текст. Удаление отсюда уже опубликованные новости не трогает.") }}</p>
+{% include "news/_gallery_grid_style.html" %}
+
+<form method="post" action="{{ url_for('news_gallery.upload') }}" enctype="multipart/form-data" class="bg-body p-3 rounded border mb-4" style="max-width:560px">
+  <div class="mb-2">
+    <label class="form-label">{{ _("Картинки") }}</label>
+    <input class="form-control" type="file" name="images" accept="image/jpeg,image/png,image/webp,image/gif" multiple required>
+  </div>
+  <div class="mb-2">
+    <label class="form-label">{{ _("Подпись") }}</label>
+    <input class="form-control" type="text" name="title" maxlength="120" placeholder="{{ _('например, Субботник') }}">
+    <div class="form-text">{{ _("По ней картинку легко найти. Пусто — имя файла.") }}</div>
+  </div>
+  <button class="btn btn-primary"><i class="bi bi-upload" aria-hidden="true"></i> {{ _("Добавить") }}</button>
+</form>
+
+{% if images %}
+<div class="news-gallery-grid">
+  {% for image in images %}
+  <figure class="bg-body border rounded p-2">
+    <img src="{{ url_for('news_gallery.image', image_id=image.id) }}" alt="{{ image.title }}" loading="lazy">
+    <figcaption>
+      <form method="post" action="{{ url_for('news_gallery.rename', image_id=image.id) }}" class="d-flex gap-1">
+        <input class="form-control form-control-sm" type="text" name="title" value="{{ image.title }}" maxlength="120" aria-label="{{ _('Подпись') }}">
+        <button class="btn btn-sm btn-outline-secondary" title="{{ _('Сохранить подпись') }}"><i class="bi bi-check-lg" aria-hidden="true"></i></button>
+      </form>
+      <div class="d-flex justify-content-between align-items-center mt-1">
+        <span class="text-muted small">{{ _("использована: {n}", n=image.use_count) }}</span>
+        <form method="post" action="{{ url_for('news_gallery.delete', image_id=image.id) }}" onsubmit="return confirm('{{ _('Удалить картинку из галереи?') }}')">
+          <button class="btn btn-sm btn-outline-danger" title="{{ _('Удалить') }}"><i class="bi bi-trash" aria-hidden="true"></i></button>
+        </form>
+      </div>
+    </figcaption>
+  </figure>
+  {% endfor %}
+</div>
+{% else %}
+<p class="text-muted">{{ _("Галерея пока пустая.") }}</p>
+{% endif %}
+{% endblock %}

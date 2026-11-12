@@ -1965,7 +1965,30 @@ def _delete_attachment_file(mapper, connection, target):
         pass  # файла уже нет на диске — не страшно
 
 
+class NewsGalleryImage(Base):
+    """Галерея «подручных» картинок для новостей (app/news_gallery.py) —
+    субботник, подорожание электроэнергии, собрание и т.п., чтобы не искать
+    картинку каждый раз заново. В новость картинка не ссылкой, а КОПИЕЙ
+    файла: «Из галереи» в форме новости создаёт обычное inline-вложение
+    NewsAttachment (как «Вставить картинку»), поэтому новость, Telegram и
+    MAX работают с ней как с любой другой, а удаление картинки из галереи
+    не ломает старые новости. use_count/last_used_at — чтобы частые были
+    первыми в окне выбора."""
+    __tablename__ = "news_gallery_image"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    title: Mapped[str] = mapped_column(String(120))
+    original_filename: Mapped[str] = mapped_column(String(255))
+    stored_filename: Mapped[str] = mapped_column(String(255))
+    content_type: Mapped[str | None] = mapped_column(String(100))
+    use_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    last_used_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.utcnow)
+    author_id: Mapped[int | None] = mapped_column(ForeignKey("user.id", ondelete="SET NULL"))
+
+
 event.listen(NewsAttachment, "after_delete", _delete_attachment_file)
+event.listen(NewsGalleryImage, "after_delete", _delete_attachment_file)
 event.listen(WikiAttachment, "after_delete", _delete_attachment_file)
 event.listen(BulletinAttachment, "after_delete", _delete_attachment_file)
 event.listen(ForumAttachment, "after_delete", _delete_attachment_file)

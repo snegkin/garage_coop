@@ -1,16 +1,16 @@
-# Настройки deployment/deploy-from-git/deploy.sh. Это пример; настоящий файл
+# Настройки deployment/deploy.sh. Это пример; настоящий файл
 # (в нём может быть пароль) не коммитится. Любое из двух мест:
 #
-#   рядом со скриптом (в .gitignore):
-#   cp deployment/deploy-from-git/deploy.conf.example deployment/deploy-from-git/deploy.conf
-#   chmod 600 deployment/deploy-from-git/deploy.conf
+#   в deployment/deploy/ (в .gitignore):
+#   cp deployment/deploy/deploy.conf.example deployment/deploy/deploy.conf
+#   chmod 600 deployment/deploy/deploy.conf
 #
 #   или вне репозитория:
 #   mkdir -p ~/.config/garage-coop
-#   cp deployment/deploy-from-git/deploy.conf.example ~/.config/garage-coop/deploy.conf
+#   cp deployment/deploy/deploy.conf.example ~/.config/garage-coop/deploy.conf
 #   chmod 600 ~/.config/garage-coop/deploy.conf
 #
-# Есть оба — берётся тот, что рядом со скриптом. Явно — deploy.sh -c ПУТЬ или
+# Есть оба — берётся deployment/deploy/deploy.conf. Явно — deploy.sh -c ПУТЬ или
 # DEPLOY_CONFIG=ПУТЬ.
 # Синтаксис — shell (файл подключается через «.»): значения с пробелами — в кавычках.
 

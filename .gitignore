@@ -33,10 +33,10 @@ agents/ezp/cryptopro/*
 linux-amd64_deb/
 linux-amd64_deb.tgz
 
-# Флаг заглушки «Технические работы» (deployment/deploy-from-git/deploy.sh)
-deployment/deploy-from-git/maintenance.on
+# Флаг заглушки «Технические работы» (deployment/deploy.sh)
+deployment/deploy/maintenance.on
 
 # Локальные конфиги Ansible (секреты, адреса серверов)
 deployment/ansible/inventory.ini
 deployment/ansible/vars.yml
-deployment/deploy-from-git/deploy.conf
+deployment/deploy/deploy.conf

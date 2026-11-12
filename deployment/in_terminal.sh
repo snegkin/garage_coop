@@ -1,4 +1,4 @@
-# Подключается из скриптов деплоя (ansible/run.sh, deploy-from-git/deploy.sh):
+# Подключается из скриптов деплоя (setup.sh, deploy.sh):
 #
 #   . "$(dirname "$0")/../in_terminal.sh"
 #   in_terminal "Заголовок окна" "$0" "$@"

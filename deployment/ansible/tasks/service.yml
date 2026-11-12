@@ -160,4 +160,4 @@
   ansible.builtin.debug:
     msg:
       - "Сайт: {{ ('https://' + coop_domain) if https_enabled | bool else ('http://' + (coop_domain or ansible_host)) }}"
-      - "Обновления дальше — deployment/deploy-from-git/deploy.sh (конфиг: {{ deploy_conf_path }})"
+      - "Обновления дальше — deployment/deploy.sh (конфиг: {{ deploy_conf_path }})"

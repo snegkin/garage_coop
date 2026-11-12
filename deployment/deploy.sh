@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
 # Выкатка сайта на сервер — запускается на своём компьютере, не на сервере.
 #
-#   deployment/deploy-from-git/deploy.sh [-c конфиг] [-y] [--force]   обновить сайт
-#   deployment/deploy-from-git/deploy.sh [-c конфиг] maintenance on|off|status
+#   deployment/deploy.sh [-c конфиг] [-y] [--force]   обновить сайт
+#   deployment/deploy.sh [-c конфиг] maintenance on|off|status
 #
 # Настройки (ветка, сервер, логин, пароль, каталог, сервисы) — в конфиге,
 # который ищется так: -c ПУТЬ → DEPLOY_CONFIG → deploy.conf рядом со
-# скриптом (в .gitignore) → ~/.config/garage-coop/deploy.conf.
-# Образец — deployment/deploy-from-git/deploy.conf.example.
+# скриптом в deploy/ (в .gitignore) → ~/.config/garage-coop/deploy.conf.
+# Образец — deployment/deploy/deploy.conf.example.
 #
 # Что делает обновление (всё — на сервере, одним SSH-сеансом):
 #   1. git fetch ветки; локальные правки в коде на сервере — отказ;
 #   2. включает заглушку «Ведутся технические работы» (файл-флаг
-#      deployment/deploy-from-git/maintenance.on, его проверяет nginx —
-#      deployment/deploy-from-git/nginx-maintenance.conf);
+#      deployment/deploy/maintenance.on, его проверяет nginx —
+#      deployment/deploy/nginx-maintenance.conf);
 #   3. бэкап БД (scripts/backup_db.sh) — перед миграциями;
 #   4. git merge --ff-only, pip install (если менялся requirements.txt),
 #      scripts/vendor.sh verify;
@@ -33,10 +33,12 @@ set -euo pipefail
 # Не из консоли (двойной щелчок) — открыть терминал и перезапуститься в нём;
 # по завершении окно ждёт Enter. Подтверждение выкатки там же спросится.
 # shellcheck source=../in_terminal.sh
-. "$(dirname "$0")/../in_terminal.sh"
+. "$(dirname "$0")/in_terminal.sh"
 in_terminal "Обновление сайта кооператива" "$0" "$@"
 
-LOCAL_CONFIG="$(dirname "$0")/deploy.conf"
+# Файлы deploy.sh (конфиг, образец, заглушка) — в deploy/.
+DATA_DIR="$(dirname "$0")/deploy"
+LOCAL_CONFIG="$DATA_DIR/deploy.conf"
 if [ -n "${DEPLOY_CONFIG:-}" ]; then
     CONFIG="$DEPLOY_CONFIG"
 elif [ -f "$LOCAL_CONFIG" ]; then
@@ -70,7 +72,7 @@ done
 
 if [ ! -f "$CONFIG" ]; then
     echo "Нет конфига деплоя: $CONFIG" >&2
-    echo "Образец: $(dirname "$0")/deploy.conf.example — скопируйте в $LOCAL_CONFIG" >&2
+    echo "Образец: $DATA_DIR/deploy.conf.example — скопируйте в $LOCAL_CONFIG" >&2
     echo "или ~/.config/garage-coop/deploy.conf и chmod 600" >&2
     exit 1
 fi
@@ -91,7 +93,7 @@ HEALTH_URLS=http://127.0.0.1:8000/
 HEALTH_TIMEOUT=90
 BACKUP_BEFORE=1
 BACKUP_ENV_FILES=
-# shellcheck source=deploy.conf.example
+# shellcheck source=deploy/deploy.conf.example
 . "$CONFIG"
 
 : "${DEPLOY_HOST:?в конфиге не задан DEPLOY_HOST}"
@@ -113,7 +115,7 @@ fi
 if [ "$ACTION" = deploy ]; then
     # Локальные коммиты, которых нет в origin, на сервер не попадут — git
     # там берёт ветку из origin. Сами мы не пушим: только предупреждаем.
-    REPO_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
+    REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
     if git -C "$REPO_DIR" rev-parse --verify -q "refs/heads/$DEPLOY_BRANCH" >/dev/null \
         && git -C "$REPO_DIR" rev-parse --verify -q "refs/remotes/origin/$DEPLOY_BRANCH" >/dev/null; then
         AHEAD=$(git -C "$REPO_DIR" rev-list --count "origin/$DEPLOY_BRANCH..$DEPLOY_BRANCH")
@@ -147,7 +149,7 @@ set -Eeuo pipefail
 log()  { printf '\033[1m==> %s\033[0m\n' "$*"; }
 warn() { printf '\033[33m%s\033[0m\n' "$*" >&2; }
 
-FLAG="$APP_DIR/deployment/deploy-from-git/maintenance.on"
+FLAG="$APP_DIR/deployment/deploy/maintenance.on"
 
 sudo_cmd() {
     if [ -n "$DEPLOY_PASSWORD" ]; then
@@ -168,7 +170,7 @@ as_app() {
 }
 git_app() { as_app git -C "$APP_DIR" "$@"; }
 
-# mkdir — на сервере может стоять код старше, чем каталог deployment/deploy-from-git/.
+# mkdir — на сервере может стоять код старше, чем каталог deployment/deploy/.
 maintenance_on()  { as_app mkdir -p "${FLAG%/*}"; as_app touch "$FLAG"; }
 maintenance_off() { as_app rm -f "$FLAG"; }
 
@@ -211,7 +213,7 @@ on_error() {
         restart)
             warn "Ошибка при перезапуске/проверке сервиса. Заглушка ОСТАВЛЕНА включённой."
             warn "Смотрите: sudo journalctl -u <сервис> -n 100; логи — instance/logs/app-*.log"
-            warn "Снять заглушку: deployment/deploy-from-git/deploy.sh maintenance off" ;;
+            warn "Снять заглушку: deployment/deploy.sh maintenance off" ;;
     esac
     exit "$rc"
 }

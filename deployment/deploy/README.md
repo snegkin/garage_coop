@@ -8,15 +8,15 @@
 
 ```bash
 git push origin master                                # на сервер попадает только запушенное
-deployment/deploy-from-git/deploy.sh                  # обновить (спросит подтверждение)
-deployment/deploy-from-git/deploy.sh -y               # без вопроса
-deployment/deploy-from-git/deploy.sh --force          # перезапустить, даже если код не менялся
-deployment/deploy-from-git/deploy.sh maintenance on   # заглушка вручную (off, status)
+deployment/deploy.sh                  # обновить (спросит подтверждение)
+deployment/deploy.sh -y               # без вопроса
+deployment/deploy.sh --force          # перезапустить, даже если код не менялся
+deployment/deploy.sh maintenance on   # заглушка вручную (off, status)
 ```
 
 Если запустить `deploy.sh` двойным щелчком из файлового менеджера, он сам
 откроет окно терминала, спросит подтверждение и после выкатки подождёт
-Enter, чтобы можно было прочитать итог. Общая часть с `ansible/run.sh`
+Enter, чтобы можно было прочитать итог. Общая часть с `setup.sh`
 лежит в `deployment/in_terminal.sh`.
 
 ## Конфиг
@@ -28,15 +28,15 @@ Enter, чтобы можно было прочитать итог. Общая ч
 
 1. `-c ПУТЬ`;
 2. переменная окружения `DEPLOY_CONFIG`;
-3. `deployment/deploy-from-git/deploy.conf` рядом со скриптом (файл в `.gitignore`);
+3. `deployment/deploy/deploy.conf` (файл в `.gitignore`);
 4. `~/.config/garage-coop/deploy.conf`.
 
 Ansible-плейбук создаёт конфиг сам, если файла ещё нет. Куда его
 записать, задаёт `deploy_conf_path` в `vars.yml`. Вручную:
 
 ```bash
-cp deployment/deploy-from-git/deploy.conf.example deployment/deploy-from-git/deploy.conf
-chmod 600 deployment/deploy-from-git/deploy.conf
+cp deployment/deploy/deploy.conf.example deployment/deploy/deploy.conf
+chmod 600 deployment/deploy/deploy.conf
 ```
 
 Вход лучше по SSH-ключу. С паролем (`DEPLOY_PASSWORD`) нужен `sshpass`, и
@@ -63,7 +63,7 @@ chmod 600 deployment/deploy-from-git/deploy.conf
 
 ```bash
 sudo journalctl -u garage-coop -n 100        # на сервере; логи — instance/logs/app-*.log
-deployment/deploy-from-git/deploy.sh maintenance off
+deployment/deploy.sh maintenance off
 ```
 
 Пароль не попадает ни в командную строку (`sshpass -e` берёт его из

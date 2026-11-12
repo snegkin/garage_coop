@@ -1,0 +1,42 @@
+<script>
+// Варианты отправки в Telegram (news/_telegram_options.html): показ блока
+// «позже» и перевод выбранного местного времени в UTC (toISOString) перед
+// отправкой формы — так же, как [data-utc-datetime] показывает его обратно.
+// root — где искать разметку: документ (форма новости) или тело окна
+// «Отправить в Telegram», куда она подгружается (home.html).
+window.initTelegramOptions = function (root) {
+  var q = function (id) { return root.querySelector("#" + id); };
+  var publishTg = q("publishTelegram");  // только в форме новости
+  var tgOptions = q("telegramOptions");
+  var laterBox = q("telegramLater");
+  var laterBlock = q("telegramLaterBlock");
+  var sendAt = q("telegramSendAt");
+  var sendAtUtc = q("telegramSendAtUtc");
+  if (!tgOptions || !laterBox) return;
+  var enabled = function () { return !publishTg || publishTg.checked; };
+  var pad = function (n) { return String(n).padStart(2, "0"); };
+  var localValue = function (d) {
+    return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()) + "T" + pad(d.getHours()) + ":" + pad(d.getMinutes());
+  };
+  var sync = function () {
+    tgOptions.classList.toggle("d-none", !enabled());
+    laterBlock.classList.toggle("d-none", !(enabled() && laterBox.checked));
+    if (laterBox.checked && !sendAt.value) {
+      var d = new Date(Date.now() + 60 * 60 * 1000);
+      d.setMinutes(0);
+      sendAt.value = localValue(d);
+    }
+    sendAt.min = localValue(new Date());
+    sendAt.required = enabled() && laterBox.checked;
+  };
+  if (publishTg) publishTg.addEventListener("change", sync);
+  laterBox.addEventListener("change", sync);
+  sync();
+  // Свой слушатель на форме срабатывает раньше общего AJAX-обработчика
+  // модалок (base.html, document submit — фаза всплытия).
+  sendAt.form.addEventListener("submit", function () {
+    var on = enabled() && laterBox.checked && sendAt.value;
+    sendAtUtc.value = on ? new Date(sendAt.value).toISOString() : "";
+  });
+};
+</script>

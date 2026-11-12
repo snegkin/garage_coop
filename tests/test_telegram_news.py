@@ -769,3 +769,19 @@ def test_send_existing_news_requires_group_and_board(app, db, client):
     assert client.post(f"/news/{item.id}/telegram").status_code in (302, 403)
     from app.models import TelegramOutbox
     assert db.query(TelegramOutbox).count() == 0
+
+
+def test_send_telegram_modal_and_fragment(app, db, client):
+    from app.models import News
+    _settings(db)
+    item = News(title="Старая новость", body="Текст")
+    db.add(item)
+    db.commit()
+    _login_board(db, client)
+    home = client.get("/").get_data(as_text=True)
+    assert 'id="telegramSendModal"' in home
+    assert f'data-url="/news/{item.id}/telegram"' in home
+
+    fragment = client.get(f"/news/{item.id}/telegram", headers={"X-Requested-With": "XMLHttpRequest"}).get_data(as_text=True)
+    assert "Старая новость" in fragment and 'id="telegramSilent"' in fragment
+    assert "<html" not in fragment

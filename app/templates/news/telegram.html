@@ -1,35 +1,16 @@
 {% extends "base.html" %}
+{# Запасной вариант окна «Отправить в Telegram» (home.html) — по прямой
+   ссылке или без JS. #}
 {% block title %}{{ _("Отправить в Telegram") }}{% endblock %}
 {% block content %}
 <h3 class="mb-3">{{ _("Отправить в Telegram") }}</h3>
 <form method="post" class="bg-body p-4 rounded border" style="max-width:640px">
-  <p class="mb-1"><strong>{{ item.title }}</strong></p>
-  <p class="text-muted small">{{ fmt_date(item.created_at.date()) }}</p>
-
-  {% if history %}
-  <div class="alert alert-warning small">
-    <div class="mb-1">{{ _("Эту новость уже отправляли в группу — повторная отправка опубликует её ещё раз:") }}</div>
-    <ul class="mb-0">
-    {% for out in history %}
-      <li>
-        {% set moment = out.sent_at or out.scheduled_at or out.created_at %}
-        <span data-utc-datetime="{{ moment.isoformat() }}Z">{{ fmt_date(moment) }} {{ moment.strftime("%H:%M") }}</span> —
-        {% if out.status.value == "sent" %}{{ _("отправлена") }}
-        {% elif out.status.value == "pending" and out.scheduled_at and not out.attempts %}{{ _("запланирована") }}
-        {% elif out.status.value == "pending" %}{{ _("в очереди") }}
-        {% elif out.status.value == "uncertain" %}{{ _("исход неизвестен") }}
-        {% else %}{{ _("не доставлена") }}{% endif %}
-      </li>
-    {% endfor %}
-    </ul>
-  </div>
-  {% endif %}
-
-  {% include "news/_telegram_options.html" %}
-
+  {% include "news/_telegram_send_body.html" %}
   <div class="d-flex justify-content-end gap-2">
     <button class="btn btn-primary"><i class="bi bi-telegram" aria-hidden="true"></i> {{ _("Отправить") }}</button>
     <a class="btn btn-secondary" href="{{ url_for('main.index') }}">{{ _("Отмена") }}</a>
   </div>
 </form>
+{% include "news/_telegram_options_js.html" %}
+<script>initTelegramOptions(document);</script>
 {% endblock %}

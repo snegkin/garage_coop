@@ -27,7 +27,10 @@
           {% if current_user and is_board() %}
           {% call actions.menu() %}
             {{ actions.link(url_for('news.edit', news_id=item.id), "pencil", _("Изменить")) }}
-            {% if telegram_group %}{{ actions.link(url_for('news.send_telegram', news_id=item.id), "telegram", _("Отправить в Telegram")) }}{% endif %}
+            {% if telegram_group %}
+            <li><button type="button" class="dropdown-item" data-bs-toggle="modal" data-bs-target="#telegramSendModal"
+                        data-url="{{ url_for('news.send_telegram', news_id=item.id) }}"><span class="dropdown-icon"><i class="bi bi-telegram" aria-hidden="true"></i></span>{{ _("Отправить в Telegram") }}</button></li>
+            {% endif %}
             {{ actions.post(url_for('news.delete', news_id=item.id), "trash", _("Удалить"), confirm=_("Удалить новость?"), danger=True) }}
           {% endcall %}
           {% endif %}
@@ -127,4 +130,52 @@
     </div>
   </div>
 </div>
+
+{% if telegram_group %}
+{# Одно окно на все новости: тело (история отправок, варианты) подгружается
+   для выбранной по data-url кнопки меню. Форма внутри .modal отправляется
+   общим AJAX-обработчиком base.html (submitFormAjax). Обработчик открытия —
+   делегированный на document: #mainContent вместе с этим окном после
+   отправки заменяется целиком. #}
+<div class="modal fade" id="telegramSendModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <form method="post" class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-telegram" aria-hidden="true"></i> {{ _("Отправить в Telegram") }}</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{{ _('Закрыть') }}"></button>
+      </div>
+      <div class="modal-body" id="telegramSendBody"></div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+        <button class="btn btn-primary">{{ _("Отправить") }}</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% include "news/_telegram_options_js.html" %}
+<script>
+(function () {
+  if (window.telegramSendModalBound) return;  // после AJAX-подмены страницы — не вешать второй раз
+  window.telegramSendModalBound = true;
+  document.addEventListener("show.bs.modal", function (e) {
+    if (e.target.id !== "telegramSendModal" || !e.relatedTarget) return;
+    var url = e.relatedTarget.getAttribute("data-url");
+    var form = e.target.querySelector("form");
+    var body = e.target.querySelector("#telegramSendBody");
+    form.action = url;
+    body.innerHTML = '<div class="text-center py-3"><div class="spinner-border" role="status"></div></div>';
+    fetch(url, { headers: { "X-Requested-With": "XMLHttpRequest" } })
+      .then(function (r) { if (!r.ok) throw new Error(r.status); return r.text(); })
+      .then(function (html) {
+        body.innerHTML = html;
+        window.initTelegramOptions(body);
+        if (window.initUtcDatetimes) window.initUtcDatetimes(body);
+      })
+      .catch(function () {
+        body.innerHTML = '<div class="text-danger">{{ _("Не удалось загрузить. Обновите страницу и попробуйте ещё раз.") }}</div>';
+      });
+  });
+})();
+</script>
+{% endif %}
 {% endblock %}

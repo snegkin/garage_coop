@@ -225,8 +225,12 @@ def send_telegram(news_id):
         .order_by(TelegramOutbox.id.desc())
         .all()
     )
+    # Окно на главной подгружает только тело (X-Requested-With), по прямой
+    # ссылке — целая страница.
+    template = ("news/_telegram_send_body.html"
+                if request.headers.get("X-Requested-With") == "XMLHttpRequest" else "news/telegram.html")
     return render_template(
-        "news/telegram.html", item=item, history=history,
+        template, item=item, history=history,
         order_visible=bool(photos) and not telegram_bot.fits_caption(item.title, item.body),
     )
 

@@ -2056,6 +2056,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Эту новость уже отправляли в группу — повторная отправка опубликует её ещё раз:":
             "This news was already sent to the group — sending again will post it once more:",
         "отправлена": "sent",
+        "Не удалось загрузить. Обновите страницу и попробуйте ещё раз.": "Failed to load. Reload the page and try again.",
         "запланирована": "scheduled",
         "в очереди": "queued",
         "исход неизвестен": "outcome unknown",

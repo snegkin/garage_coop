@@ -112,7 +112,21 @@ def test_connection():
                 step.ok(name)
             settings.bot_username = me.get("username") or me.get("first_name")
             settings.last_error = None
-            result = progress_ui.Result(True, _("Подключение работает: бот {name}.", name=name), back)
+            problems = []
+            if settings.news_chat_id:
+                with progress.step(_("Канал для новостей")) as step:
+                    problems = max_bot.check_news_chat(settings)
+                    if problems:
+                        step.fail("; ".join(problems))
+                    else:
+                        step.ok(_("бот — администратор с правом публикации"))
+            if problems:
+                result = progress_ui.Result(False, _(
+                    "Бот работает, но публиковать в канал не сможет: {problems}. Откройте канал в MAX → "
+                    "Подписчики, сделайте бота администратором и разрешите ему писать.",
+                    problems="; ".join(problems)), back)
+            else:
+                result = progress_ui.Result(True, _("Подключение работает: бот {name}.", name=name), back)
         except MaxError as exc:
             settings.last_error = str(exc)
             result = progress_ui.Result(False, _("Не удалось подключиться: {error}", error=str(exc)), back)

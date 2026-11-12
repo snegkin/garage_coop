@@ -842,18 +842,7 @@ def get_incoming_client(settings: MailboxSettings) -> IncomingMailClient:
     return ImapMailClient(settings)
 
 
-def test_incoming_connection(settings: MailboxSettings) -> None:
-    """Логин + выход. Поднимает MailError при неудаче."""
-    with get_incoming_client(settings):
-        pass
-
-
-def test_smtp_connection(settings: MailboxSettings) -> None:
-    conn = _connect_smtp(settings)
-    try:
-        conn.quit()
-    except Exception:
-        pass
+# Проверка подключения (кнопка в настройках) — пошагово, app/mail_diagnostics.py.
 
 
 # ---------------------------------------------------------------------------

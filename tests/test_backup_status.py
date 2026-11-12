@@ -62,8 +62,8 @@ def test_error_stale_unconfigured_and_agent(app, tmp_path):
 
         _status(logs, NOW, restic=False)
         _pull(logs, NOW)
-        [warning] = backup_warnings(str(logs), "", now=NOW)
-        assert "не настроен" in warning
+        # Внешний репозиторий — опция: без него при живом агенте всё в порядке.
+        assert backup_warnings(str(logs), "", now=NOW) == []
 
 
 def test_dashboard_shows_warning_to_chairman_only(app, db, client, tmp_path):

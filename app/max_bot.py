@@ -162,6 +162,40 @@ def get_chat(settings: MaxSettings, chat_id: int | str) -> dict:
     return _request(settings, "GET", f"/chats/{chat_id}", idempotent=True)
 
 
+def get_membership(settings: MaxSettings, chat_id: int | str) -> dict:
+    """Членство бота в чате/канале: is_admin, permissions (только у админа)."""
+    return _request(settings, "GET", f"/chats/{chat_id}/members/me", idempotent=True)
+
+
+# Без этих прав бот не может публиковать в канал/группу (POST /messages
+# отвечает 403 chat.denied); write выдаётся только вместе с read_all_messages.
+POST_PERMISSIONS = ("read_all_messages", "write")
+
+
+def check_news_chat(settings: MaxSettings) -> list[str]:
+    """Проверка канала новостей для «Проверить подключение»: -> список
+    проблем на русском (пустой — всё в порядке)."""
+    chat_id = settings.news_chat_id
+    try:
+        chat = get_chat(settings, chat_id)
+    except MaxError as exc:
+        return [f"канал {chat_id} недоступен боту: {exc}"]
+    problems = []
+    if chat.get("status") not in (None, "active"):
+        problems.append(f"бот не состоит в канале (статус {chat.get('status')})")
+    try:
+        member = get_membership(settings, chat_id)
+    except MaxError as exc:
+        return problems + [f"не удалось узнать права бота: {exc}"]
+    if not member.get("is_admin"):
+        problems.append("бот не администратор канала")
+    else:
+        missing = [p for p in POST_PERMISSIONS if p not in (member.get("permissions") or [])]
+        if missing:
+            problems.append("у бота нет прав: " + ", ".join(missing))
+    return problems
+
+
 def upload(settings: MaxSettings, kind: str, filename: str, path: str) -> str:
     """Загружает файл (kind — "image" или "file") -> токен вложения.
     Повторная загрузка безвредна, поэтому любой сетевой сбой — повторяемый."""

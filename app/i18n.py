@@ -2124,6 +2124,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Подключение работает: бот {name}.": "The connection works: bot {name}.",
         "Не удалось получить события бота: {error}": "Could not get bot events: {error}",
         "MAX привязан": "MAX linked",
+        "бот — администратор с правом публикации": "the bot is an administrator allowed to post",
+        "Бот работает, но публиковать в канал не сможет: {problems}. Откройте канал в MAX → Подписчики, сделайте бота администратором и разрешите ему писать.":
+            "The bot works but won't be able to post to the channel: {problems}. Open the channel in MAX → Subscribers, make the bot an administrator and allow it to write.",
         "Открыть в MAX и привязать": "Open in MAX and link",
         "Ссылка одноразовая — откройте её в MAX и нажмите «Начать». Привязка появится здесь в течение минуты.":
             "The link is one-time — open it in MAX and press «Start». The link will show up here within a minute.",

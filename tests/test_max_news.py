@@ -356,3 +356,47 @@ def test_verify_adds_russian_root_to_certifi(app, tmp_path):
     app.config["MAX_API_CA_BUNDLE"] = str(tmp_path / "missing.pem")
     with app.app_context():
         assert max_bot._verify() is True
+
+
+@pytest.mark.parametrize("chat, member, expected", [
+    ({"status": "active"}, {"is_admin": True, "permissions": ["read_all_messages", "write"]}, []),
+    ({"status": "active"}, {"is_admin": False}, ["бот не администратор канала"]),
+    ({"status": "active"}, {"is_admin": True, "permissions": ["read_all_messages"]}, ["у бота нет прав: write"]),
+    ({"status": "left"}, {"is_admin": False}, ["бот не состоит в канале (статус left)", "бот не администратор канала"]),
+])
+def test_check_news_chat(app, db, monkeypatch, chat, member, expected):
+    settings = _settings(db)
+
+    def request(method, url, **kw):
+        if url.endswith("/members/me"):
+            return FakeResponse(200, member)
+        return FakeResponse(200, chat)
+
+    monkeypatch.setattr(max_bot.requests, "request", request)
+    assert max_bot.check_news_chat(settings) == expected
+
+
+def test_check_news_chat_unreachable(app, db, monkeypatch):
+    settings = _settings(db)
+    monkeypatch.setattr(max_bot.requests, "request",
+                        lambda method, url, **kw: FakeResponse(403, {"code": "chat.denied", "message": "no"}))
+    [problem] = max_bot.check_news_chat(settings)
+    assert "недоступен" in problem and "chat.denied" in problem
+
+
+def test_connection_check_reports_missing_rights(app, db, client, monkeypatch):
+    _settings(db)
+
+    def request(method, url, **kw):
+        if url.endswith("/me") and "/members/" not in url:
+            return FakeResponse(200, {"user_id": 1, "username": "id77_bot", "first_name": "Бот"})
+        if url.endswith("/members/me"):
+            return FakeResponse(200, {"is_admin": False})
+        return FakeResponse(200, {"status": "active", "type": "channel"})
+
+    monkeypatch.setattr(max_bot.requests, "request", request)
+    _login_chair(db, client)
+    resp = client.post("/max/test-connection", follow_redirects=True)
+    body = resp.get_data(as_text=True)
+    assert "не администратор" in body
+    assert db.query(MaxSettings).one().bot_username == "id77_bot"

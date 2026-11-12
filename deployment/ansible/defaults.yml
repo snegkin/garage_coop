@@ -78,7 +78,7 @@ cron_disable: []
 
 # --- Агенты на ЭТОМ компьютере (компьютер председателя) -------------------
 # Второй play в site.yml, тег local: ./run.sh --tags local. Нужен sudo на
-# этом компьютере — run.sh сам добавляет -K (--ask-become-pass).
+# этом компьютере — run.sh сам спрашивает пароль sudo.
 
 # Агент локального бэкапа (agents/backup/README.md). Ключ агента сам
 # попадает в authorized_keys сервера, known_hosts — ключ из

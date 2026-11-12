@@ -24,6 +24,11 @@
     <input class="form-control" type="password" name="bot_token" placeholder="{{ _('оставьте пустым, чтобы не менять') if settings.bot_token_encrypted else '' }}">
     <div class="form-text">{{ _("Выдаётся @BotFather при создании бота командой /newbot.") }}</div>
   </div>
+  <div class="mb-3">
+    <label class="form-label">{{ _("Группа для новостей") }}</label>
+    <input class="form-control" type="text" name="news_chat_id" value="{{ settings.news_chat_id or '' }}" placeholder="-1001234567890 {{ _('или') }} @my_coop_channel">
+    <div class="form-text">{{ _("Новые новости сайта будут дублироваться сюда. Добавьте бота в группу и отправьте там команду /chatid — бот ответит ID группы. Для канала бот должен быть администратором. Пусто — не дублировать.") }}</div>
+  </div>
   <button class="btn btn-primary">{{ _("Сохранить") }}</button>
 </form>
 

@@ -27,7 +27,7 @@ import requests
 
 from . import database
 from .bank_api import crypto
-from .models import Person, TelegramSettings
+from .models import News, Person, TelegramSettings
 
 API_BASE = "https://api.telegram.org"
 REQUEST_TIMEOUT = 10
@@ -52,15 +52,22 @@ def is_configured(settings: TelegramSettings | None) -> bool:
     return bool(settings and settings.bot_token_encrypted and settings.bot_username)
 
 
-def send_message(settings: TelegramSettings, chat_id: int, text: str) -> None:
+def send_message(settings: TelegramSettings, chat_id: int | str, text: str,
+                 parse_mode: str | None = None, disable_preview: bool = False) -> None:
     """Поднимает TelegramError при сбое — вызывающий код (notifications.notify)
     сам решает, что с этим делать (обычно — залогировать и не ронять
-    остальную обработку)."""
+    остальную обработку). chat_id — число (личный чат, группа -100…) или
+    "@имя" публичного канала/группы (см. TelegramSettings.news_chat_id)."""
     token = _token(settings)
+    payload = {"chat_id": chat_id, "text": text}
+    if parse_mode:
+        payload["parse_mode"] = parse_mode
+    if disable_preview:
+        payload["link_preview_options"] = {"is_disabled": True}
     try:
         resp = requests.post(
             f"{API_BASE}/bot{token}/sendMessage",
-            json={"chat_id": chat_id, "text": text},
+            json=payload,
             timeout=REQUEST_TIMEOUT,
         )
     except requests.RequestException as exc:
@@ -103,6 +110,28 @@ def get_me(settings: TelegramSettings) -> dict:
     return data["result"]
 
 
+def _is_chatid_command(text: str) -> bool:
+    """/chatid или /chatid@имя_бота (так Telegram подставляет команду,
+    выбранную из меню в группе)."""
+    command = text.split(maxsplit=1)[0] if text else ""
+    return command == "/chatid" or command.startswith("/chatid@")
+
+
+def _reply_chat_id(settings: TelegramSettings, chat: dict) -> None:
+    """Подсказка для настройки дублирования новостей в группу
+    (TelegramSettings.news_chat_id): ID закрытой группы нигде в интерфейсе
+    Telegram не виден, а бот, добавленный в группу, знает его из апдейта."""
+    try:
+        send_message(
+            settings, chat["id"],
+            f"ID этого чата: {chat['id']}\n"
+            "Впишите его в настройках Telegram на сайте кооператива "
+            "(поле «Группа для новостей»).",
+        )
+    except TelegramError:
+        pass  # подсказка — best-effort
+
+
 def poll_and_link_accounts() -> tuple[int, int]:
     """Сама логика cron-скрипта scripts/poll_telegram.py (тонкая обёртка,
     тот же принцип, что у app/notifications.py:run_board_chat_digest и
@@ -124,10 +153,13 @@ def poll_and_link_accounts() -> tuple[int, int]:
     linked = 0
     for update in updates:
         settings.last_update_id = update["update_id"]
-        message = update.get("message")
+        message = update.get("message") or update.get("channel_post")
         if not message:
             continue
         text = (message.get("text") or "").strip()
+        if _is_chatid_command(text):
+            _reply_chat_id(settings, message["chat"])
+            continue
         if not text.startswith("/start "):
             continue
         token = text[len("/start "):].strip()
@@ -157,3 +189,32 @@ def poll_and_link_accounts() -> tuple[int, int]:
     settings.last_polled_at = dt.datetime.utcnow()
     database.db_session.commit()
     return len(updates), linked
+
+
+# ---------------------------------------------------------------------------
+# Дублирование новостей в группу/канал
+# ---------------------------------------------------------------------------
+
+# Bot API ограничивает сообщение 4096 символами (после разбора HTML) — берём
+# с запасом под заголовок и ссылку; длиннее — отправляем обрезанный текст
+# без разметки, полная версия всё равно по ссылке.
+NEWS_TEXT_LIMIT = 3500
+NEWS_EXCERPT_LENGTH = 1500
+
+
+def news_group_enabled(settings: TelegramSettings | None) -> bool:
+    return bool(is_configured(settings) and settings.news_chat_id)
+
+
+def publish_news(settings: TelegramSettings, item: News, url: str) -> None:
+    """Отправляет новость в TelegramSettings.news_chat_id. Поднимает
+    TelegramError — вызывающий (news.create) показывает предупреждение, но
+    сама новость на сайте к этому моменту уже сохранена."""
+    from markupsafe import escape
+    from .news_format import telegram_html, excerpt
+
+    body = telegram_html(item.body, base_url=url)
+    if len(body) > NEWS_TEXT_LIMIT:
+        body = str(escape(excerpt(item.body, NEWS_EXCERPT_LENGTH)[0]))
+    text = f"<b>{escape(item.title)}</b>\n\n{body}\n\n<a href=\"{escape(url)}\">Читать на сайте</a>"
+    send_message(settings, settings.news_chat_id, text, parse_mode="HTML", disable_preview=True)

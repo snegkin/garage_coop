@@ -10,6 +10,7 @@ from flask import (
 from . import audit
 from . import database
 from . import notifications
+from . import telegram_bot
 from .i18n import translate as _
 from .auth import roles_required
 from .models import News, NewsAttachment, RoleEnum
@@ -145,9 +146,29 @@ def create():
             "news", "Новая новость", item.title, exclude_user_id=g.user.id, board_group="documents",
         )
         flash(_("Новость добавлена."), "success")
+        if f.get("publish_telegram"):
+            _publish_to_telegram(item)
         return redirect(url_for("main.index"))
 
-    return render_template("news/form.html", item=None)
+    return render_template(
+        "news/form.html", item=None,
+        telegram_group=telegram_bot.news_group_enabled(telegram_bot.get_settings()),
+    )
+
+
+def _publish_to_telegram(item: News) -> None:
+    """Дублирует только что сохранённую новость в группу Telegram. Сбой не
+    отменяет публикацию на сайте — только предупреждение и last_error на
+    странице настроек бота."""
+    settings = telegram_bot.get_settings()
+    if not telegram_bot.news_group_enabled(settings):
+        return
+    try:
+        telegram_bot.publish_news(settings, item, url_for("news.view", news_id=item.id, _external=True))
+    except telegram_bot.TelegramError as exc:
+        settings.last_error = str(exc)
+        database.db_session.commit()
+        flash(_("Не удалось отправить новость в Telegram: {error}", error=str(exc)), "warning")
 
 
 @bp.route("/<int:news_id>/edit", methods=["GET", "POST"])

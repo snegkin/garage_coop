@@ -3063,6 +3063,11 @@ class TelegramSettings(Base):
     last_update_id: Mapped[int | None] = mapped_column(BigInteger)
     last_error: Mapped[str | None] = mapped_column(Text)
     last_polled_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
+    # Куда дублировать новости сайта (app/news.py: create) — ID группы
+    # (-100…, бот подсказывает его по команде /chatid) или @имя публичного
+    # канала/группы. Пусто — не дублировать. Бот должен быть участником
+    # группы (в канале — администратором с правом публикации).
+    news_chat_id: Mapped[str | None] = mapped_column(String(64))
 
 
 class WebPushSettings(Base):

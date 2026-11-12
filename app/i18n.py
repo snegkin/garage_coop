@@ -2101,8 +2101,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "business.max.ru → Чат-боты → ⋮ → Настройки.": "business.max.ru → Чат-боты → ⋮ → Settings.",
         "Бот:": "Bot:",
         "Канал для новостей": "News channel",
-        "ID канала или группы. Сделайте бота администратором канала — он появится в списке «Чаты бота» ниже. Пусто — не дублировать.":
-            "Channel or group ID. Make the bot an administrator of the channel — it will appear in the «Bot chats» list below. Leave empty to disable.",
+        "ID канала или группы. Сделайте бота администратором канала — он появится в списке «Чаты бота». Пусто — не дублировать.":
+            "Channel or group ID. Make the bot an administrator of the channel — it will appear in the «Bot chats» list. Leave empty to disable.",
         "Проверка подключения к MAX": "Checking the MAX connection",
         "Чаты бота": "Bot chats",
         "Каналы и группы, куда добавили бота (MAX не даёт их список — сайт запоминает их из событий бота, раз в минуту).":
@@ -2116,8 +2116,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Обновить список": "Refresh list",
         "Очередь отправки и список чатов разбирает cron-скрипт scripts/poll_messengers.sh (см. docs/deployment.md, раздел «Автоматизация») — общий для Telegram и MAX.":
             "The send queue and chat list are handled by the cron script scripts/poll_messengers.sh (see docs/deployment.md, «Automation») — shared by Telegram and MAX.",
-        "ID канала MAX — число (его показывает список «Чаты бота» ниже).":
-            "A MAX channel ID is a number (shown in the «Bot chats» list below).",
+        "ID канала MAX — число (его показывает список «Чаты бота»).":
+            "A MAX channel ID is a number (shown in the «Bot chats» list).",
         "Настройки MAX сохранены.": "MAX settings saved.",
         "Сначала укажите токен бота.": "Enter the bot token first.",
         "Бот MAX (GET /me)": "MAX bot (GET /me)",

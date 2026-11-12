@@ -77,7 +77,7 @@ def save_settings():
 
     chat_id = f.get("news_chat_id", "").strip()
     if chat_id and not _CHAT_ID_RE.match(chat_id):
-        flash(_("ID канала MAX — число (его показывает список «Чаты бота» ниже)."), "danger")
+        flash(_("ID канала MAX — число (его показывает список «Чаты бота»)."), "danger")
         return redirect(url_for("max_settings.view"))
     settings.news_chat_id = chat_id or None
 

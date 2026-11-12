@@ -11,6 +11,8 @@
 #
 # Что делает обновление (всё — на сервере, одним SSH-сеансом):
 #   1. git fetch ветки; локальные правки в коде на сервере — отказ;
+#      сертификаты УЦ из deployment/deploy/bundles/ (в .gitignore)
+#      копируются в instance/bundles/ на сервере — даже если код не менялся;
 #   2. включает заглушку «Ведутся технические работы» (файл-флаг
 #      deployment/deploy/maintenance.on, его проверяет nginx —
 #      deployment/deploy/nginx-maintenance.conf);
@@ -129,12 +131,26 @@ if [ "$ACTION" = deploy ]; then
     fi
 fi
 
+# Корневые сертификаты УЦ для API банков (Config.BANK_CA_BUNDLES_FOLDER:
+# bundle.pem Сбера, russian_trusted_root_ca.pem для Модульбанка): в git их
+# не храним, кладём из deployment/deploy/bundles/ в instance/bundles/ на
+# сервере — tar.gz в base64 одной переменной.
+DEPLOY_CERTS=
+CERTS_DIR="$DATA_DIR/bundles"
+if [ "$ACTION" = deploy ]; then
+    if compgen -G "$CERTS_DIR/*" >/dev/null; then
+        DEPLOY_CERTS=$(tar -C "$CERTS_DIR" -czf - . | base64 -w0)
+    else
+        echo "ВНИМАНИЕ: нет файлов в $CERTS_DIR — сертификаты УЦ на сервере не обновляю (API банков без них не работает)." >&2
+    fi
+fi
+
 # Значения подставляются в начало удалённого скрипта через printf %q —
 # никакое содержимое (пробелы, кавычки в пароле) не ломает его разбор.
 remote_vars() {
     local name
     for name in ACTION FORCE DEPLOY_BRANCH DEPLOY_PASSWORD APP_DIR APP_USER SERVICES \
-                HEALTH_URLS HEALTH_TIMEOUT BACKUP_BEFORE BACKUP_ENV_FILES; do
+                HEALTH_URLS HEALTH_TIMEOUT BACKUP_BEFORE BACKUP_ENV_FILES DEPLOY_CERTS; do
         printf '%s=%q\n' "$name" "${!name}"
     done
 }
@@ -226,6 +242,24 @@ if [ -n "$(git_app status --porcelain --untracked-files=no)" ]; then
     git_app status --short --untracked-files=no >&2
     echo "В коде на сервере есть локальные правки — деплой отменён." >&2
     false
+fi
+
+# Сертификаты — до проверки «обновлять нечего»: новый файл должен доехать и
+# без нового коммита. Перезапуск не нужен — файл читается при каждом запросе.
+# Через временный файл, а не через pipe: при входе по паролю stdin у
+# sudo -u занят паролем (sudo_cmd).
+# Каталог — BANK_CA_BUNDLES_FOLDER основного кооператива по умолчанию
+# (INSTANCE_DIR = $APP_DIR/instance, см. ansible defaults.yml). Файлы,
+# которых нет локально, tar не трогает.
+if [ -n "$DEPLOY_CERTS" ]; then
+    CERTS_TARGET="$APP_DIR/instance/bundles"
+    log "Обновляю сертификаты в $CERTS_TARGET"
+    certs_tmp=$(mktemp)
+    printf '%s' "$DEPLOY_CERTS" | base64 -d >"$certs_tmp"
+    chmod 644 "$certs_tmp"
+    as_app mkdir -p "$CERTS_TARGET"
+    as_app tar -xzf "$certs_tmp" -C "$CERTS_TARGET" --no-same-owner --no-same-permissions
+    rm -f "$certs_tmp"
 fi
 
 OLD_HEAD=$(git_app rev-parse HEAD)

@@ -138,7 +138,7 @@
       <div class="row g-2 mb-3">
         {% for key, label in transfer.fields %}
         <div class="col-md-6">
-          <label class="form-label small mb-0" for="tr_{{ key }}">{{ label }}{% if key == 'full_name' %} *{% endif %}</label>
+          <label class="form-label small mb-0" for="tr_{{ key }}">{{ _(label) }}{% if key == 'full_name' %} *{% endif %}</label>
           <input class="form-control form-control-sm" id="tr_{{ key }}" name="no_{{ key }}" value="{{ transfer.data.get(key, '') }}"
                  {% if key in transfer.date_fields %}type="date"{% endif %}{% if key == 'full_name' %} required{% endif %}>
         </div>

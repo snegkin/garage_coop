@@ -74,12 +74,16 @@
       {% if item.kind == "news" %}
         {{ _("Новость") }}: {{ item.news.title if item.news else _("(удалена)") }}
         {% if item.steps_done %}<span class="text-muted small">({{ _("частей отправлено: {n}", n=item.steps_done) }})</span>{% endif %}
+        {% if item.silent %}<span class="text-muted small" title="{{ _('Без звука') }}"><i class="bi bi-bell-slash" aria-hidden="true"></i></span>{% endif %}
       {% else %}
         {{ (item.text or "")[:80] }}
       {% endif %}
     </td>
     <td class="text-nowrap">
-      {% if item.status.value == "pending" %}
+      {% if item.status.value == "pending" and item.scheduled_at and not item.attempts %}
+        <span class="badge text-bg-info">{{ _("запланировано") }}</span>
+        <div class="small text-muted"><span data-utc-datetime="{{ item.scheduled_at.isoformat() }}Z">{{ fmt_date(item.scheduled_at) }} {{ item.scheduled_at.strftime("%H:%M") }}</span></div>
+      {% elif item.status.value == "pending" %}
         <span class="badge text-bg-secondary">{{ _("ожидает") }}</span>
         <div class="small text-muted">{{ _("попытка {n}", n=item.attempts + 1) }}, <span data-utc-datetime="{{ item.next_attempt_at.isoformat() }}Z">{{ item.next_attempt_at.strftime("%H:%M") }}</span></div>
       {% elif item.status.value == "uncertain" %}

@@ -548,3 +548,143 @@ def test_outbox_deleted_news_fails(app, db, monkeypatch):
     _process(app)
     db.refresh(out)
     assert out.status == TelegramOutboxStatus.FAILED
+
+
+# ---------------------------------------------------------------------------
+# Тихая и отложенная отправка
+# ---------------------------------------------------------------------------
+
+def test_silent_news_sets_disable_notification_everywhere(app, db, monkeypatch):
+    import json as _json
+    settings = _settings(db)
+    sent = _capture_posts(monkeypatch)
+    item = _news_with_files(app, db, "длинно " * 300,
+                            [("a.jpg", b"A", False), ("b.jpg", b"B", False), ("d.pdf", b"D", False)])
+    _publish(app, settings, item, silent=True)
+    assert [s["method"] for s in sent] == ["sendMessage", "sendMediaGroup", "sendDocument"]
+    assert sent[0]["json"]["disable_notification"] is True
+    assert sent[1]["data"]["disable_notification"] == "true"
+    assert sent[2]["data"]["disable_notification"] == "true"
+
+
+def test_not_silent_by_default(app, db, monkeypatch):
+    settings = _settings(db)
+    sent = _capture_posts(monkeypatch)
+    item = _news_with_files(app, db, "Текст", [("a.jpg", b"A", False)])
+    _publish(app, settings, item)
+    assert "disable_notification" not in sent[0]["data"]
+
+
+def test_create_news_scheduled_and_silent(app, db, client, monkeypatch):
+    import datetime as dt
+    from app import telegram_outbox
+    from app.models import TelegramOutbox, TelegramOutboxStatus
+    _settings(db)
+    sent = _capture_posts(monkeypatch)
+    _login_board(db, client)
+    when = dt.datetime.utcnow().replace(microsecond=0) + dt.timedelta(hours=3)
+
+    resp = client.post("/news/new", data={
+        "title": "Собрание", "body": "В субботу", "publish_telegram": "1",
+        "telegram_silent": "1", "telegram_send_at_utc": when.isoformat() + ".000Z",
+    }, follow_redirects=True)
+    assert "запланирован" in resp.get_data(as_text=True)
+    out = db.query(TelegramOutbox).one()
+    assert out.silent and out.scheduled_at == when and out.next_attempt_at == when
+
+    assert _process(app) == (0, 0)
+    assert sent == []
+    # Даже через сутки после постановки (но вскоре после срока) — не «просрочено»
+    telegram_outbox.process(app.config["UPLOAD_FOLDER"], now=when + dt.timedelta(minutes=1))
+    db.refresh(out)
+    assert out.status == TelegramOutboxStatus.SENT
+    assert sent[0]["json"]["disable_notification"] is True
+
+
+def test_scheduled_in_past_or_garbage_sends_now(app, db, client, monkeypatch):
+    from app.models import TelegramOutbox
+    _settings(db)
+    _capture_posts(monkeypatch)
+    _login_board(db, client)
+    client.post("/news/new", data={"title": "А", "body": "Б", "publish_telegram": "1",
+                                   "telegram_send_at_utc": "2001-01-01T00:00:00.000Z"})
+    client.post("/news/new", data={"title": "В", "body": "Г", "publish_telegram": "1",
+                                   "telegram_send_at_utc": "не дата"})
+    assert [o.scheduled_at for o in db.query(TelegramOutbox).all()] == [None, None]
+    assert _process(app) == (2, 0)
+
+
+def test_max_age_counts_from_scheduled_time(app, db, monkeypatch):
+    import datetime as dt
+    import requests as _rq
+    from app import telegram_outbox
+    from app.models import TelegramOutboxStatus
+    _settings(db)
+    item = _news_with_files(app, db, "Текст", [])
+    when = dt.datetime.utcnow() + dt.timedelta(days=3)
+    out = telegram_outbox.enqueue_news(item, "https://coop.example/news/1", send_at=when)
+    db.commit()
+    _scripted_posts(monkeypatch, [_rq.ConnectTimeout("x")])
+    telegram_outbox.process(app.config["UPLOAD_FOLDER"], now=when + dt.timedelta(minutes=1))
+    db.refresh(out)
+    assert out.status == TelegramOutboxStatus.PENDING  # не отказ: срок только наступил
+
+
+def test_scheduled_shown_and_cancellable_on_settings_page(app, db, client, monkeypatch):
+    import datetime as dt
+    from app import telegram_outbox
+    from app.models import TelegramOutboxStatus
+    _settings(db)
+    item = _news_with_files(app, db, "Текст", [])
+    out = telegram_outbox.enqueue_news(item, "https://coop.example/news/1", silent=True,
+                                       send_at=dt.datetime.utcnow() + dt.timedelta(hours=5))
+    db.commit()
+    make_user(db, "tg_chair_s", "pass1234", role=RoleEnum.CHAIRMAN)
+    db.commit()
+    login(client, "tg_chair_s", "pass1234")
+    page = client.get("/telegram/").get_data(as_text=True)
+    assert "запланировано" in page and "bi-bell-slash" in page
+    client.post(f"/telegram/outbox/{out.id}/cancel")
+    db.refresh(out)
+    assert out.status == TelegramOutboxStatus.CANCELLED
+
+
+# ---------------------------------------------------------------------------
+# Сохранение форматирования
+# ---------------------------------------------------------------------------
+
+def test_telegram_html_lists_numbered_nested_and_spacing():
+    html = telegram_html(
+        "Шаги:\n\n1. раз\n2. **два**\n\nМаркеры:\n\n- а\n- б\n    - вложенный\n- в\n\nКонец",
+        base_url="https://coop.example/",
+    )
+    assert "1. раз\n2. <strong>два</strong>\n\nМаркеры:" in html
+    assert "• а\n• б\n    • вложенный\n• в\n\nКонец" in html
+
+
+def test_telegram_html_drops_unsafe_links_and_script_content():
+    html = telegram_html("[плохая](javascript:alert(1)) <script>alert(2)</script>текст", base_url="https://a.b/")
+    assert "javascript" not in html and "alert" not in html
+    assert "плохая" in html and "текст" in html
+
+
+def test_telegram_html_keeps_code_block_newlines():
+    html = telegram_html("Код:\n\n    строка1\n      строка2", base_url="https://a.b/")
+    assert "<pre><code>строка1\n  строка2" in html
+
+
+def test_long_news_truncated_by_paragraphs_keeps_formatting():
+    body = "\n\n".join(f"Абзац **{n}** " + "слово " * 60 for n in range(40))
+    text = telegram_bot.news_text("Длинная", body, "https://coop.example/news/1")
+    assert telegram_bot._visible_length(text) < 4096
+    assert "<strong>0</strong>" in text  # разметка сохранилась
+    assert "…" in text and "Читать на сайте" in text
+    assert telegram_bot._balanced(text)
+
+
+def test_truncation_does_not_cut_inside_quote():
+    quote = "> " + "\n>\n> ".join("цитата " * 40 for _ in range(30))
+    body = "Вступление\n\n" + quote
+    text = telegram_bot.news_text("Т", body, "https://coop.example/news/1")
+    assert telegram_bot._balanced(text)
+    assert telegram_bot._visible_length(text) < 4096

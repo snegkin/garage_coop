@@ -56,6 +56,22 @@
     <input class="form-check-input" type="checkbox" name="publish_telegram" value="1" id="publishTelegram" checked>
     <label class="form-check-label" for="publishTelegram">{{ _("Опубликовать и в группе Telegram") }}</label>
   </div>
+  <div id="telegramOptions" class="ms-4">
+    <div class="form-check mb-2">
+      <input class="form-check-input" type="checkbox" name="telegram_silent" value="1" id="telegramSilent">
+      <label class="form-check-label" for="telegramSilent">{{ _("Без звука") }}</label>
+      <div class="form-text">{{ _("Участники группы получат пост без звукового уведомления.") }}</div>
+    </div>
+    <div class="form-check mb-2">
+      <input class="form-check-input" type="checkbox" id="telegramLater">
+      <label class="form-check-label" for="telegramLater">{{ _("Отправить в Telegram позже") }}</label>
+    </div>
+    <div class="mb-3 d-none" id="telegramLaterBlock" style="max-width:260px">
+      <input class="form-control" type="datetime-local" id="telegramSendAt">
+      <input type="hidden" name="telegram_send_at_utc" id="telegramSendAtUtc">
+      <div class="form-text">{{ _("На сайте новость появится сразу, в группу уйдёт в указанное время.") }}</div>
+    </div>
+  </div>
   {# Показывается скриптом ниже, только когда есть картинки, а текст не
      влезает подписью к альбому — тогда в группу уйдут два сообщения. #}
   <div class="form-check form-switch mb-3 ms-4 d-none" id="telegramOrderBlock">
@@ -245,6 +261,40 @@
   // Порядок сообщений в Telegram: спрашиваем сервер (тот же расчёт, что
   // соберёт пост — news.telegram_layout), влезает ли текст подписью к
   // альбому. Выбор порядка нужен, только если картинки есть и не влезает.
+  // Тихая/отложенная отправка в Telegram. Время выбирается в местном поясе
+  // браузера и уходит на сервер в UTC (toISOString) — так же, как
+  // [data-utc-datetime] показывает время обратно в местном.
+  var publishTg = document.getElementById("publishTelegram");
+  var tgOptions = document.getElementById("telegramOptions");
+  var laterBox = document.getElementById("telegramLater");
+  var laterBlock = document.getElementById("telegramLaterBlock");
+  var sendAt = document.getElementById("telegramSendAt");
+  var sendAtUtc = document.getElementById("telegramSendAtUtc");
+  if (publishTg && tgOptions) {
+    var pad = function (n) { return String(n).padStart(2, "0"); };
+    var localValue = function (d) {
+      return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()) + "T" + pad(d.getHours()) + ":" + pad(d.getMinutes());
+    };
+    var syncTg = function () {
+      tgOptions.classList.toggle("d-none", !publishTg.checked);
+      laterBlock.classList.toggle("d-none", !(publishTg.checked && laterBox.checked));
+      if (laterBox.checked && !sendAt.value) {
+        var d = new Date(Date.now() + 60 * 60 * 1000);
+        d.setMinutes(0);
+        sendAt.value = localValue(d);
+      }
+      sendAt.min = localValue(new Date());
+      sendAt.required = publishTg.checked && laterBox.checked;
+    };
+    publishTg.addEventListener("change", syncTg);
+    laterBox.addEventListener("change", syncTg);
+    syncTg();
+    textarea.form.addEventListener("submit", function () {
+      var on = publishTg.checked && laterBox.checked && sendAt.value;
+      sendAtUtc.value = on ? new Date(sendAt.value).toISOString() : "";
+    });
+  }
+
   var orderBlock = document.getElementById("telegramOrderBlock");
   if (orderBlock) {
     var publishBox = document.getElementById("publishTelegram");

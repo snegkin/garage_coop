@@ -2045,6 +2045,14 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Отметить отправленным": "Mark as sent",
         "Готово.": "Done.",
         "Отменить отправку": "Cancel sending",
+        "Без звука": "Silent",
+        "Участники группы получат пост без звукового уведомления.": "Group members will get the post without a notification sound.",
+        "Отправить в Telegram позже": "Send to Telegram later",
+        "На сайте новость появится сразу, в группу уйдёт в указанное время.":
+            "The news appears on the site right away and goes to the group at the chosen time.",
+        "Пост в Telegram запланирован — его можно отменить в очереди на странице настроек Telegram.":
+            "The Telegram post is scheduled — you can cancel it in the queue on the Telegram settings page.",
+        "запланировано": "scheduled",
         "Всё отправлено — недоставленных сообщений нет.": "Everything is sent — no undelivered messages.",
         "Текст длиннее 1024 символов не помещается подписью к картинкам — в Telegram уйдут два сообщения. Выключено — сначала текст, потом картинки.":
             "Text longer than 1024 characters doesn't fit as an image caption — two messages will be sent to Telegram. Off — text first, then images.",

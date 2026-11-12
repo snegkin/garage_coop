@@ -12,6 +12,10 @@
     отправляет всё, чему подошёл срок, при сбое — повтор с нарастающей
     паузой (RETRY_DELAYS), через MAX_AGE — отказ.
 
+Пост новости можно отправить без звука (silent) и отложенно (scheduled_at —
+первая попытка не раньше этого момента; на /telegram/ виден как
+«запланировано», там же отменяется).
+
 Новость отправляется по шагам (telegram_bot.news_steps: текст, альбомы,
 документы), steps_done — сколько уже ушло: повтор продолжает с места сбоя.
 
@@ -57,8 +61,16 @@ def enqueue_message(chat_id: int | str, text: str) -> TelegramOutbox:
     return item
 
 
-def enqueue_news(news: News, url: str, album_first: bool = False) -> TelegramOutbox:
-    item = TelegramOutbox(kind=KIND_NEWS, news=news, url=url, album_first=album_first)
+def enqueue_news(news: News, url: str, album_first: bool = False, silent: bool = False,
+                 send_at: dt.datetime | None = None) -> TelegramOutbox:
+    """send_at (UTC) — отложенная отправка; None или прошедший момент — с
+    ближайшим запуском cron."""
+    now = dt.datetime.utcnow()
+    scheduled = send_at if send_at and send_at > now else None
+    item = TelegramOutbox(
+        kind=KIND_NEWS, news=news, url=url, album_first=album_first, silent=silent,
+        scheduled_at=scheduled, next_attempt_at=scheduled or now,
+    )
     database.db_session.add(item)
     return item
 
@@ -75,7 +87,9 @@ def _send(settings, item: TelegramOutbox, upload_folder: str) -> None:
         raise telegram_bot.TelegramError("Новость удалена с сайта", status_code=0)
     if not settings.news_chat_id:
         raise telegram_bot.TelegramError("Группа для новостей не задана в настройках", status_code=0)
-    steps, _skipped = telegram_bot.news_steps(settings, item.news, item.url, upload_folder, item.album_first)
+    steps, _skipped = telegram_bot.news_steps(
+        settings, item.news, item.url, upload_folder, item.album_first, item.silent,
+    )
     for step in steps[item.steps_done:]:
         step()
         item.steps_done += 1
@@ -108,7 +122,8 @@ def process(upload_folder: str, now: dt.datetime | None = None) -> tuple[int, in
         except telegram_bot.TelegramError as exc:
             item.last_error = str(exc)
             failed += 1
-            if exc.status_code in PERMANENT_STATUS_CODES or now - item.created_at > MAX_AGE:
+            due_since = max(item.created_at, item.scheduled_at or item.created_at)
+            if exc.status_code in PERMANENT_STATUS_CODES or now - due_since > MAX_AGE:
                 item.status = TelegramOutboxStatus.FAILED
             else:
                 item.next_attempt_at = now + _retry_delay(item.attempts)
@@ -144,6 +159,7 @@ def retry(item: TelegramOutbox) -> None:
     item.status = TelegramOutboxStatus.PENDING
     item.next_attempt_at = dt.datetime.utcnow()
     item.created_at = dt.datetime.utcnow()  # заново отсчитывать MAX_AGE
+    item.scheduled_at = None  # «повторно» — значит сейчас, а не в старое запланированное время
 
 
 def mark_sent(item: TelegramOutbox) -> None:

@@ -157,6 +157,21 @@ def create():
     )
 
 
+def _parse_utc(value: str | None) -> dt.datetime | None:
+    """Время отложенной отправки из формы: браузер переводит выбранное
+    местное время в UTC ISO-строку (toISOString, см. news/form.html) —
+    так часовой пояс сервера ни при чём. Битое значение — None (сразу)."""
+    if not value:
+        return None
+    try:
+        parsed = dt.datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(dt.timezone.utc).replace(tzinfo=None)
+    return parsed
+
+
 def _publish_to_telegram(item: News) -> None:
     """Ставит только что сохранённую новость в очередь отправки в группу
     Telegram (app/telegram_outbox.py) — уйдёт с ближайшим запуском cron
@@ -164,11 +179,16 @@ def _publish_to_telegram(item: News) -> None:
     settings = telegram_bot.get_settings()
     if not telegram_bot.news_group_enabled(settings):
         return
-    telegram_outbox.enqueue_news(
+    send_at = _parse_utc(request.form.get("telegram_send_at_utc"))
+    out = telegram_outbox.enqueue_news(
         item, url_for("news.view", news_id=item.id, _external=True),
         album_first=bool(request.form.get("telegram_album_first")),
+        silent=bool(request.form.get("telegram_silent")),
+        send_at=send_at,
     )
     database.db_session.commit()
+    if out.scheduled_at:
+        flash(_("Пост в Telegram запланирован — его можно отменить в очереди на странице настроек Telegram."), "info")
     _photos, _documents, skipped = telegram_bot._split_attachments(item, current_app.config["UPLOAD_FOLDER"])
     if skipped:
         flash(_("В Telegram не отправлены слишком большие файлы (больше 50 МБ): {names}",

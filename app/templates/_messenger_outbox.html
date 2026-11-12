@@ -1,0 +1,56 @@
+{# Очередь отправки мессенджера (app/messenger_outbox.py: problems) на
+   странице его настроек (telegram_settings/page.html, max_settings/page.html).
+   Ожидает outbox, outbox_endpoint (роут действий retry/mark-sent/cancel),
+   channel_label. #}
+<h5 class="mt-4">{{ _("Очередь отправки") }}</h5>
+{% if outbox %}
+<p class="text-muted small">{{ _("Сообщения, которые ещё не доставлены или требуют решения. Ожидающие отправляются автоматически раз в минуту, с повторами.") }}</p>
+<div class="table-responsive">
+<table class="table table-sm align-middle">
+  <thead><tr>
+    <th>{{ _("Создано") }}</th><th>{{ _("Что") }}</th><th>{{ _("Статус") }}</th><th>{{ _("Ошибка") }}</th><th></th>
+  </tr></thead>
+  <tbody>
+  {% for item in outbox %}
+  <tr>
+    <td class="text-nowrap"><span data-utc-datetime="{{ item.created_at.isoformat() }}Z">{{ fmt_date(item.created_at) }} {{ item.created_at.strftime("%H:%M") }}</span></td>
+    <td>
+      {% if item.kind == "news" %}
+        {{ _("Новость") }}: {{ item.news.title if item.news else _("(удалена)") }}
+        {% if item.steps_done %}<span class="text-muted small">({{ _("частей отправлено: {n}", n=item.steps_done) }})</span>{% endif %}
+        {% if item.silent %}<span class="text-muted small" title="{{ _('Без звука') }}"><i class="bi bi-bell-slash" aria-hidden="true"></i></span>{% endif %}
+      {% else %}
+        {{ (item.text or "")[:80] }}
+      {% endif %}
+    </td>
+    <td class="text-nowrap">
+      {% if item.status.value == "pending" and item.scheduled_at and not item.attempts %}
+        <span class="badge text-bg-info">{{ _("запланировано") }}</span>
+        <div class="small text-muted"><span data-utc-datetime="{{ item.scheduled_at.isoformat() }}Z">{{ fmt_date(item.scheduled_at) }} {{ item.scheduled_at.strftime("%H:%M") }}</span></div>
+      {% elif item.status.value == "pending" %}
+        <span class="badge text-bg-secondary">{{ _("ожидает") }}</span>
+        <div class="small text-muted">{{ _("попытка {n}", n=item.attempts + 1) }}, <span data-utc-datetime="{{ item.next_attempt_at.isoformat() }}Z">{{ item.next_attempt_at.strftime("%H:%M") }}</span></div>
+      {% elif item.status.value == "uncertain" %}
+        <span class="badge text-bg-warning" title="{{ _('Запрос ушёл, но ответа не было — {channel} мог его принять. Проверьте группу, прежде чем отправлять повторно.', channel=channel_label) }}">{{ _("неизвестно") }}</span>
+      {% else %}
+        <span class="badge text-bg-danger">{{ _("не доставлено") }}</span>
+      {% endif %}
+    </td>
+    <td class="small text-break">{{ item.last_error or "" }}</td>
+    <td class="text-nowrap">
+      {% for action, label in [("retry", _("Отправить повторно")), ("mark-sent", _("Отметить отправленным")), ("cancel", _("Отменить отправку"))] %}
+        {% if not (action == "mark-sent" and item.status.value != "uncertain") and not (action == "retry" and item.status.value == "pending" and not item.attempts) %}
+        <form method="post" action="{{ url_for(outbox_endpoint, item_id=item.id, action=action) }}" class="d-inline">
+          <button class="btn btn-sm btn-outline-secondary">{{ label }}</button>
+        </form>
+        {% endif %}
+      {% endfor %}
+    </td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<p class="text-muted small">{{ _("Всё отправлено — недоставленных сообщений нет.") }}</p>
+{% endif %}

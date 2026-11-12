@@ -1,17 +1,18 @@
 <script>
-// Варианты отправки в Telegram (news/_telegram_options.html): показ блока
+// Варианты отправки в мессенджер (news/_send_options.html): показ блока
 // «позже» и перевод выбранного местного времени в UTC (toISOString) перед
 // отправкой формы — так же, как [data-utc-datetime] показывает его обратно.
 // root — где искать разметку: документ (форма новости) или тело окна
-// «Отправить в Telegram», куда она подгружается (home.html).
-window.initTelegramOptions = function (root) {
+// «Отправить в …», куда она подгружается (home.html); channel — "telegram"
+// | "max", от него id элементов.
+window.initSendOptions = function (root, channel) {
   var q = function (id) { return root.querySelector("#" + id); };
-  var publishTg = q("publishTelegram");  // только в форме новости
-  var tgOptions = q("telegramOptions");
-  var laterBox = q("telegramLater");
-  var laterBlock = q("telegramLaterBlock");
-  var sendAt = q("telegramSendAt");
-  var sendAtUtc = q("telegramSendAtUtc");
+  var publishTg = q("publish" + channel.charAt(0).toUpperCase() + channel.slice(1));  // только в форме новости
+  var tgOptions = q(channel + "Options");
+  var laterBox = q(channel + "Later");
+  var laterBlock = q(channel + "LaterBlock");
+  var sendAt = q(channel + "SendAt");
+  var sendAtUtc = q(channel + "SendAtUtc");
   if (!tgOptions || !laterBox) return;
   var enabled = function () { return !publishTg || publishTg.checked; };
   var pad = function (n) { return String(n).padStart(2, "0"); };

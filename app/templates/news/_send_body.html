@@ -1,11 +1,11 @@
-{# Тело окна «Отправить в Telegram» (home.html, подгружается по AJAX) и
-   запасной страницы news/telegram.html. #}
+{# Тело окна «Отправить в …» (home.html, подгружается по AJAX) и запасной
+   страницы news/send.html. channel, channel_label — куда. #}
 <p class="mb-1"><strong>{{ item.title }}</strong></p>
 <p class="text-muted small">{{ fmt_date(item.created_at.date()) }}</p>
 
 {% if history %}
 <div class="alert alert-warning small">
-  <div class="mb-1">{{ _("Эту новость уже отправляли в группу — повторная отправка опубликует её ещё раз:") }}</div>
+  <div class="mb-1">{{ _("Эту новость уже отправляли в {channel} — повторная отправка опубликует её ещё раз:", channel=channel_label) }}</div>
   <ul class="mb-0">
   {% for out in history %}
     <li>
@@ -22,4 +22,4 @@
 </div>
 {% endif %}
 
-{% include "news/_telegram_options.html" %}
+{% include "news/_send_options.html" %}

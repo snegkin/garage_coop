@@ -1,0 +1,33 @@
+{# Варианты отправки новости в мессенджер — общие для формы новой новости
+   (news/form.html, под галочкой publish<Channel>) и окна «Отправить в …» у
+   существующей (home.html, без неё). channel — "telegram" | "max" (от него
+   id и имена полей: telegram_silent, max_send_at_utc…), channel_label —
+   название для подписей. order_visible (только Telegram) — показать выбор
+   порядка «картинки/текст» сразу (окно считает это на сервере); в форме он
+   скрыт и показывается её скриптом по мере набора текста. Оживляет —
+   initSendOptions из news/_send_options_js.html. #}
+<div id="{{ channel }}Options" class="ms-4">
+  <div class="form-check mb-2">
+    <input class="form-check-input" type="checkbox" name="{{ channel }}_silent" value="1" id="{{ channel }}Silent">
+    <label class="form-check-label" for="{{ channel }}Silent">{{ _("Без звука") }}</label>
+    <div class="form-text">{{ _("Участники группы получат пост без звукового уведомления.") }}</div>
+  </div>
+  <div class="form-check mb-2">
+    <input class="form-check-input" type="checkbox" id="{{ channel }}Later">
+    <label class="form-check-label" for="{{ channel }}Later">{{ _("Отправить в {channel} позже", channel=channel_label) }}</label>
+  </div>
+  <div class="mb-3 d-none" id="{{ channel }}LaterBlock" style="max-width:260px">
+    <input class="form-control" type="datetime-local" id="{{ channel }}SendAt">
+    <input type="hidden" name="{{ channel }}_send_at_utc" id="{{ channel }}SendAtUtc">
+    <div class="form-text">{{ _("В группу пост уйдёт в указанное время.") }}</div>
+  </div>
+</div>
+{% if channel == "telegram" %}
+{# Нужен, только когда есть картинки, а текст не влезает подписью к альбому —
+   тогда в группу уйдут два сообщения. #}
+<div class="form-check form-switch mb-3 ms-4 {{ '' if order_visible else 'd-none' }}" id="telegramOrderBlock">
+  <input class="form-check-input" type="checkbox" name="telegram_album_first" value="1" id="telegramAlbumFirst">
+  <label class="form-check-label" for="telegramAlbumFirst">{{ _("Сначала картинки, потом текст") }}</label>
+  <div class="form-text">{{ _("Текст длиннее 1024 символов не помещается подписью к картинкам — в Telegram уйдут два сообщения. Выключено — сначала текст, потом картинки.") }}</div>
+</div>
+{% endif %}

@@ -263,6 +263,7 @@ def create_app(config_class=Config):
     from .surveillance import bp as surveillance_bp
     from .sms_settings import bp as sms_settings_bp
     from .telegram_settings import bp as telegram_settings_bp
+    from .max_settings import bp as max_settings_bp
     from .board_chat import bp as board_chat_bp
     from .revision_chat import bp as revision_chat_bp
     from .legal_docs import bp as legal_docs_bp
@@ -303,6 +304,7 @@ def create_app(config_class=Config):
     app.register_blueprint(surveillance_bp)
     app.register_blueprint(sms_settings_bp)
     app.register_blueprint(telegram_settings_bp)
+    app.register_blueprint(max_settings_bp)
     app.register_blueprint(board_chat_bp)
     app.register_blueprint(revision_chat_bp)
     app.register_blueprint(legal_docs_bp)

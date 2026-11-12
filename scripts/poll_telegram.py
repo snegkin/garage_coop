@@ -9,7 +9,9 @@
 что у app/notifications.py:run_board_chat_digest + scripts/board_chat_digest.py):
 сообщения "/start <token>", привязывающие Telegram-аккаунт к профилю (см.
 app/cabinet.py: telegram_link_start), и /chatid. Перед опросом — разбор
-очереди исходящих (app/messenger_outbox.py: process).
+очереди исходящих (app/messenger_outbox.py: process) — общей для Telegram и
+MAX, и события бота MAX (app/max_bot.py: poll_updates — в какие каналы его
+добавили). Сбой одного мессенджера не мешает другому.
 
 Запуск вручную:
     cd /path/to/project && python3 scripts/poll_telegram.py
@@ -21,6 +23,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app import create_app
+from app import max_bot
 from app import messenger_outbox
 from app.telegram_bot import poll_and_link_accounts, TelegramError
 
@@ -33,7 +36,12 @@ def main() -> int:
         sent, failed = messenger_outbox.process(app.config["UPLOAD_FOLDER"])
         if sent or failed:
             print(f"[{dt.datetime.now().isoformat(timespec='seconds')}] "
-                  f"Очередь Telegram: отправлено {sent}, не удалось {failed}.")
+                  f"Очередь мессенджеров: отправлено {sent}, не удалось {failed}.")
+        try:
+            max_bot.poll_updates()
+        except max_bot.MaxError as exc:
+            print(f"[{dt.datetime.now().isoformat(timespec='seconds')}] "
+                  f"Ошибка опроса MAX: {exc}", file=sys.stderr)
         try:
             total, linked = poll_and_link_accounts()
         except TelegramError as exc:

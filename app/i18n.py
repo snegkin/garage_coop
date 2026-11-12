@@ -2078,6 +2078,49 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "The news is queued — it will appear in the group within a minute.",
         "Эту новость уже отправляли в группу — повторная отправка опубликует её ещё раз:":
             "This news was already sent to the group — sending again will post it once more:",
+        # мессенджеры: MAX и общие строки отправки новостей
+        "СМС и мессенджеры": "SMS and messengers",
+        "Отправить в {channel}": "Send to {channel}",
+        "Отправить в {channel} позже": "Send to {channel} later",
+        "Опубликовать и в группе {channel}": "Also post to the {channel} group",
+        "Эту новость уже отправляли в {channel} — повторная отправка опубликует её ещё раз:":
+            "This news was already sent to {channel} — sending again will post it once more:",
+        "Пост в {channel} запланирован — его можно отменить в очереди на странице настроек {channel}.":
+            "The {channel} post is scheduled — you can cancel it in the queue on the {channel} settings page.",
+        "В {channel} не отправлены файлы, которые не принимает мессенджер (слишком большие): {names}":
+            "Files the messenger doesn't accept (too large) were not sent to {channel}: {names}",
+        "Группа для новостей в этом мессенджере не настроена.": "The news group for this messenger isn't configured.",
+        "Запрос ушёл, но ответа не было — {channel} мог его принять. Проверьте группу, прежде чем отправлять повторно.":
+            "The request was sent but no response came — {channel} may have accepted it. Check the group before resending.",
+        "Настройки MAX": "MAX settings",
+        "Бот MAX дублирует новости сайта в канал или группу кооператива. Бота создаёт подтверждённая организация на business.max.ru («Чат-боты»), токен выдаётся там же после модерации.":
+            "The MAX bot duplicates site news to the cooperative's channel or group. The bot is created by a verified organization at business.max.ru («Чат-боты»); the token is issued there after moderation.",
+        "Бот ещё не настроен — новости в MAX не отправляются.": "The bot isn't configured yet — news isn't sent to MAX.",
+        "business.max.ru → Чат-боты → ⋮ → Настройки.": "business.max.ru → Чат-боты → ⋮ → Settings.",
+        "Бот:": "Bot:",
+        "Канал для новостей": "News channel",
+        "ID канала или группы. Сделайте бота администратором канала — он появится в списке «Чаты бота» ниже. Пусто — не дублировать.":
+            "Channel or group ID. Make the bot an administrator of the channel — it will appear in the «Bot chats» list below. Leave empty to disable.",
+        "Проверка подключения к MAX": "Checking the MAX connection",
+        "Чаты бота": "Bot chats",
+        "Каналы и группы, куда добавили бота (MAX не даёт их список — сайт запоминает их из событий бота, раз в минуту).":
+            "Channels and groups the bot was added to (MAX doesn't list them — the site remembers them from bot events, once a minute).",
+        "без названия": "untitled",
+        "канал": "channel",
+        "группа": "group",
+        "новости": "news",
+        "Новости сюда": "Post news here",
+        "Пока ни одного.": "None yet.",
+        "Обновить список": "Refresh list",
+        "Очередь отправки и список чатов разбирает cron-скрипт scripts/poll_telegram.sh (см. docs/deployment.md, раздел «Автоматизация») — общий для Telegram и MAX.":
+            "The send queue and chat list are handled by the cron script scripts/poll_telegram.sh (see docs/deployment.md, «Automation») — shared by Telegram and MAX.",
+        "ID канала MAX — число (его показывает список «Чаты бота» ниже).":
+            "A MAX channel ID is a number (shown in the «Bot chats» list below).",
+        "Настройки MAX сохранены.": "MAX settings saved.",
+        "Сначала укажите токен бота.": "Enter the bot token first.",
+        "Бот MAX (GET /me)": "MAX bot (GET /me)",
+        "Подключение работает: бот {name}.": "The connection works: bot {name}.",
+        "Не удалось получить события бота: {error}": "Could not get bot events: {error}",
         "отправлена": "sent",
         "Не удалось загрузить. Обновите страницу и попробуйте ещё раз.": "Failed to load. Reload the page and try again.",
         "запланирована": "scheduled",

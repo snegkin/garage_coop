@@ -10,6 +10,7 @@ from flask import (
 from . import audit
 from . import database
 from . import notifications
+from . import max_bot
 from . import telegram_bot
 from . import messenger_outbox
 from .i18n import translate as _
@@ -147,14 +148,30 @@ def create():
             "news", "Новая новость", item.title, exclude_user_id=g.user.id, board_group="documents",
         )
         flash(_("Новость добавлена."), "success")
-        if f.get("publish_telegram"):
-            _publish_to_telegram(item)
+        for channel in news_channels():
+            if f.get(f"publish_{channel['id']}"):
+                _publish(item, channel)
         return redirect(url_for("main.index"))
 
-    return render_template(
-        "news/form.html", item=None,
-        telegram_group=telegram_bot.news_group_enabled(telegram_bot.get_settings()),
-    )
+    return render_template("news/form.html", item=None, news_channels=news_channels())
+
+
+# Куда можно дублировать новости: id совпадает с MessengerOutbox.channel и
+# префиксом полей формы (telegram_silent, max_send_at_utc…).
+_CHANNELS = [
+    {"id": messenger_outbox.CHANNEL_TELEGRAM, "label": "Telegram", "icon": "bi-telegram", "bot": telegram_bot},
+    {"id": messenger_outbox.CHANNEL_MAX, "label": "MAX", "icon": "bi-send", "bot": max_bot},
+]
+
+
+def news_channels() -> list[dict]:
+    """Мессенджеры, в которые настроено дублирование новостей (бот и группа
+    заданы) — для формы новости и меню «Отправить в …» в ленте."""
+    return [c for c in _CHANNELS if c["bot"].news_group_enabled(c["bot"].get_settings())]
+
+
+def _channel(channel_id: str) -> dict | None:
+    return next((c for c in news_channels() if c["id"] == channel_id), None)
 
 
 def _parse_utc(value: str | None) -> dt.datetime | None:
@@ -172,66 +189,74 @@ def _parse_utc(value: str | None) -> dt.datetime | None:
     return parsed
 
 
-def _publish_to_telegram(item: News) -> None:
-    """Ставит только что сохранённую новость в очередь отправки в группу
-    Telegram (app/messenger_outbox.py) — уйдёт с ближайшим запуском cron
-    scripts/poll_telegram.py, с повторами, если Telegram недоступен."""
-    settings = telegram_bot.get_settings()
-    if not telegram_bot.news_group_enabled(settings):
-        return
-    send_at = _parse_utc(request.form.get("telegram_send_at_utc"))
+def _publish(item: News, channel: dict) -> None:
+    """Ставит новость в очередь отправки в мессенджер channel
+    (app/messenger_outbox.py) — уйдёт с ближайшим запуском cron
+    scripts/poll_telegram.py, с повторами, если сервис недоступен. Варианты —
+    из полей формы с префиксом channel["id"] (news/_send_options.html)."""
+    prefix = channel["id"]
+    send_at = _parse_utc(request.form.get(f"{prefix}_send_at_utc"))
     out = messenger_outbox.enqueue_news(
         item, url_for("news.view", news_id=item.id, _external=True),
-        album_first=bool(request.form.get("telegram_album_first")),
-        silent=bool(request.form.get("telegram_silent")),
+        album_first=bool(request.form.get("telegram_album_first")) and prefix == messenger_outbox.CHANNEL_TELEGRAM,
+        silent=bool(request.form.get(f"{prefix}_silent")),
         send_at=send_at,
+        channel=prefix,
     )
     database.db_session.commit()
     if out.scheduled_at:
-        flash(_("Пост в Telegram запланирован — его можно отменить в очереди на странице настроек Telegram."), "info")
-    _photos, _documents, skipped = telegram_bot._split_attachments(item, current_app.config["UPLOAD_FOLDER"])
+        flash(_("Пост в {channel} запланирован — его можно отменить в очереди на странице настроек {channel}.",
+                channel=channel["label"]), "info")
+    split = (telegram_bot._split_attachments if prefix == messenger_outbox.CHANNEL_TELEGRAM
+             else max_bot.split_attachments)
+    _photos, _documents, skipped = split(item, current_app.config["UPLOAD_FOLDER"])
     if skipped:
-        flash(_("В Telegram не отправлены слишком большие файлы (больше 50 МБ): {names}",
-                names=", ".join(skipped)), "warning")
+        flash(_("В {channel} не отправлены файлы, которые не принимает мессенджер (слишком большие): {names}",
+                channel=channel["label"], names=", ".join(skipped)), "warning")
 
 
-@bp.route("/<int:news_id>/telegram", methods=["GET", "POST"])
+@bp.route("/<int:news_id>/<any(telegram, max):channel_id>", methods=["GET", "POST"])
 @roles_required(RoleEnum.BOARD)
-def send_telegram(news_id):
-    """«Отправить в Telegram» из меню новости в ленте — для уже
+def send_to_channel(news_id, channel_id):
+    """«Отправить в Telegram/MAX» из меню новости в ленте — для уже
     опубликованных (в том числе до появления бота или если при создании
     галочку сняли). Те же варианты, что в форме новой новости; прошлые
-    отправки этой новости показываются, чтобы не задвоить пост в группе."""
+    отправки этой новости туда же показываются, чтобы не задвоить пост."""
     item = database.db_session.get(News, news_id)
     if item is None:
         abort(404)
-    settings = telegram_bot.get_settings()
-    if not telegram_bot.news_group_enabled(settings):
-        flash(_("Группа Telegram для новостей не настроена."), "warning")
+    channel = _channel(channel_id)
+    if channel is None:
+        flash(_("Группа для новостей в этом мессенджере не настроена."), "warning")
         return redirect(url_for("main.index"))
 
     if request.method == "POST":
-        _publish_to_telegram(item)
-        if not request.form.get("telegram_send_at_utc"):
+        _publish(item, channel)
+        if not request.form.get(f"{channel_id}_send_at_utc"):
             flash(_("Новость поставлена в очередь — в группе появится в течение минуты."), "success")
-        audit.record("news.telegram", f"Новость «{item.title}» отправлена в Telegram", entity_type="news", entity_id=item.id)
+        audit.record(f"news.{channel_id}", f"Новость «{item.title}» отправлена в {channel['label']}",
+                     entity_type="news", entity_id=item.id)
         database.db_session.commit()
         return redirect(url_for("main.index"))
 
-    photos, _documents, _skipped = telegram_bot._split_attachments(item, current_app.config["UPLOAD_FOLDER"])
     history = (
         database.db_session.query(MessengerOutbox)
-        .filter(MessengerOutbox.news_id == item.id, MessengerOutbox.status != MessengerOutboxStatus.CANCELLED)
+        .filter(MessengerOutbox.news_id == item.id, MessengerOutbox.channel == channel_id,
+                MessengerOutbox.status != MessengerOutboxStatus.CANCELLED)
         .order_by(MessengerOutbox.id.desc())
         .all()
     )
+    order_visible = False
+    if channel_id == messenger_outbox.CHANNEL_TELEGRAM:
+        photos, _documents, _skipped = telegram_bot._split_attachments(item, current_app.config["UPLOAD_FOLDER"])
+        order_visible = bool(photos) and not telegram_bot.fits_caption(item.title, item.body)
     # Окно на главной подгружает только тело (X-Requested-With), по прямой
     # ссылке — целая страница.
-    template = ("news/_telegram_send_body.html"
-                if request.headers.get("X-Requested-With") == "XMLHttpRequest" else "news/telegram.html")
+    template = ("news/_send_body.html"
+                if request.headers.get("X-Requested-With") == "XMLHttpRequest" else "news/send.html")
     return render_template(
-        template, item=item, history=history,
-        order_visible=bool(photos) and not telegram_bot.fits_caption(item.title, item.body),
+        template, item=item, history=history, order_visible=order_visible,
+        channel=channel_id, channel_label=channel["label"], channel_icon=channel["icon"],
     )
 
 

@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{# Запасной вариант окна «Отправить в …» (home.html) — по прямой ссылке или
+   без JS. #}
+{% block title %}{{ _("Отправить в {channel}", channel=channel_label) }}{% endblock %}
+{% block content %}
+<h3 class="mb-3">{{ _("Отправить в {channel}", channel=channel_label) }}</h3>
+<form method="post" class="bg-body p-4 rounded border" style="max-width:640px">
+  {% include "news/_send_body.html" %}
+  <div class="d-flex justify-content-end gap-2">
+    <button class="btn btn-primary"><i class="bi {{ channel_icon }}" aria-hidden="true"></i> {{ _("Отправить") }}</button>
+    <a class="btn btn-secondary" href="{{ url_for('main.index') }}">{{ _("Отмена") }}</a>
+  </div>
+</form>
+{% include "news/_send_options_js.html" %}
+<script>initSendOptions(document, "{{ channel }}");</script>
+{% endblock %}

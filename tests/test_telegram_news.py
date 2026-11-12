@@ -779,7 +779,7 @@ def test_send_telegram_modal_and_fragment(app, db, client):
     db.commit()
     _login_board(db, client)
     home = client.get("/").get_data(as_text=True)
-    assert 'id="telegramSendModal"' in home
+    assert 'id="messengerSendModal"' in home
     assert f'data-url="/news/{item.id}/telegram"' in home
 
     fragment = client.get(f"/news/{item.id}/telegram", headers={"X-Requested-With": "XMLHttpRequest"}).get_data(as_text=True)

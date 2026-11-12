@@ -13,6 +13,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from . import database
 from . import audit
 from . import notifications
+from . import max_bot
 from . import telegram_bot
 from . import webpush
 from .auth import login_required
@@ -144,6 +145,7 @@ def profile():
             'membership_end_date': person.membership_end_date,
             'comment': person.comment,
             'telegram_chat_id': person.telegram_chat_id,
+            'max_user_id': person.max_user_id,
         })()
 
     telegram_link_url = None
@@ -152,9 +154,14 @@ def profile():
         if settings and settings.bot_username:
             telegram_link_url = f"https://t.me/{settings.bot_username}?start={person.telegram_link_token}"
 
+    max_settings = max_bot.get_settings()
+    max_link_url = max_bot.link_url(max_settings, person.max_link_token) if person.max_link_token else None
+
     return render_template(
         "cabinet/profile.html", person=display_person, pending_revision=pending_revision, pending_data=snap,
         telegram_link_url=telegram_link_url,
+        max_available=max_bot.is_configured(max_settings) or bool(person.max_user_id),
+        max_link_url=max_link_url,
         webpush_public_key=webpush.get_or_create_settings().public_key,
         board_event_groups=[(code, group["label"]) for code, group in notifications.BOARD_EVENT_GROUPS.items()],
         my_board_event_groups=notifications.board_event_groups(g.user),
@@ -180,6 +187,7 @@ def notification_settings():
     channels = {
         NotificationChannel.EMAIL: bool(f.get("notify_via_email")),
         NotificationChannel.TELEGRAM: bool(f.get("notify_via_telegram")),
+        NotificationChannel.MAX: bool(f.get("notify_via_max")),
         NotificationChannel.WEBPUSH: bool(f.get("notify_via_webpush")),
     }
     notify_events = {
@@ -205,11 +213,14 @@ def notification_settings():
         flash(_("Для уведомлений по email нужен адрес почты в контактных данных — укажите его выше и дождитесь одобрения председателем."), "danger")
     elif NotificationChannel.TELEGRAM in not_ready:
         flash(_("Для уведомлений в Telegram сначала привяжите Telegram кнопкой рядом с галочкой."), "danger")
+    elif NotificationChannel.MAX in not_ready:
+        flash(_("Для уведомлений в MAX сначала привяжите MAX кнопкой рядом с галочкой."), "danger")
     elif NotificationChannel.WEBPUSH in not_ready:
         flash(_("Не удалось включить push-уведомления в этом браузере — снимите галочку push или выберите другой способ."), "danger")
     else:
         g.user.notify_via_email = channels[NotificationChannel.EMAIL]
         g.user.notify_via_telegram = channels[NotificationChannel.TELEGRAM]
+        g.user.notify_via_max = channels[NotificationChannel.MAX]
         g.user.notify_via_webpush = channels[NotificationChannel.WEBPUSH]
         for field, value in notify_events.items():
             setattr(g.user, field, value)
@@ -379,3 +390,32 @@ def garages():
         electricity_by_garage=electricity_by_garage,
         personal_accounts=[(acc, account_balance(acc)) for acc in personal_accounts] if person is not None else [],
     )
+
+
+@bp.route("/profile/max/link", methods=["POST"])
+@login_required
+def max_link_start():
+    """Одноразовый токен привязки MAX (см. app/max_bot.py докстринг — привязка
+    завершается scripts/poll_telegram.py, когда бот получит bot_started с
+    этим токеном). Шестнадцатеричный: какие символы MAX пропускает в
+    ?start=, не документировано, а длина — до 128."""
+    person = _current_person()
+    if person is None:
+        return redirect(url_for("cabinet.profile"))
+    person.max_link_token = secrets.token_hex(16)
+    database.db_session.commit()
+    return redirect(url_for("cabinet.profile"))
+
+
+@bp.route("/profile/max/unlink", methods=["POST"])
+@login_required
+def max_unlink():
+    person = _current_person()
+    if person is None:
+        return redirect(url_for("cabinet.profile"))
+    person.max_user_id = None
+    person.max_link_token = None
+    g.user.notify_via_max = False
+    database.db_session.commit()
+    flash(_("MAX отвязан."), "success")
+    return redirect(url_for("cabinet.profile"))

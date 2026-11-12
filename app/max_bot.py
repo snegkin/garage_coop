@@ -1,7 +1,13 @@
 """
 Бот мессенджера MAX — дублирование новостей сайта в канал/группу
-(app/news.py, очередь app/messenger_outbox.py). Уведомлений людям через MAX
-нет: только новости.
+(app/news.py, очередь app/messenger_outbox.py) и уведомления людям
+(app/notifications.py).
+
+Привязка аккаунта — как у Telegram: в профиле «Привязать MAX» даёт
+одноразовый диплинк https://max.ru/<бот>?start=<токен> (cabinet.max_link_start),
+человек открывает его и нажимает «Начать» — бот получает апдейт bot_started
+с payload=<токен>, poll_updates находит Person по токену и запоминает
+user.user_id: по нему (POST /messages?user_id=…) бот пишет в личный диалог.
 
 Bot API (dev.max.ru/docs-api, ноябрь 2026):
   - адрес https://platform-api2.max.ru, токен — заголовком Authorization
@@ -34,7 +40,7 @@ from . import database
 from .api_log import mask_secrets_in_text
 from .bank_api import crypto
 from .messenger_errors import MessengerError, MessengerUncertain, is_connect_stage
-from .models import MaxSettings, News
+from .models import MaxSettings, News, Person
 
 API_BASE = "https://platform-api2.max.ru"
 REQUEST_TIMEOUT = 10
@@ -187,9 +193,9 @@ def upload(settings: MaxSettings, kind: str, filename: str, path: str) -> str:
     return token
 
 
-def send_message(settings: MaxSettings, chat_id: int | str, text: str | None,
+def send_message(settings: MaxSettings, chat_id: int | str | None, text: str | None,
                  attachments: list | None = None, html: bool = False, notify: bool = True,
-                 disable_link_preview: bool = False) -> dict:
+                 disable_link_preview: bool = False, user_id: int | str | None = None) -> dict:
     """POST /messages. Пока MAX обрабатывает загруженные вложения
     (attachment.not.ready), ждём и повторяем — сообщение при этом ещё не
     создано, повтор не задвоит. Не дождались — повторяемая ошибка, очередь
@@ -201,7 +207,7 @@ def send_message(settings: MaxSettings, chat_id: int | str, text: str | None,
         body["format"] = "html"
     if attachments:
         body["attachments"] = attachments
-    params = {"chat_id": chat_id}
+    params = {"user_id": user_id} if user_id is not None else {"chat_id": chat_id}
     if disable_link_preview:
         params["disable_link_preview"] = "true"
     for delay in (*NOT_READY_DELAYS, None):
@@ -213,6 +219,38 @@ def send_message(settings: MaxSettings, chat_id: int | str, text: str | None,
             if delay is None:
                 raise MaxError("MAX ещё обрабатывает вложения — повторим позже", code=exc.code) from exc
             _sleep(delay)
+
+
+def send_notification(settings: MaxSettings, user_id: int | str, text: str) -> None:
+    """Уведомление человеку в личный диалог (очередь, kind="message")."""
+    send_message(settings, None, text, user_id=user_id)
+
+
+def link_url(settings: MaxSettings | None, token: str) -> str | None:
+    """Диплинк привязки; имени бота ещё нет (не проверяли подключение) — None."""
+    if not settings or not settings.bot_username:
+        return None
+    return f"https://max.ru/{settings.bot_username}?start={token}"
+
+
+def _link_account(settings: MaxSettings, update: dict) -> bool:
+    """bot_started с токеном привязки -> Person.max_user_id. Неизвестный
+    токен молча игнорируем (как у Telegram — не помогать перебору)."""
+    token = (update.get("payload") or "").strip()
+    user_id = (update.get("user") or {}).get("user_id")
+    if not token or user_id is None:
+        return False
+    person = database.db_session.query(Person).filter_by(max_link_token=token).first()
+    if person is None:
+        return False
+    person.max_user_id = user_id
+    person.max_link_token = None
+    try:
+        send_notification(settings, user_id, "Готово! Теперь вы будете получать здесь уведомления с сайта "
+                                             "кооператива (если включите их в настройках профиля).")
+    except MaxError:
+        pass  # привязка уже сохранена, приветствие — best-effort
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -246,13 +284,14 @@ def _forget_chat(settings: MaxSettings, chat_id) -> None:
     settings.known_chats = json.dumps(chats, ensure_ascii=False)
 
 
-def poll_updates() -> int:
-    """GET /updates (без ожидания — cron раз в минуту): запоминает чаты и
-    каналы, куда бота добавили (bot_added) или где он увидел сообщение, и
-    забывает те, откуда убрали. -> число апдейтов. Бот не настроен — 0."""
+def poll_updates() -> tuple[int, int]:
+    """GET /updates (без ожидания — cron раз в минуту): привязывает аккаунты
+    (bot_started с токеном), запоминает чаты и каналы, куда бота добавили
+    (bot_added) или где он увидел сообщение, и забывает те, откуда убрали.
+    -> (число апдейтов, привязано аккаунтов). Бот не настроен — (0, 0)."""
     settings = get_settings()
     if not is_configured(settings):
-        return 0
+        return 0, 0
     params = {"timeout": 0, "limit": 100}
     if settings.last_marker is not None:
         params["marker"] = settings.last_marker
@@ -264,9 +303,12 @@ def poll_updates() -> int:
         raise
     updates = data.get("updates") or []
     seen = {str(c.get("chat_id")) for c in known_chats(settings)}
+    linked = 0
     for update in updates:
         kind = update.get("update_type")
-        if kind == "bot_added" and update.get("chat_id") is not None:
+        if kind == "bot_started":
+            linked += _link_account(settings, update)
+        elif kind == "bot_added" and update.get("chat_id") is not None:
             _remember_chat(settings, update["chat_id"], update.get("is_channel", False))
             seen.add(str(update["chat_id"]))
         elif kind == "bot_removed" and update.get("chat_id") is not None:
@@ -283,7 +325,7 @@ def poll_updates() -> int:
     settings.last_error = None
     settings.last_polled_at = dt.datetime.utcnow()
     database.db_session.commit()
-    return len(updates)
+    return len(updates), linked
 
 
 # ---------------------------------------------------------------------------

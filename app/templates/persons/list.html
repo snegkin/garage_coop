@@ -10,6 +10,7 @@
   {% set icons = {
     "email": ("envelope", _("Email"), _("Email отмечен, но не указан адрес почты")),
     "telegram": ("telegram", "Telegram", _("Telegram отмечен, но не привязан")),
+    "max": ("send", "MAX", _("MAX отмечен, но не привязан")),
     "webpush": ("bell", _("Push-уведомления"), _("Push отмечен, но нет подписки ни в одном браузере")),
   } %}
   {% set icon, ok_title, off_title = icons[channel.code] %}

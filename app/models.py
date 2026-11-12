@@ -1412,6 +1412,13 @@ class Person(Base):
     # находит по нему человека, когда бот получает /start с этим токеном,
     # заполняет telegram_chat_id и сбрасывает токен в NULL (одноразовый).
     telegram_link_token: Mapped[str | None] = mapped_column(String(64), unique=True, index=True)
+    # То же для MAX (app/max_bot.py): user_id человека в MAX из апдейта
+    # bot_started (диплинк https://max.ru/<бот>?start=<токен>, см.
+    # cabinet.max_link_start) — по нему бот пишет в личный диалог; токен
+    # одноразовый, сбрасывается при привязке. Не путать с max_messenger выше
+    # (просто контакт для карточки).
+    max_user_id: Mapped[int | None] = mapped_column(BigInteger, index=True)
+    max_link_token: Mapped[str | None] = mapped_column(String(64), unique=True, index=True)
 
     @property
     def short_name(self) -> str:
@@ -1496,6 +1503,7 @@ class NotificationChannel(str, enum.Enum):
     EMAIL = "email"
     TELEGRAM = "telegram"
     WEBPUSH = "webpush"
+    MAX = "max"
 
 
 class RoleEnum(str, enum.Enum):
@@ -1569,6 +1577,8 @@ class User(Base):
     # отправке, просто пропускается (см. notifications.channel_is_ready).
     notify_via_email: Mapped[bool] = mapped_column(Boolean, default=True)
     notify_via_telegram: Mapped[bool] = mapped_column(Boolean, default=False)
+    # MAX — против Person.max_user_id (привязка через бота MAX).
+    notify_via_max: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     # None — ещё не выбирал: галочка «Разрешить уведомления» на форме входа
     # (отмечена по умолчанию) включит push; False — сам отключил в профиле,
     # вход этот выбор не отменяет (см. auth._complete_login).
@@ -3116,7 +3126,7 @@ class MessengerOutbox(Base):
     """Очередь исходящих сообщений в мессенджеры (app/messenger_outbox.py) —
     разбирается cron-скриптом scripts/poll_telegram.py раз в минуту, с
     повторами при недоступности сервиса/прокси. channel — куда: "telegram"
-    или "max" (только новости). kind="message" — текст text в chat_id
+    или "max". kind="message" — текст text в chat_id (для MAX — user_id)
     (уведомления), kind="news" — новость news_id в группу из настроек:
     несколько шагов (текст, альбомы, документы), steps_done — сколько уже
     отправлено, повтор продолжает с места сбоя, не дублируя отправленное.

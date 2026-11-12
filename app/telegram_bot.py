@@ -118,6 +118,12 @@ def send_message(settings: TelegramSettings, chat_id: int | str, text: str,
         raise _status_error(resp)
 
 
+def send_notification(settings: TelegramSettings, chat_id: int | str, text: str) -> None:
+    """Уведомление человеку (очередь, kind="message") — тот же вызов, что у
+    max_bot.send_notification."""
+    send_message(settings, chat_id, text)
+
+
 def get_updates(settings: TelegramSettings, offset: int | None, timeout: int = 0) -> list[dict]:
     """timeout=0 — обычный short-poll (используется из cron раз в минуту,
     держать HTTP-соединение открытым долгим long-poll'ом внутри cron-скрипта

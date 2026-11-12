@@ -10,8 +10,8 @@
 сообщения "/start <token>", привязывающие Telegram-аккаунт к профилю (см.
 app/cabinet.py: telegram_link_start), и /chatid. Перед опросом — разбор
 очереди исходящих (app/messenger_outbox.py: process) — общей для Telegram и
-MAX, и события бота MAX (app/max_bot.py: poll_updates — в какие каналы его
-добавили). Сбой одного мессенджера не мешает другому.
+MAX, и события бота MAX (app/max_bot.py: poll_updates — привязка аккаунтов
+по диплинку и каналы, куда бота добавили). Сбой одного мессенджера не мешает другому.
 
 Запуск вручную:
     cd /path/to/project && python3 scripts/poll_telegram.py

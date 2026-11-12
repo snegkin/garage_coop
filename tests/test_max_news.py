@@ -287,13 +287,13 @@ def test_poll_updates_remembers_chats(app, db, monkeypatch):
         return original(method, url, params=params, **kw)
 
     monkeypatch.setattr(max_bot.requests, "request", request)
-    assert max_bot.poll_updates() == 3
+    assert max_bot.poll_updates() == (3, 0)
     chats = max_bot.known_chats(settings)
     assert [(c["chat_id"], c["is_channel"], c["title"]) for c in chats] == [
         (-555, True, "Канал кооператива"), (-777, False, "Канал кооператива")]
     assert settings.last_marker == 42
 
-    assert max_bot.poll_updates() == 1
+    assert max_bot.poll_updates() == (1, 0)
     assert [c["chat_id"] for c in max_bot.known_chats(settings)] == [-555]
     update_calls = [c for c in fake.calls if c[1] == "/updates"]
     assert "marker" not in update_calls[0][2] and update_calls[1][2]["marker"] == 42

@@ -17,6 +17,7 @@
 (http/https/mailto), javascript:-протокол невозможен.
 """
 import re
+from html.parser import HTMLParser
 
 import bleach
 import markdown as md_lib
@@ -188,44 +189,147 @@ def excerpt(text: str, max_chars: int = EXCERPT_LENGTH) -> tuple[str, bool]:
 
 
 # Подмножество HTML, которое понимает Telegram Bot API (parse_mode=HTML):
-# никаких <p>/<li>/<h3>/<img> — абзацы и списки передаются переводами строк.
-_TG_TAGS = ["b", "strong", "i", "em", "u", "s", "a", "code", "pre", "blockquote", "span"]
-_TG_ATTRS = {"a": ["href"], "span": ["class"]}
-_TG_BLOCK_RULES = [
-    (re.compile(r"<br\s*/?>"), "\n"),
-    (re.compile(r"<li>"), "• "),
-    (re.compile(r"</li>"), "\n"),
-    (re.compile(r"</?[uo]l>"), ""),
-    (re.compile(r"<h[1-6]>"), "<b>"),
-    (re.compile(r"</h[1-6]>"), "</b>\n\n"),
-    (re.compile(r"<p>"), ""),
-    (re.compile(r"</p>"), "\n\n"),
-    (re.compile(r"<hr\s*/?>"), "———\n\n"),
-]
-_TG_BLOCK_NEWLINE_RE = re.compile(r"(<br\s*/?>|</?(?:p|ul|ol|li|h[1-6])>|<hr\s*/?>)\n")
-_RELATIVE_HREF_RE = re.compile(r'href="(/[^"]*)"')
+# никаких <p>/<li>/<h3>/<img> — абзацы и списки передаются переводами строк,
+# заголовки — жирным. Конвертер — на html.parser (не регулярками): иначе не
+# различить нумерованный/маркированный список и вложенные списки.
+_TG_INLINE_TAGS = {"b", "strong", "i", "em", "u", "s", "del", "code", "pre", "blockquote"}
+_TG_URL_SCHEMES = ("http://", "https://", "mailto:", "tg://")
+_TG_SKIP_CONTENT = {"script", "style"}
+
+
+class _TelegramHTML(HTMLParser):
+    def __init__(self, origin: str | None):
+        super().__init__(convert_charrefs=True)
+        self.origin = origin
+        self.out: list[str] = []
+        self.lists: list[list] = []   # [тип "ul"/"ol", счётчик]
+        self.open: list[str] = []     # открытые теги, которые переносим в вывод
+        self.pre = 0
+        self.skip = 0
+
+    def _emit(self, text: str) -> None:
+        self.out.append(text)
+
+    def _ends_with_newline(self) -> bool:
+        tail = "".join(self.out[-3:])
+        return not tail or tail.endswith("\n")
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        if tag in _TG_SKIP_CONTENT:
+            self.skip += 1
+        elif tag in ("ul", "ol"):
+            if self.lists and not self._ends_with_newline():
+                self._emit("\n")  # вложенный список — с новой строки
+            self.lists.append([tag, 0])
+        elif tag == "li":
+            depth = max(len(self.lists), 1)
+            kind = self.lists[-1] if self.lists else ["ul", 0]
+            kind[1] += 1
+            marker = f"{kind[1]}. " if kind[0] == "ol" else "• "
+            self._emit("    " * (depth - 1) + marker)
+        elif tag == "br":
+            self._emit("\n")
+        elif tag == "hr":
+            self._emit("———\n\n")
+        elif tag in ("h1", "h2", "h3", "h4", "h5", "h6"):
+            self._emit("<b>")
+            self.open.append("b")
+        elif tag == "a":
+            href = (attrs.get("href") or "").strip()
+            if href.startswith("/") and self.origin:
+                href = self.origin + href
+            if href.startswith(_TG_URL_SCHEMES):
+                self._emit(f'<a href="{escape(href)}">')
+                self.open.append("a")
+            else:
+                self.open.append(None)  # ссылку без допустимой схемы — просто текстом
+        elif tag == "span" and "tg-spoiler" in (attrs.get("class") or ""):
+            self._emit('<span class="tg-spoiler">')
+            self.open.append("span")
+        elif tag in _TG_INLINE_TAGS:
+            if tag == "pre":
+                self.pre += 1
+            self._emit(f"<{tag}>")
+            self.open.append(tag)
+        # остальное (p, img, div, неизвестные) — тег выбрасываем, текст оставляем
+
+    def handle_startendtag(self, tag, attrs):
+        if tag in ("br", "hr", "img"):
+            self.handle_starttag(tag, attrs)
+
+    def _close(self, names) -> None:
+        # закрываем последний открытый из names (вместе со всем, что внутри него)
+        for pos in range(len(self.open) - 1, -1, -1):
+            if self.open[pos] in names or (self.open[pos] is None and "a" in names):
+                for name in reversed(self.open[pos:]):
+                    if name:
+                        self._emit(f"</{name}>")
+                del self.open[pos:]
+                return
+
+    def handle_endtag(self, tag):
+        if tag in _TG_SKIP_CONTENT:
+            self.skip = max(self.skip - 1, 0)
+        elif tag in ("ul", "ol"):
+            if self.lists:
+                self.lists.pop()
+            if not self.lists:
+                self._emit("\n")  # пустая строка после списка
+        elif tag == "li":
+            if not self._ends_with_newline():
+                self._emit("\n")
+        elif tag == "p":
+            self._emit("\n" if self.lists else "\n\n")
+        elif tag in ("h1", "h2", "h3", "h4", "h5", "h6"):
+            self._close({"b"})
+            self._emit("\n\n")
+        elif tag == "a":
+            self._close({"a"})
+        elif tag == "span":
+            self._close({"span"})
+        elif tag in _TG_INLINE_TAGS:
+            self._close({tag})
+            if tag == "pre":
+                self.pre = max(self.pre - 1, 0)
+                self._emit("\n\n")
+            elif tag == "blockquote":
+                self._emit("\n\n")
+
+    def handle_data(self, data):
+        if self.skip:
+            return
+        if not self.pre:
+            # markdown с nl2br сам ставит <br> на каждый перевод строки текста,
+            # а переводы строк между тегами — просто форматирование его вывода
+            data = data.replace("\n", "")
+            if not data:
+                return
+        self._emit(str(escape(data)))
+
+    def result(self) -> str:
+        self._close(set(filter(None, self.open)) | {"a"})
+        text = "".join(self.out)
+        text = re.sub(r"<blockquote>\s+", "<blockquote>", text)
+        text = re.sub(r"\s+</blockquote>", "</blockquote>", text)
+        text = re.sub(r"[ \t]+\n", "\n", text)
+        text = re.sub(r"\n{3,}", "\n\n", text)
+        return text.strip()
 
 
 def telegram_html(text: str, base_url: str) -> str:
     """Markdown новости -> HTML для сообщения Telegram (см.
-    telegram_bot.publish_news). Спойлер ||текст|| становится родным
-    спойлером Telegram, картинки выпадают (в сообщении их не показать
-    текстом — новость целиком по ссылке), относительные ссылки (вложения
-    /news/attachments/...) дополняются адресом сайта из base_url — Telegram
-    относительный href отвергает."""
+    telegram_bot.news_text). Сохраняется: жирный, курсив, подчёркнутый,
+    ссылки, код, цитаты, спойлер ||текст|| (родной спойлер Telegram),
+    заголовки (жирным), списки — маркированные «•», нумерованные «1.»,
+    вложенные с отступом. Картинки выпадают (в группу они уходят альбомом),
+    относительные ссылки (вложения /news/attachments/...) дополняются адресом
+    сайта из base_url — Telegram относительный href отвергает."""
     _md.reset()
     pre = _SPOILER_RE.sub(lambda m: f'<span class="tg-spoiler">{escape(m.group(1))}</span>', text or "")
     html = _md.convert(pre)
-    # Переводы строк, которые markdown сам ставит после блочных тегов, —
-    # иначе вместе с заменами ниже получились бы лишние пустые строки.
-    html = _TG_BLOCK_NEWLINE_RE.sub(r"\1", html)
-    for rule, repl in _TG_BLOCK_RULES:
-        html = rule.sub(repl, html)
-    clean = bleach.clean(html, tags=_TG_TAGS, attributes=_TG_ATTRS, protocols=["http", "https", "mailto"], strip=True)
     origin = re.match(r"https?://[^/]+", base_url)
-    if origin:
-        clean = _RELATIVE_HREF_RE.sub(lambda m: f'href="{origin.group(0)}{m.group(1)}"', clean)
-    clean = re.sub(r"<blockquote>\s+", "<blockquote>", clean)
-    clean = re.sub(r"\s+</blockquote>\s*", "</blockquote>\n\n", clean)
-    clean = re.sub(r"\n{3,}", "\n\n", clean)
-    return clean.strip()
+    parser = _TelegramHTML(origin.group(0) if origin else None)
+    parser.feed(html)
+    parser.close()
+    return parser.result()

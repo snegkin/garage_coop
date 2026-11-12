@@ -112,7 +112,8 @@ def is_configured(settings: TelegramSettings | None) -> bool:
 
 
 def send_message(settings: TelegramSettings, chat_id: int | str, text: str,
-                 parse_mode: str | None = None, disable_preview: bool = False) -> None:
+                 parse_mode: str | None = None, disable_preview: bool = False,
+                 silent: bool = False) -> None:
     """Поднимает TelegramError при сбое — вызывающий код (notifications.notify)
     сам решает, что с этим делать (обычно — залогировать и не ронять
     остальную обработку). chat_id — число (личный чат, группа -100…) или
@@ -123,6 +124,8 @@ def send_message(settings: TelegramSettings, chat_id: int | str, text: str,
         payload["parse_mode"] = parse_mode
     if disable_preview:
         payload["link_preview_options"] = {"is_disabled": True}
+    if silent:
+        payload["disable_notification"] = True
     try:
         resp = requests.post(
             _api(settings, token, "sendMessage"),
@@ -282,13 +285,43 @@ def _visible_length(html_text: str) -> int:
     return len(plain.encode("utf-16-le")) // 2
 
 
+_TAG_TOKEN_RE = re.compile(r"<(/?)([a-z-]+)[^>]*>")
+
+
+def _balanced(html_text: str) -> bool:
+    stack = []
+    for closing, name in _TAG_TOKEN_RE.findall(html_text):
+        if not closing:
+            stack.append(name)
+        elif not stack or stack.pop() != name:
+            return False
+    return not stack
+
+
+def _truncate_blocks(html_text: str, limit: int) -> str | None:
+    """Обрезка длинной новости по границе абзаца (блоки разделены пустой
+    строкой) с сохранением разметки — сколько целых абзацев влезает в limit,
+    плюс «…»; полная версия — по ссылке. Режем только там, где все теги
+    закрыты (не посреди цитаты/кода). None — даже первый абзац не влезает
+    (тогда вызывающий шлёт обрезанный текст без разметки)."""
+    blocks = html_text.split("\n\n")
+    best = None
+    for n in range(1, len(blocks) + 1):
+        candidate = "\n\n".join(blocks[:n])
+        if _visible_length(candidate) > limit:
+            break
+        if _balanced(candidate):
+            best = candidate
+    return best + "\n\n…" if best else None
+
+
 def news_text(title: str, body: str, url: str) -> str:
     from markupsafe import escape
     from .news_format import telegram_html, excerpt
 
     rendered = telegram_html(body, base_url=url)
     if _visible_length(rendered) > NEWS_TEXT_LIMIT:
-        rendered = str(escape(excerpt(body, NEWS_EXCERPT_LENGTH)[0]))
+        rendered = _truncate_blocks(rendered, NEWS_TEXT_LIMIT) or str(escape(excerpt(body, NEWS_EXCERPT_LENGTH)[0]))
     return f"<b>{escape(title)}</b>\n\n{rendered}\n\n<a href=\"{escape(url)}\">Читать на сайте</a>"
 
 
@@ -339,18 +372,21 @@ def _upload(settings: TelegramSettings, method: str, data: dict, files: dict) ->
         raise _status_error(resp)
 
 
-def _album_steps(settings: TelegramSettings, photos, caption: str | None) -> list:
+def _album_steps(settings: TelegramSettings, photos, caption: str | None, silent: bool = False) -> list:
     """Одно фото — sendPhoto, больше — sendMediaGroup пачками по 10, каждая
     пачка — отдельный шаг. Подпись — у первого фото первой пачки (так Telegram
     показывает её под всем альбомом)."""
     chat_id = settings.news_chat_id
+    base = {"chat_id": chat_id}
+    if silent:
+        base["disable_notification"] = "true"
     steps = []
     for start in range(0, len(photos), ALBUM_MAX_ITEMS):
         chunk = photos[start:start + ALBUM_MAX_ITEMS]
         with_caption = caption if start == 0 else None
         if len(chunk) == 1:
             att, path = chunk[0]
-            data = {"chat_id": chat_id}
+            data = dict(base)
             if with_caption:
                 data.update(caption=with_caption, parse_mode="HTML")
             files = {"photo": (att.original_filename, path)}
@@ -363,13 +399,13 @@ def _album_steps(settings: TelegramSettings, photos, caption: str | None) -> lis
                 entry.update(caption=with_caption, parse_mode="HTML")
             media.append(entry)
             files[f"file{n}"] = (att.original_filename, path)
-        data = {"chat_id": chat_id, "media": json.dumps(media)}
+        data = {**base, "media": json.dumps(media)}
         steps.append(lambda data=data, files=files: _upload(settings, "sendMediaGroup", data, files))
     return steps
 
 
 def news_steps(settings: TelegramSettings, item: News, url: str, upload_folder: str,
-               album_first: bool = False) -> tuple[list, list[str]]:
+               album_first: bool = False, silent: bool = False) -> tuple[list, list[str]]:
     """Отправка новости в TelegramSettings.news_chat_id по шагам — каждый шаг
     это один запрос к Bot API (очередь, app/telegram_outbox.py, запоминает,
     сколько шагов прошло, и при повторе продолжает с места сбоя):
@@ -379,32 +415,36 @@ def news_steps(settings: TelegramSettings, item: News, url: str, upload_folder: 
     - текст длиннее — два сообщения, порядок задаёт album_first (галочка в
       форме новости);
     остальные вложения — следом, отдельными документами.
+    silent — все сообщения без звука у участников группы.
     -> (шаги, имена файлов, пропущенных из-за лимитов Telegram)."""
     text = news_text(item.title, item.body, url)
     photos, documents, skipped = _split_attachments(item, upload_folder)
 
     def send_text():
-        send_message(settings, settings.news_chat_id, text, parse_mode="HTML", disable_preview=True)
+        send_message(settings, settings.news_chat_id, text, parse_mode="HTML", disable_preview=True, silent=silent)
 
     if not photos:
         steps = [send_text]
     elif _visible_length(text) <= CAPTION_LIMIT:
-        steps = _album_steps(settings, photos, caption=text)
+        steps = _album_steps(settings, photos, caption=text, silent=silent)
     elif album_first:
-        steps = _album_steps(settings, photos, caption=None) + [send_text]
+        steps = _album_steps(settings, photos, caption=None, silent=silent) + [send_text]
     else:
-        steps = [send_text] + _album_steps(settings, photos, caption=None)
+        steps = [send_text] + _album_steps(settings, photos, caption=None, silent=silent)
 
+    doc_data = {"chat_id": settings.news_chat_id}
+    if silent:
+        doc_data["disable_notification"] = "true"
     for att, path in documents:
         files = {"document": (att.original_filename, path)}
-        steps.append(lambda files=files: _upload(settings, "sendDocument", {"chat_id": settings.news_chat_id}, files))
+        steps.append(lambda files=files: _upload(settings, "sendDocument", doc_data, files))
     return steps, skipped
 
 
 def publish_news(settings: TelegramSettings, item: News, url: str, upload_folder: str,
-                 album_first: bool = False) -> list[str]:
+                 album_first: bool = False, silent: bool = False) -> list[str]:
     """Все шаги news_steps подряд, без очереди. -> пропущенные файлы."""
-    steps, skipped = news_steps(settings, item, url, upload_folder, album_first)
+    steps, skipped = news_steps(settings, item, url, upload_folder, album_first, silent)
     for step in steps:
         step()
     return skipped

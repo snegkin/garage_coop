@@ -3106,6 +3106,11 @@ class TelegramOutbox(Base):
     news_id: Mapped[int | None] = mapped_column(ForeignKey("news.id", ondelete="SET NULL"), index=True)
     url: Mapped[str | None] = mapped_column(String(512))
     album_first: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Без звука у участников группы (Bot API: disable_notification).
+    silent: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    # Отложенная отправка: не раньше этого момента (UTC); первая попытка —
+    # next_attempt_at = scheduled_at, отсчёт MAX_AGE — тоже от него.
+    scheduled_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
     steps_done: Mapped[int] = mapped_column(Integer, default=0)
     status: Mapped[TelegramOutboxStatus] = mapped_column(
         Enum(TelegramOutboxStatus, values_callable=lambda e: [m.value for m in e], native_enum=False, length=16),

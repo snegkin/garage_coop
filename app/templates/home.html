@@ -8,7 +8,10 @@
     <div class="d-flex justify-content-between align-items-center mb-3">
       <h3 class="mb-0">{{ _("Новости кооператива") }}</h3>
       {% if current_user and is_board() %}
-      <a class="btn btn-primary btn-sm" href="{{ url_for('news.create') }}">+ {{ _("Добавить новость") }}</a>
+      <div class="d-flex gap-2">
+        <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('news_gallery.index') }}" title="{{ _('Галерея картинок для новостей') }}"><i class="bi bi-images" aria-hidden="true"></i><span class="d-none d-sm-inline"> {{ _("Галерея") }}</span></a>
+        <a class="btn btn-primary btn-sm" href="{{ url_for('news.create') }}">+ {{ _("Добавить новость") }}</a>
+      </div>
       {% endif %}
     </div>
     {% if news_items %}

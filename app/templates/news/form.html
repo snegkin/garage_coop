@@ -19,11 +19,12 @@
         <button type="button" class="btn btn-outline-secondary" data-md-link title="{{ _('Ссылка') }}"><i class="bi bi-link-45deg" aria-hidden="true"></i></button>
         <button type="button" class="btn btn-outline-secondary" id="news-insert-image-btn" title="{{ _('Вставить картинку') }}"><i class="bi bi-image" aria-hidden="true"></i></button>
         <input type="file" id="news-image-input" accept="image/jpeg,image/png,image/webp,image/gif" class="d-none">
+        <button type="button" class="btn btn-outline-secondary" id="news-gallery-btn" data-bs-toggle="modal" data-bs-target="#newsGalleryModal" title="{{ _('Картинка из галереи') }}"><i class="bi bi-images" aria-hidden="true"></i> {{ _("Из галереи") }}</button>
         <button type="button" class="btn btn-outline-secondary" id="news-preview-btn" title="{{ _('Предпросмотр') }}"><i class="bi bi-eye" aria-hidden="true"></i> {{ _("Предпросмотр") }}</button>
       </div>
     </div>
     <textarea id="news-body" class="form-control" name="body" rows="10" required>{{ item.body if item else '' }}</textarea>
-    <div class="form-text">{{ _("Поддерживается упрощённая разметка: **жирный**, *курсив*, [текст](ссылка), списки (пустая строка, затем строки с «- »), заголовок (### ). Между абзацами оставляйте пустую строку.") }} {{ _("Кнопка с камерой загружает картинку и сразу вставляет её в текст в месте курсора.") }}</div>
+    <div class="form-text">{{ _("Поддерживается упрощённая разметка: **жирный**, *курсив*, [текст](ссылка), списки (пустая строка, затем строки с «- »), заголовок (### ). Между абзацами оставляйте пустую строку.") }} {{ _("Кнопка с камерой загружает картинку и сразу вставляет её в текст в месте курсора.") }} {{ _("«Из галереи» — часто используемые картинки (субботник, собрание…).") }}</div>
     <div id="news-image-status" class="form-text text-danger"></div>
   </div>
 
@@ -69,6 +70,19 @@
     <a class="btn btn-secondary" href="{{ url_for('main.index') }}">{{ _("Отмена") }}</a>
   </div>
 </form>
+
+{# «Из галереи»: тело подгружается при открытии (news_gallery.picker). #}
+<div class="modal fade" id="newsGalleryModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-images" aria-hidden="true"></i> {{ _("Картинка из галереи") }}</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{{ _('Закрыть') }}"></button>
+      </div>
+      <div class="modal-body" id="newsGalleryBody"></div>
+    </div>
+  </div>
+</div>
 
 <div class="modal fade" id="newsPreviewModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg modal-dialog-scrollable">
@@ -144,6 +158,99 @@
     });
   }
 
+  // ![](url) в позицию курсора — и для загруженной картинки, и для
+  // выбранной в галерее.
+  function insertImageMarkdown(url, cursorPos) {
+    var markdown = "![](" + url + ")";
+    var value = textarea.value;
+    var before = value.slice(0, cursorPos);
+    var after = value.slice(cursorPos);
+    // Картинка должна оказаться в отдельном абзаце — иначе markdown
+    // склеит её с соседним текстом через <br>, и такой абзац уже не
+    // распознаётся как "только картинка" для оформления галереей
+    // (см. groupContentImages в base.html).
+    var prefix = (before.length === 0 || /\n\n$/.test(before)) ? "" : (/\n$/.test(before) ? "\n" : "\n\n");
+    var suffix = (after.length === 0 || /^\n\n/.test(after)) ? "" : (/^\n/.test(after) ? "\n" : "\n\n");
+    textarea.value = before + prefix + markdown + suffix + after;
+    textarea.selectionStart = textarea.selectionEnd = cursorPos + prefix.length + markdown.length;
+    textarea.focus();
+    // Программная правка value не даёт события input — шлём сами
+    // (на него подписан расчёт порядка сообщений в Telegram ниже).
+    textarea.dispatchEvent(new Event("input"));
+  }
+
+  // «Из галереи»: окно подгружает список (news_gallery.picker), клик по
+  // картинке — сервер делает её копию вложением новости (news_gallery.use),
+  // в текст вставляется так же, как загруженная. Курсор запоминаем до
+  // открытия окна — фокус уходит в него.
+  var galleryModalEl = document.getElementById("newsGalleryModal");
+  var galleryBody = document.getElementById("newsGalleryBody");
+  var galleryCursor = 0;
+  if (galleryModalEl) {
+    var csrfHeaders = function () {
+      var meta = document.querySelector('meta[name="csrf-token"]');
+      return meta ? { "X-CSRFToken": meta.getAttribute("content"), "X-Requested-With": "XMLHttpRequest" }
+                  : { "X-Requested-With": "XMLHttpRequest" };
+    };
+    var loadGallery = function () {
+      galleryBody.innerHTML = '<div class="text-center py-3"><div class="spinner-border" role="status"></div></div>';
+      fetch("{{ url_for('news_gallery.picker') }}", { headers: { "X-Requested-With": "XMLHttpRequest" } })
+        .then(function (r) { if (!r.ok) throw new Error(r.status); return r.text(); })
+        .then(function (html) { galleryBody.innerHTML = html; })
+        .catch(function () {
+          galleryBody.innerHTML = '<div class="text-danger">{{ _("Не удалось загрузить. Обновите страницу и попробуйте ещё раз.") }}</div>';
+        });
+    };
+    galleryModalEl.addEventListener("show.bs.modal", function () {
+      galleryCursor = textarea.selectionStart;  // позиция курсора сохраняется и без фокуса
+      loadGallery();
+    });
+    galleryBody.addEventListener("input", function (e) {
+      if (e.target.id !== "newsGalleryFilter") return;
+      var q = e.target.value.trim().toLowerCase();
+      var shown = 0;
+      galleryBody.querySelectorAll(".news-gallery-pick").forEach(function (b) {
+        var on = !q || b.getAttribute("data-title").indexOf(q) !== -1;
+        b.classList.toggle("d-none", !on);
+        if (on) shown++;
+      });
+      galleryBody.querySelector("#newsGalleryNothing").classList.toggle("d-none", shown > 0);
+    });
+    galleryBody.addEventListener("click", function (e) {
+      var errorEl = galleryBody.querySelector("#newsGalleryError");
+      var pick = e.target.closest(".news-gallery-pick");
+      if (pick) {
+        pick.disabled = true;
+        fetch(pick.getAttribute("data-use-url"), { method: "POST", headers: csrfHeaders() })
+          .then(function (r) { return r.json().then(function (data) { return { ok: r.ok, data: data }; }); })
+          .then(function (result) {
+            if (!result.ok) { errorEl.textContent = result.data.error || "{{ _('Не удалось вставить картинку.') }}"; return; }
+            bootstrap.Modal.getOrCreateInstance(galleryModalEl).hide();
+            insertImageMarkdown(result.data.url, galleryCursor);
+          })
+          .catch(function () { errorEl.textContent = "{{ _('Не удалось вставить картинку.') }}"; })
+          .finally(function () { pick.disabled = false; });
+        return;
+      }
+      var uploadBtn = e.target.closest("#newsGalleryUploadBtn");
+      if (uploadBtn) {
+        var files = galleryBody.querySelector("#newsGalleryUploadFiles").files;
+        if (!files.length) { errorEl.textContent = "{{ _('Выберите картинку: jpg, png, webp или gif.') }}"; return; }
+        var formData = new FormData();
+        Array.prototype.forEach.call(files, function (f) { formData.append("images", f); });
+        formData.append("title", galleryBody.querySelector("#newsGalleryUploadTitle").value);
+        uploadBtn.disabled = true;
+        fetch(uploadBtn.getAttribute("data-upload-url"), { method: "POST", headers: csrfHeaders(), body: formData })
+          .then(function (r) { return r.json().then(function (data) { return { ok: r.ok, data: data }; }); })
+          .then(function (result) {
+            if (!result.ok) { errorEl.textContent = result.data.error || "{{ _('Не удалось загрузить файл.') }}"; uploadBtn.disabled = false; return; }
+            loadGallery();
+          })
+          .catch(function () { errorEl.textContent = "{{ _('Не удалось загрузить файл.') }}"; uploadBtn.disabled = false; });
+      }
+    });
+  }
+
   // Вставка картинки: загружается сразу по выбору файла (AJAX, до
   // сохранения самой статьи — см. news.py: upload_inline_attachment),
   // markdown-ссылка вставляется в текст в позицию курсора по готовности.
@@ -174,22 +281,7 @@
             imageStatus.textContent = result.data.error || "{{ _('Не удалось загрузить файл.') }}";
             return;
           }
-          var markdown = "![](" + result.data.url + ")";
-          var value = textarea.value;
-          var before = value.slice(0, cursorPos);
-          var after = value.slice(cursorPos);
-          // Картинка должна оказаться в отдельном абзаце — иначе markdown
-          // склеит её с соседним текстом через <br>, и такой абзац уже не
-          // распознаётся как "только картинка" для оформления галереей
-          // (см. groupContentImages в base.html).
-          var prefix = (before.length === 0 || /\n\n$/.test(before)) ? "" : (/\n$/.test(before) ? "\n" : "\n\n");
-          var suffix = (after.length === 0 || /^\n\n/.test(after)) ? "" : (/^\n/.test(after) ? "\n" : "\n\n");
-          textarea.value = before + prefix + markdown + suffix + after;
-          textarea.selectionStart = textarea.selectionEnd = cursorPos + prefix.length + markdown.length;
-          textarea.focus();
-          // Программная правка value не даёт события input — шлём сами
-          // (на него подписан расчёт порядка сообщений в Telegram ниже).
-          textarea.dispatchEvent(new Event("input"));
+          insertImageMarkdown(result.data.url, cursorPos);
         })
         .catch(function () {
           imageStatus.textContent = "{{ _('Не удалось загрузить файл.') }}";

@@ -1,0 +1,32 @@
+{# Тело окна «Из галереи» в форме новости (news/form.html, AJAX). Клик по
+   картинке — вставка её копии в текст (news_gallery.use). #}
+{% include "news/_gallery_grid_style.html" %}
+{% if images %}
+<input class="form-control mb-3" type="search" id="newsGalleryFilter" placeholder="{{ _('Поиск по подписи') }}" aria-label="{{ _('Поиск по подписи') }}">
+<div class="news-gallery-grid" id="newsGalleryGrid">
+  {% for image in images %}
+  <button type="button" class="news-gallery-pick" data-use-url="{{ url_for('news_gallery.use', image_id=image.id) }}" data-title="{{ image.title|lower }}">
+    <figure>
+      <img src="{{ url_for('news_gallery.image', image_id=image.id) }}" alt="" loading="lazy">
+      <figcaption>{{ image.title }}</figcaption>
+    </figure>
+  </button>
+  {% endfor %}
+</div>
+<p class="text-muted small mt-2 mb-0 d-none" id="newsGalleryNothing">{{ _("Ничего не найдено.") }}</p>
+{% else %}
+<p class="text-muted">{{ _("Галерея пока пустая — добавьте картинки ниже.") }}</p>
+{% endif %}
+<hr>
+<div class="d-flex flex-wrap gap-2 align-items-end" id="newsGalleryUpload">
+  <div class="flex-grow-1" style="min-width:180px">
+    <label class="form-label small mb-1" for="newsGalleryUploadFiles">{{ _("Добавить в галерею") }}</label>
+    <input class="form-control form-control-sm" type="file" id="newsGalleryUploadFiles" accept="image/jpeg,image/png,image/webp,image/gif" multiple>
+  </div>
+  <div class="flex-grow-1" style="min-width:140px">
+    <input class="form-control form-control-sm" type="text" id="newsGalleryUploadTitle" maxlength="120" placeholder="{{ _('подпись') }}" aria-label="{{ _('Подпись') }}">
+  </div>
+  <button type="button" class="btn btn-sm btn-outline-primary" id="newsGalleryUploadBtn" data-upload-url="{{ url_for('news_gallery.upload') }}">{{ _("Добавить") }}</button>
+</div>
+<div class="form-text text-danger" id="newsGalleryError"></div>
+<div class="small mt-2"><a href="{{ url_for('news_gallery.index') }}" target="_blank" rel="noopener">{{ _("Управление галереей") }} <i class="bi bi-box-arrow-up-right" aria-hidden="true"></i></a></div>

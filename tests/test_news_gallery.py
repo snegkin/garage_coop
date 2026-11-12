@@ -93,6 +93,44 @@ def test_rename(db, client):
     assert image.title == "Тарифы на электроэнергию"
 
 
+def test_replace_keeps_title_and_news_copies(app, db, client):
+    _login_board(db, client)
+    _upload(client, title="Тарифы")
+    image = db.query(NewsGalleryImage).one()
+    image.use_count = 3
+    db.commit()
+    used = client.post(f"/news/gallery/{image.id}/use").get_json()["url"]
+    att = db.query(NewsAttachment).one()
+    old_stored = image.stored_filename
+    folder = app.config["UPLOAD_FOLDER"]
+
+    resp = client.post(f"/news/gallery/{image.id}/replace", data={"image": (io.BytesIO(PNG), "tarify-2027.png")},
+                       content_type="multipart/form-data")
+    assert resp.status_code == 302
+    db.refresh(image)
+    assert image.title == "Тарифы" and image.use_count == 4
+    assert image.original_filename == "tarify-2027.png"
+    assert image.stored_filename != old_stored
+    assert os.path.isfile(os.path.join(folder, image.stored_filename))
+    assert not os.path.exists(os.path.join(folder, old_stored))
+    # копия, уже вставленная в новость, не тронута
+    assert os.path.isfile(os.path.join(folder, att.stored_filename))
+    assert client.get(used).status_code == 200
+    # адрес картинки в галерее сменился — браузер не покажет старую из кэша
+    assert image.stored_filename[:8] in client.get("/news/gallery/").get_data(as_text=True)
+
+
+def test_replace_rejects_non_image(db, client):
+    _login_board(db, client)
+    _upload(client)
+    image = db.query(NewsGalleryImage).one()
+    old_stored = image.stored_filename
+    client.post(f"/news/gallery/{image.id}/replace", data={"image": (io.BytesIO(b"<html>"), "x.html")},
+                content_type="multipart/form-data")
+    db.refresh(image)
+    assert image.stored_filename == old_stored
+
+
 def test_form_has_gallery_button(db, client):
     _login_board(db, client)
     assert 'id="newsGalleryModal"' in client.get("/news/new").get_data(as_text=True)

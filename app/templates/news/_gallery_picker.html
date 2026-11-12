@@ -7,7 +7,7 @@
   {% for image in images %}
   <button type="button" class="news-gallery-pick" data-use-url="{{ url_for('news_gallery.use', image_id=image.id) }}" data-title="{{ image.title|lower }}">
     <figure>
-      <img src="{{ url_for('news_gallery.image', image_id=image.id) }}" alt="" loading="lazy">
+      <img src="{{ url_for('news_gallery.image', image_id=image.id, v=image.stored_filename[:8]) }}" alt="" loading="lazy">
       <figcaption>{{ image.title }}</figcaption>
     </figure>
   </button>

@@ -117,6 +117,35 @@ def rename(image_id):
     return redirect(url_for("news_gallery.index"))
 
 
+@bp.route("/<int:image_id>/replace", methods=["POST"])
+@roles_required(RoleEnum.BOARD)
+def replace(image_id):
+    """Заменить файл картинки, сохранив подпись и счётчик использования
+    (например, обновлённые тарифы). Уже вставленные в новости копии не
+    меняются — там отдельные файлы (см. use())."""
+    image = _get(image_id)
+    file_storage = request.files.get("image")
+    folder = current_app.config["UPLOAD_FOLDER"]
+    stored = None
+    if file_storage and file_storage.filename:
+        stored = save_upload(file_storage, folder, allowed_ext=ALLOWED_PHOTO_EXT)
+    if not stored:
+        flash(_("Выберите картинку: jpg, png, webp или gif."), "danger")
+        return redirect(url_for("news_gallery.index"))
+    old_stored = image.stored_filename
+    image.original_filename = file_storage.filename
+    image.stored_filename = stored
+    image.content_type = file_storage.content_type
+    audit.record("news_gallery.replace", f"В галерее новостей заменена картинка «{image.title}»")
+    database.db_session.commit()
+    try:
+        os.remove(os.path.join(folder, old_stored))
+    except OSError:
+        pass
+    flash(_("Картинка заменена. В уже опубликованных новостях осталась прежняя."), "success")
+    return redirect(url_for("news_gallery.index"))
+
+
 @bp.route("/<int:image_id>/delete", methods=["POST"])
 @roles_required(RoleEnum.BOARD)
 def delete(image_id):

@@ -90,9 +90,17 @@ def _target_number(row):
 # ---------------------------------------------------------------------------
 
 def test_pd4_purpose_puts_account_number_first():
-    assert pd4_purpose("10640", "Членский взнос", "12") == "ЛС 10640; Членский взнос, гараж №12"
-    assert pd4_purpose("10640", "Членский взнос") == "ЛС 10640; Членский взнос"
+    assert pd4_purpose("10640", "Членский взнос", "12") == "ЛС 10640 Членский взнос, гараж №12"
+    assert pd4_purpose("10640", "Членский взнос") == "ЛС 10640 Членский взнос"
     assert bank_sync.extract_account_number(pd4_purpose("10640", "Членский взнос", "12")) == "10640"
+
+
+def test_pd4_purpose_strips_characters_banks_reject():
+    """Сбербанк не принимает перевод с «;», «|» и т.п. в назначении."""
+    purpose = pd4_purpose("10640", 'Целевой взнос; "ремонт" | крыша & ворота', "12А")
+    assert purpose == "ЛС 10640 Целевой взнос ремонт крыша ворота, гараж №12А"
+    assert bank_sync.extract_account_number(purpose) == "10640"
+    assert len(pd4_purpose("1", "х" * 500)) == 210
 
 
 def test_pd4_qr_payload_uses_new_purpose(db, coop):
@@ -100,7 +108,7 @@ def test_pd4_qr_payload_uses_new_purpose(db, coop):
     db.add(co)
     db.flush()
     payload = pd4_qr_payload(co, coop["bank"], coop["dues"], Decimal("1710.00"))
-    assert "|Purpose=ЛС 10640; Членский взнос, гараж №12|" in payload
+    assert "|Purpose=ЛС 10640 Членский взнос, гараж №12|" in payload
     assert "|PersAcc=10640" in payload
 
 
@@ -111,7 +119,7 @@ def test_printed_slip_shows_new_purpose(db, client, coop):
     db.commit()
     login(client, "ivanov", "pass12345")
     body = client.get(f"/pd4/print?account_id={coop['dues'].id}").get_data(as_text=True)
-    assert "ЛС 10640; Членский взнос, гараж №12" in body
+    assert "ЛС 10640 Членский взнос, гараж №12" in body
 
 
 # ---------------------------------------------------------------------------
@@ -228,3 +236,12 @@ def test_modulbank_operation_carries_payer_account():
         "executed": "2026-11-05T00:00:00", "contragentBankAccountNumber": "4081 7810 5000 0001 2345",
     })
     assert line.counterparty_account == PAYER_ACC
+
+
+def test_pd4_qr_payload_strips_field_separator(db, coop):
+    co = Cooperative(full_name="ГСК | Ромашка", inn="1234567890", kpp="123456789", ogrn="1234567890123")
+    db.add(co)
+    db.flush()
+    payload = pd4_qr_payload(co, coop["bank"], coop["dues"], Decimal("100"))
+    assert "|Name=ГСК Ромашка|" in payload
+    assert all("=" in part for part in payload.split("|")[1:])

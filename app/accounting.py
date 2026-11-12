@@ -1075,17 +1075,18 @@ def account_digits(value: str | None) -> str:
     return _NON_DIGIT_RE.sub("", value or "")
 
 
-# Банки при переводе по реквизитам (Сбербанк — точно) отвергают назначение
-# с «;», «|» и рядом других символов. Пропускаем только заведомо безопасные:
-# буквы, цифры, пробел и . , - ( ) / №; прочее (в том числе из названия вида
-# взноса, которое вводит правление) — пробелом.
-_PAYMENT_TEXT_UNSAFE_RE = re.compile(r"[^0-9A-Za-zА-Яа-яЁё .,\-()/№]")
+# Сбербанк при переводе по реквизитам отвергает назначение со знаками
+# «;», «|», «!» (подсказка в его приложении: «без знаков типа ; | !»), ВТБ
+# такие пропускает. Убираем только их (и переводы строк) — заменой на
+# пробел; остальной текст, в том числе кавычки и № из названия вида взноса,
+# не трогаем.
+_PAYMENT_TEXT_UNSAFE_RE = re.compile(r"[;|!\r\n\t]")
 PURPOSE_MAX_LEN = 210
 
 
 def payment_text(value) -> str:
-    text = _PAYMENT_TEXT_UNSAFE_RE.sub(" ", str(value or ""))
-    return " ".join(text.split())
+    text = " ".join(_PAYMENT_TEXT_UNSAFE_RE.sub(" ", str(value or "")).split())
+    return re.sub(r" ([,.])", r"\1", text)
 
 
 def _qr_value(value) -> str:

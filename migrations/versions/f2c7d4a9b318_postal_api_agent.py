@@ -1,7 +1,7 @@
 """postal api agent
 
 Отправка заказных писем через API ИС ЭПС агентом ЭЗП (см. app/models.py:
-PostalDispatch, PostalApiSettings, app/postal_letters.py, ezp_agent/):
+PostalDispatch, PostalApiSettings, app/postal_letters.py, agents/ezp/):
 поля очереди/requestCode/статуса Почты у письма и настройки подключения.
 Новое значение статуса QUEUED колонку не меняет — статус хранится строкой
 VARCHAR(9) без CHECK.

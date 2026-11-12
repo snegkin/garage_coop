@@ -102,7 +102,7 @@ def backup_warnings(log_dir: str, backup_dir: str, now: dt.datetime | None = Non
     last_pull = _last_pull(log_dir)
     if last_pull is None:
         warnings.append(_("Агент локального бэкапа на компьютере председателя ни разу не забирал данные "
-                          "(backup_agent/README.md)."))
+                          "(agents/backup/README.md)."))
     elif now - last_pull > PULL_MAX_AGE:
         warnings.append(_("Локальная копия на компьютере председателя не обновлялась с {date}.",
                           date=last_pull.strftime("%d.%m.%Y %H:%M")))

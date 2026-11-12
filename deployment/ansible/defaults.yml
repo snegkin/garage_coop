@@ -22,7 +22,7 @@ certbot_email: ""
 # Публичные ключи, с которыми можно войти под app_user (для deploy.sh).
 deploy_ssh_pubkeys: []
 
-# Ключи агента локального бэкапа (backup_agent/ на компьютере председателя):
+# Ключи агента локального бэкапа (agents/backup/ на компьютере председателя):
 # входят под app_user, но только в scripts/backup_pull_gate.sh — rsync на
 # чтение внутри instance/, ни shell, ни проброса портов.
 backup_agent_pubkeys: []
@@ -80,7 +80,7 @@ cron_disable: []
 # Второй play в site.yml, тег local: ./run.sh --tags local. Нужен sudo на
 # этом компьютере — run.sh сам добавляет -K (--ask-become-pass).
 
-# Агент локального бэкапа (backup_agent/README.md). Ключ агента сам
+# Агент локального бэкапа (agents/backup/README.md). Ключ агента сам
 # попадает в authorized_keys сервера, known_hosts — ключ из
 # /etc/ssh/ssh_host_ed25519_key.pub сервера (без ssh-keyscan).
 local_backup_agent: false
@@ -94,11 +94,11 @@ local_backup_keep_monthly: 12
 local_backup_keep_yearly: 5
 local_backup_max_age_hours: 36
 
-# Агент ЭЗП (ezp_agent/README.md). Сертификат с Рутокена ставится в
+# Агент ЭЗП (agents/ezp/README.md). Сертификат с Рутокена ставится в
 # хранилище ezp-agent, если токен вставлен; службы запускаются, только
 # когда заполнены все ezp_* ниже и сертификат с ключом на месте.
 local_ezp_agent: false
-ezp_cryptopro_dir: "{{ playbook_dir }}/../../ezp_agent/cryptopro"   # .deb КриптоПро, см. README там
+ezp_cryptopro_dir: "{{ playbook_dir }}/../../agents/ezp/cryptopro"   # .deb КриптоПро, см. README там
 ezp_cryptopro_packages:
   - lsb-cprocsp-base
   - lsb-cprocsp-rdr-64
@@ -110,7 +110,7 @@ ezp_cryptopro_packages:
   - cprocsp-rdr-rutoken-64
   - cprocsp-stunnel-64
   - ifd-rutokens
-ezp_cert_dir: "{{ playbook_dir }}/../../ezp_agent/certs"
+ezp_cert_dir: "{{ playbook_dir }}/../../agents/ezp/certs"
 ezp_root_certs: [Mincifry_Rossii_root_guc2022.cer]   # → хранилище mRoot компьютера
 ezp_ca_certs: [CA_FNS_Russia_2025_01.crt]            # → mCA
 ezp_client_cert: ""          # открытая часть КЭП в ezp_cert_dir, например gm-voshod.cer

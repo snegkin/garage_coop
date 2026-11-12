@@ -1,5 +1,5 @@
 """
-Агент ЭЗП (ezp_agent/ezp_agent.py) — отдельная программа для ПК с Рутокеном,
+Агент ЭЗП (agents/ezp/ezp_agent.py) — отдельная программа для ПК с Рутокеном,
 приложение не импортирует; здесь — его логика без настоящих cryptcp/stunnel/
 сайта: subprocess.run и requests подменены.
 """
@@ -10,7 +10,7 @@ import subprocess
 
 import pytest
 
-_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "ezp_agent", "ezp_agent.py")
+_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "agents", "ezp", "ezp_agent.py")
 _spec = importlib.util.spec_from_file_location("ezp_agent", _PATH)
 ezp_agent = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(ezp_agent)

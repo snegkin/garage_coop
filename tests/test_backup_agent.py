@@ -1,5 +1,5 @@
 """
-Агент локального бэкапа (backup_agent/coop_backup_agent.py) — отдельная
+Агент локального бэкапа (agents/backup/coop_backup_agent.py) — отдельная
 программа для компьютера председателя; здесь rsync/restic подменены
 (subprocess.run): rsync копирует из каталога-«сервера», restic только
 записывает вызовы.
@@ -13,7 +13,7 @@ import subprocess
 
 import pytest
 
-_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backup_agent", "coop_backup_agent.py")
+_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "agents", "backup", "coop_backup_agent.py")
 _spec = importlib.util.spec_from_file_location("coop_backup_agent", _PATH)
 agent = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(agent)

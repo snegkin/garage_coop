@@ -256,7 +256,7 @@ logrotate не нужен.
 |---|---|---|
 | снимки БД | `backup_db` (выше) | сам сервер, `instance/backups/` |
 | внешняя | `backup_offsite` → restic | Яндекс.Диск (через rclone) |
-| локальная | агент [`backup_agent/`](../backup_agent/README.md) | компьютер председателя |
+| локальная | агент [`agents/backup/`](../agents/backup/README.md) | компьютер председателя |
 
 Во внешнюю и локальную копии попадают снимок БД, файл окружения (`.env`:
 без `SECRET_KEY`/`BANK_API_ENCRYPTION_KEY` сохранённые в БД пароли и токены
@@ -345,7 +345,7 @@ restic restore latest --target /tmp/coop-restore
 ```
 
 Дальше так же, как из локальной копии: раскладка каталогов и подъём
-сервера ansible-плейбуком описаны в [backup_agent/README.md](../backup_agent/README.md#восстановление).
+сервера ansible-плейбуком описаны в [agents/backup/README.md](../agents/backup/README.md#восстановление).
 
 Свежесть копий видна председателю на панели: красное предупреждение,
 если внешний бэкап упал, не запускался больше 36 часов или не настроен,
@@ -486,7 +486,7 @@ POP3 сам флагов не хранит, поэтому «прочитано�
 клиентским сертификатом двустороннего ГОСТ-TLS. Ключ КЭП от ФНС
 неэкспортируемый, он на Рутокене у председателя, поэтому на сервере сайта
 ничего не ставится и в `.env` ничего не добавляется. Работу делает **агент
-ЭЗП** — отдельная программа из каталога [`ezp_agent/`](../ezp_agent/README.md)
+ЭЗП** — отдельная программа из каталога [`agents/ezp/`](../agents/ezp/README.md)
 на компьютере с токеном. На этом компьютере нужны:
 - КриптоПро CSP и пакет `cprocsp-stunnel`;
 - две systemd-службы: `ezp-stunnel` (туннель до Почты) и `ezp-agent`
@@ -502,9 +502,9 @@ Bearer-токен), так что компьютер может быть за NA
 Порядок подключения:
 1. Отправить сертификаты (клиентский `gm-voshod.cer`, промежуточный ФНС
    `CA_FNS_Russia_2025_01.crt`, корневой ГОСТ Минцифры
-   `Mincifry_Rossii_root_guc2022.cer` — см. [`ezp_agent/certs/`](../ezp_agent/certs/README.md)) на ezp.support-r00@russianpost.ru
+   `Mincifry_Rossii_root_guc2022.cer` — см. [`agents/ezp/certs/`](../agents/ezp/certs/README.md)) на ezp.support-r00@russianpost.ru
    и получить тестовые ID/token.
-2. Установить агента по [README](../ezp_agent/README.md).
+2. Установить агента по [README](../agents/ezp/README.md).
 3. Выполнить `ezp_agent.py check`.
 4. Отправить три тестовых письма из тестового комплекта.
 5. Перейти на продуктив: сменить адрес в `stunnel.conf` и пару ID/token.

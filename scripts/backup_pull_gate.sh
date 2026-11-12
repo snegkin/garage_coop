@@ -1,5 +1,5 @@
 #!/bin/sh
-# Forced command для ssh-ключа агента локального бэкапа (backup_agent/ на
+# Forced command для ssh-ключа агента локального бэкапа (agents/backup/ на
 # компьютере председателя). В ~/.ssh/authorized_keys пользователя сайта:
 #
 #   command="/path/to/project/scripts/backup_pull_gate.sh",restrict ssh-ed25519 AAAA… coop-backup

@@ -1,4 +1,4 @@
-# Агент ЭЗП на ЭТОМ компьютере — шаги установки из ezp_agent/README.md.
+# Агент ЭЗП на ЭТОМ компьютере — шаги установки из agents/ezp/README.md.
 # Всё, кроме письма в Почту и тестовых писем. Службы запускаются только
 # когда готово всё: пакеты, цепочка, сертификат с ключом на токене,
 # client.cer и заполненный конфиг. Иначе — список, чего не хватает.
@@ -54,7 +54,7 @@
     fail_msg: >-
       Не хватает пакетов КриптоПро в {{ ezp_cryptopro_dir }}:
       {{ cpro_install | zip(cpro_debs) | selectattr(1, 'equalto', '') | map(attribute=0) | join(', ') }}.
-      Что и откуда копировать — ezp_agent/cryptopro/README.md
+      Что и откуда копировать — agents/ezp/cryptopro/README.md
     quiet: true
   when: cpro_missing | length > 0
 
@@ -97,14 +97,14 @@
 
 - name: "[ЭЗП] Программа агента"
   ansible.builtin.copy:
-    src: "{{ repo_root }}/ezp_agent/ezp_agent.py"
+    src: "{{ repo_root }}/agents/ezp/ezp_agent.py"
     dest: /opt/ezp-agent/ezp_agent.py
     mode: "0755"
   register: ezp_code
 
 - name: "[ЭЗП] Юниты systemd"
   ansible.builtin.copy:
-    src: "{{ repo_root }}/ezp_agent/{{ item }}"
+    src: "{{ repo_root }}/agents/ezp/{{ item }}"
     dest: "/etc/systemd/system/{{ item }}"
     mode: "0644"
   loop: [ezp-stunnel.service, ezp-agent.service]
@@ -115,7 +115,7 @@
 - name: "[ЭЗП] Файлы цепочки на месте"
   ansible.builtin.assert:
     that: (ezp_cert_dir + '/' + item) is file
-    fail_msg: "Нет {{ ezp_cert_dir }}/{{ item }} — откуда взять: ezp_agent/certs/README.md"
+    fail_msg: "Нет {{ ezp_cert_dir }}/{{ item }} — откуда взять: agents/ezp/certs/README.md"
     quiet: true
   loop: "{{ ezp_root_certs + ezp_ca_certs }}"
 

@@ -4,7 +4,7 @@
 #   20 3 * * * /path/to/project/scripts/backup_offsite.sh
 #
 # Без RESTIC_REPOSITORY в .env только обновляет instance/backup_staging/
-# (его забирает агент на компьютере председателя, см. backup_agent/).
+# (его забирает агент на компьютере председателя, см. agents/backup/).
 # Лог — <INSTANCE_DIR>/logs/backup_offsite.log.
 
 set -eu

@@ -14,7 +14,7 @@ restic-репозитории с историей версий.
 `BANK_API_ENCRYPTION_KEY`, без них сохранённые в БД пароли и токены не
 расшифровать), `uploads/`, `bank_certs/`, `bundles/` и архив почты
 `mail_backup/`. Всё это на сервере готовят cron-задачи `backup_mailbox` и
-`backup_offsite`, см. [docs/deployment.md](../docs/deployment.md), «Внешний бэкап».
+`backup_offsite`, см. [docs/deployment.md](../../docs/deployment.md), «Внешний бэкап».
 
 **Почему так:** агент сам ходит на сервер (компьютер за NAT), а у сервера
 нет доступа к этой копии. Ключ агента на сервере ограничен
@@ -135,4 +135,4 @@ sudo -E restic restore latest --target /tmp/coop-restore   # или id сним�
 `BANK_API_ENCRYPTION_KEY` из `backup_staging/env` переносятся в `vars.yml`.
 
 Тот же снимок есть во внешнем репозитории на Яндекс.Диске, см.
-[docs/deployment.md](../docs/deployment.md), «Внешний бэкап».
+[docs/deployment.md](../../docs/deployment.md), «Внешний бэкап».

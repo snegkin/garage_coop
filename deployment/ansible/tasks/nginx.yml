@@ -7,32 +7,21 @@
   register: nginx_v
   changed_when: false
   check_mode: false
+  tags: [instances]
 
 # `http2 on;` — с nginx 1.25.1 (Debian 13); в Ubuntu 24.04 — 1.24, там
 # только старое `listen ... http2`.
 - name: Синтаксис HTTP/2 под эту версию nginx
   ansible.builtin.set_fact:
     nginx_http2_directive: "{{ (nginx_v.stderr | regex_search('nginx/([0-9.]+)', '\\1') | first) is version('1.25.1', '>=') }}"
+  tags: [instances]
 
 - name: Каталог для проверки Let's Encrypt
   ansible.builtin.file:
     path: /var/www/letsencrypt
     state: directory
     mode: "0755"
-
-- name: Сайт nginx
-  ansible.builtin.template:
-    src: nginx-site.conf.j2
-    dest: "/etc/nginx/sites-available/{{ service_name }}"
-    mode: "0644"
-  notify: reload nginx
-
-- name: Сайт включён
-  ansible.builtin.file:
-    src: "../sites-available/{{ service_name }}"
-    dest: "/etc/nginx/sites-enabled/{{ service_name }}"
-    state: link
-  notify: reload nginx
+  tags: [instances]
 
 - name: Убрать сайт nginx по умолчанию
   ansible.builtin.file:
@@ -40,49 +29,18 @@
     state: absent
   notify: reload nginx
 
-- name: Конфиг nginx валиден
-  ansible.builtin.command: nginx -t
-  changed_when: false
+# Свой vhost, сертификат — tasks/nginx_site.yml (тот же файл — для
+# дополнительных кооперативов). Факт site_https — вход и выход.
+- name: Есть ли HTTPS у основного кооператива
+  ansible.builtin.set_fact:
+    site_https: "{{ https_enabled }}"
 
-- name: nginx применил конфиг до certbot
-  ansible.builtin.meta: flush_handlers
+- name: vhost основного кооператива
+  ansible.builtin.import_tasks: nginx_site.yml
 
-- name: Получить сертификат
-  when: coop_domain | length > 0 and not https_enabled | bool
-  block:
-    - name: certbot certonly --webroot
-      ansible.builtin.command:
-        argv: [certbot, certonly, --webroot, -w, /var/www/letsencrypt, -d, "{{ coop_domain }}",
-               --email, "{{ certbot_email }}", --agree-tos, --non-interactive, --no-eff-email]
-      register: certbot
-      failed_when: false
-
-    - name: Не вышло — сайт пока по HTTP
-      ansible.builtin.debug:
-        msg: >-
-          certbot не выдал сертификат (чаще всего A-запись {{ coop_domain }}
-          ещё не смотрит на этот сервер или не разошлась). Сайт работает по
-          HTTP; когда DNS обновится — прогоните плейбук ещё раз (--tags nginx,app).
-          {{ certbot.stderr | default('') | trim }}
-      when: certbot.rc != 0
-
-    # when блока проверяется перед КАЖДОЙ его задачей: после set_fact
-    # https_enabled=true всё, что ниже в блоке, пропустилось бы. Поэтому
-    # шаблон — с явным https_enabled, а set_fact — последним.
-    - name: Сайт nginx с HTTPS
-      ansible.builtin.template:
-        src: nginx-site.conf.j2
-        dest: "/etc/nginx/sites-available/{{ service_name }}"
-        mode: "0644"
-      vars:
-        https_enabled: true
-      notify: reload nginx
-      when: certbot.rc == 0
-
-    - name: Сертификат получен — включить HTTPS (последним в блоке)
-      ansible.builtin.set_fact:
-        https_enabled: true
-      when: certbot.rc == 0
+- name: HTTPS основного — для .env (FORCE_HTTPS) и итога
+  ansible.builtin.set_fact:
+    https_enabled: "{{ site_https }}"
 
 - name: Каталог хуков certbot
   ansible.builtin.file:

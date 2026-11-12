@@ -19,6 +19,41 @@ gunicorn_args: "-w 1 --threads 4 -k gthread"
 coop_domain: ""                    # пусто — без HTTPS, сайт по IP
 certbot_email: ""
 
+# Дополнительные кооперативы на этом же сервере (docs/deployment.md,
+# «Несколько кооперативов на одном сервере»). Код и venv — общие (app_dir
+# основного), у каждого: пользователь ОС = name, /home/NAME/coop.env (0600)
+# с INSTANCE_DIR=/home/NAME/instance (0700), служба SERVICE_NAME-NAME на
+# своём порту, свой vhost и сертификат (certbot_email — общий), свой
+# crontab с ENV_FILE и общей блокировкой coop_cron_lock. Данные основного
+# (.env и instance/ в app_dir, 0600/0700) пользователю NAME недоступны:
+# забытый ENV_FILE — «нет доступа», а не запись в чужую БД.
+#
+#   coop_extra_instances:
+#     - name: coop2                          # [a-z][a-z0-9-]*, не app_user
+#       domain: xn--...xn--p1ai              # обязателен, punycode
+#       port: 8001                           # свой, не app_port
+#       secret_key: "…"                      # свои, ≥32 символов; не как у основного
+#       bank_api_encryption_key: "…"
+#       # необязательные:
+#       recaptcha_site_key: ""               # ключи reCAPTCHA — на свой домен
+#       recaptcha_secret_key: ""
+#       env_extra: {}                        # как app_env_extra
+#       cron_enable: []                      # как cron_enable / cron_disable
+#       cron_disable: []
+#       cron_minute_offset: 7                # сдвиг минут cron (по умолчанию 7 × номер)
+#       backup_agent_pubkeys: []             # агент бэкапа председателя этого кооператива
+#       rclone_yandex_token: ""              # как rclone_yandex_token
+#       restore_db_file: ""                  # перенос БД/файлов, как restore_* ниже
+#       restore_source_instance_dir: ""
+#
+# Убрать кооператив плейбук не умеет (данные не удаляются автоматически):
+# остановить службу, удалить её юнит, vhost и crontab пользователя руками.
+coop_extra_instances: []
+# Общая блокировка cron всех кооперативов (scripts/_common.sh): на сервере
+# в 1 ГБ одновременно выполняется не больше одного скрипта. Ставится, только
+# если есть coop_extra_instances.
+coop_cron_lock: /var/lib/coop-cron/cron.lock
+
 # Публичные ключи, с которыми можно войти под app_user (для deploy.sh).
 deploy_ssh_pubkeys: []
 

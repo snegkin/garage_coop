@@ -9,8 +9,15 @@ DEPLOY_USER={{ app_user }}
 DEPLOY_PASSWORD=
 APP_DIR={{ app_dir }}
 APP_USER={{ app_user }}
-SERVICES="{{ service_name }}"
-HEALTH_URLS="http://127.0.0.1:{{ app_port }}/"
+{% set extra = extra_instances | default([]) %}
+SERVICES="{{ ([service_name] + extra | map(attribute='service') | list) | join(' ') }}"
+HEALTH_URLS="{% for port in [app_port] + extra | map(attribute='port') | list %}{{ ' ' if not loop.first }}http://127.0.0.1:{{ port }}/{% endfor %}"
 HEALTH_TIMEOUT=90
 BACKUP_BEFORE=1
+{% if extra %}
+# Бэкап БД перед обновлением — каждого кооператива; ПОЛЬЗОВАТЕЛЬ:ФАЙЛ —
+# под этим пользователем через sudo (правило ставит плейбук).
+BACKUP_ENV_FILES="{{ app_dir }}/.env{% for i in extra %} {{ i.user }}:{{ i.env_file }}{% endfor %}"
+{% else %}
 BACKUP_ENV_FILES=""
+{% endif %}

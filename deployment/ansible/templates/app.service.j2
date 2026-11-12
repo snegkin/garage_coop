@@ -6,8 +6,13 @@ After=network.target
 [Service]
 User={{ app_user }}
 WorkingDirectory={{ app_dir }}
+{% if app_env_file is defined %}
+EnvironmentFile={{ app_env_file }}
+ExecStartPre=/usr/bin/env ENV_FILE={{ app_env_file }} {{ app_dir }}/scripts/repair_db.sh
+{% else %}
 EnvironmentFile={{ app_dir }}/.env
 ExecStartPre={{ app_dir }}/scripts/repair_db.sh
+{% endif %}
 ExecStart={{ app_dir }}/venv/bin/gunicorn {{ gunicorn_args }} -b 127.0.0.1:{{ app_port }} run:app
 Restart=always
 

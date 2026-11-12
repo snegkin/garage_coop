@@ -1,0 +1,206 @@
+# Один дополнительный кооператив (coop_extra_instances, defaults.yml) — из
+# site.yml в цикле, inst — его запись после filter_plugins/coop.py. Через
+# vars include сюда приходят его app_user, app_instance_dir, app_env_file,
+# service_name, app_port, coop_domain, ключи; app_dir — общий код основного.
+#
+# Handlers основного (restart app) здесь не годятся — они перезапустили бы
+# службу основного; служба перезапускается явно по register.
+
+- name: "[{{ inst.name }}] Пользователь ОС"
+  ansible.builtin.user:
+    name: "{{ app_user }}"
+    shell: /bin/bash
+    password: "!"
+    update_password: on_create
+
+- name: "[{{ inst.name }}] Домашний каталог — только владельцу"
+  ansible.builtin.file:
+    path: "{{ inst.home }}"
+    mode: "0700"
+
+- name: "[{{ inst.name }}] Каталог данных — только владельцу"
+  ansible.builtin.file:
+    path: "{{ app_instance_dir }}"
+    state: directory
+    owner: "{{ app_user }}"
+    group: "{{ app_user }}"
+    mode: "0700"
+
+# Код общий: пользователю кооператива нужен его просмотр (каталог основного
+# пользователя — 0711, checkout и venv — на чтение всем), но не данные
+# основного: .env (0600) и instance/ (0700).
+- name: "[{{ inst.name }}] Общий код доступен, данные основного — нет"
+  ansible.builtin.shell: |
+    test -r {{ app_dir | quote }}/run.py || { echo "нет доступа к коду {{ app_dir }}"; exit 1; }
+    test -x {{ app_dir | quote }}/venv/bin/python3 || { echo "нет доступа к venv {{ app_dir }}/venv"; exit 1; }
+    if test -r {{ app_dir | quote }}/.env; then echo "{{ app_dir }}/.env читается пользователем {{ app_user }}"; exit 1; fi
+    if test -r {{ shared_instance_dir | quote }}; then echo "instance/ основного читается пользователем {{ app_user }}"; exit 1; fi
+  become_user: "{{ app_user }}"
+  changed_when: false
+
+- name: "[{{ inst.name }}] Ключи агента бэкапа председателя — только rsync на чтение"
+  ansible.posix.authorized_key:
+    user: "{{ app_user }}"
+    key: "{{ key }}"
+    key_options: 'command="ENV_FILE={{ app_env_file }} {{ app_dir }}/scripts/backup_pull_gate.sh",restrict'
+  loop: "{{ inst.backup_agent_pubkeys }}"
+  loop_control:
+    loop_var: key
+
+# deploy.sh входит под основным пользователем: перезапуск этой службы и
+# бэкап БД этого кооператива перед обновлением — под его пользователем.
+# В аргументах sudoers «=» экранируется.
+- name: "[{{ inst.name }}] deploy.sh: перезапуск службы и бэкап БД — без пароля"
+  ansible.builtin.copy:
+    dest: "/etc/sudoers.d/{{ service_name }}-deploy"
+    content: |
+      {{ primary_app_user }} ALL=(root) NOPASSWD: /usr/bin/systemctl restart {{ service_name }}
+      {{ primary_app_user }} ALL=({{ app_user }}) NOPASSWD: /usr/bin/env ENV_FILE\={{ app_env_file }} {{ app_dir }}/scripts/backup_db.sh
+    mode: "0440"
+    validate: visudo -cf %s
+
+# --- данные ------------------------------------------------------------------
+
+- name: "[{{ inst.name }}] Перенос БД и файлов"
+  ansible.builtin.import_tasks: restore.yml
+
+# --- nginx и сертификат --------------------------------------------------------
+
+- name: "[{{ inst.name }}] Есть ли сертификат"
+  ansible.builtin.stat:
+    path: "/etc/letsencrypt/live/{{ coop_domain }}/fullchain.pem"
+  register: inst_cert
+
+- name: "[{{ inst.name }}] HTTPS — только если сертификат уже есть"
+  ansible.builtin.set_fact:
+    site_https: "{{ inst_cert.stat.exists }}"
+
+- name: "[{{ inst.name }}] vhost"
+  ansible.builtin.import_tasks: nginx_site.yml
+
+# --- окружение и служба --------------------------------------------------------
+
+- name: "[{{ inst.name }}] Файл окружения"
+  ansible.builtin.template:
+    src: env.j2
+    dest: "{{ app_env_file }}"
+    owner: "{{ app_user }}"
+    group: "{{ app_user }}"
+    mode: "0600"
+  vars:
+    env_https: "{{ site_https }}"
+  register: inst_env
+
+- name: "[{{ inst.name }}] Каталог конфига rclone"
+  ansible.builtin.file:
+    path: "{{ inst.home }}/.config/rclone"
+    state: directory
+    owner: "{{ app_user }}"
+    group: "{{ app_user }}"
+    mode: "0700"
+  when: rclone_yandex_token | length > 0
+
+- name: "[{{ inst.name }}] rclone.conf — remote yadisk"
+  ansible.builtin.copy:
+    dest: "{{ inst.home }}/.config/rclone/rclone.conf"
+    content: |
+      [yadisk]
+      type = yandex
+      token = {{ rclone_yandex_token if rclone_yandex_token is string else (rclone_yandex_token | to_json) }}
+    owner: "{{ app_user }}"
+    group: "{{ app_user }}"
+    mode: "0600"
+    force: false
+  when: rclone_yandex_token | length > 0
+
+- name: "[{{ inst.name }}] БД есть"
+  ansible.builtin.stat:
+    path: "{{ app_instance_dir }}/coop.db"
+  register: inst_db
+
+- name: "[{{ inst.name }}] БД нет и переносить нечего — новая (chairman / change-me-please)"
+  ansible.builtin.shell: set -a && . {{ app_env_file | quote }} && set +a && venv/bin/python seed.py
+  args:
+    chdir: "{{ app_dir }}"
+  become_user: "{{ app_user }}"
+  when: not inst_db.stat.exists
+
+- name: "[{{ inst.name }}] Служба systemd"
+  ansible.builtin.template:
+    src: app.service.j2
+    dest: "/etc/systemd/system/{{ service_name }}.service"
+    mode: "0644"
+  register: inst_unit
+
+- name: "[{{ inst.name }}] Служба включена и запущена"
+  ansible.builtin.systemd_service:
+    name: "{{ service_name }}"
+    enabled: true
+    state: started
+    daemon_reload: "{{ inst_unit is changed }}"
+  register: inst_started
+
+- name: "[{{ inst.name }}] Перезапуск — менялись окружение или юнит"
+  ansible.builtin.systemd_service:
+    name: "{{ service_name }}"
+    state: restarted
+  when: (inst_env is changed or inst_unit is changed) and inst_started is not changed
+
+- name: "[{{ inst.name }}] Сайт отвечает (миграции накатываются при старте)"
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ app_port }}/"
+    follow_redirects: none
+    status_code: [200, 301, 302, 303, 307, 308, 401, 403, 404]
+  register: inst_health
+  retries: 30
+  delay: 3
+  until: inst_health.status in [200, 301, 302, 303, 307, 308, 401, 403, 404]
+
+# --- cron ----------------------------------------------------------------------
+
+# Переменные crontab действуют на все строки ниже: ENV_FILE — данные этого
+# кооператива, COOP_CRON_LOCK — не больше одного скрипта всех кооперативов.
+- name: "[{{ inst.name }}] cron — окружение"
+  ansible.builtin.cron:
+    user: "{{ app_user }}"
+    name: "{{ env.name }}"
+    env: true
+    job: "{{ env.value }}"
+  loop:
+    - {name: COOP_CRON_LOCK, value: "{{ coop_cron_lock }}"}
+    - {name: ENV_FILE, value: "{{ app_env_file }}"}
+  loop_control:
+    loop_var: env
+    label: "{{ env.name }}"
+
+- name: "[{{ inst.name }}] cron (минуты сдвинуты на {{ inst.cron_minute_offset }})"
+  ansible.builtin.cron:
+    user: "{{ app_user }}"
+    name: "{{ job.name }}"
+    minute: "{{ job.minute | default('*') | cron_shift_minute(inst.cron_minute_offset) }}"
+    hour: "{{ job.hour | default('*') }}"
+    day: "{{ job.day | default('*') }}"
+    weekday: "{{ job.weekday | default('*') }}"
+    job: "{{ app_dir }}/scripts/{{ job.name }}.sh"
+    state: "{{ 'present' if job_on else 'absent' }}"
+  vars:
+    job_on: "{{ (job.enabled | default(true) or job.name in inst.cron_enable) and job.name not in inst.cron_disable }}"
+  loop: "{{ cron_jobs }}"
+  loop_control:
+    loop_var: job
+    label: "{{ job.name }}{{ '' if job_on else ' (выкл.)' }}"
+
+# Как у основного (service.yml): агенту председателя нужен backup_staging/.
+- name: "[{{ inst.name }}] Первый снимок для агента бэкапа (backup_offsite)"
+  ansible.builtin.command: "/usr/bin/env ENV_FILE={{ app_env_file }} {{ app_dir }}/scripts/backup_offsite.sh"
+  args:
+    creates: "{{ app_instance_dir }}/backup_staging/MANIFEST.json"
+  become_user: "{{ app_user }}"
+  failed_when: false
+  when: inst.backup_agent_pubkeys | length > 0
+
+- name: "[{{ inst.name }}] Итог"
+  ansible.builtin.debug:
+    msg:
+      - "Сайт: {{ ('https://' if site_https | bool else 'http://') + coop_domain }} (служба {{ service_name }}, порт {{ app_port }})"
+      - "Данные: {{ app_instance_dir }}, окружение: {{ app_env_file }}"

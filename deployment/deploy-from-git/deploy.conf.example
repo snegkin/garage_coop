@@ -53,5 +53,8 @@ HEALTH_TIMEOUT=90
 # Бэкап БД перед обновлением (scripts/backup_db.sh): 1 — делать, 0 — нет.
 BACKUP_BEFORE=1
 # Файлы окружения кооперативов для бэкапа (ENV_FILE, через пробел). Пусто —
-# .env в каталоге кода, то есть один кооператив.
+# .env в каталоге кода, то есть один кооператив. ФАЙЛ — бэкап под APP_USER;
+# ПОЛЬЗОВАТЕЛЬ:ФАЙЛ — под пользователем другого кооператива через sudo
+# (правило ставит плейбук для coop_extra_instances), например:
+#   BACKUP_ENV_FILES="/home/coop/garage_coop/.env coop2:/home/coop2/coop.env"
 BACKUP_ENV_FILES=""

@@ -1971,6 +1971,7 @@ document.addEventListener("submit", function (e) {
   var form = e.target;
   if (form.classList.contains("js-quick-charge-form") || form.classList.contains("js-quick-payment-form")) return;
   if (form.hasAttribute("data-no-ajax")) return;
+  if (form.hasAttribute("data-progress")) return; // своё окно прогресса, см. #progressModal
   if (e.defaultPrevented) return; // confirm() внутри onsubmit уже вернул false — пользователь отменил действие
 
   var modalEl = form.closest(".modal");
@@ -2315,6 +2316,219 @@ document.addEventListener("click", function (e) {
     // notify_via_webpush уже сохранена (см. auth._complete_login), push
     // просто не будет фактически доставляться, пока подписки нет; попробовать
     // ещё раз можно в настройках профиля (галочка push → «Сохранить»).
+  });
+})();
+</script>
+{% endif %}
+{# Окно прогресса долгих операций (app/progress.py): форма с атрибутом
+   data-progress="Заголовок" вместо обычного POST открывает это окно, шаги
+   приходят строками JSON по мере выполнения. data-progress-retry — кнопка
+   «Ещё раз» (для безопасных повторов, например проверки подключения).
+   После закрытия окна — переход на адрес результата (обновлённые данные). #}
+{% if g.user %}
+<div class="modal fade" id="progressModal" tabindex="-1" aria-labelledby="progressModalLabel" aria-hidden="true" data-bs-backdrop="static">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="progressModalLabel"></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{{ _("Закрыть") }}"></button>
+      </div>
+      <div class="modal-body">
+        <div id="progressSteps"></div>
+        <div id="progressSummary" class="alert d-none mb-0 mt-3"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-primary d-none" id="progressRetry">{{ _("Ещё раз") }}</button>
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _("Закрыть") }}</button>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  var TEXT = {
+    running: "{{ _("Выполняется…") }}",
+    stillRunning: "{{ _("Операция продолжается на сервере — результат будет виден на странице.") }}",
+    network: "{{ _("Не удалось получить ответ сервера — проверьте соединение и попробуйте ещё раз.") }}",
+    skipped: "{{ _("пропущено") }}"
+  };
+  var ICON = {
+    running: '<span class="spinner-border spinner-border-sm text-primary" role="status"></span>',
+    ok: '<span class="text-success fw-bold">✓</span>',
+    warn: '<span class="text-warning fw-bold">⚠</span>',
+    fail: '<span class="text-danger fw-bold">✗</span>',
+    skip: '<span class="text-muted">—</span>'
+  };
+  var modalEl = document.getElementById("progressModal");
+  var stepsEl = document.getElementById("progressSteps");
+  var summaryEl = document.getElementById("progressSummary");
+  var retryEl = document.getElementById("progressRetry");
+  var state = { form: null, running: false, redirect: null };
+
+  function el(tag, cls, text) {
+    var node = document.createElement(tag);
+    if (cls) node.className = cls;
+    if (text) node.textContent = text;
+    return node;
+  }
+
+  function container(ev) {
+    if (ev.sub && ev.parent) {
+      var parent = document.getElementById("progressStep-" + ev.parent);
+      if (parent) {
+        var nested = parent.querySelector(":scope > .progress-sub");
+        if (!nested) {
+          nested = el("ul", "list-unstyled mb-0 ms-1 mt-1 progress-sub");
+          parent.appendChild(nested);
+        }
+        return nested;
+      }
+    }
+    var groupKey = ev.group || "";
+    var list = document.getElementById("progressGroup-" + groupKey);
+    if (!list) {
+      if (ev.group_title) stepsEl.appendChild(el("h6", "mt-3 mb-2", ev.group_title));
+      list = el("ul", "list-unstyled mb-0");
+      list.id = "progressGroup-" + groupKey;
+      stepsEl.appendChild(list);
+    }
+    return list;
+  }
+
+  function render(ev) {
+    var key = "progressStep-" + (ev.group ? ev.group + "-" : "") + ev.id;
+    var item = document.getElementById(key);
+    if (!item) {
+      item = el("li", ev.sub ? "small py-0" : "py-1 border-bottom");
+      item.id = key;
+      container(ev).appendChild(item);
+    }
+    var row = item.querySelector(":scope > .progress-row");
+    if (!row) {
+      row = el("div", "d-flex gap-2 progress-row");
+      item.insertBefore(row, item.firstChild);
+    }
+    row.innerHTML = "";
+    var icon = el("div", "text-center flex-shrink-0");
+    icon.style.width = "1.5rem";
+    icon.innerHTML = ICON[ev.status] || "";
+    var body = el("div", "flex-grow-1 text-break");
+    var title = el("span", ev.status === "skip" || ev.sub ? "text-muted" : "", ev.title);
+    body.appendChild(title);
+    var detail = ev.status === "skip" ? TEXT.skipped : ev.detail;
+    if (detail) {
+      if (ev.sub) {
+        body.appendChild(document.createTextNode(" — "));
+        body.appendChild(el("span", ev.status === "fail" ? "text-danger" : "text-muted", detail));
+      } else {
+        body.appendChild(el("div", "small " + (ev.status === "fail" ? "text-danger" : "text-muted"), detail));
+      }
+    }
+    if (ev.hint) body.appendChild(el("div", "small mt-1", ev.hint));
+    row.appendChild(icon);
+    row.appendChild(body);
+  }
+
+  function finish(ok, message, category, redirect) {
+    state.running = false;
+    state.redirect = redirect || null;
+    summaryEl.className = "alert mb-0 mt-3 alert-" + (category || (ok ? "success" : "danger"));
+    summaryEl.textContent = message || "";
+    if (state.form && state.form.hasAttribute("data-progress-retry")) {
+      retryEl.classList.remove("d-none");
+      retryEl.disabled = false;
+    }
+  }
+
+  function start(form) {
+    if (state.running) return;
+    state.form = form;
+    state.running = true;
+    state.redirect = null;
+    document.getElementById("progressModalLabel").textContent = form.getAttribute("data-progress") || "";
+    stepsEl.innerHTML = "";
+    summaryEl.className = "alert alert-secondary mb-0 mt-3";
+    summaryEl.textContent = TEXT.running;
+    retryEl.classList.add("d-none");
+    window.bootstrap.Modal.getOrCreateInstance(modalEl).show();
+
+    fetch(form.action, {
+      method: "POST",
+      body: new FormData(form),
+      headers: { "Accept": "application/x-ndjson", "X-Requested-With": "XMLHttpRequest" }
+    }).then(function (resp) {
+      var type = resp.headers.get("Content-Type") || "";
+      if (!resp.ok || type.indexOf("application/x-ndjson") !== 0 || !resp.body) {
+        // Не поток — обычная страница (редирект с flash, ошибка): идём туда.
+        if (resp.ok && resp.redirected) {
+          state.running = false;
+          window.location.href = resp.url;
+          return;
+        }
+        throw new Error("bad response");
+      }
+      var reader = resp.body.getReader();
+      var decoder = new TextDecoder();
+      var buffer = "";
+      var done = false;
+      function handle(line) {
+        if (!line.trim()) return;
+        var ev = JSON.parse(line);
+        if (ev.type === "step") render(ev);
+        else if (ev.type === "done") {
+          done = true;
+          finish(ev.ok, ev.message, ev.category, ev.redirect);
+        }
+      }
+      function pump() {
+        return reader.read().then(function (chunk) {
+          if (chunk.done) {
+            handle(buffer);
+            if (!done) finish(false, TEXT.network, "danger", window.location.href);
+            return;
+          }
+          buffer += decoder.decode(chunk.value, { stream: true });
+          var lines = buffer.split("\n");
+          buffer = lines.pop();
+          lines.forEach(handle);
+          return pump();
+        });
+      }
+      return pump();
+    }).catch(function () {
+      finish(false, TEXT.network, "danger", null);
+    });
+  }
+
+  document.addEventListener("submit", function (e) {
+    var form = e.target;
+    if (!form.hasAttribute || !form.hasAttribute("data-progress") || !window.bootstrap) return;
+    if (e.defaultPrevented) return; // confirm() в onsubmit отменили
+    e.preventDefault();
+    // Форма в другой модалке (например, выбор периода) — сначала закрыть её.
+    var outer = form.closest(".modal");
+    var outerModal = outer && outer !== modalEl ? window.bootstrap.Modal.getInstance(outer) : null;
+    if (outerModal) {
+      outer.addEventListener("hidden.bs.modal", function () { start(form); }, { once: true });
+      outerModal.hide();
+    } else {
+      start(form);
+    }
+  });
+
+  retryEl.addEventListener("click", function () {
+    if (state.form && !state.running) start(state.form);
+  });
+
+  modalEl.addEventListener("hidden.bs.modal", function () {
+    // Закрыли во время выполнения — задача на сервере доходит до конца;
+    // закрыли после — показываем обновлённую страницу.
+    if (state.running) {
+      state.running = false;
+      window.alert(TEXT.stillRunning);
+      return;
+    }
+    if (state.redirect) window.location.href = state.redirect;
   });
 })();
 </script>

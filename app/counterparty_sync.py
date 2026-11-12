@@ -11,6 +11,7 @@ import datetime as dt
 from flask import Blueprint, redirect, url_for, flash
 
 from . import database, audit
+from . import progress as progress_ui
 from .i18n import translate as _
 from .auth import roles_required
 from .models import RoleEnum, Counterparty
@@ -35,7 +36,7 @@ def balance_sync_due(counterparty: Counterparty, today: dt.date | None = None) -
     return days_since >= (counterparty.balance_sync_interval_days or 1)
 
 
-def sync_counterparty_balance(counterparty: Counterparty) -> tuple[str, str]:
+def sync_counterparty_balance(counterparty: Counterparty, progress=progress_ui.NULL) -> tuple[str, str]:
     """
     Возвращает (status, message): status — "unsupported" (для этого
     контрагента нет настроенной/реализованной интеграции, см. get_client),
@@ -46,12 +47,15 @@ def sync_counterparty_balance(counterparty: Counterparty) -> tuple[str, str]:
         reason = unsupported_reason(counterparty)
         return "unsupported", _("Автоматическое обновление баланса недоступно: {reason}.").format(reason=reason)
 
-    try:
-        info = client.get_balance()
-    except CounterpartyApiError as e:
-        counterparty.external_balance_error = str(e)
-        database.db_session.commit()
-        return "error", _("Не удалось получить баланс: {error}").format(error=str(e))
+    with progress.step(_("Баланс в личном кабинете {name}", name=counterparty.name)) as step:
+        try:
+            info = client.get_balance()
+        except CounterpartyApiError as e:
+            step.fail(str(e))
+            counterparty.external_balance_error = str(e)
+            database.db_session.commit()
+            return "error", _("Не удалось получить баланс: {error}").format(error=str(e))
+        step.ok(f"{info.amount} ₽")
 
     # В журнал — только если баланс реально изменился: этот прогон (и
     # ручной кнопкой, и по cron, см. докстринг выше) обычно ничего не
@@ -74,10 +78,14 @@ def sync_counterparty_balance(counterparty: Counterparty) -> tuple[str, str]:
 @bp.route("/sync-balance", methods=["POST"])
 @roles_required(RoleEnum.BOARD)
 def sync_balance(counterparty_id):
-    counterparty = database.db_session.get(Counterparty, counterparty_id)
-    if counterparty is None:
+    if database.db_session.get(Counterparty, counterparty_id) is None:
         flash(_("Контрагент не найден."), "danger")
         return redirect(url_for("counterparties.list_counterparties"))
-    status, message = sync_counterparty_balance(counterparty)
-    flash(message, "success" if status == "success" else ("warning" if status == "unsupported" else "danger"))
-    return redirect(url_for("counterparties.detail", counterparty_id=counterparty_id))
+    back = url_for("counterparties.detail", counterparty_id=counterparty_id)
+
+    def task(progress):
+        status, message = sync_counterparty_balance(database.db_session.get(Counterparty, counterparty_id), progress)
+        category = {"success": "success", "unsupported": "warning"}.get(status, "danger")
+        return progress_ui.Result(status == "success", message, back, category)
+
+    return progress_ui.respond(task)

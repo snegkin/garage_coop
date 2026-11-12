@@ -226,9 +226,15 @@ def test_notification():
     """Кнопка «Проверить уведомления» — реальная тестовая отправка по
     каждому отмеченному способу доставки (см. notifications.send_test_notification),
     результат — flash, а не молчаливый лог, как у обычной notify()."""
-    ok, message = notifications.send_test_notification(g.user)
-    flash(message, "success" if ok else "danger")
-    return redirect(url_for("cabinet.profile"))
+    from . import progress as progress_ui
+
+    back = url_for("cabinet.profile")
+
+    def task(progress):
+        ok, message = notifications.send_test_notification(g.user, progress)
+        return progress_ui.Result(ok, message, back)
+
+    return progress_ui.respond(task)
 
 
 @bp.route("/profile/telegram/link", methods=["POST"])

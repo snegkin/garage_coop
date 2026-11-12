@@ -22,6 +22,7 @@ from sqlalchemy.orm import selectinload
 
 from . import database, audit
 from . import notifications
+from . import progress as progress_ui
 from .i18n import translate as _
 from .auth import roles_required
 from .models import (
@@ -294,7 +295,7 @@ def save_api_settings(account_id):
 # Баланс
 # ---------------------------------------------------------------------------
 
-def sync_account_balance(account: BankAccount) -> tuple[str, str]:
+def sync_account_balance(account: BankAccount, progress=progress_ui.NULL) -> tuple[str, str]:
     """
     Общая логика обновления баланса счёта из API банка — вызывается и роутом
     sync_balance ниже (кнопка «Обновить баланс»), и cron-скриптом
@@ -311,13 +312,16 @@ def sync_account_balance(account: BankAccount) -> tuple[str, str]:
         return "unsupported", _("Для этого счёта не настроено или не поддерживается автоматическое обновление баланса.")
 
     cred = _get_or_create_credential(account)
-    try:
-        info = client.get_balance()
-    except BankApiError as e:
-        _persist_rotated_refresh_token(cred, client)  # обновление токена могло пройти, даже если сам запрос — нет
-        cred.last_error = str(e)
-        database.db_session.commit()
-        return "error", _("Не удалось получить баланс из банка: {error}").format(error=str(e))
+    with progress.step(_("Остаток по счёту {account} в банке", account=account.checking_account)) as step:
+        try:
+            info = client.get_balance()
+        except BankApiError as e:
+            step.fail(str(e))
+            _persist_rotated_refresh_token(cred, client)  # обновление токена могло пройти, даже если сам запрос — нет
+            cred.last_error = str(e)
+            database.db_session.commit()
+            return "error", _("Не удалось получить баланс из банка: {error}").format(error=str(e))
+        step.ok(f"{info.amount} ₽")
 
     # В журнал — только если баланс реально изменился (см. тот же приём в
     # counterparty_sync.sync_counterparty_balance): этот прогон обычно
@@ -342,10 +346,17 @@ def sync_account_balance(account: BankAccount) -> tuple[str, str]:
 @bp.route("/sync-balance", methods=["POST"])
 @roles_required(RoleEnum.CHAIRMAN)
 def sync_balance(account_id):
-    account = _get_account(account_id)
-    status, message = sync_account_balance(account)
-    flash(message, "success" if status == "success" else ("warning" if status == "unsupported" else "danger"))
-    return redirect(url_for("finance.bank_accounts"))
+    _get_account(account_id)  # 404 — сразу, а не в окне
+    back = url_for("finance.bank_accounts")
+
+    def task(progress):
+        status, message = sync_account_balance(_get_account(account_id), progress)
+        return progress_ui.Result(status == "success", message, back, _STATUS_CATEGORY[status])
+
+    return progress_ui.respond(task)
+
+
+_STATUS_CATEGORY = {"success": "success", "unsupported": "warning", "error": "danger"}
 
 
 # ---------------------------------------------------------------------------
@@ -416,7 +427,8 @@ def statement(account_id):
     )
 
 
-def sync_account_statement(account: BankAccount, date_from: dt.date, date_to: dt.date) -> tuple[str, str, dict]:
+def sync_account_statement(account: BankAccount, date_from: dt.date, date_to: dt.date,
+                           progress=progress_ui.NULL) -> tuple[str, str, dict]:
     """
     Общая логика загрузки выписки из API банка за период — вызывается и
     роутом sync_statement ниже (кнопка «Загрузить из банка»), и
@@ -432,22 +444,28 @@ def sync_account_statement(account: BankAccount, date_from: dt.date, date_to: dt
         return "unsupported", _("Для этого счёта не настроено или не поддерживается автоматическая выписка."), {}
 
     cred = _get_or_create_credential(account)
-    try:
-        fetched = client.get_statement(date_from, date_to)
-    except Exception as e:
-        # Не только BankApiError: при любом сбое разбора ответа банк уже мог
-        # выдать новый refresh_token — без коммита он потерялся бы вместе с
-        # доступом к API, а пользователь увидел бы «проверьте форму».
-        if not isinstance(e, BankApiError):
-            current_app.logger.exception("Сбой загрузки выписки счёта %s", account.id)
-        error = str(e) if isinstance(e, BankApiError) else repr(e)
-        _persist_rotated_refresh_token(cred, client)
-        cred.last_error = error
-        database.db_session.commit()
-        return "error", _("Не удалось получить выписку из банка: {error}").format(error=error), {}
+    period = f"{date_from.strftime('%d.%m.%Y')} — {date_to.strftime('%d.%m.%Y')}"
+    with progress.step(_("Выписка из банка за {period}", period=period)) as step:
+        try:
+            fetched = client.get_statement(date_from, date_to)
+        except Exception as e:
+            # Не только BankApiError: при любом сбое разбора ответа банк уже мог
+            # выдать новый refresh_token — без коммита он потерялся бы вместе с
+            # доступом к API, а пользователь увидел бы «проверьте форму».
+            if not isinstance(e, BankApiError):
+                current_app.logger.exception("Сбой загрузки выписки счёта %s", account.id)
+            error = str(e) if isinstance(e, BankApiError) else repr(e)
+            step.fail(error)
+            _persist_rotated_refresh_token(cred, client)
+            cred.last_error = error
+            database.db_session.commit()
+            return "error", _("Не удалось получить выписку из банка: {error}").format(error=error), {}
+        step.ok(_("операций в выписке: {n}", n=len(fetched)))
 
     try:
-        added, auto_allocated = _save_fetched_statement(account, fetched, date_from, date_to)
+        with progress.step(_("Сохранение и разнесение по лицевым счетам")) as step:
+            added, auto_allocated = _save_fetched_statement(account, fetched, date_from, date_to)
+            step.ok(_("новых операций: {n}, разнесено автоматически: {m}", n=added, m=auto_allocated))
     except Exception as e:
         # Выписка получена, но упала обработка (разнесение, уведомление…) — откатываем её целиком, но новый
         # refresh_token, который банк выдаёт при каждом обновлении токена,
@@ -553,28 +571,26 @@ def _save_fetched_statement(account: BankAccount, fetched, date_from: dt.date, d
 @bp.route("/sync-statement", methods=["POST"])
 @roles_required(RoleEnum.CHAIRMAN)
 def sync_statement(account_id):
-    account = _get_account(account_id)
+    _get_account(account_id)  # 404 — сразу, а не в окне
     f = request.form
     date_from = dt.date.fromisoformat(f["date_from"])
     date_to = dt.date.fromisoformat(f["date_to"])
-    status, message, stats = sync_account_statement(account, date_from, date_to)
-    if status == "unsupported":
-        flash(message, "warning")
-        return redirect(url_for("finance.bank_accounts"))
-    if status == "error":
-        flash(message, "danger")
-        return redirect(url_for("bank_sync.statement", account_id=account.id))
-
-    if stats["auto_allocated"]:
-        flash(
-            _("Выписка обновлена: {n} новых операций, из них {m} автоматически разнесено по лицевым счетам.")
-            .format(n=stats["added"], m=stats["auto_allocated"]),
-            "success",
-        )
-    else:
-        flash(message, "success")
     # Показываем только что загруженный период, а не сбрасываем на дефолт.
-    return redirect(url_for("bank_sync.statement", account_id=account.id, date_from=date_from.isoformat(), date_to=date_to.isoformat()))
+    period_url = url_for("bank_sync.statement", account_id=account_id,
+                         date_from=date_from.isoformat(), date_to=date_to.isoformat())
+
+    def task(progress):
+        status, message, stats = sync_account_statement(_get_account(account_id), date_from, date_to, progress)
+        if status == "unsupported":
+            return progress_ui.Result(False, message, url_for("finance.bank_accounts"), "warning")
+        if status == "error":
+            return progress_ui.Result(False, message, url_for("bank_sync.statement", account_id=account_id))
+        if stats["auto_allocated"]:
+            message = _("Выписка обновлена: {n} новых операций, из них {m} автоматически разнесено по "
+                        "лицевым счетам.").format(n=stats["added"], m=stats["auto_allocated"])
+        return progress_ui.Result(True, message, period_url)
+
+    return progress_ui.respond(task)
 
 
 @bp.route("/statement/<int:line_id>/allocate", methods=["POST"])

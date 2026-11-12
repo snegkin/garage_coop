@@ -82,7 +82,7 @@
       {% endif %}
     </div>
     <div class="text-end">
-      <form method="post" action="{{ url_for('counterparty_sync.sync_balance', counterparty_id=counterparty.id) }}" class="d-inline" data-ajax>
+      <form method="post" action="{{ url_for('counterparty_sync.sync_balance', counterparty_id=counterparty.id) }}" class="d-inline" data-progress="{{ _("Баланс личного кабинета контрагента") }}">
         <button class="btn btn-outline-primary btn-sm">{{ _("Обновить баланс") }}</button>
       </form>
       <button class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#apiCredentialModal">{{ _("Настроить API") }}</button>

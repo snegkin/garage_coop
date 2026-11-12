@@ -7,7 +7,7 @@
 </h3>
 
 {% if is_chairman() %}
-<form method="post" action="{{ url_for('bank_sync.sync_statement', account_id=account.id) }}" class="d-flex align-items-end gap-2 mb-3 flex-wrap" data-ajax>
+<form method="post" action="{{ url_for('bank_sync.sync_statement', account_id=account.id) }}" class="d-flex align-items-end gap-2 mb-3 flex-wrap" data-progress="{{ _("Загрузка выписки из банка") }}">
   <div>
     <label class="form-label mb-0">{{ _("Дата с") }}</label>
     <input class="form-control" type="date" name="date_from" value="{{ date_from.isoformat() }}" required>

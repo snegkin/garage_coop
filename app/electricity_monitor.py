@@ -32,6 +32,7 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 from sqlalchemy import func, or_
 
 from . import database
+from . import progress as progress_ui
 from .i18n import translate as _
 from .auth import login_required, roles_required
 from .models import RoleEnum, EWeLinkAccount, PowerPhaseDevice, PowerPhaseReading
@@ -580,20 +581,34 @@ def test_connection():
         flash(_("Сначала выберите дом (family) ниже."), "warning")
         return redirect(url_for("electricity_monitor.view"))
 
-    try:
-        try:
-            client.list_devices(account.family_id)
-        except EWeLinkAuthError:
-            client.refresh()
-            persist_tokens(account, client)
-            client.list_devices(account.family_id)
-        persist_tokens(account, client)
-        account.last_error = None
-        account.last_poll_at = dt.datetime.utcnow()
-        flash(_("Подключение к eWeLink работает."), "success")
-    except EWeLinkApiError as exc:
-        account.last_error = str(exc)
-        flash(_("Ошибка подключения к eWeLink: {error}", error=str(exc)), "danger")
+    back = url_for("electricity_monitor.view")
 
-    database.db_session.commit()
-    return redirect(url_for("electricity_monitor.view"))
+    def task(progress):
+        account = _get_or_create_account()
+        client = build_client(account)
+        try:
+            devices = None
+            with progress.step(_("Список устройств дома")) as step:
+                try:
+                    devices = client.list_devices(account.family_id)
+                    step.ok(_("устройств: {n}", n=len(devices)))
+                except EWeLinkAuthError:
+                    step.warn(_("токен доступа истёк — обновляю"))
+            if devices is None:
+                with progress.step(_("Обновление токена eWeLink")):
+                    client.refresh()
+                    persist_tokens(account, client)
+                with progress.step(_("Список устройств дома (повторно)")) as step:
+                    devices = client.list_devices(account.family_id)
+                    step.ok(_("устройств: {n}", n=len(devices)))
+            persist_tokens(account, client)
+            account.last_error = None
+            account.last_poll_at = dt.datetime.utcnow()
+            result = progress_ui.Result(True, _("Подключение к eWeLink работает."), back)
+        except EWeLinkApiError as exc:
+            account.last_error = str(exc)
+            result = progress_ui.Result(False, _("Ошибка подключения к eWeLink: {error}", error=str(exc)), back)
+        database.db_session.commit()
+        return result
+
+    return progress_ui.respond(task)

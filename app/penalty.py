@@ -28,6 +28,7 @@ import xml.etree.ElementTree as ET
 from flask import Blueprint, abort, render_template, request, redirect, url_for, flash
 
 from . import database
+from . import progress as progress_ui
 from . import audit
 from .i18n import translate as _, parse_decimal
 from .auth import roles_required
@@ -541,24 +542,31 @@ def fetch_key_rate():
         flash(_("Некорректные даты."), "danger")
         return redirect(url_for("penalty.view"))
 
-    try:
-        rows = fetch_key_rates_from_cbr(from_date, to_date)
-    except (urllib.error.URLError, TimeoutError, ET.ParseError, ValueError) as exc:
-        flash(_("Не удалось загрузить ставку с cbr.ru: {error}. Можно внести значение вручную ниже.", error=str(exc)), "danger")
-        return redirect(url_for("penalty.view"))
+    back = url_for("penalty.view")
 
-    if not rows:
-        flash(_("ЦБ РФ не вернул ни одной записи за указанный период."), "warning")
-        return redirect(url_for("penalty.view"))
+    def task(progress):
+        period = f"{from_date.strftime('%d.%m.%Y')} — {to_date.strftime('%d.%m.%Y')}"
+        try:
+            with progress.step(_("Ключевая ставка с cbr.ru за {period}", period=period)) as step:
+                rows = fetch_key_rates_from_cbr(from_date, to_date)
+                step.ok(_("записей: {n}", n=len(rows)))
+        except (urllib.error.URLError, TimeoutError, ET.ParseError, ValueError) as exc:
+            return progress_ui.Result(False, _("Не удалось загрузить ставку с cbr.ru: {error}. Можно внести "
+                                               "значение вручную ниже.", error=str(exc)), back)
+        if not rows:
+            return progress_ui.Result(False, _("ЦБ РФ не вернул ни одной записи за указанный период."), back,
+                                      "warning")
+        with progress.step(_("Сохранение")) as step:
+            touched = save_key_rates(rows)
+            compacted = compact_key_rates()
+            database.db_session.commit()
+            step.ok(_("новых и изменённых: {n}", n=touched))
+        msg = _("Загружено записей ключевой ставки: {n}.", n=touched)
+        if compacted:
+            msg += " " + _("Убрано избыточных (без изменения значения): {n}.", n=compacted)
+        return progress_ui.Result(True, msg, back)
 
-    touched = save_key_rates(rows)
-    compacted = compact_key_rates()
-    database.db_session.commit()
-    msg = _("Загружено записей ключевой ставки: {n}.", n=touched)
-    if compacted:
-        msg += " " + _("Убрано избыточных (без изменения значения): {n}.", n=compacted)
-    flash(msg, "success")
-    return redirect(url_for("penalty.view"))
+    return progress_ui.respond(task)
 
 
 @bp.route("/key-rate/manual", methods=["POST"])

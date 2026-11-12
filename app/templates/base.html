@@ -2073,8 +2073,12 @@ document.addEventListener("DOMContentLoaded", function () {
 // .card-text--always-tiled на контейнере, см. wiki/view.html) --tiled
 // добавляется всегда, даже для одиночной картинки — на новости это не
 // распространяется, там раскладка на всю ширину для одной картинки уместнее.
-function groupContentImages() {
-  document.querySelectorAll(".card-text").forEach(function (container) {
+// root — необязательный контейнер: предпросмотр (news/wiki/bulletin/forum
+// form) вставляет HTML уже после DOMContentLoaded и вызывает функцию
+// повторно для своего .card-text, иначе картинка там не центрируется.
+function groupContentImages(root) {
+  var containers = root ? [root] : document.querySelectorAll(".card-text");
+  Array.prototype.forEach.call(containers, function (container) {
     var alwaysTiled = container.classList.contains("card-text--always-tiled");
     var children = Array.prototype.slice.call(container.children);
     var i = 0;

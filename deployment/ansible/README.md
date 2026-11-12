@@ -72,6 +72,7 @@ COOP_VARS=vars.yml ansible-playbook -i inventory.ini site.yml
 |---|---|
 | Часовой пояс, пакеты (+ шрифты Liberation/DejaVu для PDF), автообновления безопасности, swap, ufw (SSH, 80, 443), fail2ban | `system` |
 | Пользователь `coop`, ключи для `deploy.sh`, sudo без пароля **только** на `systemctl restart garage-coop`, deploy key, клон, venv, gunicorn | `app` |
+| Дополнительные кооперативы из `coop_extra_instances` (раздел ниже) | `instances`, `app` |
 | Снимок локальной БД через backup API (можно при запущенном локальном сайте), проверки целостности и ревизии схемы, заливка; rsync каталогов `instance/` | `restore` |
 | nginx (статика, заглушка, прокси), certbot `--webroot`, HTTPS + HSTS после получения сертификата, reload при продлении | `nginx` |
 | `.env`, systemd-юнит (`repair_db.sh` перед стартом), проверка ответа, cron; при `backup_agent_pubkeys` — первый запуск `backup_offsite`, если `instance/backup_staging/` ещё нет: агент председателя сразу находит, что забрать | `app` |
@@ -85,6 +86,50 @@ COOP_VARS=vars.yml ansible-playbook -i inventory.ini site.yml
 включён один из агентов; напрямую — `ansible-playbook … -K`. Только агенты: `./run.sh --tags local`. Письмо в Почту
 и тестовые письма (`agents/ezp/README.md`, шаги 6 и «Проверка») остаются
 ручными.
+
+## Несколько кооперативов на одном сервере
+
+Основной кооператив — как выше. Дополнительные описываются списком
+`coop_extra_instances` в `vars.yml` (все поля — в `defaults.yml`):
+
+```yaml
+coop_extra_instances:
+  - name: coop2                    # пользователь ОС и служба garage-coop-coop2
+    domain: xn--...xn--p1ai        # punycode, A-запись — на этот сервер
+    port: 8001
+    secret_key: "…"                # свои, не как у основного
+    bank_api_encryption_key: "…"
+```
+
+Код и venv у всех общие (`app_dir` основного), обновляются одним
+`deploy.sh`. Для каждого дополнительного кооператива плейбук делает:
+
+- пользователь `NAME`;
+- `/home/NAME/coop.env` (0600) с `INSTANCE_DIR=/home/NAME/instance` (0700);
+- новая БД (`seed.py`) или перенос `restore_db_file`;
+- служба `garage-coop-NAME` (`repair_db.sh` с `ENV_FILE`) на своём порту;
+- vhost и сертификат (`default_server` остаётся только у основного);
+- crontab с `ENV_FILE` и общей блокировкой `COOP_CRON_LOCK` (её получает
+  и основной), минуты сдвинуты на `cron_minute_offset`;
+- правило sudo для `deploy.sh`: перезапуск этой службы и бэкап её БД под
+  её пользователем;
+- ключи агента бэкапа председателя этого кооператива
+  (`backup_agent_pubkeys`, с `ENV_FILE` в `command=`).
+
+Плейбук проверяет, что пользователь `NAME` видит общий код, но не `.env` и
+`instance/` основного. Тогда забытый `ENV_FILE` даёт отказ «нет доступа», а
+не запись в чужую БД. Только дополнительные кооперативы:
+`./run.sh --tags instances`.
+
+`deploy.conf` создаётся один раз. Если кооператив добавлен позже, плейбук
+предупредит, каких служб в нём нет, и покажет строки `SERVICES`,
+`HEALTH_URLS`, `BACKUP_ENV_FILES`, которые нужно вписать.
+
+Агенты на компьютере председателя (бэкап, ЭЗП) — по одному на компьютер,
+то есть для своего кооператива. Председатель другого кооператива ставит
+их на своём компьютере по `agents/*/README.md`, указав в конфиге агента
+`user = NAME`. Удалять кооператив плейбук не умеет: службу, юнит, vhost и
+crontab удаляют руками, данные остаются.
 
 ## Повторные прогоны
 

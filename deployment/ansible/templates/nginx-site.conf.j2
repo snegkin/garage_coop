@@ -1,4 +1,7 @@
 # {{ ansible_managed }} — deployment/ansible/templates/nginx-site.conf.j2
+{# nginx_https — с TLS (задаётся на задаче, не set_fact); nginx_default_server —
+   только у основного кооператива: default_server у двух vhost'ов — ошибка nginx. #}
+{% set ds = ' default_server' if nginx_default_server | default(true) | bool else '' %}
 {% macro app_locations() %}
     # Тот же предел, что MAX_CONTENT_LENGTH приложения (25 МБ), с запасом.
     client_max_body_size 30m;
@@ -39,14 +42,14 @@
 {% endmacro %}
 
 server {
-    listen 80 default_server;
-    listen [::]:80 default_server;
+    listen 80{{ ds }};
+    listen [::]:80{{ ds }};
     server_name {{ coop_domain or '_' }};
 
     location /.well-known/acme-challenge/ {
         root /var/www/letsencrypt;
     }
-{% if https_enabled | bool %}
+{% if nginx_https | bool %}
 
     location / {
         return 301 https://$host$request_uri;
@@ -55,12 +58,12 @@ server {
 
 server {
 {% if nginx_http2_directive | default(true) | bool %}
-    listen 443 ssl default_server;
-    listen [::]:443 ssl default_server;
+    listen 443 ssl{{ ds }};
+    listen [::]:443 ssl{{ ds }};
     http2 on;
 {% else %}
-    listen 443 ssl http2 default_server;
-    listen [::]:443 ssl http2 default_server;
+    listen 443 ssl http2{{ ds }};
+    listen [::]:443 ssl http2{{ ds }};
 {% endif %}
     server_name {{ coop_domain }};
 

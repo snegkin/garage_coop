@@ -16,9 +16,11 @@
     packages:
       - git
       # В минимальных образах Debian их нет: sudo — для become_user и
-      # deploy.sh, acl — чтобы become_user передавал модулям временные файлы.
+      # deploy.sh, acl — чтобы become_user передавал модулям временные файлы,
+      # cron — для задач по расписанию.
       - sudo
       - acl
+      - cron
       - locales
       - python3
       - python3-venv

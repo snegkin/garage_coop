@@ -66,6 +66,15 @@ app_env_extra:
 # backup_agent_pubkeys:
 #   - "ssh-ed25519 AAAA… coop-backup"
 
+# Дополнительные кооперативы на этом же сервере (общий код) — поля и
+# пояснения в defaults.yml, README.md «Несколько кооперативов»:
+# coop_extra_instances:
+#   - name: coop2
+#     domain: xn--...xn--p1ai
+#     port: 8001
+#     secret_key: "<openssl rand -hex 32>"
+#     bank_api_encryption_key: "<openssl rand -hex 32>"
+
 # Данные со своего компьютера
 restore_db_file: /home/sne/work/garage_coop/instance/coop.db
 restore_source_instance_dir: /home/sne/work/garage_coop/instance

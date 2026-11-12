@@ -5,6 +5,8 @@
     owner: "{{ app_user }}"
     group: "{{ app_user }}"
     mode: "0600"
+  vars:
+    env_https: "{{ https_enabled }}"
   notify: restart app
 
 # Яндекс.Диск для внешнего бэкапа (restic → rclone, docs/deployment.md,
@@ -77,6 +79,34 @@
     that: (cron_enable + cron_disable) | difference(cron_jobs | map(attribute='name')) | length == 0
     fail_msg: "Нет таких задач в cron_jobs: {{ (cron_enable + cron_disable) | difference(cron_jobs | map(attribute='name')) | join(', ') }}"
     quiet: true
+
+# Несколько кооперативов: общая блокировка cron (scripts/_common.sh).
+# Файл заранее и на чтение всем: flock открывает его без записи.
+- name: Каталог общей блокировки cron
+  ansible.builtin.file:
+    path: "{{ coop_cron_lock | dirname }}"
+    state: directory
+    mode: "0755"
+  when: extra_instances | length > 0
+  tags: [instances]
+
+- name: Файл общей блокировки cron
+  ansible.builtin.file:
+    path: "{{ coop_cron_lock }}"
+    state: touch
+    mode: "0644"
+    modification_time: preserve
+    access_time: preserve
+  when: extra_instances | length > 0
+  tags: [instances]
+
+- name: cron — общая блокировка (COOP_CRON_LOCK)
+  ansible.builtin.cron:
+    user: "{{ app_user }}"
+    name: COOP_CRON_LOCK
+    env: true
+    job: "{{ coop_cron_lock }}"
+    state: "{{ 'present' if extra_instances | length > 0 else 'absent' }}"
 
 - name: cron
   ansible.builtin.cron:

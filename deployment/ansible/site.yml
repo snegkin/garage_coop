@@ -1,6 +1,7 @@
-# Сервер сайта кооператива с нуля: Ubuntu 24.04 / Debian 13 (Python ≥ 3.12), один
-# кооператив, gunicorn за nginx с HTTPS, перенос БД и файлов со своего
-# компьютера. Повторный прогон безопасен: БД и файлы на сервере не
+# Сервер сайта кооператива с нуля: Ubuntu 24.04 / Debian 13 (Python ≥ 3.12),
+# gunicorn за nginx с HTTPS, перенос БД и файлов со своего компьютера.
+# Основной кооператив + необязательные дополнительные на том же сервере с
+# общим кодом (coop_extra_instances в defaults.yml). Повторный прогон безопасен: БД и файлы на сервере не
 # перезаписываются (кроме restore_force: true), остальное приводится к
 # описанному состоянию. Запуск и порядок переезда — README.md.
 #
@@ -8,6 +9,7 @@
 #   ansible-playbook site.yml --tags app         # только код/.env/сервис
 #   ansible-playbook site.yml --check --diff     # что изменится
 #   ansible-playbook site.yml --tags local -K    # только агенты на этом компьютере
+#   ansible-playbook site.yml --tags instances   # только дополнительные кооперативы
 
 - name: Сервер сайта кооператива
   hosts: coop
@@ -59,6 +61,24 @@
         https_enabled: "{{ coop_domain | length > 0 and cert.stat.exists | default(false) }}"
       tags: always
 
+    # Проверка и вычисляемые поля (пользователь, служба, пути) —
+    # filter_plugins/coop.py. Нужен и шаблону deploy.conf, и cron/sudoers.
+    - name: Дополнительные кооперативы
+      ansible.builtin.set_fact:
+        extra_instances: >-
+          {{ coop_extra_instances | coop_instances({'app_user': app_user, 'app_port': app_port,
+             'coop_domain': coop_domain, 'app_secret_key': app_secret_key,
+             'service_name': service_name, 'cron_jobs': cron_jobs}) }}
+      tags: always
+
+    - name: Для сертификатов дополнительных кооперативов нужен certbot_email
+      ansible.builtin.assert:
+        that: certbot_email | length > 0
+        fail_msg: "coop_extra_instances: задайте certbot_email"
+        quiet: true
+      when: extra_instances | length > 0
+      tags: always
+
   tasks:
     - name: Система
       ansible.builtin.import_tasks: tasks/system.yml
@@ -98,6 +118,62 @@
       delegate_to: localhost
       become: false
       tags: app
+
+    # deploy.conf создаётся один раз (force: false) — добавленный позже
+    # кооператив сам в него не попадёт.
+    - name: deploy.conf знает все кооперативы
+      ansible.builtin.debug:
+        msg:
+          - "В {{ deploy_conf_path }} нет служб: {{ missing | join(', ') }} — deploy.sh их не перезапустит."
+          - "Удалите файл и прогоните --tags app (создастся заново) или впишите сами:"
+          - "{{ lookup('ansible.builtin.template', 'deploy.conf.j2') | regex_findall('(?m)^(?:SERVICES|HEALTH_URLS|BACKUP_ENV_FILES)=.*$') | join('  ') }}"
+      vars:
+        conf_text: "{{ lookup('ansible.builtin.file', deploy_conf_path, errors='ignore') | default('', true) }}"
+        services_line: "{{ conf_text | regex_search('(?m)^SERVICES=.*$') | default('', true) }}"
+        missing: "{{ ([service_name] + extra_instances | map(attribute='service') | list)
+                     | reject('in', services_line | regex_replace('^SERVICES=', '') | replace('\"', '') | split) | list }}"
+      when: extra_instances | length > 0 and missing | length > 0
+      tags: app
+
+    # Код и venv — общие, из app_dir основного; поэтому app_dir и
+    # app_instance_dir переопределяются явно (иначе app_dir пересчитался бы
+    # от app_user = name). Переменные include перекрывают и vars.yml, и
+    # set_fact; handlers основного здесь не используются.
+    - name: Общие пути для дополнительных кооперативов
+      ansible.builtin.set_fact:
+        shared_app_dir: "{{ app_dir }}"
+        shared_instance_dir: "{{ app_instance_dir }}"
+        primary_app_user: "{{ app_user }}"
+      when: extra_instances | length > 0
+      tags: [instances, app]
+
+    - name: Дополнительные кооперативы
+      ansible.builtin.include_tasks:
+        file: tasks/instance.yml
+        apply:
+          tags: [instances, app]
+      loop: "{{ extra_instances }}"
+      loop_control:
+        loop_var: inst
+        label: "{{ inst.name }} ({{ inst.domain }})"
+      vars:
+        app_user: "{{ inst.user }}"
+        app_dir: "{{ shared_app_dir }}"
+        app_instance_dir: "{{ inst.instance_dir }}"
+        app_env_file: "{{ inst.env_file }}"
+        service_name: "{{ inst.service }}"
+        app_port: "{{ inst.port }}"
+        coop_domain: "{{ inst.domain }}"
+        app_secret_key: "{{ inst.secret_key }}"
+        app_bank_api_encryption_key: "{{ inst.bank_api_encryption_key }}"
+        recaptcha_site_key: "{{ inst.recaptcha_site_key }}"
+        recaptcha_secret_key: "{{ inst.recaptcha_secret_key }}"
+        app_env_extra: "{{ inst.env_extra }}"
+        rclone_yandex_token: "{{ inst.rclone_yandex_token }}"
+        restore_db_file: "{{ inst.restore_db_file }}"
+        restore_source_instance_dir: "{{ inst.restore_source_instance_dir }}"
+        nginx_default_server: false
+      tags: [instances, app]
 
   handlers:
     - name: reload nginx

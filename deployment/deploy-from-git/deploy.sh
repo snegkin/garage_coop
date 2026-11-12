@@ -249,8 +249,14 @@ if [ "$BACKUP_BEFORE" = 1 ]; then
     if [ -z "$BACKUP_ENV_FILES" ]; then
         as_app "$APP_DIR/scripts/backup_db.sh"
     else
-        for env_file in $BACKUP_ENV_FILES; do
-            as_app env ENV_FILE="$env_file" "$APP_DIR/scripts/backup_db.sh"
+        # ФАЙЛ — под APP_USER; ПОЛЬЗОВАТЕЛЬ:ФАЙЛ — под владельцем данных
+        # другого кооператива (его .env и instance/ APP_USER не читает).
+        # Ровно такую команду разрешает sudoers от плейбука (instance.yml).
+        for entry in $BACKUP_ENV_FILES; do
+            case "$entry" in
+                *:*) sudo_cmd -u "${entry%%:*}" -H /usr/bin/env ENV_FILE="${entry#*:}" "$APP_DIR/scripts/backup_db.sh" ;;
+                *)   as_app env ENV_FILE="$entry" "$APP_DIR/scripts/backup_db.sh" ;;
+            esac
         done
     fi
 fi

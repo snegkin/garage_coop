@@ -1,0 +1,75 @@
+# vhost одного кооператива и его сертификат — для основного (из nginx.yml)
+# и для каждого дополнительного (из instance.yml, с его service_name,
+# coop_domain, app_port и nginx_default_server: false).
+#
+# Факт site_https — вход (сертификат уже есть) и выход (получен сейчас).
+# В шаблон он идёт переменной задачи nginx_https: свою переменную задача
+# может задать, а факт (set_fact) переменной задачи не перекрыть.
+
+- name: "[{{ service_name }}] Сайт nginx"
+  ansible.builtin.template:
+    src: nginx-site.conf.j2
+    dest: "/etc/nginx/sites-available/{{ service_name }}"
+    mode: "0644"
+  vars:
+    nginx_https: "{{ site_https }}"
+  notify: reload nginx
+
+- name: "[{{ service_name }}] Сайт включён"
+  ansible.builtin.file:
+    src: "../sites-available/{{ service_name }}"
+    dest: "/etc/nginx/sites-enabled/{{ service_name }}"
+    state: link
+  notify: reload nginx
+
+- name: "[{{ service_name }}] Конфиг nginx валиден"
+  ansible.builtin.command: nginx -t
+  changed_when: false
+
+- name: "[{{ service_name }}] nginx применил конфиг до certbot"
+  ansible.builtin.meta: flush_handlers
+
+- name: "[{{ service_name }}] Получить сертификат"
+  when: coop_domain | length > 0 and not site_https | bool
+  block:
+    - name: "[{{ service_name }}] certbot certonly --webroot"
+      ansible.builtin.command:
+        argv: [certbot, certonly, --webroot, -w, /var/www/letsencrypt, -d, "{{ coop_domain }}",
+               --email, "{{ certbot_email }}", --agree-tos, --non-interactive, --no-eff-email]
+      register: certbot
+      failed_when: false
+
+    - name: "[{{ service_name }}] Не вышло — сайт пока по HTTP"
+      ansible.builtin.debug:
+        msg: >-
+          certbot не выдал сертификат (чаще всего A-запись {{ coop_domain }}
+          ещё не смотрит на этот сервер или не разошлась). Сайт работает по
+          HTTP; когда DNS обновится — прогоните плейбук ещё раз (--tags nginx,app).
+          {{ certbot.stderr | default('') | trim }}
+      when: certbot.rc != 0
+
+    # when блока проверяется перед КАЖДОЙ его задачей: после этого
+    # set_fact всё ниже в блоке пропустилось бы — поэтому он последний,
+    # а шаблон с HTTPS — уже после блока.
+    - name: "[{{ service_name }}] Сертификат получен (последним в блоке)"
+      ansible.builtin.set_fact:
+        site_https: true
+      when: certbot.rc == 0
+
+- name: "[{{ service_name }}] Сайт nginx с HTTPS"
+  ansible.builtin.template:
+    src: nginx-site.conf.j2
+    dest: "/etc/nginx/sites-available/{{ service_name }}"
+    mode: "0644"
+  vars:
+    nginx_https: "{{ site_https }}"
+  register: site_https_conf
+  notify: reload nginx
+
+- name: "[{{ service_name }}] Конфиг nginx с HTTPS валиден"
+  ansible.builtin.command: nginx -t
+  changed_when: false
+  when: site_https_conf is changed
+
+- name: "[{{ service_name }}] nginx применил конфиг с HTTPS"
+  ansible.builtin.meta: flush_handlers

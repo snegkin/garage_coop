@@ -185,3 +185,47 @@ def excerpt(text: str, max_chars: int = EXCERPT_LENGTH) -> tuple[str, bool]:
         return full, False
     cut = full[:max_chars].rsplit(" ", 1)[0].rstrip(",.;:")
     return cut + "…", True
+
+
+# Подмножество HTML, которое понимает Telegram Bot API (parse_mode=HTML):
+# никаких <p>/<li>/<h3>/<img> — абзацы и списки передаются переводами строк.
+_TG_TAGS = ["b", "strong", "i", "em", "u", "s", "a", "code", "pre", "blockquote", "span"]
+_TG_ATTRS = {"a": ["href"], "span": ["class"]}
+_TG_BLOCK_RULES = [
+    (re.compile(r"<br\s*/?>"), "\n"),
+    (re.compile(r"<li>"), "• "),
+    (re.compile(r"</li>"), "\n"),
+    (re.compile(r"</?[uo]l>"), ""),
+    (re.compile(r"<h[1-6]>"), "<b>"),
+    (re.compile(r"</h[1-6]>"), "</b>\n\n"),
+    (re.compile(r"<p>"), ""),
+    (re.compile(r"</p>"), "\n\n"),
+    (re.compile(r"<hr\s*/?>"), "———\n\n"),
+]
+_TG_BLOCK_NEWLINE_RE = re.compile(r"(<br\s*/?>|</?(?:p|ul|ol|li|h[1-6])>|<hr\s*/?>)\n")
+_RELATIVE_HREF_RE = re.compile(r'href="(/[^"]*)"')
+
+
+def telegram_html(text: str, base_url: str) -> str:
+    """Markdown новости -> HTML для сообщения Telegram (см.
+    telegram_bot.publish_news). Спойлер ||текст|| становится родным
+    спойлером Telegram, картинки выпадают (в сообщении их не показать
+    текстом — новость целиком по ссылке), относительные ссылки (вложения
+    /news/attachments/...) дополняются адресом сайта из base_url — Telegram
+    относительный href отвергает."""
+    _md.reset()
+    pre = _SPOILER_RE.sub(lambda m: f'<span class="tg-spoiler">{escape(m.group(1))}</span>', text or "")
+    html = _md.convert(pre)
+    # Переводы строк, которые markdown сам ставит после блочных тегов, —
+    # иначе вместе с заменами ниже получились бы лишние пустые строки.
+    html = _TG_BLOCK_NEWLINE_RE.sub(r"\1", html)
+    for rule, repl in _TG_BLOCK_RULES:
+        html = rule.sub(repl, html)
+    clean = bleach.clean(html, tags=_TG_TAGS, attributes=_TG_ATTRS, protocols=["http", "https", "mailto"], strip=True)
+    origin = re.match(r"https?://[^/]+", base_url)
+    if origin:
+        clean = _RELATIVE_HREF_RE.sub(lambda m: f'href="{origin.group(0)}{m.group(1)}"', clean)
+    clean = re.sub(r"<blockquote>\s+", "<blockquote>", clean)
+    clean = re.sub(r"\s+</blockquote>\s*", "</blockquote>\n\n", clean)
+    clean = re.sub(r"\n{3,}", "\n\n", clean)
+    return clean.strip()

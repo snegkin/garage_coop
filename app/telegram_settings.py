@@ -47,12 +47,13 @@ def save_settings():
     f = request.form
 
     settings.bot_username = f.get("bot_username", "").strip().lstrip("@") or None
+    settings.news_chat_id = f.get("news_chat_id", "").strip() or None
     token = f.get("bot_token", "").strip()
     if token:
         settings.bot_token_encrypted = crypto.encrypt(token)
     settings.last_error = None
 
-    audit.record("telegram.settings_save", f"Настройки Telegram-бота обновлены (бот: @{settings.bot_username or '—'})")
+    audit.record("telegram.settings_save", f"Настройки Telegram-бота обновлены (бот: @{settings.bot_username or '—'}, группа новостей: {settings.news_chat_id or '—'})")
     database.db_session.commit()
     flash(_("Настройки Telegram сохранены."), "success")
     return redirect(url_for("telegram_settings.view"))

@@ -2009,6 +2009,12 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Токен бота": "Bot token",
         "Выдаётся @BotFather при создании бота командой /newbot.": "Issued by @BotFather when creating the bot with /newbot.",
         "Настройки Telegram сохранены.": "Telegram settings saved.",
+        "Группа для новостей": "News group",
+        "или": "or",
+        "Новые новости сайта будут дублироваться сюда. Добавьте бота в группу и отправьте там команду /chatid — бот ответит ID группы. Для канала бот должен быть администратором. Пусто — не дублировать.":
+            "New site news will be duplicated here. Add the bot to the group and send /chatid there — the bot will reply with the group ID. For a channel the bot must be an administrator. Leave empty to disable.",
+        "Опубликовать и в группе Telegram": "Also post to the Telegram group",
+        "Не удалось отправить новость в Telegram: {error}": "Could not send the news to Telegram: {error}",
         "Сначала укажите токен и имя бота.": "First fill in the token and bot username.",
         "Подключение работает: бот @{username}.": "Connection works: bot @{username}.",
         "Не удалось подключиться: {error}": "Could not connect: {error}",

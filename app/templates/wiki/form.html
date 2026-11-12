@@ -101,7 +101,7 @@
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
-        <div class="card-text" id="wikiPreviewBody"></div>
+        <div class="card-text card-text--always-tiled" id="wikiPreviewBody"></div>
         <div class="text-danger small d-none" id="wikiPreviewError"></div>
       </div>
       <div class="modal-footer d-flex justify-content-end">
@@ -272,6 +272,7 @@
             return;
           }
           previewBody.innerHTML = result.data.html || "<p class=\"text-muted\">{{ _('Текст пока пуст.') }}</p>";
+          if (typeof groupContentImages === "function") groupContentImages(previewBody);
         })
         .catch(function () {
           previewError.textContent = "{{ _('Не удалось построить предпросмотр.') }}";

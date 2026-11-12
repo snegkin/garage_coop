@@ -218,6 +218,7 @@
             return;
           }
           previewBody.innerHTML = result.data.html || "<p class=\"text-muted\">{{ _('Текст пока пуст.') }}</p>";
+          if (typeof groupContentImages === "function") groupContentImages(previewBody);
         })
         .catch(function () {
           previewError.textContent = "{{ _('Не удалось построить предпросмотр.') }}";

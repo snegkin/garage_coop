@@ -3077,6 +3077,49 @@ class TelegramSettings(Base):
     proxy_url_encrypted: Mapped[str | None] = mapped_column(Text)
 
 
+class TelegramOutboxStatus(str, enum.Enum):
+    PENDING = "pending"
+    SENT = "sent"
+    # Запрос ушёл, но ответа нет (таймаут чтения, обрыв) — Telegram мог его
+    # принять. Автоматически не повторяем, чтобы не задвоить пост в группе:
+    # решает правление на /telegram/ («Отправить повторно»/«Отметить отправленным»).
+    UNCERTAIN = "uncertain"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class TelegramOutbox(Base):
+    """Очередь исходящих сообщений бота (app/telegram_outbox.py) — разбирается
+    cron-скриптом scripts/poll_telegram.py раз в минуту, с повторами при
+    недоступности Telegram/прокси. kind="message" — текст text в chat_id
+    (уведомления), kind="news" — новость news_id в группу из настроек:
+    несколько шагов (текст, альбомы, документы), steps_done — сколько уже
+    отправлено, повтор продолжает с места сбоя, не дублируя отправленное.
+    url — ссылка «Читать на сайте», считается при постановке (в cron нет
+    запроса, url_for(_external) там не построить)."""
+    __tablename__ = "telegram_outbox"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    kind: Mapped[str] = mapped_column(String(16))
+    chat_id: Mapped[str | None] = mapped_column(String(64))
+    text: Mapped[str | None] = mapped_column(Text)
+    news_id: Mapped[int | None] = mapped_column(ForeignKey("news.id", ondelete="SET NULL"), index=True)
+    url: Mapped[str | None] = mapped_column(String(512))
+    album_first: Mapped[bool] = mapped_column(Boolean, default=False)
+    steps_done: Mapped[int] = mapped_column(Integer, default=0)
+    status: Mapped[TelegramOutboxStatus] = mapped_column(
+        Enum(TelegramOutboxStatus, values_callable=lambda e: [m.value for m in e], native_enum=False, length=16),
+        default=TelegramOutboxStatus.PENDING, index=True,
+    )
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    next_attempt_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.utcnow, index=True)
+    last_error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.utcnow)
+    sent_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
+
+    news: Mapped["News | None"] = relationship()
+
+
 class WebPushSettings(Base):
     """Единственная запись — ключи VAPID (см. RFC 8292) для push-уведомлений
     браузера (app/webpush.py, app/notifications.py). В отличие от

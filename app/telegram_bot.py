@@ -39,7 +39,45 @@ REQUEST_TIMEOUT = 10
 
 
 class TelegramError(Exception):
-    pass
+    """status_code — HTTP-код, если Telegram ответил ошибкой (400 — неверный
+    chat_id/разметка, 403 — бота выгнали из группы, 429 — слишком часто);
+    transport=True — запрос до Telegram не дошёл (сеть, прокси, ретранслятор),
+    повтор безопасен. Очередь (app/telegram_outbox.py) решает по ним, повторять
+    ли отправку."""
+
+    def __init__(self, message: str, status_code: int | None = None, transport: bool = False):
+        super().__init__(message)
+        self.status_code = status_code
+        self.transport = transport
+
+
+class TelegramUncertain(TelegramError):
+    """Запрос ушёл, но ответа нет (таймаут чтения, обрыв соединения) —
+    Telegram мог его принять. Повтор может задвоить сообщение, поэтому
+    очередь такое автоматически не повторяет."""
+
+
+# Признаки сбоя ДО отправки запроса (не удалось соединиться) — повтор
+# безопасен. Всё прочее после установленного соединения — неизвестность.
+_CONNECT_STAGE_MARKERS = (
+    "NewConnectionError", "Failed to establish a new connection", "Connection refused",
+    "Network is unreachable", "NameResolutionError", "getaddrinfo", "ConnectTimeoutError",
+)
+
+
+def _request_error(exc: requests.RequestException, idempotent: bool) -> TelegramError:
+    message = f"Telegram: {mask_secrets_in_text(str(exc))}"
+    connect_stage = isinstance(exc, (
+        requests.ConnectTimeout, requests.exceptions.ProxyError, requests.exceptions.SSLError,
+        requests.exceptions.InvalidSchema, requests.exceptions.InvalidURL, requests.exceptions.MissingSchema,
+    )) or (not isinstance(exc, requests.ReadTimeout) and any(m in str(exc) for m in _CONNECT_STAGE_MARKERS))
+    if connect_stage or idempotent:
+        return TelegramError(message, transport=True)
+    return TelegramUncertain(message, transport=True)
+
+
+def _status_error(resp) -> TelegramError:
+    return TelegramError(f"Telegram: HTTP {resp.status_code}: {resp.text[:200]}", status_code=resp.status_code)
 
 
 def get_settings() -> TelegramSettings | None:
@@ -93,9 +131,9 @@ def send_message(settings: TelegramSettings, chat_id: int | str, text: str,
             **_net(settings),
         )
     except requests.RequestException as exc:
-        raise TelegramError(f"Telegram: {mask_secrets_in_text(str(exc))}") from exc
+        raise _request_error(exc, idempotent=False) from exc
     if resp.status_code != 200:
-        raise TelegramError(f"Telegram: HTTP {resp.status_code}: {resp.text[:200]}")
+        raise _status_error(resp)
 
 
 def get_updates(settings: TelegramSettings, offset: int | None, timeout: int = 0) -> list[dict]:
@@ -110,9 +148,9 @@ def get_updates(settings: TelegramSettings, offset: int | None, timeout: int = 0
         resp = requests.get(_api(settings, token, "getUpdates"), params=params,
                             timeout=REQUEST_TIMEOUT + timeout, **_net(settings))
     except requests.RequestException as exc:
-        raise TelegramError(f"Telegram: {mask_secrets_in_text(str(exc))}") from exc
+        raise _request_error(exc, idempotent=True) from exc
     if resp.status_code != 200:
-        raise TelegramError(f"Telegram: HTTP {resp.status_code}: {resp.text[:200]}")
+        raise _status_error(resp)
     data = resp.json()
     if not data.get("ok"):
         raise TelegramError(f"Telegram: {data.get('description', 'unknown error')}")
@@ -126,7 +164,7 @@ def get_me(settings: TelegramSettings) -> dict:
     try:
         resp = requests.get(_api(settings, token, "getMe"), timeout=REQUEST_TIMEOUT, **_net(settings))
     except requests.RequestException as exc:
-        raise TelegramError(f"Telegram: {mask_secrets_in_text(str(exc))}") from exc
+        raise _request_error(exc, idempotent=True) from exc
     data = resp.json()
     if not data.get("ok"):
         raise TelegramError(f"Telegram: {data.get('description', 'unknown error')}")
@@ -291,21 +329,22 @@ def _upload(settings: TelegramSettings, method: str, data: dict, files: dict) ->
         resp = requests.post(_api(settings, token, method), data=data, files=handles,
                              timeout=UPLOAD_TIMEOUT, **_net(settings))
     except requests.RequestException as exc:
-        raise TelegramError(f"Telegram: {mask_secrets_in_text(str(exc))}") from exc
-    except OSError as exc:  # нет файла вложения (InvalidSchema и пр. — уже RequestException выше)
-        raise TelegramError(f"Файл вложения недоступен: {exc}") from exc
+        raise _request_error(exc, idempotent=False) from exc
+    except OSError as exc:  # файл вложения пропал с диска (InvalidSchema и пр. — уже RequestException выше)
+        raise TelegramError(f"Файл вложения недоступен: {exc}", status_code=0) from exc
     finally:
         for _name, fh in handles.values():
             fh.close()
     if resp.status_code != 200:
-        raise TelegramError(f"Telegram: HTTP {resp.status_code}: {resp.text[:200]}")
+        raise _status_error(resp)
 
 
-def _send_album(settings: TelegramSettings, photos, caption: str | None) -> None:
-    """Одно фото — sendPhoto, больше — sendMediaGroup пачками по 10.
-    Подпись — у первого фото первой пачки (так Telegram показывает её под
-    всем альбомом)."""
+def _album_steps(settings: TelegramSettings, photos, caption: str | None) -> list:
+    """Одно фото — sendPhoto, больше — sendMediaGroup пачками по 10, каждая
+    пачка — отдельный шаг. Подпись — у первого фото первой пачки (так Telegram
+    показывает её под всем альбомом)."""
     chat_id = settings.news_chat_id
+    steps = []
     for start in range(0, len(photos), ALBUM_MAX_ITEMS):
         chunk = photos[start:start + ALBUM_MAX_ITEMS]
         with_caption = caption if start == 0 else None
@@ -314,7 +353,8 @@ def _send_album(settings: TelegramSettings, photos, caption: str | None) -> None
             data = {"chat_id": chat_id}
             if with_caption:
                 data.update(caption=with_caption, parse_mode="HTML")
-            _upload(settings, "sendPhoto", data, {"photo": (att.original_filename, path)})
+            files = {"photo": (att.original_filename, path)}
+            steps.append(lambda data=data, files=files: _upload(settings, "sendPhoto", data, files))
             continue
         media, files = [], {}
         for n, (att, path) in enumerate(chunk):
@@ -323,21 +363,23 @@ def _send_album(settings: TelegramSettings, photos, caption: str | None) -> None
                 entry.update(caption=with_caption, parse_mode="HTML")
             media.append(entry)
             files[f"file{n}"] = (att.original_filename, path)
-        _upload(settings, "sendMediaGroup", {"chat_id": chat_id, "media": json.dumps(media)}, files)
+        data = {"chat_id": chat_id, "media": json.dumps(media)}
+        steps.append(lambda data=data, files=files: _upload(settings, "sendMediaGroup", data, files))
+    return steps
 
 
-def publish_news(settings: TelegramSettings, item: News, url: str, upload_folder: str,
-                 album_first: bool = False) -> list[str]:
-    """Отправляет новость в TelegramSettings.news_chat_id:
+def news_steps(settings: TelegramSettings, item: News, url: str, upload_folder: str,
+               album_first: bool = False) -> tuple[list, list[str]]:
+    """Отправка новости в TelegramSettings.news_chat_id по шагам — каждый шаг
+    это один запрос к Bot API (очередь, app/telegram_outbox.py, запоминает,
+    сколько шагов прошло, и при повторе продолжает с места сбоя):
     - нет фото — одно текстовое сообщение;
     - есть фото и текст влезает в подпись (CAPTION_LIMIT) — один пост,
       альбом с подписью;
     - текст длиннее — два сообщения, порядок задаёт album_first (галочка в
       форме новости);
     остальные вложения — следом, отдельными документами.
-    Возвращает имена файлов, пропущенных из-за лимитов Telegram. Поднимает
-    TelegramError — вызывающий (news.create) показывает предупреждение, но
-    сама новость на сайте к этому моменту уже сохранена."""
+    -> (шаги, имена файлов, пропущенных из-за лимитов Telegram)."""
     text = news_text(item.title, item.body, url)
     photos, documents, skipped = _split_attachments(item, upload_folder)
 
@@ -345,17 +387,24 @@ def publish_news(settings: TelegramSettings, item: News, url: str, upload_folder
         send_message(settings, settings.news_chat_id, text, parse_mode="HTML", disable_preview=True)
 
     if not photos:
-        send_text()
+        steps = [send_text]
     elif _visible_length(text) <= CAPTION_LIMIT:
-        _send_album(settings, photos, caption=text)
+        steps = _album_steps(settings, photos, caption=text)
     elif album_first:
-        _send_album(settings, photos, caption=None)
-        send_text()
+        steps = _album_steps(settings, photos, caption=None) + [send_text]
     else:
-        send_text()
-        _send_album(settings, photos, caption=None)
+        steps = [send_text] + _album_steps(settings, photos, caption=None)
 
     for att, path in documents:
-        _upload(settings, "sendDocument", {"chat_id": settings.news_chat_id},
-                {"document": (att.original_filename, path)})
+        files = {"document": (att.original_filename, path)}
+        steps.append(lambda files=files: _upload(settings, "sendDocument", {"chat_id": settings.news_chat_id}, files))
+    return steps, skipped
+
+
+def publish_news(settings: TelegramSettings, item: News, url: str, upload_folder: str,
+                 album_first: bool = False) -> list[str]:
+    """Все шаги news_steps подряд, без очереди. -> пропущенные файлы."""
+    steps, skipped = news_steps(settings, item, url, upload_folder, album_first)
+    for step in steps:
+        step()
     return skipped

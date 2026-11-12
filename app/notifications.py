@@ -43,6 +43,7 @@ from .models import (
     WebPushSubscription, User,
 )
 from . import telegram_bot
+from . import telegram_outbox
 from . import webpush
 
 BOARD_CHAT_UNREAD_THRESHOLD = dt.timedelta(minutes=10)
@@ -178,12 +179,10 @@ def _send(user: User, channel: NotificationChannel, event: str, subject: str, bo
         settings = database.db_session.query(TelegramSettings).first()
         if settings is None or not telegram_bot.is_configured(settings):
             return
-        try:
-            telegram_bot.send_message(settings, user.person.telegram_chat_id, f"{subject}\n\n{body_text}")
-        except telegram_bot.TelegramError:
-            current_app.logger.exception(
-                "Не удалось отправить telegram-уведомление user_id=%s событие=%s", user.id, event,
-            )
+        # Через очередь (app/telegram_outbox.py) — доставит cron с повторами,
+        # если Telegram/ретранслятор сейчас недоступен.
+        telegram_outbox.enqueue_message(user.person.telegram_chat_id, f"{subject}\n\n{body_text}")
+        database.db_session.commit()
     elif channel == NotificationChannel.WEBPUSH:
         settings = database.db_session.query(WebPushSettings).first()
         if settings is None or not settings.public_key:

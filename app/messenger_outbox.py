@@ -1,5 +1,5 @@
 """
-Очередь исходящих сообщений бота Telegram (модель TelegramOutbox).
+Очередь исходящих сообщений бота Telegram (модель MessengerOutbox).
 
 Зачем: до api.telegram.org с сервера в РФ ходим через ретранслятор/прокси
 (TelegramSettings.api_base_url/proxy_url_encrypted), и любая из этих точек
@@ -36,7 +36,7 @@ import logging
 
 from . import database
 from . import telegram_bot
-from .models import News, TelegramOutbox, TelegramOutboxStatus
+from .models import News, MessengerOutbox, MessengerOutboxStatus
 
 logger = logging.getLogger(__name__)
 
@@ -54,20 +54,20 @@ KIND_MESSAGE = "message"
 KIND_NEWS = "news"
 
 
-def enqueue_message(chat_id: int | str, text: str) -> TelegramOutbox:
+def enqueue_message(chat_id: int | str, text: str) -> MessengerOutbox:
     """Без commit — вызывающий коммитит вместе со своим изменением."""
-    item = TelegramOutbox(kind=KIND_MESSAGE, chat_id=str(chat_id), text=text)
+    item = MessengerOutbox(kind=KIND_MESSAGE, chat_id=str(chat_id), text=text)
     database.db_session.add(item)
     return item
 
 
 def enqueue_news(news: News, url: str, album_first: bool = False, silent: bool = False,
-                 send_at: dt.datetime | None = None) -> TelegramOutbox:
+                 send_at: dt.datetime | None = None) -> MessengerOutbox:
     """send_at (UTC) — отложенная отправка; None или прошедший момент — с
     ближайшим запуском cron."""
     now = dt.datetime.utcnow()
     scheduled = send_at if send_at and send_at > now else None
-    item = TelegramOutbox(
+    item = MessengerOutbox(
         kind=KIND_NEWS, news=news, url=url, album_first=album_first, silent=silent,
         scheduled_at=scheduled, next_attempt_at=scheduled or now,
     )
@@ -79,7 +79,7 @@ def _retry_delay(attempts: int) -> dt.timedelta:
     return dt.timedelta(minutes=RETRY_DELAYS[min(attempts, len(RETRY_DELAYS)) - 1])
 
 
-def _send(settings, item: TelegramOutbox, upload_folder: str) -> None:
+def _send(settings, item: MessengerOutbox, upload_folder: str) -> None:
     if item.kind == KIND_MESSAGE:
         telegram_bot.send_message(settings, item.chat_id, item.text)
         return
@@ -104,9 +104,9 @@ def process(upload_folder: str, now: dt.datetime | None = None) -> tuple[int, in
         return 0, 0
     now = now or dt.datetime.utcnow()
     items = (
-        database.db_session.query(TelegramOutbox)
-        .filter(TelegramOutbox.status == TelegramOutboxStatus.PENDING, TelegramOutbox.next_attempt_at <= now)
-        .order_by(TelegramOutbox.id)
+        database.db_session.query(MessengerOutbox)
+        .filter(MessengerOutbox.status == MessengerOutboxStatus.PENDING, MessengerOutbox.next_attempt_at <= now)
+        .order_by(MessengerOutbox.id)
         .limit(BATCH)
         .all()
     )
@@ -116,7 +116,7 @@ def process(upload_folder: str, now: dt.datetime | None = None) -> tuple[int, in
         try:
             _send(settings, item, upload_folder)
         except telegram_bot.TelegramUncertain as exc:
-            item.status = TelegramOutboxStatus.UNCERTAIN
+            item.status = MessengerOutboxStatus.UNCERTAIN
             item.last_error = str(exc)
             failed += 1
         except telegram_bot.TelegramError as exc:
@@ -124,14 +124,14 @@ def process(upload_folder: str, now: dt.datetime | None = None) -> tuple[int, in
             failed += 1
             due_since = max(item.created_at, item.scheduled_at or item.created_at)
             if exc.status_code in PERMANENT_STATUS_CODES or now - due_since > MAX_AGE:
-                item.status = TelegramOutboxStatus.FAILED
+                item.status = MessengerOutboxStatus.FAILED
             else:
                 item.next_attempt_at = now + _retry_delay(item.attempts)
             if exc.transport:
                 database.db_session.commit()
                 break  # Telegram недоступен — остальным нет смысла пробовать сейчас
         else:
-            item.status = TelegramOutboxStatus.SENT
+            item.status = MessengerOutboxStatus.SENT
             item.sent_at = dt.datetime.utcnow()
             item.last_error = None
             sent += 1
@@ -139,33 +139,33 @@ def process(upload_folder: str, now: dt.datetime | None = None) -> tuple[int, in
     return sent, failed
 
 
-def problems(limit: int = 50) -> list[TelegramOutbox]:
+def problems(limit: int = 50) -> list[MessengerOutbox]:
     """Для /telegram/: всё, что ещё не доставлено или требует решения."""
     return (
-        database.db_session.query(TelegramOutbox)
-        .filter(TelegramOutbox.status.in_([
-            TelegramOutboxStatus.PENDING, TelegramOutboxStatus.UNCERTAIN, TelegramOutboxStatus.FAILED,
+        database.db_session.query(MessengerOutbox)
+        .filter(MessengerOutbox.status.in_([
+            MessengerOutboxStatus.PENDING, MessengerOutboxStatus.UNCERTAIN, MessengerOutboxStatus.FAILED,
         ]))
-        .order_by(TelegramOutbox.id.desc())
+        .order_by(MessengerOutbox.id.desc())
         .limit(limit)
         .all()
     )
 
 
-def retry(item: TelegramOutbox) -> None:
+def retry(item: MessengerOutbox) -> None:
     """«Отправить повторно»: для новости — с того шага, на котором
     оборвалось (шаг с неизвестным исходом отправится ещё раз — правление
     так решило)."""
-    item.status = TelegramOutboxStatus.PENDING
+    item.status = MessengerOutboxStatus.PENDING
     item.next_attempt_at = dt.datetime.utcnow()
     item.created_at = dt.datetime.utcnow()  # заново отсчитывать MAX_AGE
     item.scheduled_at = None  # «повторно» — значит сейчас, а не в старое запланированное время
 
 
-def mark_sent(item: TelegramOutbox) -> None:
-    item.status = TelegramOutboxStatus.SENT
+def mark_sent(item: MessengerOutbox) -> None:
+    item.status = MessengerOutboxStatus.SENT
     item.sent_at = dt.datetime.utcnow()
 
 
-def cancel(item: TelegramOutbox) -> None:
-    item.status = TelegramOutboxStatus.CANCELLED
+def cancel(item: MessengerOutbox) -> None:
+    item.status = MessengerOutboxStatus.CANCELLED

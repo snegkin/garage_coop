@@ -116,7 +116,9 @@
 # здесь — ключ -K (run.sh сам спрашивает пароль).
 - name: Агенты на этом компьютере
   hosts: localhost
-  connection: local
+  # Без connection: local — неявный localhost и так локальный, а ключевое
+  # слово play перебило бы соединение и у задач с delegate_to: сервер
+  # (authorized_key, ключ ssh сервера, backup_offsite выполнились бы здесь).
   gather_facts: false
   become: true
   vars_files:

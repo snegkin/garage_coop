@@ -2,20 +2,23 @@
 Уведомления о событиях сайта по подписке пользователя (настройки — см.
 app/cabinet.py: notification_settings, шаблон cabinet/profile.html).
 Способы доставки — независимые галочки, можно несколько сразу
-(User.notify_via_email/notify_via_telegram/notify_via_webpush), и отдельные подписки на
+(User.notify_via_email/notify_via_telegram/notify_via_max/notify_via_webpush), и отдельные подписки на
 события (User.notify_charge/notify_payment/notify_news/notify_forum/
 notify_vote/notify_meeting/notify_my_requests/notify_documents/notify_board_chat).
 Правлению, кроме того, — уведомления о действиях на сайте по группам
 событий журнала аудита (User.notify_board_events, см. раздел
 «Уведомления правлению» ниже).
 
-Три реально работающих канала:
+Четыре реально работающих канала:
   - EMAIL — через уже существующий ящик правления (MailboxSettings/
     app/mail_client.py, тот же, что и у /mailbox/), готовность — заполненный
     Person.email.
   - TELEGRAM — через бота (TelegramSettings/app/telegram_bot.py),
     готовность — Person.telegram_chat_id (привязка через /start, см.
     telegram_bot.py, НЕ то же самое, что свободный текст Person.telegram).
+  - MAX — через бота MAX (MaxSettings/app/max_bot.py), готовность —
+    Person.max_user_id (привязка по диплинку, см. max_bot.py; не путать со
+    свободным текстом Person.max_messenger).
   - WEBPUSH — push-уведомления браузера (WebPushSettings/app/webpush.py),
     готовность — хотя бы одна WebPushSubscription (в отличие от email/
     telegram, подписок может быть несколько — разные браузеры/устройства,
@@ -24,10 +27,9 @@ notify_vote/notify_meeting/notify_my_requests/notify_documents/notify_board_chat
 Уведомление уходит по КАЖДОМУ отмеченному и готовому каналу; отмеченный,
 но не готовый (контакт стёрли, привязку сбросили) просто пропускается.
 
-VK/MAX убраны из списка каналов (по решению пользователя) — Bot API VK
-не позволяет писать первым произвольным пользователям без их явного
-опт-ина через сообщество, а готового сообщества с такой настройкой нет;
-делать половинчатую интеграцию не стали.
+VK в списке каналов нет (по решению пользователя) — Bot API VK не
+позволяет писать первым произвольным пользователям без их явного опт-ина
+через сообщество.
 """
 import datetime as dt
 import json
@@ -42,6 +44,7 @@ from .models import (
     BoardChatMessage, FailureNotification, MailboxSettings, NotificationChannel, RoleEnum, TelegramSettings, WebPushSettings,
     WebPushSubscription, User,
 )
+from . import max_bot
 from . import telegram_bot
 from . import messenger_outbox
 from . import webpush
@@ -64,6 +67,7 @@ def enabled_channels(user: User) -> list[NotificationChannel]:
     flags = {
         NotificationChannel.EMAIL: user.notify_via_email,
         NotificationChannel.TELEGRAM: user.notify_via_telegram,
+        NotificationChannel.MAX: user.notify_via_max,
         NotificationChannel.WEBPUSH: user.notify_via_webpush,
     }
     return [channel for channel, on in flags.items() if on]
@@ -79,6 +83,8 @@ def channel_is_ready(user: User, channel: NotificationChannel) -> bool:
         return bool(user.person.email)
     if channel == NotificationChannel.TELEGRAM:
         return bool(user.person.telegram_chat_id)
+    if channel == NotificationChannel.MAX:
+        return bool(user.person.max_user_id)
     if channel == NotificationChannel.WEBPUSH:
         return database.db_session.query(WebPushSubscription).filter_by(user_id=user.id).first() is not None
     return False
@@ -183,6 +189,12 @@ def _send(user: User, channel: NotificationChannel, event: str, subject: str, bo
         # если Telegram/ретранслятор сейчас недоступен.
         messenger_outbox.enqueue_message(user.person.telegram_chat_id, f"{subject}\n\n{body_text}")
         database.db_session.commit()
+    elif channel == NotificationChannel.MAX:
+        if not max_bot.is_configured(max_bot.get_settings()):
+            return
+        messenger_outbox.enqueue_message(user.person.max_user_id, f"{subject}\n\n{body_text}",
+                                         channel=messenger_outbox.CHANNEL_MAX)
+        database.db_session.commit()
     elif channel == NotificationChannel.WEBPUSH:
         settings = database.db_session.query(WebPushSettings).first()
         if settings is None or not settings.public_key:
@@ -204,6 +216,7 @@ def _send(user: User, channel: NotificationChannel, event: str, subject: str, bo
 CHANNEL_LABELS = {
     NotificationChannel.EMAIL: "Email",
     NotificationChannel.TELEGRAM: "Telegram",
+    NotificationChannel.MAX: "MAX",
     NotificationChannel.WEBPUSH: "Push",
 }
 
@@ -255,6 +268,11 @@ def _test_channel(user: User, channel: NotificationChannel, subject: str, body_t
             if settings is None or not telegram_bot.is_configured(settings):
                 return False, _("Telegram-бот кооператива ещё не настроен — обратитесь в правление.")
             telegram_bot.send_message(settings, user.person.telegram_chat_id, f"{subject}\n\n{body_text}")
+        elif channel == NotificationChannel.MAX:
+            settings = max_bot.get_settings()
+            if not max_bot.is_configured(settings):
+                return False, _("Бот MAX кооператива ещё не настроен — обратитесь в правление.")
+            max_bot.send_notification(settings, user.person.max_user_id, f"{subject}\n\n{body_text}")
         elif channel == NotificationChannel.WEBPUSH:
             settings = database.db_session.query(WebPushSettings).first()
             if settings is None or not settings.public_key:
@@ -277,6 +295,8 @@ def _test_channel(user: User, channel: NotificationChannel, subject: str, body_t
         return False, _("Не удалось отправить письмо: {error}", error=str(exc))
     except telegram_bot.TelegramError as exc:
         return False, _("Не удалось отправить сообщение в Telegram: {error}", error=str(exc))
+    except max_bot.MaxError as exc:
+        return False, _("Не удалось отправить сообщение в MAX: {error}", error=str(exc))
     except webpush.WebPushError as exc:
         return False, _("Не удалось отправить push-уведомление: {error}", error=str(exc))
 

@@ -108,6 +108,8 @@ def _notify_channels_by_person(persons) -> dict[int, list[dict] | None]:
             channels.append({"code": "email", "ready": bool(person.email)})
         if user.notify_via_telegram:
             channels.append({"code": "telegram", "ready": bool(person.telegram_chat_id)})
+        if user.notify_via_max:
+            channels.append({"code": "max", "ready": bool(person.max_user_id)})
         if user.notify_via_webpush:
             channels.append({"code": "webpush", "ready": user.id in push_user_ids})
         result[person.id] = channels

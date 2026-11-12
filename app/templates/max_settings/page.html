@@ -3,10 +3,12 @@
 {% block content %}
 {% set active_channel = "max" %}
 {% include "_notification_channels_tabs.html" %}
-<p class="text-muted">{{ _("Бот MAX дублирует новости сайта в канал или группу кооператива. Бота создаёт подтверждённая организация на business.max.ru («Чат-боты»), токен выдаётся там же после модерации.") }}</p>
+<p class="text-muted">{{ _("Бот MAX дублирует новости сайта в канал или группу кооператива и присылает уведомления тем, кто привязал MAX в профиле. Бота создаёт подтверждённая организация на business.max.ru («Чат-боты»), токен выдаётся там же после модерации.") }}</p>
 
 {% if not is_configured %}
-<div class="alert alert-warning">{{ _("Бот ещё не настроен — новости в MAX не отправляются.") }}</div>
+<div class="alert alert-warning">{{ _("Бот ещё не настроен — новости и уведомления в MAX не отправляются.") }}</div>
+{% elif not settings.bot_username %}
+<div class="alert alert-warning">{{ _("Нажмите «Проверить подключение»: сайт узнает имя бота — без него в профилях не появится ссылка для привязки MAX.") }}</div>
 {% endif %}
 
 {% if settings.last_error %}

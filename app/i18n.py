@@ -2093,9 +2093,11 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Запрос ушёл, но ответа не было — {channel} мог его принять. Проверьте группу, прежде чем отправлять повторно.":
             "The request was sent but no response came — {channel} may have accepted it. Check the group before resending.",
         "Настройки MAX": "MAX settings",
-        "Бот MAX дублирует новости сайта в канал или группу кооператива. Бота создаёт подтверждённая организация на business.max.ru («Чат-боты»), токен выдаётся там же после модерации.":
-            "The MAX bot duplicates site news to the cooperative's channel or group. The bot is created by a verified organization at business.max.ru («Чат-боты»); the token is issued there after moderation.",
-        "Бот ещё не настроен — новости в MAX не отправляются.": "The bot isn't configured yet — news isn't sent to MAX.",
+        "Бот MAX дублирует новости сайта в канал или группу кооператива и присылает уведомления тем, кто привязал MAX в профиле. Бота создаёт подтверждённая организация на business.max.ru («Чат-боты»), токен выдаётся там же после модерации.":
+            "The MAX bot duplicates site news to the cooperative's channel or group and sends notifications to those who linked MAX in their profile. The bot is created by a verified organization at business.max.ru («Чат-боты»); the token is issued there after moderation.",
+        "Бот ещё не настроен — новости и уведомления в MAX не отправляются.": "The bot isn't configured yet — news and notifications aren't sent to MAX.",
+        "Нажмите «Проверить подключение»: сайт узнает имя бота — без него в профилях не появится ссылка для привязки MAX.":
+            "Press «Check connection»: the site will learn the bot's name — without it profiles won't show the MAX link.",
         "business.max.ru → Чат-боты → ⋮ → Настройки.": "business.max.ru → Чат-боты → ⋮ → Settings.",
         "Бот:": "Bot:",
         "Канал для новостей": "News channel",
@@ -2121,6 +2123,19 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Бот MAX (GET /me)": "MAX bot (GET /me)",
         "Подключение работает: бот {name}.": "The connection works: bot {name}.",
         "Не удалось получить события бота: {error}": "Could not get bot events: {error}",
+        "MAX привязан": "MAX linked",
+        "Открыть в MAX и привязать": "Open in MAX and link",
+        "Ссылка одноразовая — откройте её в MAX и нажмите «Начать». Привязка появится здесь в течение минуты.":
+            "The link is one-time — open it in MAX and press «Start». The link will show up here within a minute.",
+        "Привязать MAX": "Link MAX",
+        "Отвязать MAX?": "Unlink MAX?",
+        "MAX отвязан.": "MAX unlinked.",
+        "MAX отмечен, но не привязан": "MAX is selected but not linked",
+        "Для уведомлений в MAX сначала привяжите MAX кнопкой рядом с галочкой.":
+            "To get notifications in MAX, first link MAX with the button next to the checkbox.",
+        "Бот MAX кооператива ещё не настроен — обратитесь в правление.":
+            "The cooperative's MAX bot isn't configured yet — contact the board.",
+        "Не удалось отправить сообщение в MAX: {error}": "Could not send the message to MAX: {error}",
         "отправлена": "sent",
         "Не удалось загрузить. Обновите страницу и попробуйте ещё раз.": "Failed to load. Reload the page and try again.",
         "запланирована": "scheduled",

@@ -1,7 +1,7 @@
 """
 Очередь исходящих сообщений в мессенджеры (модель MessengerOutbox):
 Telegram (app/telegram_bot.py) — новости и уведомления, MAX
-(app/max_bot.py) — только новости. channel записи выбирает модуль бота;
+(app/max_bot.py) — тоже. channel записи выбирает модуль бота;
 у каждого одинаковый набор: get_settings, is_configured, news_steps,
 ошибки — app/messenger_errors.py.
 
@@ -66,9 +66,11 @@ BOTS = {CHANNEL_TELEGRAM: telegram_bot, CHANNEL_MAX: max_bot}
 LABELS = {CHANNEL_TELEGRAM: "Telegram", CHANNEL_MAX: "MAX"}
 
 
-def enqueue_message(chat_id: int | str, text: str) -> MessengerOutbox:
-    """Без commit — вызывающий коммитит вместе со своим изменением."""
-    item = MessengerOutbox(kind=KIND_MESSAGE, chat_id=str(chat_id), text=text)
+def enqueue_message(chat_id: int | str, text: str, channel: str = CHANNEL_TELEGRAM) -> MessengerOutbox:
+    """Уведомление человеку: chat_id — Person.telegram_chat_id или (MAX)
+    Person.max_user_id. Без commit — вызывающий коммитит вместе со своим
+    изменением."""
+    item = MessengerOutbox(kind=KIND_MESSAGE, channel=channel, chat_id=str(chat_id), text=text)
     database.db_session.add(item)
     return item
 
@@ -93,7 +95,7 @@ def _retry_delay(attempts: int) -> dt.timedelta:
 
 def _send(bot, settings, item: MessengerOutbox, upload_folder: str) -> None:
     if item.kind == KIND_MESSAGE:
-        bot.send_message(settings, item.chat_id, item.text)
+        bot.send_notification(settings, item.chat_id, item.text)
         return
     if item.news is None:
         raise MessengerError("Новость удалена с сайта", status_code=0)

@@ -51,9 +51,11 @@
         <button type="button" class="btn btn-link btn-sm ps-0 js-collapsible-toggle"
                 data-expand-label="{{ expand_label }}" data-collapse-label="{{ collapse_label }}">{{ expand_label }}</button>
         {% endif %}
-        {% if item.attachments %}
+        {# Inline-вложения уже видны в тексте (![](url)) — внизу только галерея, как в news/view.html. #}
+        {% set gallery_attachments = item.attachments | rejectattr("is_inline") | list %}
+        {% if gallery_attachments %}
         <div class="d-flex flex-wrap gap-2 mt-3">
-          {% for att in item.attachments %}
+          {% for att in gallery_attachments %}
             {% if att.is_image %}
             <img class="js-lightbox" src="{{ url_for('news.attachment', attachment_id=att.id, original_filename=att.original_filename) }}" alt="" style="height:80px;object-fit:cover;border-radius:.375rem">
             {% endif %}

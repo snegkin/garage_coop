@@ -1910,7 +1910,11 @@ function submitFormAjax(form, opts) {
     .then(function (resp) {
       var landedUrl = new URL(resp.url, window.location.href);
       var currentUrl = new URL(window.location.href);
-      if (landedUrl.pathname + landedUrl.search !== currentUrl.pathname + currentUrl.search) {
+      // Переходим только если сервер реально отредиректил: без редиректа
+      // resp.url — это адрес самой формы (POST-роут), и переход на него
+      // обычным GET дал бы 405 Method Not Allowed вместо настоящей ошибки
+      // (504 от nginx, 500, 400 по CSRF) — её показываем ниже как есть.
+      if (resp.redirected && landedUrl.pathname + landedUrl.search !== currentUrl.pathname + currentUrl.search) {
         window.location.href = resp.url;
         return null;
       }
@@ -1920,8 +1924,16 @@ function submitFormAjax(form, opts) {
       if (html === null) return; // ушли на другую страницу — обычной навигацией, выше
       var newDoc = new DOMParser().parseFromString(html, "text/html");
       var newMain = newDoc.getElementById("mainContent");
-      if (!mainContent || !newMain) {
+      if (!mainContent) {
         window.location.reload();
+        return;
+      }
+      if (!newMain) {
+        // Чужая страница (ошибка nginx/werkzeug и т.п.) — показываем её
+        // целиком, а не молча перезагружаем, иначе ошибку не увидеть.
+        document.open();
+        document.write(html);
+        document.close();
         return;
       }
       var scrollY = window.scrollY;

@@ -1997,6 +1997,27 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Ссылка одноразовая — откройте её в Telegram и нажмите Start.": "The link is one-time — open it in Telegram and press Start.",
         "Отвязать Telegram?": "Unlink Telegram?",
 
+        # base.html — меню и окно долгих операций
+        "Предложения": "Proposals",
+        "Созывы": "Board terms",
+        "Контрольные счётчики": "Control meters",
+        "Заказные письма (Почта России)": "Registered letters (Russian Post)",
+        "Справки о владении гаражом": "Garage ownership certificates",
+        "Коммуникации": "Communications",
+        "Почта": "Mail",
+        "Ещё раз": "Try again",
+        "Выполняется…": "In progress…",
+        "Операция продолжается на сервере — результат будет виден на странице.":
+            "The operation continues on the server — the result will appear on the page.",
+        "Не удалось получить ответ сервера — проверьте соединение и попробуйте ещё раз.":
+            "No response from the server — check your connection and try again.",
+        "пропущено": "skipped",
+        # _actions.html
+        "Удалить …?": "Delete …?",
+        # news/form.html
+        "Поддерживается упрощённая разметка: **жирный**, *курсив*, [текст](ссылка), списки (пустая строка, затем строки с «- »), заголовок (### ). Между абзацами оставляйте пустую строку.":
+            "Simple markup is supported: **bold**, *italic*, [text](link), lists (an empty line, then lines starting with «- »), heading (### ). Leave an empty line between paragraphs.",
+
         # telegram_settings/page.html
         "Настройки Telegram": "Telegram settings",
         "Бот для уведомлений о событиях сайта (см. настройки уведомлений в профиле каждого пользователя). Создаётся у @BotFather в Telegram.":
@@ -2009,6 +2030,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Токен бота": "Bot token",
         "Выдаётся @BotFather при создании бота командой /newbot.": "Issued by @BotFather when creating the bot with /newbot.",
         "Настройки Telegram сохранены.": "Telegram settings saved.",
+        "Бот Telegram (getMe)": "Telegram bot (getMe)",
+        "Проверка подключения к Telegram": "Checking the Telegram connection",
         "Группа для новостей": "News group",
         "или": "or",
         "Новые новости сайта будут дублироваться сюда. Добавьте бота в группу и отправьте там команду /chatid — бот ответит ID группы. Для канала бот должен быть администратором. Пусто — не дублировать.":

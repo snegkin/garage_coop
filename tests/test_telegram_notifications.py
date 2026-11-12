@@ -81,8 +81,8 @@ def test_notify_sends_telegram_message_when_linked(app, db, monkeypatch):
     notifications.notify(user, "charge", "Тема", "Текст сообщения")
     assert sent == []  # уведомление — через очередь, уходит с cron
 
-    from app import telegram_outbox
-    assert telegram_outbox.process(app.config["UPLOAD_FOLDER"]) == (1, 0)
+    from app import messenger_outbox
+    assert messenger_outbox.process(app.config["UPLOAD_FOLDER"]) == (1, 0)
     assert len(sent) == 1
     url, payload = sent[0]
     assert "123:ABC" in url

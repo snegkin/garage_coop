@@ -11,10 +11,10 @@ from . import audit
 from . import database
 from . import notifications
 from . import telegram_bot
-from . import telegram_outbox
+from . import messenger_outbox
 from .i18n import translate as _
 from .auth import roles_required
-from .models import News, NewsAttachment, RoleEnum, TelegramOutbox, TelegramOutboxStatus
+from .models import News, NewsAttachment, RoleEnum, MessengerOutbox, MessengerOutboxStatus
 from .uploads import save_upload
 from .garages import ALLOWED_PHOTO_EXT
 from .news_format import render_html, excerpt
@@ -174,13 +174,13 @@ def _parse_utc(value: str | None) -> dt.datetime | None:
 
 def _publish_to_telegram(item: News) -> None:
     """Ставит только что сохранённую новость в очередь отправки в группу
-    Telegram (app/telegram_outbox.py) — уйдёт с ближайшим запуском cron
+    Telegram (app/messenger_outbox.py) — уйдёт с ближайшим запуском cron
     scripts/poll_telegram.py, с повторами, если Telegram недоступен."""
     settings = telegram_bot.get_settings()
     if not telegram_bot.news_group_enabled(settings):
         return
     send_at = _parse_utc(request.form.get("telegram_send_at_utc"))
-    out = telegram_outbox.enqueue_news(
+    out = messenger_outbox.enqueue_news(
         item, url_for("news.view", news_id=item.id, _external=True),
         album_first=bool(request.form.get("telegram_album_first")),
         silent=bool(request.form.get("telegram_silent")),
@@ -220,9 +220,9 @@ def send_telegram(news_id):
 
     photos, _documents, _skipped = telegram_bot._split_attachments(item, current_app.config["UPLOAD_FOLDER"])
     history = (
-        database.db_session.query(TelegramOutbox)
-        .filter(TelegramOutbox.news_id == item.id, TelegramOutbox.status != TelegramOutboxStatus.CANCELLED)
-        .order_by(TelegramOutbox.id.desc())
+        database.db_session.query(MessengerOutbox)
+        .filter(MessengerOutbox.news_id == item.id, MessengerOutbox.status != MessengerOutboxStatus.CANCELLED)
+        .order_by(MessengerOutbox.id.desc())
         .all()
     )
     # Окно на главной подгружает только тело (X-Requested-With), по прямой

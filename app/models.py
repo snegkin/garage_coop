@@ -3077,7 +3077,7 @@ class TelegramSettings(Base):
     proxy_url_encrypted: Mapped[str | None] = mapped_column(Text)
 
 
-class TelegramOutboxStatus(str, enum.Enum):
+class MessengerOutboxStatus(str, enum.Enum):
     PENDING = "pending"
     SENT = "sent"
     # Запрос ушёл, но ответа нет (таймаут чтения, обрыв) — Telegram мог его
@@ -3088,8 +3088,8 @@ class TelegramOutboxStatus(str, enum.Enum):
     CANCELLED = "cancelled"
 
 
-class TelegramOutbox(Base):
-    """Очередь исходящих сообщений бота (app/telegram_outbox.py) — разбирается
+class MessengerOutbox(Base):
+    """Очередь исходящих сообщений бота (app/messenger_outbox.py) — разбирается
     cron-скриптом scripts/poll_telegram.py раз в минуту, с повторами при
     недоступности Telegram/прокси. kind="message" — текст text в chat_id
     (уведомления), kind="news" — новость news_id в группу из настроек:
@@ -3097,7 +3097,7 @@ class TelegramOutbox(Base):
     отправлено, повтор продолжает с места сбоя, не дублируя отправленное.
     url — ссылка «Читать на сайте», считается при постановке (в cron нет
     запроса, url_for(_external) там не построить)."""
-    __tablename__ = "telegram_outbox"
+    __tablename__ = "messenger_outbox"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     kind: Mapped[str] = mapped_column(String(16))
@@ -3112,9 +3112,9 @@ class TelegramOutbox(Base):
     # next_attempt_at = scheduled_at, отсчёт MAX_AGE — тоже от него.
     scheduled_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
     steps_done: Mapped[int] = mapped_column(Integer, default=0)
-    status: Mapped[TelegramOutboxStatus] = mapped_column(
-        Enum(TelegramOutboxStatus, values_callable=lambda e: [m.value for m in e], native_enum=False, length=16),
-        default=TelegramOutboxStatus.PENDING, index=True,
+    status: Mapped[MessengerOutboxStatus] = mapped_column(
+        Enum(MessengerOutboxStatus, values_callable=lambda e: [m.value for m in e], native_enum=False, length=16),
+        default=MessengerOutboxStatus.PENDING, index=True,
     )
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     next_attempt_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.utcnow, index=True)

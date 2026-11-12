@@ -42,7 +42,7 @@ class TelegramError(Exception):
     """status_code — HTTP-код, если Telegram ответил ошибкой (400 — неверный
     chat_id/разметка, 403 — бота выгнали из группы, 429 — слишком часто);
     transport=True — запрос до Telegram не дошёл (сеть, прокси, ретранслятор),
-    повтор безопасен. Очередь (app/telegram_outbox.py) решает по ним, повторять
+    повтор безопасен. Очередь (app/messenger_outbox.py) решает по ним, повторять
     ли отправку."""
 
     def __init__(self, message: str, status_code: int | None = None, transport: bool = False):
@@ -407,7 +407,7 @@ def _album_steps(settings: TelegramSettings, photos, caption: str | None, silent
 def news_steps(settings: TelegramSettings, item: News, url: str, upload_folder: str,
                album_first: bool = False, silent: bool = False) -> tuple[list, list[str]]:
     """Отправка новости в TelegramSettings.news_chat_id по шагам — каждый шаг
-    это один запрос к Bot API (очередь, app/telegram_outbox.py, запоминает,
+    это один запрос к Bot API (очередь, app/messenger_outbox.py, запоминает,
     сколько шагов прошло, и при повторе продолжает с места сбоя):
     - нет фото — одно текстовое сообщение;
     - есть фото и текст влезает в подпись (CAPTION_LIMIT) — один пост,

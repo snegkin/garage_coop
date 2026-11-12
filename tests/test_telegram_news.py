@@ -65,8 +65,8 @@ def test_telegram_html_converts_markdown():
 
 
 def _process(app):
-    from app import telegram_outbox
-    return telegram_outbox.process(app.config["UPLOAD_FOLDER"])
+    from app import messenger_outbox
+    return messenger_outbox.process(app.config["UPLOAD_FOLDER"])
 
 
 def test_create_news_publishes_to_group(app, db, client, monkeypatch):
@@ -394,9 +394,9 @@ def _scripted_posts(monkeypatch, script):
 
 
 def _queued_news(app, db, files=(), body="Текст"):
-    from app import telegram_outbox
+    from app import messenger_outbox
     item = _news_with_files(app, db, body, list(files))
-    out = telegram_outbox.enqueue_news(item, "https://coop.example/news/1")
+    out = messenger_outbox.enqueue_news(item, "https://coop.example/news/1")
     db.commit()
     return out
 
@@ -404,32 +404,32 @@ def _queued_news(app, db, files=(), body="Текст"):
 def test_outbox_retries_after_network_error_with_backoff(app, db, monkeypatch):
     import datetime as dt
     import requests as _rq
-    from app import telegram_outbox
-    from app.models import TelegramOutboxStatus
+    from app import messenger_outbox
+    from app.models import MessengerOutboxStatus
     _settings(db)
     out = _queued_news(app, db)
     _scripted_posts(monkeypatch, [_rq.ConnectionError("Failed to establish a new connection: Network is unreachable")])
 
     assert _process(app) == (0, 1)
     db.refresh(out)
-    assert out.status == TelegramOutboxStatus.PENDING
+    assert out.status == MessengerOutboxStatus.PENDING
     assert out.next_attempt_at > dt.datetime.utcnow()
     assert "Network is unreachable" in out.last_error
 
     assert _process(app) == (0, 0)  # срок повтора ещё не подошёл
     later = dt.datetime.utcnow() + dt.timedelta(minutes=2)
-    assert telegram_outbox.process(app.config["UPLOAD_FOLDER"], now=later) == (1, 0)
+    assert messenger_outbox.process(app.config["UPLOAD_FOLDER"], now=later) == (1, 0)
     db.refresh(out)
-    assert out.status == TelegramOutboxStatus.SENT
+    assert out.status == MessengerOutboxStatus.SENT
 
 
 def test_outbox_network_error_stops_batch(app, db, monkeypatch):
     import requests as _rq
-    from app import telegram_outbox
-    from app.models import TelegramOutboxStatus
+    from app import messenger_outbox
+    from app.models import MessengerOutboxStatus
     _settings(db)
-    telegram_outbox.enqueue_message(1, "раз")
-    telegram_outbox.enqueue_message(2, "два")
+    messenger_outbox.enqueue_message(1, "раз")
+    messenger_outbox.enqueue_message(2, "два")
     db.commit()
     sent = _scripted_posts(monkeypatch, [_rq.ConnectTimeout("connect timeout")])
     assert _process(app) == (0, 1)
@@ -441,8 +441,8 @@ def test_outbox_resumes_news_from_failed_step(app, db, monkeypatch):
     не отправляет текст второй раз."""
     import datetime as dt
     import requests as _rq
-    from app import telegram_outbox
-    from app.models import TelegramOutboxStatus
+    from app import messenger_outbox
+    from app.models import MessengerOutboxStatus
     _settings(db)
     out = _queued_news(app, db, body="длинно " * 300,
                        files=[("a.jpg", b"A", False), ("b.jpg", b"B", False), ("d.pdf", b"D", False)])
@@ -450,68 +450,68 @@ def test_outbox_resumes_news_from_failed_step(app, db, monkeypatch):
 
     _process(app)
     db.refresh(out)
-    assert out.steps_done == 1 and out.status == TelegramOutboxStatus.PENDING
+    assert out.steps_done == 1 and out.status == MessengerOutboxStatus.PENDING
 
     later = dt.datetime.utcnow() + dt.timedelta(minutes=2)
-    telegram_outbox.process(app.config["UPLOAD_FOLDER"], now=later)
+    messenger_outbox.process(app.config["UPLOAD_FOLDER"], now=later)
     db.refresh(out)
-    assert out.status == TelegramOutboxStatus.SENT
+    assert out.status == MessengerOutboxStatus.SENT
     assert sent == ["sendMessage", "sendMediaGroup", "sendDocument"]
 
 
 def test_outbox_read_timeout_is_uncertain_not_retried(app, db, monkeypatch):
     import datetime as dt
     import requests as _rq
-    from app import telegram_outbox
-    from app.models import TelegramOutboxStatus
+    from app import messenger_outbox
+    from app.models import MessengerOutboxStatus
     _settings(db)
     out = _queued_news(app, db)
     sent = _scripted_posts(monkeypatch, [_rq.ReadTimeout("read timed out")])
     _process(app)
     db.refresh(out)
-    assert out.status == TelegramOutboxStatus.UNCERTAIN
+    assert out.status == MessengerOutboxStatus.UNCERTAIN
     later = dt.datetime.utcnow() + dt.timedelta(hours=2)
-    assert telegram_outbox.process(app.config["UPLOAD_FOLDER"], now=later) == (0, 0)
+    assert messenger_outbox.process(app.config["UPLOAD_FOLDER"], now=later) == (0, 0)
     assert sent == []
 
 
 def test_outbox_bad_request_fails_permanently(app, db, monkeypatch):
-    from app.models import TelegramOutboxStatus
+    from app.models import MessengerOutboxStatus
     _settings(db)
     out = _queued_news(app, db)
     _scripted_posts(monkeypatch, [400])
     _process(app)
     db.refresh(out)
-    assert out.status == TelegramOutboxStatus.FAILED
+    assert out.status == MessengerOutboxStatus.FAILED
 
 
 def test_outbox_rate_limit_is_retried(app, db, monkeypatch):
-    from app.models import TelegramOutboxStatus
+    from app.models import MessengerOutboxStatus
     _settings(db)
     out = _queued_news(app, db)
     _scripted_posts(monkeypatch, [429])
     _process(app)
     db.refresh(out)
-    assert out.status == TelegramOutboxStatus.PENDING
+    assert out.status == MessengerOutboxStatus.PENDING
 
 
 def test_outbox_gives_up_after_max_age(app, db, monkeypatch):
     import datetime as dt
     import requests as _rq
-    from app import telegram_outbox
-    from app.models import TelegramOutboxStatus
+    from app import messenger_outbox
+    from app.models import MessengerOutboxStatus
     _settings(db)
     out = _queued_news(app, db)
     _scripted_posts(monkeypatch, [_rq.ConnectTimeout("x")])
-    later = dt.datetime.utcnow() + telegram_outbox.MAX_AGE + dt.timedelta(minutes=1)
-    telegram_outbox.process(app.config["UPLOAD_FOLDER"], now=later)
+    later = dt.datetime.utcnow() + messenger_outbox.MAX_AGE + dt.timedelta(minutes=1)
+    messenger_outbox.process(app.config["UPLOAD_FOLDER"], now=later)
     db.refresh(out)
-    assert out.status == TelegramOutboxStatus.FAILED
+    assert out.status == MessengerOutboxStatus.FAILED
 
 
 def test_outbox_page_and_actions(app, db, client, monkeypatch):
     import requests as _rq
-    from app.models import TelegramOutboxStatus
+    from app.models import MessengerOutboxStatus
     _settings(db)
     out = _queued_news(app, db)
     _scripted_posts(monkeypatch, [_rq.ReadTimeout("read timed out")])
@@ -525,21 +525,21 @@ def test_outbox_page_and_actions(app, db, client, monkeypatch):
 
     client.post(f"/telegram/outbox/{out.id}/mark-sent")
     db.refresh(out)
-    assert out.status == TelegramOutboxStatus.SENT
+    assert out.status == MessengerOutboxStatus.SENT
 
-    out.status = TelegramOutboxStatus.FAILED
+    out.status = MessengerOutboxStatus.FAILED
     db.commit()
     client.post(f"/telegram/outbox/{out.id}/retry")
     db.refresh(out)
-    assert out.status == TelegramOutboxStatus.PENDING
+    assert out.status == MessengerOutboxStatus.PENDING
     client.post(f"/telegram/outbox/{out.id}/cancel")
     db.refresh(out)
-    assert out.status == TelegramOutboxStatus.CANCELLED
+    assert out.status == MessengerOutboxStatus.CANCELLED
     assert client.post(f"/telegram/outbox/{out.id}/explode").status_code == 404
 
 
 def test_outbox_deleted_news_fails(app, db, monkeypatch):
-    from app.models import TelegramOutboxStatus
+    from app.models import MessengerOutboxStatus
     _settings(db)
     out = _queued_news(app, db)
     db.delete(out.news)
@@ -547,7 +547,7 @@ def test_outbox_deleted_news_fails(app, db, monkeypatch):
     _scripted_posts(monkeypatch, [])
     _process(app)
     db.refresh(out)
-    assert out.status == TelegramOutboxStatus.FAILED
+    assert out.status == MessengerOutboxStatus.FAILED
 
 
 # ---------------------------------------------------------------------------
@@ -577,8 +577,8 @@ def test_not_silent_by_default(app, db, monkeypatch):
 
 def test_create_news_scheduled_and_silent(app, db, client, monkeypatch):
     import datetime as dt
-    from app import telegram_outbox
-    from app.models import TelegramOutbox, TelegramOutboxStatus
+    from app import messenger_outbox
+    from app.models import MessengerOutbox, MessengerOutboxStatus
     _settings(db)
     sent = _capture_posts(monkeypatch)
     _login_board(db, client)
@@ -589,20 +589,20 @@ def test_create_news_scheduled_and_silent(app, db, client, monkeypatch):
         "telegram_silent": "1", "telegram_send_at_utc": when.isoformat() + ".000Z",
     }, follow_redirects=True)
     assert "запланирован" in resp.get_data(as_text=True)
-    out = db.query(TelegramOutbox).one()
+    out = db.query(MessengerOutbox).one()
     assert out.silent and out.scheduled_at == when and out.next_attempt_at == when
 
     assert _process(app) == (0, 0)
     assert sent == []
     # Даже через сутки после постановки (но вскоре после срока) — не «просрочено»
-    telegram_outbox.process(app.config["UPLOAD_FOLDER"], now=when + dt.timedelta(minutes=1))
+    messenger_outbox.process(app.config["UPLOAD_FOLDER"], now=when + dt.timedelta(minutes=1))
     db.refresh(out)
-    assert out.status == TelegramOutboxStatus.SENT
+    assert out.status == MessengerOutboxStatus.SENT
     assert sent[0]["json"]["disable_notification"] is True
 
 
 def test_scheduled_in_past_or_garbage_sends_now(app, db, client, monkeypatch):
-    from app.models import TelegramOutbox
+    from app.models import MessengerOutbox
     _settings(db)
     _capture_posts(monkeypatch)
     _login_board(db, client)
@@ -610,33 +610,33 @@ def test_scheduled_in_past_or_garbage_sends_now(app, db, client, monkeypatch):
                                    "telegram_send_at_utc": "2001-01-01T00:00:00.000Z"})
     client.post("/news/new", data={"title": "В", "body": "Г", "publish_telegram": "1",
                                    "telegram_send_at_utc": "не дата"})
-    assert [o.scheduled_at for o in db.query(TelegramOutbox).all()] == [None, None]
+    assert [o.scheduled_at for o in db.query(MessengerOutbox).all()] == [None, None]
     assert _process(app) == (2, 0)
 
 
 def test_max_age_counts_from_scheduled_time(app, db, monkeypatch):
     import datetime as dt
     import requests as _rq
-    from app import telegram_outbox
-    from app.models import TelegramOutboxStatus
+    from app import messenger_outbox
+    from app.models import MessengerOutboxStatus
     _settings(db)
     item = _news_with_files(app, db, "Текст", [])
     when = dt.datetime.utcnow() + dt.timedelta(days=3)
-    out = telegram_outbox.enqueue_news(item, "https://coop.example/news/1", send_at=when)
+    out = messenger_outbox.enqueue_news(item, "https://coop.example/news/1", send_at=when)
     db.commit()
     _scripted_posts(monkeypatch, [_rq.ConnectTimeout("x")])
-    telegram_outbox.process(app.config["UPLOAD_FOLDER"], now=when + dt.timedelta(minutes=1))
+    messenger_outbox.process(app.config["UPLOAD_FOLDER"], now=when + dt.timedelta(minutes=1))
     db.refresh(out)
-    assert out.status == TelegramOutboxStatus.PENDING  # не отказ: срок только наступил
+    assert out.status == MessengerOutboxStatus.PENDING  # не отказ: срок только наступил
 
 
 def test_scheduled_shown_and_cancellable_on_settings_page(app, db, client, monkeypatch):
     import datetime as dt
-    from app import telegram_outbox
-    from app.models import TelegramOutboxStatus
+    from app import messenger_outbox
+    from app.models import MessengerOutboxStatus
     _settings(db)
     item = _news_with_files(app, db, "Текст", [])
-    out = telegram_outbox.enqueue_news(item, "https://coop.example/news/1", silent=True,
+    out = messenger_outbox.enqueue_news(item, "https://coop.example/news/1", silent=True,
                                        send_at=dt.datetime.utcnow() + dt.timedelta(hours=5))
     db.commit()
     make_user(db, "tg_chair_s", "pass1234", role=RoleEnum.CHAIRMAN)
@@ -646,7 +646,7 @@ def test_scheduled_shown_and_cancellable_on_settings_page(app, db, client, monke
     assert "запланировано" in page and "bi-bell-slash" in page
     client.post(f"/telegram/outbox/{out.id}/cancel")
     db.refresh(out)
-    assert out.status == TelegramOutboxStatus.CANCELLED
+    assert out.status == MessengerOutboxStatus.CANCELLED
 
 
 # ---------------------------------------------------------------------------
@@ -706,7 +706,7 @@ def test_menu_item_shown_only_when_group_configured(app, db, client):
 
 def test_send_existing_news_with_options(app, db, client, monkeypatch):
     import datetime as dt
-    from app.models import News, TelegramOutbox
+    from app.models import News, MessengerOutbox
     _settings(db)
     sent = _capture_posts(monkeypatch)
     item = News(title="Старая новость", body="Текст")
@@ -720,7 +720,7 @@ def test_send_existing_news_with_options(app, db, client, monkeypatch):
 
     resp = client.post(f"/news/{item.id}/telegram", data={"telegram_silent": "1"}, follow_redirects=True)
     assert "в очереди" in resp.get_data(as_text=True) or "поставлена в очередь" in resp.get_data(as_text=True)
-    out = db.query(TelegramOutbox).one()
+    out = db.query(MessengerOutbox).one()
     assert out.news_id == item.id and out.silent
     _process(app)
     assert sent[0]["json"]["disable_notification"] is True
@@ -731,7 +731,7 @@ def test_send_existing_news_with_options(app, db, client, monkeypatch):
 
 def test_send_existing_news_scheduled(app, db, client, monkeypatch):
     import datetime as dt
-    from app.models import News, TelegramOutbox
+    from app.models import News, MessengerOutbox
     _settings(db)
     item = News(title="Н", body="Т")
     db.add(item)
@@ -739,7 +739,7 @@ def test_send_existing_news_scheduled(app, db, client, monkeypatch):
     _login_board(db, client)
     when = dt.datetime.utcnow().replace(microsecond=0) + dt.timedelta(days=1)
     client.post(f"/news/{item.id}/telegram", data={"telegram_send_at_utc": when.isoformat() + "Z"})
-    assert db.query(TelegramOutbox).one().scheduled_at == when
+    assert db.query(MessengerOutbox).one().scheduled_at == when
     assert "запланирована" in client.get(f"/news/{item.id}/telegram").get_data(as_text=True)
 
 
@@ -767,8 +767,8 @@ def test_send_existing_news_requires_group_and_board(app, db, client):
     db.commit()
     login(client, "tg_member", "pass1234")
     assert client.post(f"/news/{item.id}/telegram").status_code in (302, 403)
-    from app.models import TelegramOutbox
-    assert db.query(TelegramOutbox).count() == 0
+    from app.models import MessengerOutbox
+    assert db.query(MessengerOutbox).count() == 0
 
 
 def test_send_telegram_modal_and_fragment(app, db, client):

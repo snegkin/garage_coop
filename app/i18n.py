@@ -2213,6 +2213,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "В реквизитах кооператива не заполнены кадастровая площадь и стоимость — расчёт невозможен.":
             "The cooperative's legal details don't have the cadastral area and value filled in — calculation isn't possible.",
 
+        # cooperative/view.html — общие сведения и реквизиты
+        "Общие сведения": "General information",
+        "добавить в «Расчётные счета»": "add it under «Settlement accounts»",
+
         # cooperative/view.html — площади и налоги
         "% банка за зачисление": "Bank fee % on crediting",
         "Из них, площадь общего пользования, м²": "Of which, shared-use area, m²",

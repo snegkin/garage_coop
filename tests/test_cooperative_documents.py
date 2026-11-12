@@ -245,3 +245,36 @@ def test_postal_letter_documents_hidden_from_cooperative_list(db, client):
     html = client.get("/cooperative/").get_data(as_text=True)
     assert "Обычное письмо правления" in html
     assert "Уведомление о задолженности — Должников" not in html
+
+
+def test_requisites_section_shows_primary_bank_account(app, db, client):
+    """В «Реквизитах» — ИНН/КПП/ОГРН и банковские реквизиты основного счёта
+    (как на ПД-4), а наименование/контакты — в «Общих сведениях»."""
+    from app.models import Cooperative, BankAccount
+    db.add(Cooperative(full_name="ГСК Тест", inn="1234567890", kpp="123401001", ogrn="1021234567890"))
+    db.add(BankAccount(bank_name="Второй банк", checking_account="40703810000000000002", is_primary=False))
+    db.add(BankAccount(bank_name="АО КБ «Модульбанк»", bik="044525092", checking_account="40703810000000000001",
+                       correspondent_account="30101810645250000092", is_primary=True))
+    db.commit()
+    _make_member(db)
+
+    login(client, "member1", "pass1234")
+    body = client.get("/cooperative/").get_data(as_text=True)
+    assert "Общие сведения" in body
+    requisites = body[body.index(">Реквизиты<"):body.index("Площади и налоги")]
+    for value in ("1234567890", "123401001", "1021234567890", "40703810000000000001",
+                  "044525092", "30101810645250000092", "Модульбанк"):
+        assert value in requisites
+    assert "40703810000000000002" not in body
+
+
+def test_requisites_section_without_bank_account(app, db, client):
+    from app.models import Cooperative
+    db.add(Cooperative(full_name="ГСК Тест", inn="1234567890", kpp="123401001", ogrn="1021234567890"))
+    db.commit()
+    _make_member(db)
+
+    login(client, "member1", "pass1234")
+    resp = client.get("/cooperative/")
+    assert resp.status_code == 200
+    assert "не указан" in resp.get_data(as_text=True)

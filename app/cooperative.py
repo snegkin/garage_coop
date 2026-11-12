@@ -11,7 +11,7 @@ from . import notifications
 from .i18n import translate as _, parse_optional_decimal as _parse_decimal
 from .auth import login_required, roles_required
 from .models import Cooperative, BankAccount, BankApiProvider, RoleEnum, Document, DocumentType, Person, Counterparty, PostalDispatch
-from .accounting import cooperative_balance
+from .accounting import cooperative_balance, get_primary_bank_account
 from .uploads import save_upload
 from .permissions import is_board
 
@@ -47,6 +47,7 @@ def view():
     all_counterparties = database.db_session.query(Counterparty).order_by(Counterparty.name).all() if is_board() else []
     return render_template(
         "cooperative/view.html", coop=coop, coop_balance=cooperative_balance(),
+        primary_account=get_primary_bank_account(),
         docs=docs, doc_types=DocumentType, chairman=chairman, all_counterparties=all_counterparties,
     )
 

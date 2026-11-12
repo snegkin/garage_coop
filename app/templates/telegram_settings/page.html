@@ -13,7 +13,9 @@
 <div class="alert alert-danger">{{ settings.last_error }}</div>
 {% endif %}
 
-<form method="post" action="{{ url_for('telegram_settings.save_settings') }}" class="bg-body p-4 rounded border" style="max-width:480px" data-ajax>
+<form method="post" action="{{ url_for('telegram_settings.save_settings') }}" class="bg-body p-4 rounded border" data-ajax>
+  <div class="row g-4">
+  <div class="col-lg-6">
   <div class="mb-3">
     <label class="form-label">{{ _("Имя бота (без @)") }}</label>
     <input class="form-control" type="text" name="bot_username" value="{{ settings.bot_username or '' }}" placeholder="my_coop_bot">
@@ -29,6 +31,8 @@
     <input class="form-control" type="text" name="news_chat_id" value="{{ settings.news_chat_id or '' }}" placeholder="-1001234567890 {{ _('или') }} @my_coop_channel">
     <div class="form-text">{{ _("Новые новости сайта будут дублироваться сюда. Добавьте бота в группу и отправьте там команду /chatid — бот ответит ID группы. Для канала бот должен быть администратором. Пусто — не дублировать.") }}</div>
   </div>
+  </div>
+  <div class="col-lg-6">
   <details class="mb-3" {% if settings.api_base_url or settings.proxy_url_encrypted %}open{% endif %}>
     <summary class="mb-2">{{ _("Доступ к Telegram из РФ") }}</summary>
     <p class="form-text">{{ _("С серверов в России api.telegram.org обычно недоступен. Запросы бота можно пустить через свой ретранслятор Bot API или прокси на зарубежном сервере (см. docs/deployment.md, «Telegram из РФ»). Остальные внешние API (банк, СМС) продолжают ходить напрямую.") }}</p>
@@ -49,6 +53,8 @@
     </div>
     {% endif %}
   </details>
+  </div>
+  </div>
   <button class="btn btn-primary">{{ _("Сохранить") }}</button>
 </form>
 

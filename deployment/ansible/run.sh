@@ -47,13 +47,45 @@ case " $* " in
 esac
 
 # Агенты на этом компьютере (local_backup_agent / local_ezp_agent) ставятся
-# через sudo — спросить пароль, если sudo без него не пускает.
+# через sudo — спросить пароль, если sudo без него не пускает. Спрашиваем
+# сами, а не через -K: у ansible приглашение «BECOME password:». Пароль
+# сразу проверяется через sudo и передаётся в ansible файлом (0600, удаляется
+# по выходу).
 VARS_FILE="${COOP_VARS:-$CONF_DIR/vars.yml}"
 BECOME=""
+PASS_FILE=""
+cleanup() { if [ -n "$PASS_FILE" ]; then rm -f "$PASS_FILE"; fi; }
+trap cleanup EXIT
+trap 'cleanup; exit 130' INT TERM HUP
+
 if [ -f "$VARS_FILE" ] && grep -Eq '^local_(backup|ezp)_agent:[[:space:]]*(true|yes|True)' "$VARS_FILE"; then
     case " $* " in
-        *" -K "*|*" --ask-become-pass "*) ;;
-        *) sudo -n true 2>/dev/null || BECOME="--ask-become-pass" ;;
+        *" -K "*|*" --ask-become-pass "*|*" --become-password-file"*|*" --become-pass-file"*) ;;
+        *)
+            if ! sudo -n true 2>/dev/null; then
+                PASS_FILE="$(umask 077 && mktemp)" || exit 1
+                tries=0
+                while :; do
+                    printf 'Пароль sudo пользователя %s на этом компьютере (для агентов бэкапа и ЭЗП): ' "$(id -un)"
+                    stty -echo 2>/dev/null
+                    IFS= read -r pw || pw=""
+                    stty echo 2>/dev/null
+                    echo
+                    printf '%s\n' "$pw" > "$PASS_FILE"
+                    if sudo -S -k -v -p '' < "$PASS_FILE" 2>/dev/null; then
+                        break
+                    fi
+                    tries=$((tries + 1))
+                    if [ "$tries" -ge 3 ]; then
+                        echo "Неверный пароль sudo — три попытки, выход." >&2
+                        exit 1
+                    fi
+                    echo "Неверный пароль, ещё раз." >&2
+                done
+                unset pw
+                BECOME="--become-password-file $PASS_FILE"
+            fi
+            ;;
     esac
 fi
 

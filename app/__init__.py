@@ -47,6 +47,11 @@ def create_app(config_class=Config):
                 keep_days=app.config["API_LOG_KEEP_DAYS"], max_body=app.config["API_LOG_MAX_BODY"],
             )
 
+    # HTTP-запросы долгих операций — строками в окне прогресса (app/progress.py);
+    # без открытого окна обёртка ничего не делает.
+    from . import progress
+    progress.install_http_hook()
+
     from .errors import register_error_handlers
     register_error_handlers(app)
 

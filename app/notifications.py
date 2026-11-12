@@ -209,7 +209,7 @@ CHANNEL_LABELS = {
 }
 
 
-def send_test_notification(user: User) -> tuple[bool, str]:
+def send_test_notification(user: User, progress=None) -> tuple[bool, str]:
     """Тестовая отправка по кнопке «Проверить уведомления» (cabinet/profile.html) —
     тем же путём, что и notify(), но по ЯВНОМУ действию пользователя, а не
     событию сайта: без проверки notify_<event> (тестируем сами каналы, а не
@@ -217,14 +217,23 @@ def send_test_notification(user: User) -> tuple[bool, str]:
     коду (notify() ошибки только логирует и работает молча — тут наоборот,
     ошибку нужно показать самому пользователю, зачем и звали кнопку).
     Проверяет каждый отмеченный способ доставки по отдельности.
-    Возвращает (все ли дошли, текст для flash)."""
+    Возвращает (все ли дошли, текст для flash). progress — окно прогресса
+    (app/progress.py): по шагу на канал."""
+    from . import progress as progress_ui
+
+    progress = progress or progress_ui.NULL
     channels = enabled_channels(user) if user is not None else []
     if not channels:
         return False, _("Сначала отметьте хотя бы один способ доставки и сохраните настройки.")
 
     subject = _("Тестовое уведомление")
     body_text = _("Это тестовое уведомление от системы учёта кооператива — если оно дошло, значит канал настроен верно.")
-    results = [(channel, *_test_channel(user, channel, subject, body_text)) for channel in channels]
+    results = []
+    for channel in channels:
+        with progress.step(CHANNEL_LABELS[channel]) as step:
+            ok, message = _test_channel(user, channel, subject, body_text)
+            (step.ok if ok else step.fail)(message)
+        results.append((channel, ok, message))
     all_ok = all(ok for _channel, ok, _msg in results)
     if len(results) == 1:
         return all_ok, results[0][2]

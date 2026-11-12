@@ -28,7 +28,7 @@
 </form>
 
 {% if settings.bot_token_encrypted and settings.bot_username %}
-<form method="post" action="{{ url_for('telegram_settings.test_connection') }}" class="mt-3" data-ajax>
+<form method="post" action="{{ url_for('telegram_settings.test_connection') }}" class="mt-3" data-progress="{{ _("Проверка подключения к Telegram") }}" data-progress-retry>
   <button class="btn btn-outline-secondary">{{ _("Проверить подключение") }}</button>
 </form>
 {% endif %}

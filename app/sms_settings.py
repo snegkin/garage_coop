@@ -18,6 +18,7 @@ import re
 from flask import Blueprint, render_template, request, redirect, url_for, flash
 
 from . import database
+from . import progress as progress_ui
 from . import audit
 from .i18n import translate as _
 from .auth import roles_required
@@ -119,12 +120,22 @@ def send_test():
     # инсталляций, не конкретное название компании/сайта.
     test_text = _("Тестовое сообщение из системы учёта кооператива ({site}).", site=site) if site \
         else _("Тестовое сообщение из системы учёта кооператива.")
-    try:
-        client.send(digits, test_text)
-        settings.last_test_result = _("Успешно отправлено.")
-    except SmsError as exc:
-        settings.last_test_result = str(exc)
-        audit.record("sms.test_failed", summary=f"Ошибка тестовой отправки СМС: {exc}")
-    settings.last_test_at = dt.datetime.utcnow()
-    database.db_session.commit()
-    return redirect(url_for("sms_settings.view"))
+    back = url_for("sms_settings.view")
+
+    # Итог — и в окне, и на странице (last_test_result), как раньше.
+    def task(progress):
+        settings = _get_or_create_settings()
+        ok = True
+        try:
+            with progress.step(_("Отправка СМС на +7{digits}", digits=digits)):
+                get_sms_client().send(digits, test_text)
+            settings.last_test_result = _("Успешно отправлено.")
+        except SmsError as exc:
+            ok = False
+            settings.last_test_result = str(exc)
+            audit.record("sms.test_failed", summary=f"Ошибка тестовой отправки СМС: {exc}")
+        settings.last_test_at = dt.datetime.utcnow()
+        database.db_session.commit()
+        return progress_ui.Result(ok, settings.last_test_result, back)
+
+    return progress_ui.respond(task)

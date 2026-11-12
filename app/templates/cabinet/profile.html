@@ -215,7 +215,7 @@
     <form method="post" action="{{ url_for('cabinet.telegram_link_start') }}" id="telegramLinkForm" data-ajax></form>
 
     {% if g.user.notify_via_email or g.user.notify_via_telegram or g.user.notify_via_webpush %}
-    <form method="post" action="{{ url_for('cabinet.test_notification') }}" class="mt-2" data-ajax>
+    <form method="post" action="{{ url_for('cabinet.test_notification') }}" class="mt-2" data-progress="{{ _("Проверка уведомлений") }}">
       <button class="btn btn-outline-secondary btn-sm">{{ _("Проверить уведомления") }}</button>
       <span class="text-muted small ms-2">{{ _("Отправит тестовое сообщение по каждому сохранённому способу доставки.") }}</span>
     </form>

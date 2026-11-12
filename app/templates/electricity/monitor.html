@@ -279,7 +279,7 @@
   </a>
   {% endif %}
   {% if is_authorized %}
-  <form method="post" action="{{ url_for('electricity_monitor.test_connection') }}" data-ajax>
+  <form method="post" action="{{ url_for('electricity_monitor.test_connection') }}" data-progress="{{ _("Проверка подключения к eWeLink") }}" data-progress-retry>
     <button class="btn btn-sm btn-outline-primary">{{ _("Проверить подключение") }}</button>
   </form>
   <form method="post" action="{{ url_for('electricity_monitor.unbind') }}" onsubmit="return confirm('{{ _('Сбросить подключение к eWeLink?') }}')">

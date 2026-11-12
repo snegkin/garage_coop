@@ -9,8 +9,8 @@
     {% endif %}
     {% if is_chairman() %}
     {% if is_configured %}
-    {# Без JS — обычный POST и итог во flash; с JS — окно с шагами (скрипт внизу). #}
-    <form method="post" action="{{ url_for('mailbox.test_connection') }}" class="d-inline" id="mailTestForm" data-no-ajax>
+    {# Без JS — обычный POST и итог во flash; с JS — окно с шагами (base.html, #progressModal). #}
+    <form method="post" action="{{ url_for('mailbox.test_connection') }}" class="d-inline" data-progress="{{ _("Проверка подключения к почте") }}" data-progress-retry>
       <button class="btn btn-outline-primary">{{ _("Проверить подключение") }}</button>
     </form>
     {% endif %}
@@ -29,7 +29,7 @@
   {% endif %}
 </div>
 {% elif settings.last_error and page is none %}
-<div class="alert alert-danger" id="mailLastError">
+<div class="alert alert-danger">
   {{ _("Не удалось подключиться к почте.") }}
   {% if is_chairman() %}{{ settings.last_error }}{% endif %}
 </div>
@@ -345,164 +345,4 @@
 })();
 </script>
 
-{% if is_chairman() and is_configured %}
-<div class="modal fade" id="mailTestModal" tabindex="-1" aria-labelledby="mailTestModalLabel" aria-hidden="true">
-  <div class="modal-dialog modal-lg modal-dialog-scrollable">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title" id="mailTestModalLabel">{{ _("Проверка подключения к почте") }}</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{{ _("Закрыть") }}"></button>
-      </div>
-      <div class="modal-body">
-        <div id="mailTestSteps"></div>
-        <div id="mailTestSummary" class="alert d-none mb-0 mt-3"></div>
-      </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-outline-primary" id="mailTestRetry" disabled>{{ _("Проверить ещё раз") }}</button>
-        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _("Закрыть") }}</button>
-      </div>
-    </div>
-  </div>
-</div>
-<script>
-(function () {
-  // Скрипт выполняется и при AJAX-подмене #mainContent (runContentScripts) —
-  // обработчики на document вешаем один раз.
-  if (window.__mailTestBound) return;
-  window.__mailTestBound = true;
-
-  var TEXT = {
-    running: "{{ _("Проверка…") }}",
-    ok: "{{ _("Подключение к почте работает: входящие и исходящие.") }}",
-    fail: "{{ _("Есть ошибки — смотрите шаги, отмеченные красным.") }}",
-    network: "{{ _("Не удалось получить ответ сервера — проверьте соединение и попробуйте ещё раз.") }}",
-    skipped: "{{ _("пропущено") }}",
-    unable: "{{ _("Не удалось подключиться к почте.") }}"
-  };
-  var ICON = {
-    running: '<span class="spinner-border spinner-border-sm text-primary" role="status"></span>',
-    ok: '<span class="text-success fw-bold">✓</span>',
-    warn: '<span class="text-warning fw-bold">⚠</span>',
-    fail: '<span class="text-danger fw-bold">✗</span>',
-    skip: '<span class="text-muted">—</span>'
-  };
-  var running = false;
-
-  function el(tag, cls, text) {
-    var node = document.createElement(tag);
-    if (cls) node.className = cls;
-    if (text) node.textContent = text;
-    return node;
-  }
-
-  function renderStep(container, ev) {
-    var groupId = "mailTestGroup-" + ev.group;
-    var list = document.getElementById(groupId);
-    if (!list) {
-      container.appendChild(el("h6", "mt-3 mb-2", ev.group_title));
-      list = el("ul", "list-unstyled mb-0");
-      list.id = groupId;
-      container.appendChild(list);
-    }
-    var itemId = groupId + "-" + ev.id;
-    var item = document.getElementById(itemId);
-    if (!item) {
-      item = el("li", "d-flex gap-2 py-1 border-bottom");
-      item.id = itemId;
-      list.appendChild(item);
-    }
-    item.innerHTML = "";
-    var icon = el("div", "text-center flex-shrink-0");
-    icon.style.width = "1.5rem";
-    icon.innerHTML = ICON[ev.status] || "";
-    var body = el("div", "flex-grow-1");
-    body.appendChild(el("div", ev.status === "skip" ? "text-muted" : "", ev.title));
-    var detail = ev.status === "skip" ? TEXT.skipped : ev.detail;
-    if (detail) body.appendChild(el("div", "small " + (ev.status === "fail" ? "text-danger" : "text-muted"), detail));
-    if (ev.hint) body.appendChild(el("div", "small mt-1", ev.hint));
-    item.appendChild(icon);
-    item.appendChild(body);
-  }
-
-  function finish(ok, message, lastError) {
-    running = false;
-    document.getElementById("mailTestRetry").disabled = false;
-    var summary = document.getElementById("mailTestSummary");
-    summary.className = "alert mb-0 mt-3 " + (ok ? "alert-success" : "alert-danger");
-    summary.textContent = message;
-    // Плашка «Не удалось подключиться» на странице — по итогу проверки.
-    var banner = document.getElementById("mailLastError");
-    if (banner && ok) banner.remove();
-    else if (banner && lastError) banner.textContent = TEXT.unable + " " + lastError;
-  }
-
-  function start(form) {
-    if (running) return;
-    running = true;
-    var steps = document.getElementById("mailTestSteps");
-    var summary = document.getElementById("mailTestSummary");
-    steps.innerHTML = "";
-    summary.className = "alert alert-secondary mb-0 mt-3";
-    summary.textContent = TEXT.running;
-    document.getElementById("mailTestRetry").disabled = true;
-
-    fetch(form.action, {
-      method: "POST",
-      body: new FormData(form),
-      headers: { "Accept": "application/x-ndjson", "X-Requested-With": "XMLHttpRequest" }
-    }).then(function (resp) {
-      if (!resp.ok || (resp.headers.get("Content-Type") || "").indexOf("application/x-ndjson") !== 0 || !resp.body) {
-        throw new Error("bad response");
-      }
-      var reader = resp.body.getReader();
-      var decoder = new TextDecoder();
-      var buffer = "";
-      var done = false;
-      function handle(line) {
-        if (!line.trim()) return;
-        var ev = JSON.parse(line);
-        if (ev.type === "step") {
-          renderStep(steps, ev);
-        } else if (ev.type === "done") {
-          done = true;
-          var message = ev.ok ? TEXT.ok : (steps.children.length ? TEXT.fail : (ev.errors || []).join("; "));
-          finish(ev.ok, message, ev.last_error);
-        }
-      }
-      function pump() {
-        return reader.read().then(function (chunk) {
-          if (chunk.done) {
-            handle(buffer);
-            if (!done) finish(false, TEXT.network);
-            return;
-          }
-          buffer += decoder.decode(chunk.value, { stream: true });
-          var lines = buffer.split("\n");
-          buffer = lines.pop();
-          lines.forEach(handle);
-          return pump();
-        });
-      }
-      return pump();
-    }).catch(function () {
-      finish(false, TEXT.network);
-    });
-  }
-
-  document.addEventListener("submit", function (e) {
-    var form = e.target;
-    if (form.id !== "mailTestForm" || !window.bootstrap) return;
-    e.preventDefault();
-    window.bootstrap.Modal.getOrCreateInstance(document.getElementById("mailTestModal")).show();
-    start(form);
-  });
-
-  document.addEventListener("click", function (e) {
-    if (!e.target.closest || !e.target.closest("#mailTestRetry")) return;
-    var form = document.getElementById("mailTestForm");
-    if (form) start(form);
-  });
-})();
-</script>
-{% endif %}
 {% endblock %}

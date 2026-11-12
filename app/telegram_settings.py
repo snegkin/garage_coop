@@ -7,6 +7,7 @@ app/telegram_bot.py) — токен создаётся у @BotFather, настр
 from flask import Blueprint, render_template, request, redirect, url_for, flash
 
 from . import database
+from . import progress as progress_ui
 from . import audit
 from .i18n import translate as _
 from .auth import roles_required
@@ -64,12 +65,21 @@ def test_connection():
     if not telegram_bot.is_configured(settings):
         flash(_("Сначала укажите токен и имя бота."), "warning")
         return redirect(url_for("telegram_settings.view"))
-    try:
-        me = telegram_bot.get_me(settings)
-        settings.last_error = None
-        flash(_("Подключение работает: бот @{username}.", username=me.get("username", "?")), "success")
-    except TelegramError as exc:
-        settings.last_error = str(exc)
-        flash(_("Не удалось подключиться: {error}", error=str(exc)), "danger")
-    database.db_session.commit()
-    return redirect(url_for("telegram_settings.view"))
+    back = url_for("telegram_settings.view")
+
+    def task(progress):
+        settings = _get_or_create_settings()
+        try:
+            with progress.step(_("Бот Telegram (getMe)")) as step:
+                me = telegram_bot.get_me(settings)
+                step.ok("@" + me.get("username", "?"))
+            settings.last_error = None
+            result = progress_ui.Result(
+                True, _("Подключение работает: бот @{username}.", username=me.get("username", "?")), back)
+        except TelegramError as exc:
+            settings.last_error = str(exc)
+            result = progress_ui.Result(False, _("Не удалось подключиться: {error}", error=str(exc)), back)
+        database.db_session.commit()
+        return result
+
+    return progress_ui.respond(task)

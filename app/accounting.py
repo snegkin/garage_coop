@@ -1075,16 +1075,37 @@ def account_digits(value: str | None) -> str:
     return _NON_DIGIT_RE.sub("", value or "")
 
 
+# Банки при переводе по реквизитам (Сбербанк — точно) отвергают назначение
+# с «;», «|» и рядом других символов. Пропускаем только заведомо безопасные:
+# буквы, цифры, пробел и . , - ( ) / №; прочее (в том числе из названия вида
+# взноса, которое вводит правление) — пробелом.
+_PAYMENT_TEXT_UNSAFE_RE = re.compile(r"[^0-9A-Za-zА-Яа-яЁё .,\-()/№]")
+PURPOSE_MAX_LEN = 210
+
+
+def payment_text(value) -> str:
+    text = _PAYMENT_TEXT_UNSAFE_RE.sub(" ", str(value or ""))
+    return " ".join(text.split())
+
+
+def _qr_value(value) -> str:
+    """Значение поля QR (ГОСТ Р 56042-2014): «|» — разделитель полей, внутри
+    значения его быть не может (поле «съело» бы следующее), переводы строк —
+    тоже."""
+    return " ".join(str(value).replace("|", " ").split())
+
+
 def pd4_purpose(account_number: str, fee_name: str, garage_number=None) -> str:
-    """«Назначение платежа» для ПД-4 и её QR-кода: «ЛС 10640; Членский взнос,
+    """«Назначение платежа» для ПД-4 и её QR-кода: «ЛС 10640 Членский взнос,
     гараж №12». Номер лицевого счёта — В НАЧАЛЕ: межбанковский перевод не
     несёт отдельного поля «лицевой счёт» (PersAcc из QR до банка
     получателя не доходит), остаётся только этот текст, а банки обрезают
     назначение до 210 символов и часть приложений показывает человеку для
     правки лишь его начало. Формат «ЛС <номер>» распознаёт
-    bank_sync.extract_account_number. Не переводится: это текст для банка."""
+    bank_sync.extract_account_number. Не переводится: это текст для банка.
+    Без «;» и прочих символов, которые банки не принимают (payment_text)."""
     garage = f", гараж №{garage_number}" if garage_number is not None else ""
-    return f"ЛС {account_number}; {fee_name}{garage}"
+    return payment_text(f"ЛС {account_number} {fee_name}{garage}")[:PURPOSE_MAX_LEN]
 
 
 def pd4_qr_payload(coop: Cooperative, bank_account, member_account: MemberAccount, amount: Decimal) -> str:
@@ -1109,7 +1130,7 @@ def pd4_qr_payload(coop: Cooperative, bank_account, member_account: MemberAccoun
         "LastName": payer.full_name,
         "PersAcc": member_account.account_number,
     }
-    return "ST00012|" + "|".join(f"{k}={v}" for k, v in fields.items() if v)
+    return "ST00012|" + "|".join(f"{k}={_qr_value(v)}" for k, v in fields.items() if v)
 
 
 def pd4_qr_payload_electricity(coop: Cooperative, bank_account, garage: Garage, personal_account, amount: Decimal) -> str:
@@ -1135,4 +1156,4 @@ def pd4_qr_payload_electricity(coop: Cooperative, bank_account, garage: Garage, 
         "LastName": payer_name,
         "PersAcc": personal_account.account_number,
     }
-    return "ST00012|" + "|".join(f"{k}={v}" for k, v in fields.items() if v)
+    return "ST00012|" + "|".join(f"{k}={_qr_value(v)}" for k, v in fields.items() if v)

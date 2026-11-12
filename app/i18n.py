@@ -1651,6 +1651,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "Modulbank sandbox uses test data, no token is needed. Uncheck this once you paste a real token.",
         "Сгенерируйте токен в личном кабинете Модульбанка: меню «+» → «Интеграция с банком». Токен привязан к вашей учётной записи — не передавайте его третьим лицам. Хранится в зашифрованном виде.":
             "Generate the token in your Modulbank online account: «+» menu → «Bank integration». The token is tied to your account — do not share it. It is stored encrypted.",
+        "Адрес для уведомлений (веб-хук)": "Notification URL (webhook)",
+        "Чтобы платежи появлялись в выписке сразу, а не при утренней загрузке, впишите этот адрес в ЛК Модульбанка при генерации токена: «Настройки» → «Услуги» → «API Банка» → «Генерация токена авторизации». Нужно право operation-history. Адрес задаётся вместе с токеном — после генерации вставьте новый токен в поле выше. В песочнице уведомления не приходят.":
+            "To see payments in the statement right away rather than at the morning sync, enter this URL in your Modulbank online account when generating the token: «Settings» → «Services» → «Bank API» → «Generate authorization token». The operation-history permission is required. The URL is set together with the token — paste the new token into the field above afterwards. Notifications are not sent in the sandbox.",
+        "Последнее уведомление банка": "Last bank notification",
         "не используется": "not used",
         "ошибка": "error",
         "Выписка": "Statement",

@@ -2029,6 +2029,23 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "socks5h://… (имена резолвит прокси) или http://…. Пусто — без прокси.":
             "socks5h://… (the proxy resolves names) or http://…. Empty — no proxy.",
         "Убрать прокси": "Remove proxy",
+        "Очередь отправки": "Send queue",
+        "Сообщения, которые ещё не доставлены или требуют решения. Ожидающие отправляются автоматически раз в минуту, с повторами.":
+            "Messages not delivered yet or needing a decision. Pending ones are sent automatically every minute, with retries.",
+        "Создано": "Created",
+        "Новость": "News",
+        "(удалена)": "(deleted)",
+        "частей отправлено: {n}": "parts sent: {n}",
+        "попытка {n}": "attempt {n}",
+        "неизвестно": "unknown",
+        "Запрос ушёл, но ответа не было — Telegram мог его принять. Проверьте группу, прежде чем отправлять повторно.":
+            "The request was sent but no response came — Telegram may have accepted it. Check the group before resending.",
+        "не доставлено": "not delivered",
+        "Отправить повторно": "Resend",
+        "Отметить отправленным": "Mark as sent",
+        "Готово.": "Done.",
+        "Отменить отправку": "Cancel sending",
+        "Всё отправлено — недоставленных сообщений нет.": "Everything is sent — no undelivered messages.",
         "Текст длиннее 1024 символов не помещается подписью к картинкам — в Telegram уйдут два сообщения. Выключено — сначала текст, потом картинки.":
             "Text longer than 1024 characters doesn't fit as an image caption — two messages will be sent to Telegram. Off — text first, then images.",
         "В Telegram не отправлены слишком большие файлы (больше 50 МБ): {names}":

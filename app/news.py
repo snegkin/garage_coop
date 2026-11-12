@@ -11,6 +11,7 @@ from . import audit
 from . import database
 from . import notifications
 from . import telegram_bot
+from . import telegram_outbox
 from .i18n import translate as _
 from .auth import roles_required
 from .models import News, NewsAttachment, RoleEnum
@@ -157,22 +158,18 @@ def create():
 
 
 def _publish_to_telegram(item: News) -> None:
-    """Дублирует только что сохранённую новость в группу Telegram. Сбой не
-    отменяет публикацию на сайте — только предупреждение и last_error на
-    странице настроек бота."""
+    """Ставит только что сохранённую новость в очередь отправки в группу
+    Telegram (app/telegram_outbox.py) — уйдёт с ближайшим запуском cron
+    scripts/poll_telegram.py, с повторами, если Telegram недоступен."""
     settings = telegram_bot.get_settings()
     if not telegram_bot.news_group_enabled(settings):
         return
-    try:
-        skipped = telegram_bot.publish_news(
-            settings, item, url_for("news.view", news_id=item.id, _external=True),
-            current_app.config["UPLOAD_FOLDER"], album_first=bool(request.form.get("telegram_album_first")),
-        )
-    except telegram_bot.TelegramError as exc:
-        settings.last_error = str(exc)
-        database.db_session.commit()
-        flash(_("Не удалось отправить новость в Telegram: {error}", error=str(exc)), "warning")
-        return
+    telegram_outbox.enqueue_news(
+        item, url_for("news.view", news_id=item.id, _external=True),
+        album_first=bool(request.form.get("telegram_album_first")),
+    )
+    database.db_session.commit()
+    _photos, _documents, skipped = telegram_bot._split_attachments(item, current_app.config["UPLOAD_FOLDER"])
     if skipped:
         flash(_("В Telegram не отправлены слишком большие файлы (больше 50 МБ): {names}",
                 names=", ".join(skipped)), "warning")

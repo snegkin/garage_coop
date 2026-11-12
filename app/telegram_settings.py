@@ -4,16 +4,17 @@ app/telegram_bot.py) — токен создаётся у @BotFather, настр
 председатель, тот же принцип, что у почты/СМС/eWeLink/API банка
 (app/mailbox.py, app/sms_settings.py, app/electricity_monitor.py, app/bank_sync.py).
 """
-from flask import Blueprint, render_template, request, redirect, url_for, flash
+from flask import Blueprint, render_template, request, redirect, url_for, flash, abort
 
 from . import database
 from . import progress as progress_ui
 from . import audit
 from .i18n import translate as _
 from .auth import roles_required
-from .models import RoleEnum, TelegramSettings
+from .models import RoleEnum, TelegramOutbox, TelegramSettings
 from .bank_api import crypto
 from . import telegram_bot
+from . import telegram_outbox
 from .telegram_bot import TelegramError
 
 bp = Blueprint("telegram_settings", __name__, url_prefix="/telegram")
@@ -35,7 +36,31 @@ def view():
     return render_template(
         "telegram_settings/page.html", settings=settings,
         is_configured=telegram_bot.is_configured(settings),
+        outbox=telegram_outbox.problems(),
     )
+
+
+_OUTBOX_ACTIONS = {
+    "retry": (telegram_outbox.retry, "telegram.outbox_retry", "Сообщение Telegram #{id} поставлено на повторную отправку"),
+    "mark-sent": (telegram_outbox.mark_sent, "telegram.outbox_mark_sent", "Сообщение Telegram #{id} отмечено отправленным"),
+    "cancel": (telegram_outbox.cancel, "telegram.outbox_cancel", "Отправка сообщения Telegram #{id} отменена"),
+}
+
+
+@bp.route("/outbox/<int:item_id>/<action>", methods=["POST"])
+@roles_required(RoleEnum.CHAIRMAN)
+def outbox_action(item_id, action):
+    if action not in _OUTBOX_ACTIONS:
+        abort(404)
+    item = database.db_session.get(TelegramOutbox, item_id)
+    if item is None:
+        abort(404)
+    func, audit_action, audit_text = _OUTBOX_ACTIONS[action]
+    func(item)
+    audit.record(audit_action, audit_text.format(id=item.id))
+    database.db_session.commit()
+    flash(_("Готово."), "success")
+    return redirect(url_for("telegram_settings.view"))
 
 
 @bp.route("/settings", methods=["POST"])

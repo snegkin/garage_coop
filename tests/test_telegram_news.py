@@ -64,13 +64,20 @@ def test_telegram_html_converts_markdown():
         assert tag not in html
 
 
-def test_create_news_publishes_to_group(db, client, monkeypatch):
+def _process(app):
+    from app import telegram_outbox
+    return telegram_outbox.process(app.config["UPLOAD_FOLDER"])
+
+
+def test_create_news_publishes_to_group(app, db, client, monkeypatch):
     _settings(db)
     sent = _capture_posts(monkeypatch)
     _login_board(db, client)
 
     resp = client.post("/news/new", data={"title": "Отключение <света>", "body": "Завтра с 10:00.", "publish_telegram": "1"})
     assert resp.status_code == 302
+    assert sent == []  # сохранение новости не ждёт Telegram — уйдёт с cron
+    assert _process(app) == (1, 0)
 
     assert len(sent) == 1
     payload = sent[0]["json"]
@@ -96,21 +103,6 @@ def test_form_shows_checkbox_only_when_group_configured(db, client):
     assert "publish_telegram" not in client.get("/news/new").get_data(as_text=True)
     _settings(db)
     assert "publish_telegram" in client.get("/news/new").get_data(as_text=True)
-
-
-def test_telegram_failure_keeps_news_and_records_error(db, client, monkeypatch):
-    from app.models import News
-    settings = _settings(db)
-    _capture_posts(monkeypatch, status_code=400)
-    _login_board(db, client)
-
-    resp = client.post("/news/new", data={"title": "Новость", "body": "Текст", "publish_telegram": "1"},
-                       follow_redirects=True)
-    assert resp.status_code == 200
-    assert db.query(News).count() == 1
-    assert "Не удалось отправить новость в Telegram" in resp.get_data(as_text=True)
-    db.refresh(settings)
-    assert "chat not found" in settings.last_error
 
 
 def test_long_news_falls_back_to_excerpt(app, db, monkeypatch):
@@ -247,7 +239,7 @@ def test_oversized_files(app, db, monkeypatch):
     assert sent[1]["files"]["document"][0] == "big.jpg"
 
 
-def test_create_news_with_uploaded_photo_end_to_end(db, client, monkeypatch):
+def test_create_news_with_uploaded_photo_end_to_end(app, db, client, monkeypatch):
     from io import BytesIO
     _settings(db)
     sent = _capture_posts(monkeypatch)
@@ -256,6 +248,7 @@ def test_create_news_with_uploaded_photo_end_to_end(db, client, monkeypatch):
         "title": "Субботник", "body": "Приходите!", "publish_telegram": "1",
         "attachments": [(BytesIO(b"JPEGDATA"), "photo.jpg")],
     }, content_type="multipart/form-data")
+    _process(app)
     assert [s["method"] for s in sent] == ["sendPhoto"]
     assert sent[0]["files"]["photo"] == ("photo.jpg", b"JPEGDATA")
     assert "Субботник" in sent[0]["data"]["caption"]
@@ -372,3 +365,186 @@ def test_save_rejects_bad_proxy_and_url(db, client):
     settings = db.query(TelegramSettings).first()
     db.refresh(settings)
     assert settings.proxy_url_encrypted is None and settings.api_base_url is None
+
+
+
+# ---------------------------------------------------------------------------
+# Очередь отправки: повторы, продолжение с места сбоя, неизвестный исход
+# ---------------------------------------------------------------------------
+
+def _scripted_posts(monkeypatch, script):
+    """script — список исходов по очереди запросов: "ok", HTTP-код (int) или
+    исключение requests; после конца списка — всё "ok"."""
+    import requests as _rq
+    sent = []
+    outcomes = list(script)
+
+    def fake_post(url, json=None, data=None, files=None, timeout=None, proxies=None):
+        method = url.rsplit("/", 1)[-1]
+        outcome = outcomes.pop(0) if outcomes else "ok"
+        if isinstance(outcome, BaseException):
+            raise outcome
+        sent.append(method)
+        if outcome == "ok":
+            return FakeResponse(200)
+        return FakeResponse(outcome, text="error")
+
+    monkeypatch.setattr(telegram_bot.requests, "post", fake_post)
+    return sent
+
+
+def _queued_news(app, db, files=(), body="Текст"):
+    from app import telegram_outbox
+    item = _news_with_files(app, db, body, list(files))
+    out = telegram_outbox.enqueue_news(item, "https://coop.example/news/1")
+    db.commit()
+    return out
+
+
+def test_outbox_retries_after_network_error_with_backoff(app, db, monkeypatch):
+    import datetime as dt
+    import requests as _rq
+    from app import telegram_outbox
+    from app.models import TelegramOutboxStatus
+    _settings(db)
+    out = _queued_news(app, db)
+    _scripted_posts(monkeypatch, [_rq.ConnectionError("Failed to establish a new connection: Network is unreachable")])
+
+    assert _process(app) == (0, 1)
+    db.refresh(out)
+    assert out.status == TelegramOutboxStatus.PENDING
+    assert out.next_attempt_at > dt.datetime.utcnow()
+    assert "Network is unreachable" in out.last_error
+
+    assert _process(app) == (0, 0)  # срок повтора ещё не подошёл
+    later = dt.datetime.utcnow() + dt.timedelta(minutes=2)
+    assert telegram_outbox.process(app.config["UPLOAD_FOLDER"], now=later) == (1, 0)
+    db.refresh(out)
+    assert out.status == TelegramOutboxStatus.SENT
+
+
+def test_outbox_network_error_stops_batch(app, db, monkeypatch):
+    import requests as _rq
+    from app import telegram_outbox
+    from app.models import TelegramOutboxStatus
+    _settings(db)
+    telegram_outbox.enqueue_message(1, "раз")
+    telegram_outbox.enqueue_message(2, "два")
+    db.commit()
+    sent = _scripted_posts(monkeypatch, [_rq.ConnectTimeout("connect timeout")])
+    assert _process(app) == (0, 1)
+    assert sent == []  # второе даже не пробовали — сеть лежит
+
+
+def test_outbox_resumes_news_from_failed_step(app, db, monkeypatch):
+    """Длинный текст + 2 фото + документ = 3 шага; сбой на втором — повтор
+    не отправляет текст второй раз."""
+    import datetime as dt
+    import requests as _rq
+    from app import telegram_outbox
+    from app.models import TelegramOutboxStatus
+    _settings(db)
+    out = _queued_news(app, db, body="длинно " * 300,
+                       files=[("a.jpg", b"A", False), ("b.jpg", b"B", False), ("d.pdf", b"D", False)])
+    sent = _scripted_posts(monkeypatch, ["ok", _rq.ConnectionError("NewConnectionError: refused")])
+
+    _process(app)
+    db.refresh(out)
+    assert out.steps_done == 1 and out.status == TelegramOutboxStatus.PENDING
+
+    later = dt.datetime.utcnow() + dt.timedelta(minutes=2)
+    telegram_outbox.process(app.config["UPLOAD_FOLDER"], now=later)
+    db.refresh(out)
+    assert out.status == TelegramOutboxStatus.SENT
+    assert sent == ["sendMessage", "sendMediaGroup", "sendDocument"]
+
+
+def test_outbox_read_timeout_is_uncertain_not_retried(app, db, monkeypatch):
+    import datetime as dt
+    import requests as _rq
+    from app import telegram_outbox
+    from app.models import TelegramOutboxStatus
+    _settings(db)
+    out = _queued_news(app, db)
+    sent = _scripted_posts(monkeypatch, [_rq.ReadTimeout("read timed out")])
+    _process(app)
+    db.refresh(out)
+    assert out.status == TelegramOutboxStatus.UNCERTAIN
+    later = dt.datetime.utcnow() + dt.timedelta(hours=2)
+    assert telegram_outbox.process(app.config["UPLOAD_FOLDER"], now=later) == (0, 0)
+    assert sent == []
+
+
+def test_outbox_bad_request_fails_permanently(app, db, monkeypatch):
+    from app.models import TelegramOutboxStatus
+    _settings(db)
+    out = _queued_news(app, db)
+    _scripted_posts(monkeypatch, [400])
+    _process(app)
+    db.refresh(out)
+    assert out.status == TelegramOutboxStatus.FAILED
+
+
+def test_outbox_rate_limit_is_retried(app, db, monkeypatch):
+    from app.models import TelegramOutboxStatus
+    _settings(db)
+    out = _queued_news(app, db)
+    _scripted_posts(monkeypatch, [429])
+    _process(app)
+    db.refresh(out)
+    assert out.status == TelegramOutboxStatus.PENDING
+
+
+def test_outbox_gives_up_after_max_age(app, db, monkeypatch):
+    import datetime as dt
+    import requests as _rq
+    from app import telegram_outbox
+    from app.models import TelegramOutboxStatus
+    _settings(db)
+    out = _queued_news(app, db)
+    _scripted_posts(monkeypatch, [_rq.ConnectTimeout("x")])
+    later = dt.datetime.utcnow() + telegram_outbox.MAX_AGE + dt.timedelta(minutes=1)
+    telegram_outbox.process(app.config["UPLOAD_FOLDER"], now=later)
+    db.refresh(out)
+    assert out.status == TelegramOutboxStatus.FAILED
+
+
+def test_outbox_page_and_actions(app, db, client, monkeypatch):
+    import requests as _rq
+    from app.models import TelegramOutboxStatus
+    _settings(db)
+    out = _queued_news(app, db)
+    _scripted_posts(monkeypatch, [_rq.ReadTimeout("read timed out")])
+    _process(app)
+
+    make_user(db, "tg_chair_q", "pass1234", role=RoleEnum.CHAIRMAN)
+    db.commit()
+    login(client, "tg_chair_q", "pass1234")
+    page = client.get("/telegram/").get_data(as_text=True)
+    assert "С вложениями" in page and "неизвестно" in page
+
+    client.post(f"/telegram/outbox/{out.id}/mark-sent")
+    db.refresh(out)
+    assert out.status == TelegramOutboxStatus.SENT
+
+    out.status = TelegramOutboxStatus.FAILED
+    db.commit()
+    client.post(f"/telegram/outbox/{out.id}/retry")
+    db.refresh(out)
+    assert out.status == TelegramOutboxStatus.PENDING
+    client.post(f"/telegram/outbox/{out.id}/cancel")
+    db.refresh(out)
+    assert out.status == TelegramOutboxStatus.CANCELLED
+    assert client.post(f"/telegram/outbox/{out.id}/explode").status_code == 404
+
+
+def test_outbox_deleted_news_fails(app, db, monkeypatch):
+    from app.models import TelegramOutboxStatus
+    _settings(db)
+    out = _queued_news(app, db)
+    db.delete(out.news)
+    db.commit()
+    _scripted_posts(monkeypatch, [])
+    _process(app)
+    db.refresh(out)
+    assert out.status == TelegramOutboxStatus.FAILED

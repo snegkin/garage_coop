@@ -479,7 +479,7 @@ MemberAccount — шаблоны печати не знают о разнице 
 **Модульбанк** (`bank_api/modulbank.py`, сверено со swagger
 `https://api.modulbank.ru/v1/swagger/docs/v1`, живым запросом НЕ
 проверено): один токен из ЛК → `BankApiCredential.api_token_encrypted`,
-`Authorization: Bearer`, без refresh/mTLS. Песочница — заголовок
+`Authorization: Bearer`, без refresh/mTLS. **TLS api.modulbank.ru — от НУЦ Минцифры**, которого нет в certifi: `verify` = `Config.MODULBANK_API_CA_BUNDLE`, по умолчанию `instance/bundles/russian_trusted_root_ca.pem` (рядом с `bundle.pem` Сбера, `Config.BANK_CA_BUNDLES_FOLDER`) — **не в git**, оба файла на сервер кладёт `deploy.sh` из локального `deployment/deploy/bundles/` (`deployment/deploy/README.md`, «Сертификаты»). Песочница — заголовок
 `sandbox: on` + токен `sandboxtoken` (подставляется сам). Баланс и
 история операций — по uuid счёта, его ищем по номеру в `/account-info`.
 **`category: "Debet"` — входящая** (наш `credit`), `"Credit"` — исходящая.
@@ -520,11 +520,11 @@ MemberAccount — шаблоны печати не знают о разнице 
    **.p12 содержит ЦЕПОЧКУ сертификатов** — `_save_client_cert` сохраняет
    всю (`extra_certs`), не только лист, иначе mTLS-рукопожатие может не
    пройти.
-2. **Доверенные корни — УЦ Сбера И НУЦ Минцифры** (обе, подтверждено
-   developers.sber.ru/docs/ru/sber-api/start/tls) — обычный certifi-бандл
-   не знает → `SSLError: self-signed certificate in certificate chain`.
-   Банк отдаёт готовую цепочку по прямой ссылке (см. `Config.SBERBANK_API_CA_BUNDLE`,
-   `.env.example`).
+2. **Доверенные корни — УЦ Сбера** (fintech(-test).sberbank.ru:9443 на
+   ноябрь 2026 — SberCA Ext → SberCA Root Ext; документация банка велит
+   доверять ещё и Минцифры) — обычный certifi-бандл не знает → `SSLError:
+   self-signed certificate in certificate chain`. `instance/bundles/bundle.pem`
+   (`Config.SBERBANK_API_CA_BUNDLE`), ссылки на архивы банка — в `config.py`.
 3. **Тестовый контур**: `https://fintech-test.sberbank.ru:9443` (подтверждено
    ЛК кооператива), НЕ `edupirfintech.sberbank.ru` (был баг первой версии).
    `token_url` теперь выводится ИЗ `base_url`

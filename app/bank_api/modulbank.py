@@ -13,9 +13,16 @@
 <токен>`. Токен привязан к учётной записи пользователя ЛК, хранится
 зашифрованным (BankApiCredential.api_token_encrypted). OAuth-вариант
 (clientId/clientSecret от банка по письму) кооперативу не нужен: он для
-приложений, которые подключают чужих клиентов банка. Отдельных корневых
-сертификатов (как у Сбера) тоже не требуется — у api.modulbank.ru обычный
-публичный TLS-сертификат.
+приложений, которые подключают чужих клиентов банка.
+
+**TLS-сертификат api.modulbank.ru выдан НУЦ Минцифры** (Russian Trusted
+Sub CA → Russian Trusted Root CA), а не публичным УЦ: в certifi, которым
+по умолчанию проверяет requests, этого корня нет («self-signed certificate
+in certificate chain»). Поэтому проверяем по корню Минцифры из
+Config.MODULBANK_API_CA_BUNDLE — по умолчанию
+instance/bundles/russian_trusted_root_ca.pem, рядом с bundle.pem Сбера.
+В git файла нет: на сервер его кладёт deployment/deploy.sh
+(deployment/deploy/README.md, «Сертификаты»). Клиентский сертификат (mTLS), как у Сбера, не нужен.
 
 **Песочница**: заголовок `sandbox: on` и токен `sandboxtoken`. Данные там
 тестовые, номера счетов не совпадут с нашими, поэтому в песочнице, если
@@ -47,6 +54,8 @@ import datetime as dt
 import hashlib
 from decimal import Decimal
 
+import os
+
 import requests
 
 from .base import BankApiClient, BankApiError, BalanceInfo, StatementLine
@@ -72,7 +81,8 @@ EXECUTED_STATUSES = {"Executed", "Received", "PayReceived"}
 
 
 class ModulbankClient(BankApiClient):
-    def __init__(self, token: str, account_number: str, sandbox: bool = False, base_url: str | None = None):
+    def __init__(self, token: str, account_number: str, sandbox: bool = False, base_url: str | None = None,
+                 ca_bundle: str | None = None):
         self.sandbox = sandbox
         # В песочнице банк принимает только свой тестовый токен — реальный
         # там использовать запрещено, поэтому подменяем, а не требуем от
@@ -81,6 +91,9 @@ class ModulbankClient(BankApiClient):
         self.account_number = _normalize_number(account_number)
         self.base_url = (base_url or DEFAULT_BASE_URL).rstrip("/")
         self._account_id: str | None = None
+        # None — проверка по certifi (requests по умолчанию); get_client
+        # всегда передаёт Config.MODULBANK_API_CA_BUNDLE.
+        self.ca_bundle = ca_bundle
 
     # -- HTTP ------------------------------------------------------------
 
@@ -91,11 +104,23 @@ class ModulbankClient(BankApiClient):
         }
         if self.sandbox:
             headers["sandbox"] = "on"
+        if self.ca_bundle and not os.path.isfile(self.ca_bundle):
+            raise BankApiError(
+                f"Нет файла корневого сертификата НУЦ Минцифры {self.ca_bundle} — без него соединение с API "
+                "Модульбанка не проверить. На сервер его кладёт deployment/deploy.sh из локального "
+                "deployment/deploy/bundles/ (см. deployment/deploy/README.md, «Сертификаты»)."
+            )
         try:
             resp = requests.post(
                 f"{self.base_url}{path}", headers=headers, json=json_body if json_body is not None else {},
-                timeout=REQUEST_TIMEOUT,
+                timeout=REQUEST_TIMEOUT, verify=self.ca_bundle or True,
             )
+        except requests.exceptions.SSLError as e:
+            raise BankApiError(
+                f"Не удалось проверить TLS-сертификат API Модульбанка ({path}): {e}. Сертификат банка выдан "
+                f"НУЦ Минцифры; проверка идёт по корню из файла {self.ca_bundle}. Если банк сменил УЦ, "
+                "укажите подходящий файл в переменной окружения MODULBANK_API_CA_BUNDLE."
+            ) from e
         except requests.RequestException as e:
             raise BankApiError(f"Нет связи с API Модульбанка ({path}): {e}") from e
 

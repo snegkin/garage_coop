@@ -29,20 +29,20 @@ developers.sber.ru.
 
 **Российская специфика TLS — без неё ничего не заработает, даже с
 правильными токенами:**
-1. Сервер банка предъявляет TLS-сертификат, выпущенный удостоверяющими
-   центрами Сбера И Национальным удостоверяющим центром Минцифры России
-   (НУЦ Минцифры) — официально подтверждено (developers.sber.ru/docs/ru/
-   sber-api/start/tls: «добавить в доверенные корневые сертификаты
-   удостоверяющих центров Сбера и Минцифры России») — обычный набор
+1. Сервер банка предъявляет TLS-сертификат собственного УЦ Сбера
+   (fintech(-test).sberbank.ru:9443 на ноябрь 2026: SberCA Ext → SberCA
+   Root Ext; документация банка, developers.sber.ru/docs/ru/sber-api/
+   start/tls, велит доверять УЦ Сбера и Минцифры) — обычный набор
    доверенных корневых сертификатов (тот, что использует requests/certifi
-   по умолчанию) их не знает. Нужен CA bundle с обеими цепочками — банк
+   по умолчанию) его не знает. Нужен CA bundle с обеими цепочками — банк
    отдаёт готовый архив по прямой ссылке для тестового
    (https://cdn-app.sberdevices.ru/misc/0.0.0/assets/bsm-docs/b89853b1_chain_test.zip)
    и промышленного
    (https://cdn-app.sberdevices.ru/misc/0.0.0/assets/bsm-docs/f8dd5e00_chain_prom.zip)
    контуров — надёжнее, чем собирать общий сертификат Минцифры с госуслуг
-   отдельно. Путь к получившемуся файлу — Config.SBERBANK_API_CA_BUNDLE
-   (см. .env.example).
+   отдельно. Получившийся bundle.pem лежит в instance/bundles/
+   (Config.SBERBANK_API_CA_BUNDLE), в git его нет — на сервер его кладёт
+   deployment/deploy.sh (deployment/deploy/README.md, «Сертификаты»).
 2. Банк отдельно требует клиентский mTLS-сертификат для самого
    соединения — выдаётся в личном кабинете Sber API в формате PKCS#12
    (.pfx/.p12) с паролем, действует 12 месяцев и только для ОДНОГО
@@ -126,8 +126,8 @@ class SberbankClient(BankApiClient):
         # (не только токен в заголовке) — см. models.py:
         # BankApiCredential.tls_cert_filename/tls_key_filename. Без него
         # ЛЮБОЙ вызов ниже упадёт на этапе установления соединения, ещё до
-        # авторизации. ca_bundle — доверенные корни банка (Сбер + НУЦ
-        # Минцифры, см. config.py: SBERBANK_API_CA_BUNDLE) для проверки
+        # авторизации. ca_bundle — доверенные корни банка (УЦ Сбера,
+        # см. config.py: SBERBANK_API_CA_BUNDLE) для проверки
         # серверного сертификата; если не передан, используется обычный
         # системный набор доверенных корней (requests/certifi по
         # умолчанию), который сертификаты банка не знает — соединение
@@ -157,9 +157,9 @@ class SberbankClient(BankApiClient):
             token = payload.get("access_token")
         except requests.exceptions.SSLError as e:
             raise BankApiError(
-                "Ошибка проверки TLS-сертификата банка (СберБизнес использует сертификаты УЦ Сбера и "
-                "НУЦ Минцифры) или клиентского mTLS-сертификата — проверьте настройки SBERBANK_API_CA_BUNDLE "
-                f"и сертификат счёта: {e}"
+                "Ошибка проверки TLS-сертификата банка (у СберБизнес — сертификат УЦ Сбера) или клиентского "
+                "mTLS-сертификата — проверьте, что на сервере есть instance/bundles/bundle.pem (его кладёт "
+                f"deployment/deploy.sh, путь — SBERBANK_API_CA_BUNDLE), и сертификат счёта: {e}"
             ) from e
         except requests.RequestException as e:
             reason = _invalid_grant_reason(getattr(e, "response", None))

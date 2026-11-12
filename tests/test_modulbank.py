@@ -57,7 +57,7 @@ class FakeResponse:
 
 
 @pytest.fixture
-def fake_bank(monkeypatch):
+def fake_bank(monkeypatch, tmp_path, request):
     """Фейковый банк: account-info с одним нашим счётом, история операций —
     из списка state["operations"], постранично по skip/records."""
     state = {
@@ -66,8 +66,8 @@ def fake_bank(monkeypatch):
         "balance": 12345.67, "status": 200,
     }
 
-    def fake_post(url, headers=None, json=None, timeout=None):
-        state["calls"].append({"url": url, "headers": headers, "json": json})
+    def fake_post(url, headers=None, json=None, timeout=None, verify=True):
+        state["calls"].append({"url": url, "headers": headers, "json": json, "verify": verify})
         if state["status"] != 200:
             return FakeResponse(state["status"], {"exceptionType": "AccessDenied", "message": "нет доступа"})
         path = url.split("/v1", 1)[1]
@@ -81,6 +81,13 @@ def fake_bank(monkeypatch):
         return FakeResponse(404, {"message": "not found"})
 
     monkeypatch.setattr(modulbank.requests, "post", fake_post)
+    # Корень Минцифры в git не хранится (deployment/deploy/bundles/) — клиенту
+    # нужен лишь существующий файл, проверяет его настоящий requests.
+    ca = tmp_path / "ca.pem"
+    ca.write_text("-----BEGIN CERTIFICATE-----\n")
+    state["ca"] = str(ca)
+    if "app" in request.fixturenames:
+        monkeypatch.setitem(request.getfixturevalue("app").config, "MODULBANK_API_CA_BUNDLE", str(ca))
     return state
 
 
@@ -171,6 +178,43 @@ def test_unparseable_operation_wrapped_in_bank_api_error(fake_bank):
     with pytest.raises(BankApiError) as e:
         client.get_statement(dt.date(2026, 11, 1), dt.date(2026, 11, 11))
     assert "op-1" in str(e.value)
+
+
+def test_tls_verified_against_mintsifry_root_by_default(fake_bank):
+    # Сертификат api.modulbank.ru выдан НУЦ Минцифры — в certifi его корня нет.
+    ModulbankClient(token="t", account_number=ACC_NUMBER, ca_bundle=fake_bank["ca"]).get_balance()
+    assert fake_bank["calls"][0]["verify"] == fake_bank["ca"]
+
+
+def test_default_ca_bundles_in_instance_bundles():
+    # Туда кладёт файлы deployment/deploy.sh (в git их нет).
+    import os
+    from config import Config
+    if "MODULBANK_API_CA_BUNDLE" not in os.environ:
+        assert Config.MODULBANK_API_CA_BUNDLE == os.path.join(Config.BANK_CA_BUNDLES_FOLDER, "russian_trusted_root_ca.pem")
+    if "SBERBANK_API_CA_BUNDLE" not in os.environ:
+        assert Config.SBERBANK_API_CA_BUNDLE == os.path.join(Config.BANK_CA_BUNDLES_FOLDER, "bundle.pem")
+
+
+def test_missing_ca_file_explains_how_to_deploy(fake_bank):
+    with pytest.raises(BankApiError) as e:
+        ModulbankClient(token="t", account_number=ACC_NUMBER, ca_bundle="/nonexistent/ca.pem").get_balance()
+    assert "deploy.sh" in str(e.value)
+    assert fake_bank["calls"] == []
+
+
+def test_ca_bundle_from_config(app, db, fake_bank):
+    app.config["MODULBANK_API_CA_BUNDLE"] = "/etc/custom.pem"
+    assert get_client(make_account(db)).ca_bundle == "/etc/custom.pem"
+
+
+def test_ssl_error_explains_ca(monkeypatch, fake_bank):
+    def fail(*a, **kw):
+        raise modulbank.requests.exceptions.SSLError("self-signed certificate in certificate chain")
+    monkeypatch.setattr(modulbank.requests, "post", fail)
+    with pytest.raises(BankApiError) as e:
+        ModulbankClient(token="t", account_number=ACC_NUMBER).get_balance()
+    assert "MODULBANK_API_CA_BUNDLE" in str(e.value)
 
 
 def test_401_gives_actionable_message(fake_bank):

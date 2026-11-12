@@ -73,6 +73,7 @@ def get_client(bank_account: BankAccount) -> BankApiClient | None:
             account_number=cred.account_number or bank_account.checking_account,
             sandbox=cred.sandbox,
             base_url=current_app.config.get("MODULBANK_API_BASE_URL"),
+            ca_bundle=current_app.config.get("MODULBANK_API_CA_BUNDLE"),
         )
 
     if not cred.client_id or not cred.client_secret_encrypted or not cred.refresh_token_encrypted:
@@ -102,6 +103,12 @@ def get_client(bank_account: BankAccount) -> BankApiClient | None:
             # переменной окружения, чтобы не редактировать код при уточнении.
             token_url=current_app.config.get("SBERBANK_API_TOKEN_URL"),
             client_cert=client_cert,
-            ca_bundle=current_app.config.get("SBERBANK_API_CA_BUNDLE"),
+            # Нет файла — проверка по certifi и понятная SSLError, а не
+            # OSError requests про несуществующий путь.
+            ca_bundle=_existing_file(current_app.config.get("SBERBANK_API_CA_BUNDLE")),
         )
     return None
+
+
+def _existing_file(path: str | None) -> str | None:
+    return path if path and os.path.isfile(path) else None

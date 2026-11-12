@@ -58,26 +58,28 @@ class Config:
     # должен быть доступен по HTTP ни при каких правах пользователя.
     BANK_CERTS_FOLDER = os.environ.get("BANK_CERTS_FOLDER") or os.path.join(INSTANCE_DIR, "bank_certs")
 
-    # Путь к файлу с доверенными корневыми сертификатами (CA bundle) для
-    # проверки TLS-сертификата сервера банка. Сайты и API Сбербанка
-    # используют сертификаты, выпущенные удостоверяющими центрами Сбера И
-    # Национальным удостоверяющим центром Минцифры России (подтверждено
-    # официальной документацией: developers.sber.ru/docs/ru/sber-api/start/tls)
-    # — а не общемировым центром сертификации, поэтому обычный доверенный
-    # набор корневых сертификатов (используемый по умолчанию Python/requests)
-    # их не знает, и TLS-соединение с банком не установится (SSLError:
-    # "self-signed certificate in certificate chain"), пока сюда не указан
-    # бандл с обеими цепочками. Проще всего скачать готовый архив с самим
-    # банком (надёжнее, чем собирать вручную с госуслуг):
+    # Доверенные корневые сертификаты УЦ для проверки TLS-сертификатов
+    # серверов банков: оба банка используют российские УЦ, которых нет в
+    # certifi (requests по умолчанию) — без них SSLError "self-signed
+    # certificate in certificate chain". В git файлов нет: deployment/deploy.sh
+    # кладёт их сюда из локального deployment/deploy/bundles/
+    # (deployment/deploy/README.md, «Сертификаты»). Отдельно от
+    # BANK_CERTS_FOLDER: там приватные ключи mTLS счетов, загруженные через
+    # интерфейс, а здесь — публичные корни, которые приносит деплой.
+    BANK_CA_BUNDLES_FOLDER = os.environ.get("BANK_CA_BUNDLES_FOLDER") or os.path.join(INSTANCE_DIR, "bundles")
+    # Сбербанк: fintech(-test).sberbank.ru:9443 (на ноябрь 2026) отдают цепочку
+    # SberCA Ext → SberCA Root Ext. Документация банка
+    # (developers.sber.ru/docs/ru/sber-api/start/tls) велит доверять УЦ Сбера
+    # и Минцифры — bundle.pem собирается из архива банка:
     #   тестовый контур: https://cdn-app.sberdevices.ru/misc/0.0.0/assets/bsm-docs/b89853b1_chain_test.zip
     #   промышленный:    https://cdn-app.sberdevices.ru/misc/0.0.0/assets/bsm-docs/f8dd5e00_chain_prom.zip
-    # Распаковать, объединить .cer/.pem файлы из архива в один (или добавить
-    # к обычному системному CA-бандлу — `cat /etc/ssl/certs/ca-certificates.crt
-    # chain1.cer chain2.cer > bundle.pem`, если хотите сохранить доступ и к
-    # обычным HTTPS-сайтам через тот же bundle) и указать путь к получившемуся
-    # файлу здесь. Без этой переменной обращения к API Сбербанка не будут
-    # работать вообще, даже если токены и клиентский сертификат настроены верно.
-    SBERBANK_API_CA_BUNDLE = os.environ.get("SBERBANK_API_CA_BUNDLE")
+    # (распаковать и `cat *.cer > bundle.pem`).
+    SBERBANK_API_CA_BUNDLE = os.environ.get("SBERBANK_API_CA_BUNDLE") or os.path.join(
+        BANK_CA_BUNDLES_FOLDER, "bundle.pem")
+    # Модульбанк: api.modulbank.ru — Russian Trusted Sub CA → Russian
+    # Trusted Root CA (НУЦ Минцифры, корень действует до 2032 года).
+    MODULBANK_API_CA_BUNDLE = os.environ.get("MODULBANK_API_CA_BUNDLE") or os.path.join(
+        BANK_CA_BUNDLES_FOLDER, "russian_trusted_root_ca.pem")
 
     # Google reCAPTCHA v2 (чекбокс «Я не робот») на странице восстановления
     # пароля (см. app/recaptcha.py, app/auth.py: forgot_password) — ключи

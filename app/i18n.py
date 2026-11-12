@@ -2048,8 +2048,18 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Без звука": "Silent",
         "Участники группы получат пост без звукового уведомления.": "Group members will get the post without a notification sound.",
         "Отправить в Telegram позже": "Send to Telegram later",
-        "На сайте новость появится сразу, в группу уйдёт в указанное время.":
-            "The news appears on the site right away and goes to the group at the chosen time.",
+        "В группу пост уйдёт в указанное время.": "The post goes to the group at the chosen time.",
+        "Отправить в Telegram": "Send to Telegram",
+        "Группа Telegram для новостей не настроена.": "The Telegram news group isn't configured.",
+        "Новость поставлена в очередь — в группе появится в течение минуты.":
+            "The news is queued — it will appear in the group within a minute.",
+        "Эту новость уже отправляли в группу — повторная отправка опубликует её ещё раз:":
+            "This news was already sent to the group — sending again will post it once more:",
+        "отправлена": "sent",
+        "запланирована": "scheduled",
+        "в очереди": "queued",
+        "исход неизвестен": "outcome unknown",
+        "не доставлена": "not delivered",
         "Пост в Telegram запланирован — его можно отменить в очереди на странице настроек Telegram.":
             "The Telegram post is scheduled — you can cancel it in the queue on the Telegram settings page.",
         "запланировано": "scheduled",

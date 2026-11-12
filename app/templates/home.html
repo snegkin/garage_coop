@@ -27,6 +27,7 @@
           {% if current_user and is_board() %}
           {% call actions.menu() %}
             {{ actions.link(url_for('news.edit', news_id=item.id), "pencil", _("Изменить")) }}
+            {% if telegram_group %}{{ actions.link(url_for('news.send_telegram', news_id=item.id), "telegram", _("Отправить в Telegram")) }}{% endif %}
             {{ actions.post(url_for('news.delete', news_id=item.id), "trash", _("Удалить"), confirm=_("Удалить новость?"), danger=True) }}
           {% endcall %}
           {% endif %}

@@ -1,0 +1,63 @@
+{# Варианты отправки новости в группу Telegram — общие для формы новой
+   новости (news/form.html, под галочкой publishTelegram) и страницы отправки
+   существующей (news/telegram.html, без неё). order_visible — показать выбор
+   порядка «картинки/текст» сразу (страница отправки считает это на сервере);
+   в форме он скрыт и показывается её скриптом по мере набора текста. #}
+<div id="telegramOptions" class="ms-4">
+  <div class="form-check mb-2">
+    <input class="form-check-input" type="checkbox" name="telegram_silent" value="1" id="telegramSilent">
+    <label class="form-check-label" for="telegramSilent">{{ _("Без звука") }}</label>
+    <div class="form-text">{{ _("Участники группы получат пост без звукового уведомления.") }}</div>
+  </div>
+  <div class="form-check mb-2">
+    <input class="form-check-input" type="checkbox" id="telegramLater">
+    <label class="form-check-label" for="telegramLater">{{ _("Отправить в Telegram позже") }}</label>
+  </div>
+  <div class="mb-3 d-none" id="telegramLaterBlock" style="max-width:260px">
+    <input class="form-control" type="datetime-local" id="telegramSendAt">
+    <input type="hidden" name="telegram_send_at_utc" id="telegramSendAtUtc">
+    <div class="form-text">{{ _("В группу пост уйдёт в указанное время.") }}</div>
+  </div>
+</div>
+{# Нужен, только когда есть картинки, а текст не влезает подписью к альбому —
+   тогда в группу уйдут два сообщения. #}
+<div class="form-check form-switch mb-3 ms-4 {{ '' if order_visible else 'd-none' }}" id="telegramOrderBlock">
+  <input class="form-check-input" type="checkbox" name="telegram_album_first" value="1" id="telegramAlbumFirst">
+  <label class="form-check-label" for="telegramAlbumFirst">{{ _("Сначала картинки, потом текст") }}</label>
+  <div class="form-text">{{ _("Текст длиннее 1024 символов не помещается подписью к картинкам — в Telegram уйдут два сообщения. Выключено — сначала текст, потом картинки.") }}</div>
+</div>
+<script>
+(function () {
+  // Время выбирается в местном поясе браузера и уходит на сервер в UTC
+  // (toISOString) — так же, как [data-utc-datetime] показывает его обратно.
+  var publishTg = document.getElementById("publishTelegram");  // только в форме новости
+  var tgOptions = document.getElementById("telegramOptions");
+  var laterBox = document.getElementById("telegramLater");
+  var laterBlock = document.getElementById("telegramLaterBlock");
+  var sendAt = document.getElementById("telegramSendAt");
+  var sendAtUtc = document.getElementById("telegramSendAtUtc");
+  var enabled = function () { return !publishTg || publishTg.checked; };
+  var pad = function (n) { return String(n).padStart(2, "0"); };
+  var localValue = function (d) {
+    return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()) + "T" + pad(d.getHours()) + ":" + pad(d.getMinutes());
+  };
+  var sync = function () {
+    tgOptions.classList.toggle("d-none", !enabled());
+    laterBlock.classList.toggle("d-none", !(enabled() && laterBox.checked));
+    if (laterBox.checked && !sendAt.value) {
+      var d = new Date(Date.now() + 60 * 60 * 1000);
+      d.setMinutes(0);
+      sendAt.value = localValue(d);
+    }
+    sendAt.min = localValue(new Date());
+    sendAt.required = enabled() && laterBox.checked;
+  };
+  if (publishTg) publishTg.addEventListener("change", sync);
+  laterBox.addEventListener("change", sync);
+  sync();
+  sendAt.form.addEventListener("submit", function () {
+    var on = enabled() && laterBox.checked && sendAt.value;
+    sendAtUtc.value = on ? new Date(sendAt.value).toISOString() : "";
+  });
+})();
+</script>

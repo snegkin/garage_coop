@@ -7,9 +7,23 @@
 # ярлык), открывает окно терминала и перезапускает скрипт в нём. Такое окно
 # по завершении ждёт Enter (и при ошибке тоже), чтобы итог можно было
 # прочитать. Из консоли ничего не меняется.
+#
+# Своя очистка при выходе — только через in_terminal_on_exit, не trap … EXIT:
+# в sh у EXIT одна ловушка, и своя затёрла бы ожидание Enter.
+#
+#   in_terminal_on_exit 'rm -f "$TMP"'
+
+_in_terminal_active=""
+_in_terminal_hook=""
+
+in_terminal_on_exit() {
+    _in_terminal_hook="$1"
+    [ -n "$_in_terminal_active" ] || trap "$1" EXIT
+}
 
 _in_terminal_pause() {
     rc=$?
+    [ -z "$_in_terminal_hook" ] || eval "$_in_terminal_hook"
     echo
     if [ "$rc" -eq 0 ]; then
         echo "Готово."
@@ -28,6 +42,7 @@ in_terminal() {
 
     if [ -n "${COOP_RUN_IN_TERMINAL:-}" ]; then
         # Уже в окне, которое открыли мы.
+        _in_terminal_active=1
         trap _in_terminal_pause EXIT
         return 0
     fi

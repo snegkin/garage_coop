@@ -55,8 +55,8 @@ VARS_FILE="${COOP_VARS:-$CONF_DIR/vars.yml}"
 BECOME=""
 PASS_FILE=""
 cleanup() { if [ -n "$PASS_FILE" ]; then rm -f "$PASS_FILE"; fi; }
-trap cleanup EXIT
-trap 'cleanup; exit 130' INT TERM HUP
+in_terminal_on_exit cleanup
+trap 'exit 130' INT TERM HUP
 
 if [ -f "$VARS_FILE" ] && grep -Eq '^local_(backup|ezp)_agent:[[:space:]]*(true|yes|True)' "$VARS_FILE"; then
     case " $* " in

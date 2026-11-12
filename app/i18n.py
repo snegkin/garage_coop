@@ -298,7 +298,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Последний годовой отчёт": "Last annual report",
 
         # cooperative
-        "Информация о кооперативе": "Ibformation about cooperative",
+        "Информация о кооперативе": "Cooperative information",
         "Реквизиты кооператива": "Cooperative legal details",
         "Расчётные счета": "Settlement accounts",
         "Добавить счёт": "Add account",
@@ -353,6 +353,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Дата регистрации": "Registration date",
         "Реквизиты ещё не заполнены.": "Legal details not filled in yet.",
         "Реквизиты сохранены.": "Legal details saved.",
+        "Информация о кооперативе сохранена.": "Cooperative information saved.",
 
         # garages
         "№": "No.",
@@ -2219,6 +2220,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         # cooperative/view.html — общие сведения и реквизиты
         "Общие сведения": "General information",
         "добавить в «Расчётные счета»": "add it under «Settlement accounts»",
+        "Банковские реквизиты берутся из основного расчётного счёта — раздел «Расчётные счета».": "Bank details are taken from the primary settlement account — see «Settlement accounts».",
 
         # cooperative/view.html — площади и налоги
         "% банка за зачисление": "Bank fee % on crediting",

@@ -87,7 +87,7 @@ def edit():
             f"Изменены реквизиты/настройки кооператива: ставка налога — {coop.land_tax_rate_percent}%",
         )
         database.db_session.commit()
-        flash(_("Реквизиты сохранены."), "success")
+        flash(_("Информация о кооперативе сохранена."), "success")
         return redirect(url_for("cooperative.view"))
 
     return render_template("cooperative/form.html", coop=coop)

@@ -1,10 +1,10 @@
 {% extends "base.html" %}
-{% block title %}{{ _("Реквизиты кооператива") }}{% endblock %}
+{% block title %}{{ _("Информация о кооперативе") }}{% endblock %}
 {% block content %}
-<h3 class="mb-3">{{ _("Реквизиты кооператива") }}</h3>
+<h3 class="mb-3">{{ _("Информация о кооперативе") }}</h3>
 <form method="post" class="bg-body p-4 rounded border">
   <div class="row g-3">
-    <div class="col-12"><h5>{{ _("Реквизиты") }}</h5></div>
+    <div class="col-12"><h5>{{ _("Общие сведения") }}</h5></div>
     <div class="col-md-8">
       <label class="form-label">{{ _("Полное наименование") }}</label>
       <input class="form-control" name="full_name" value="{{ coop.full_name or '' }}" required>
@@ -13,6 +13,21 @@
       <label class="form-label">{{ _("Краткое наименование") }}</label>
       <input class="form-control" name="short_name" value="{{ coop.short_name or '' }}">
     </div>
+    <div class="col-md-4">
+      <label class="form-label">{{ _("Дата регистрации") }}</label>
+      <input class="form-control" type="date" name="registration_date" value="{{ coop.registration_date or '' }}">
+    </div>
+    <div class="col-md-4">
+      <label class="form-label">{{ _("Email") }}</label>
+      <input class="form-control" type="text" name="email" value="{{ coop.email or '' }}">
+    </div>
+    <div class="col-md-4">
+      <label class="form-label">{{ _("Сайт") }}</label>
+      <input class="form-control" type="text" name="website" value="{{ coop.website or '' }}" placeholder="https://...">
+    </div>
+
+    <div class="col-12"><hr></div>
+    <div class="col-12"><h5>{{ _("Реквизиты") }}</h5></div>
     <div class="col-md-4">
       <label class="form-label">{{ _("ИНН") }}</label>
       <input class="form-control" name="inn" value="{{ coop.inn or '' }}" required>
@@ -33,18 +48,7 @@
       <label class="form-label">{{ _("Почтовый адрес") }}</label>
       <input class="form-control" name="postal_address" value="{{ coop.postal_address or '' }}">
     </div>
-    <div class="col-md-4">
-      <label class="form-label">{{ _("Дата регистрации") }}</label>
-      <input class="form-control" type="date" name="registration_date" value="{{ coop.registration_date or '' }}">
-    </div>
-    <div class="col-md-6">
-      <label class="form-label">{{ _("Email") }}</label>
-      <input class="form-control" type="text" name="email" value="{{ coop.email or '' }}">
-    </div>
-    <div class="col-md-6">
-      <label class="form-label">{{ _("Сайт") }}</label>
-      <input class="form-control" type="text" name="website" value="{{ coop.website or '' }}" placeholder="https://...">
-    </div>
+    <div class="col-12 form-text mt-2">{{ _("Банковские реквизиты берутся из основного расчётного счёта — раздел «Расчётные счета».") }}</div>
 
     <div class="col-12"><hr></div>
     <div class="col-12"><h5>{{ _("Площади и налоги") }}</h5></div>

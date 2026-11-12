@@ -9,13 +9,31 @@
 </div>
 
 {% if coop %}
-<h4>{{ _("Реквизиты") }}</h4>
+<h4>{{ _("Общие сведения") }}</h4>
 <table class="table table-bordered bg-body table-labels mb-4">
   <tr><th class="table-label">{{ _("Полное наименование") }}</th><td>{{ coop.full_name }}</td></tr>
   <tr><th>{{ _("Краткое наименование") }}</th><td>{{ coop.short_name or "—" }}</td></tr>
-  <tr><th>{{ _("ИНН") }}</th><td>{{ coop.inn }}</td></tr>
-  <tr><th>{{ _("КПП") }}</th><td>{{ coop.kpp }}</td></tr>
-  <tr><th>{{ _("ОГРН") }}</th><td>{{ coop.ogrn }}</td></tr>
+  <tr><th>{{ _("Дата регистрации") }}</th><td>{{ fmt_date(coop.registration_date) }}</td></tr>
+  <tr><th>{{ _("Email") }}</th><td>{% if coop.email %}<a href="mailto:{{ coop.email }}">{{ coop.email }}</a>{% else %}—{% endif %}</td></tr>
+  <tr><th>{{ _("Сайт") }}</th><td>{% if coop.website %}<a href="{{ coop.website }}" target="_blank" rel="noopener">{{ coop.website }}</a>{% else %}—{% endif %}</td></tr>
+  {% if is_board() %}
+  <tr>
+    <th>{{ _("Баланс") }}</th>
+    <td>
+      <span class="{{ 'text-danger' if coop_balance < 0 else 'text-success' }}">{{ fmt2(coop_balance) }} ₽</span>
+      <span class="text-muted small">({{ _("сумма по расчётным счетам в банках") }})</span>
+    </td>
+  </tr>
+  <tr><th>{{ _("Комментарий") }}</th><td>{{ coop.comment or "—" }}</td></tr>
+  {% endif %}
+</table>
+
+<h4>{{ _("Реквизиты") }}</h4>
+<table class="table table-bordered bg-body table-labels mb-4">
+  <tr><th class="table-label">{{ _("Получатель") }}</th><td>{{ coop.short_name or coop.full_name }}</td></tr>
+  <tr><th>{{ _("ИНН") }}</th><td>{{ coop.inn or "—" }}</td></tr>
+  <tr><th>{{ _("КПП") }}</th><td>{{ coop.kpp or "—" }}</td></tr>
+  <tr><th>{{ _("ОГРН") }}</th><td>{{ coop.ogrn or "—" }}</td></tr>
   <tr><th>{{ _("Юридический адрес") }}</th><td>{{ coop.legal_address or "—" }}</td></tr>
   {% set chairman_address = chairman.residence_address or chairman.registration_address if chairman else none %}
   <tr>
@@ -29,23 +47,13 @@
       {% else %}—{% endif %}
     </td>
   </tr>
-  <tr><th>{{ _("Дата регистрации") }}</th><td>{{ fmt_date(coop.registration_date) }}</td></tr>
-  <tr><th>{{ _("Email") }}</th><td>{% if coop.email %}<a href="mailto:{{ coop.email }}">{{ coop.email }}</a>{% else %}—{% endif %}</td></tr>
-  <tr><th>{{ _("Сайт") }}</th><td>{% if coop.website %}<a href="{{ coop.website }}" target="_blank" rel="noopener">{{ coop.website }}</a>{% else %}—{% endif %}</td></tr>
-  <tr><th>{{ _("Площадь кооператива") }}</th><td>{{ (fmt2(coop.total_area) ~ " м²") if coop.total_area is not none else "—" }}</td></tr>
-  <tr><th>{{ _("Площадь под гаражами") }}</th><td>{{ (fmt2(coop.garage_area) ~ " м²") if coop.garage_area is not none else "—" }}</td></tr>
-  <tr><th>{{ _("Площадь общего пользования") }}</th><td>{{ (fmt2(coop.common_area) ~ " м²") if coop.common_area is not none else "—" }}</td></tr>
-  <tr><th>{{ _("Стандартная площадь под гараж, м²") }}</th><td>{{ fmt2(coop.standard_garage_land_area) }} м²</td></tr>
-  <tr><th>{{ _("Ставка налога, % от кадастровой стоимости") }}</th><td>{{ fmt2(coop.land_tax_rate_percent) }}%</td></tr>
-  {% if is_board() %}
-  <tr>
-    <th>{{ _("Баланс") }}</th>
-    <td>
-      <span class="{{ 'text-danger' if coop_balance < 0 else 'text-success' }}">{{ fmt2(coop_balance) }} ₽</span>
-      <span class="text-muted small">({{ _("сумма по расчётным счетам в банках") }})</span>
-    </td>
-  </tr>
-  <tr><th>{{ _("Комментарий") }}</th><td>{{ coop.comment or "—" }}</td></tr>
+  {% if primary_account %}
+  <tr><th>{{ _("Расчётный счёт") }}</th><td class="text-nowrap">{{ primary_account.checking_account }}</td></tr>
+  <tr><th>{{ _("Банк") }}</th><td>{{ primary_account.bank_name }}</td></tr>
+  <tr><th>{{ _("БИК") }}</th><td>{{ primary_account.bik or "—" }}</td></tr>
+  <tr><th>{{ _("Корр. счёт") }}</th><td class="text-nowrap">{{ primary_account.correspondent_account or "—" }}</td></tr>
+  {% else %}
+  <tr><th>{{ _("Расчётный счёт") }}</th><td class="text-muted">{{ _("не указан") }}{% if is_board() %} — <a href="{{ url_for('finance.bank_accounts') }}">{{ _("добавить в «Расчётные счета»") }}</a>{% endif %}</td></tr>
   {% endif %}
 </table>
 
@@ -54,6 +62,8 @@
   <tr><th class="table-label">{{ _("Полная площадь кооператива (по документам), м²") }}</th><td>{{ fmt2(coop.total_area) if coop.total_area else "—" }}</td></tr>
   <tr><th>{{ _("Площадь кооператива (кадастровая), м²") }}</th><td>{{ fmt2(coop.cadastral_area) if coop.cadastral_area else "—" }}</td></tr>
   <tr><th>{{ _("Из них, площадь общего пользования, м²") }}</th><td>{{ fmt2(coop.common_area) if coop.common_area else "—" }}</td></tr>
+  <tr><th>{{ _("Площадь под гаражами") }}</th><td>{{ (fmt2(coop.garage_area) ~ " м²") if coop.garage_area is not none else "—" }}</td></tr>
+  <tr><th>{{ _("Стандартная площадь под гараж, м²") }}</th><td>{{ fmt2(coop.standard_garage_land_area) }}</td></tr>
   <tr><th>{{ _("Стоимость земли (кадастровая), ₽") }}</th><td>{{ fmt2(coop.cadastral_value) if coop.cadastral_value else "—" }}</td></tr>
   <tr><th title="{{ _('(кадастровая стоимость / кадастровая площадь) × ставка налога') }}">{{ _("Стоимость аренды 1 м² (справочная), ₽/м²") }}</th><td>{{ fmt2(coop.rental_price_per_sqm) if coop.rental_price_per_sqm else "—" }}</td></tr>
   <tr><th>{{ _("Ставка налога, % от кадастровой стоимости") }}</th><td>{{ fmt2(coop.land_tax_rate_percent) }}%</td></tr>

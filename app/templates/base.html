@@ -933,7 +933,9 @@ tr.table-info-subtle { --bs-table-bg: var(--bs-info-bg-subtle); --bs-table-borde
    см. home.html) — раскрывается по клику ПРЯМО НА МЕСТЕ, без перехода на
    отдельную страницу (см. .js-collapsible-toggle в скрипте внизу файла).
    Общий класс, не завязан на новости — можно переиспользовать где угодно. */
-.is-collapsible.is-collapsed { max-height: 12em; overflow: hidden; position: relative; }
+/* --collapsed-max выставляет fitCollapsedImages(): если на границу обреза
+   попадает картинка, свёрнутый блок удлиняется, чтобы она была видна целиком. */
+.is-collapsible.is-collapsed { max-height: var(--collapsed-max, 12em); overflow: hidden; position: relative; }
 .is-collapsible.is-collapsed::after {
   content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 2.5em;
   background: linear-gradient(transparent, var(--bs-body-bg));
@@ -2165,9 +2167,53 @@ function initLightbox() {
   });
 }
 
+// Свёрнутое превью (.is-collapsible.is-collapsed) режется по 12em — если
+// на эту границу попадает картинка, удлиняем блок до её низа (плюс высота
+// затемнения ::after, чтобы оно легло уже под картинку). Если после этого
+// виден весь текст — сворачивать нечего, убираем и кнопку «Читать дальше».
+function fitCollapsedImages(container) {
+  if (!container.classList.contains("is-collapsed")) return;
+  container.style.removeProperty("--collapsed-max");
+  var limit = container.clientHeight;
+  var fade = parseFloat(getComputedStyle(container).fontSize) * 2.5;
+  var top = container.getBoundingClientRect().top;
+  var newLimit = limit;
+  container.querySelectorAll("img").forEach(function (img) {
+    var r = img.getBoundingClientRect();
+    var imgTop = r.top - top, imgBottom = r.bottom - top;
+    if (imgTop < limit && imgBottom > limit - fade) newLimit = Math.max(newLimit, imgBottom + fade);
+  });
+  if (newLimit <= limit) return;
+  if (newLimit >= container.scrollHeight) {
+    container.classList.remove("is-collapsed", "is-collapsible");
+    var btn = container.nextElementSibling;
+    if (btn && btn.classList.contains("js-collapsible-toggle")) btn.remove();
+    return;
+  }
+  container.style.setProperty("--collapsed-max", Math.ceil(newLimit) + "px");
+}
+
+function initCollapsedImages() {
+  document.querySelectorAll(".is-collapsible.is-collapsed").forEach(function (container) {
+    var refit = function () { fitCollapsedImages(container); };
+    container.querySelectorAll("img").forEach(function (img) {
+      if (!img.complete) img.addEventListener("load", refit);
+    });
+    refit();
+  });
+  var timer;
+  window.addEventListener("resize", function () {
+    clearTimeout(timer);
+    timer = setTimeout(function () {
+      document.querySelectorAll(".is-collapsible.is-collapsed").forEach(fitCollapsedImages);
+    }, 150);
+  });
+}
+
 document.addEventListener("DOMContentLoaded", function () {
   groupContentImages();
   initLightbox();
+  initCollapsedImages();
 });
 
 // Разворачивание длинного превью прямо на месте, без перехода на
@@ -2184,6 +2230,7 @@ document.addEventListener("click", function (e) {
   var content = btn.previousElementSibling;
   if (!content || !content.classList.contains("is-collapsible")) return;
   var nowCollapsed = content.classList.toggle("is-collapsed");
+  if (nowCollapsed) fitCollapsedImages(content);
   btn.textContent = nowCollapsed ? btn.dataset.expandLabel : btn.dataset.collapseLabel;
 });
 </script>

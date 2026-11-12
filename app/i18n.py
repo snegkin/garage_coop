@@ -2015,6 +2015,11 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "New site news will be duplicated here. Add the bot to the group and send /chatid there — the bot will reply with the group ID. For a channel the bot must be an administrator. Leave empty to disable.",
         "Опубликовать и в группе Telegram": "Also post to the Telegram group",
         "Не удалось отправить новость в Telegram: {error}": "Could not send the news to Telegram: {error}",
+        "Сначала картинки, потом текст": "Images first, then text",
+        "Текст длиннее 1024 символов не помещается подписью к картинкам — в Telegram уйдут два сообщения. Выключено — сначала текст, потом картинки.":
+            "Text longer than 1024 characters doesn't fit as an image caption — two messages will be sent to Telegram. Off — text first, then images.",
+        "В Telegram не отправлены слишком большие файлы (больше 50 МБ): {names}":
+            "Files too large for Telegram (over 50 MB) were not sent: {names}",
         "Сначала укажите токен и имя бота.": "First fill in the token and bot username.",
         "Подключение работает: бот @{username}.": "Connection works: bot @{username}.",
         "Не удалось подключиться: {error}": "Could not connect: {error}",

@@ -56,6 +56,13 @@
     <input class="form-check-input" type="checkbox" name="publish_telegram" value="1" id="publishTelegram" checked>
     <label class="form-check-label" for="publishTelegram">{{ _("Опубликовать и в группе Telegram") }}</label>
   </div>
+  {# Показывается скриптом ниже, только когда есть картинки, а текст не
+     влезает подписью к альбому — тогда в группу уйдут два сообщения. #}
+  <div class="form-check form-switch mb-3 ms-4 d-none" id="telegramOrderBlock">
+    <input class="form-check-input" type="checkbox" name="telegram_album_first" value="1" id="telegramAlbumFirst">
+    <label class="form-check-label" for="telegramAlbumFirst">{{ _("Сначала картинки, потом текст") }}</label>
+    <div class="form-text">{{ _("Текст длиннее 1024 символов не помещается подписью к картинкам — в Telegram уйдут два сообщения. Выключено — сначала текст, потом картинки.") }}</div>
+  </div>
   {% endif %}
 
   <div class="d-flex justify-content-end gap-2">
@@ -181,6 +188,9 @@
           textarea.value = before + prefix + markdown + suffix + after;
           textarea.selectionStart = textarea.selectionEnd = cursorPos + prefix.length + markdown.length;
           textarea.focus();
+          // Программная правка value не даёт события input — шлём сами
+          // (на него подписан расчёт порядка сообщений в Telegram ниже).
+          textarea.dispatchEvent(new Event("input"));
         })
         .catch(function () {
           imageStatus.textContent = "{{ _('Не удалось загрузить файл.') }}";
@@ -230,6 +240,57 @@
           if (window.bootstrap) bootstrap.Modal.getOrCreateInstance(previewModalEl).show();
         });
     });
+  }
+
+  // Порядок сообщений в Telegram: спрашиваем сервер (тот же расчёт, что
+  // соберёт пост — news.telegram_layout), влезает ли текст подписью к
+  // альбому. Выбор порядка нужен, только если картинки есть и не влезает.
+  var orderBlock = document.getElementById("telegramOrderBlock");
+  if (orderBlock) {
+    var publishBox = document.getElementById("publishTelegram");
+    var titleInput = document.querySelector('input[name="title"]');
+    var filesInput = document.querySelector('input[name="attachments"]');
+    var imageMdRe = /!\[[^\]]*\]\([^)]+\)/;
+    var imageExtRe = /\.(jpe?g|png|webp|gif)$/i;
+    var layoutTimer = null, layoutSeq = 0;
+
+    function hasImages() {
+      if (imageMdRe.test(textarea.value)) return true;
+      return Array.prototype.some.call(filesInput ? filesInput.files : [], function (file) {
+        return imageExtRe.test(file.name);
+      });
+    }
+
+    function updateOrder() {
+      if (!publishBox.checked || !hasImages()) {
+        orderBlock.classList.add("d-none");
+        return;
+      }
+      var seq = ++layoutSeq;
+      var csrfMeta = document.querySelector('meta[name="csrf-token"]');
+      var formData = new FormData();
+      formData.append("title", titleInput.value);
+      formData.append("body", textarea.value);
+      fetch("{{ url_for('news.telegram_layout') }}", {
+        method: "POST",
+        headers: csrfMeta ? { "X-CSRFToken": csrfMeta.getAttribute("content") } : {},
+        body: formData,
+      }).then(function (r) { return r.json(); }).then(function (data) {
+        if (seq !== layoutSeq) return;  // пришёл ответ на устаревший текст
+        orderBlock.classList.toggle("d-none", !!data.fits_caption);
+      }).catch(function () {});
+    }
+
+    function scheduleOrder() {
+      clearTimeout(layoutTimer);
+      layoutTimer = setTimeout(updateOrder, 400);
+    }
+
+    textarea.addEventListener("input", scheduleOrder);
+    titleInput.addEventListener("input", scheduleOrder);
+    publishBox.addEventListener("change", updateOrder);
+    if (filesInput) filesInput.addEventListener("change", updateOrder);
+    updateOrder();
   }
 })();
 </script>

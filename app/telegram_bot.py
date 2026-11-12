@@ -22,6 +22,10 @@ Bot API не позволяет написать произвольному @use
 для отображения на карточке) в этом не участвует.
 """
 import datetime as dt
+import html
+import json
+import os
+import re
 
 import requests
 
@@ -195,26 +199,143 @@ def poll_and_link_accounts() -> tuple[int, int]:
 # Дублирование новостей в группу/канал
 # ---------------------------------------------------------------------------
 
-# Bot API ограничивает сообщение 4096 символами (после разбора HTML) — берём
-# с запасом под заголовок и ссылку; длиннее — отправляем обрезанный текст
-# без разметки, полная версия всё равно по ссылке.
+# Bot API ограничивает сообщение 4096 символами, подпись к фото/альбому —
+# 1024 (оба — после разбора HTML, в UTF-16). Текст длиннее NEWS_TEXT_LIMIT
+# отправляем обрезанным без разметки, полная версия всё равно по ссылке.
 NEWS_TEXT_LIMIT = 3500
 NEWS_EXCERPT_LENGTH = 1500
+CAPTION_LIMIT = 1024
+# Лимиты Bot API на загрузку: фото до 10 МБ (больше — уходит документом),
+# любой файл до 50 МБ (больше — не отправляем, предупреждаем).
+PHOTO_MAX_BYTES = 10 * 1024 * 1024
+DOCUMENT_MAX_BYTES = 50 * 1024 * 1024
+ALBUM_MAX_ITEMS = 10
+UPLOAD_TIMEOUT = 60
+_TAG_RE = re.compile(r"<[^>]+>")
 
 
 def news_group_enabled(settings: TelegramSettings | None) -> bool:
     return bool(is_configured(settings) and settings.news_chat_id)
 
 
-def publish_news(settings: TelegramSettings, item: News, url: str) -> None:
-    """Отправляет новость в TelegramSettings.news_chat_id. Поднимает
-    TelegramError — вызывающий (news.create) показывает предупреждение, но
-    сама новость на сайте к этому моменту уже сохранена."""
+def _visible_length(html_text: str) -> int:
+    """Длина текста так, как её считает Telegram: без тегов, с раскрытыми
+    сущностями, в кодовых единицах UTF-16 (эмодзи — 2)."""
+    plain = html.unescape(_TAG_RE.sub("", html_text))
+    return len(plain.encode("utf-16-le")) // 2
+
+
+def news_text(title: str, body: str, url: str) -> str:
     from markupsafe import escape
     from .news_format import telegram_html, excerpt
 
-    body = telegram_html(item.body, base_url=url)
-    if len(body) > NEWS_TEXT_LIMIT:
-        body = str(escape(excerpt(item.body, NEWS_EXCERPT_LENGTH)[0]))
-    text = f"<b>{escape(item.title)}</b>\n\n{body}\n\n<a href=\"{escape(url)}\">Читать на сайте</a>"
-    send_message(settings, settings.news_chat_id, text, parse_mode="HTML", disable_preview=True)
+    rendered = telegram_html(body, base_url=url)
+    if _visible_length(rendered) > NEWS_TEXT_LIMIT:
+        rendered = str(escape(excerpt(body, NEWS_EXCERPT_LENGTH)[0]))
+    return f"<b>{escape(title)}</b>\n\n{rendered}\n\n<a href=\"{escape(url)}\">Читать на сайте</a>"
+
+
+def fits_caption(title: str, body: str, url: str = "https://example.org/news/0") -> bool:
+    """Поместится ли новость подписью к альбому — одним постом. Тот же расчёт
+    использует форма новости (news.telegram_layout), чтобы показывать выбор
+    порядка «альбом/текст» только когда сообщений будет два."""
+    return _visible_length(news_text(title, body, url)) <= CAPTION_LIMIT
+
+
+def _split_attachments(item: News, upload_folder: str):
+    """-> (фото для альбома, документы, пропущенные из-за размера). Фото —
+    и вставленные в текст, и из галереи: картинки из текста в сообщение
+    не попадают (telegram_html их выбрасывает), поэтому едут альбомом."""
+    photos, documents, skipped = [], [], []
+    for att in item.attachments:
+        path = os.path.join(upload_folder, att.stored_filename)
+        try:
+            size = os.path.getsize(path)
+        except OSError:
+            skipped.append(att.original_filename)
+            continue
+        if att.is_image and size <= PHOTO_MAX_BYTES:
+            photos.append((att, path))
+        elif size <= DOCUMENT_MAX_BYTES:
+            documents.append((att, path))
+        else:
+            skipped.append(att.original_filename)
+    return photos, documents, skipped
+
+
+def _upload(settings: TelegramSettings, method: str, data: dict, files: dict) -> None:
+    token = _token(settings)
+    handles = {}
+    try:
+        for field, (filename, path) in files.items():
+            handles[field] = (filename, open(path, "rb"))
+        resp = requests.post(f"{API_BASE}/bot{token}/{method}", data=data, files=handles, timeout=UPLOAD_TIMEOUT)
+    except requests.RequestException as exc:
+        raise TelegramError(f"Telegram: {exc}") from exc
+    except OSError as exc:
+        raise TelegramError(f"Файл вложения недоступен: {exc}") from exc
+    finally:
+        for _name, fh in handles.values():
+            fh.close()
+    if resp.status_code != 200:
+        raise TelegramError(f"Telegram: HTTP {resp.status_code}: {resp.text[:200]}")
+
+
+def _send_album(settings: TelegramSettings, photos, caption: str | None) -> None:
+    """Одно фото — sendPhoto, больше — sendMediaGroup пачками по 10.
+    Подпись — у первого фото первой пачки (так Telegram показывает её под
+    всем альбомом)."""
+    chat_id = settings.news_chat_id
+    for start in range(0, len(photos), ALBUM_MAX_ITEMS):
+        chunk = photos[start:start + ALBUM_MAX_ITEMS]
+        with_caption = caption if start == 0 else None
+        if len(chunk) == 1:
+            att, path = chunk[0]
+            data = {"chat_id": chat_id}
+            if with_caption:
+                data.update(caption=with_caption, parse_mode="HTML")
+            _upload(settings, "sendPhoto", data, {"photo": (att.original_filename, path)})
+            continue
+        media, files = [], {}
+        for n, (att, path) in enumerate(chunk):
+            entry = {"type": "photo", "media": f"attach://file{n}"}
+            if n == 0 and with_caption:
+                entry.update(caption=with_caption, parse_mode="HTML")
+            media.append(entry)
+            files[f"file{n}"] = (att.original_filename, path)
+        _upload(settings, "sendMediaGroup", {"chat_id": chat_id, "media": json.dumps(media)}, files)
+
+
+def publish_news(settings: TelegramSettings, item: News, url: str, upload_folder: str,
+                 album_first: bool = False) -> list[str]:
+    """Отправляет новость в TelegramSettings.news_chat_id:
+    - нет фото — одно текстовое сообщение;
+    - есть фото и текст влезает в подпись (CAPTION_LIMIT) — один пост,
+      альбом с подписью;
+    - текст длиннее — два сообщения, порядок задаёт album_first (галочка в
+      форме новости);
+    остальные вложения — следом, отдельными документами.
+    Возвращает имена файлов, пропущенных из-за лимитов Telegram. Поднимает
+    TelegramError — вызывающий (news.create) показывает предупреждение, но
+    сама новость на сайте к этому моменту уже сохранена."""
+    text = news_text(item.title, item.body, url)
+    photos, documents, skipped = _split_attachments(item, upload_folder)
+
+    def send_text():
+        send_message(settings, settings.news_chat_id, text, parse_mode="HTML", disable_preview=True)
+
+    if not photos:
+        send_text()
+    elif _visible_length(text) <= CAPTION_LIMIT:
+        _send_album(settings, photos, caption=text)
+    elif album_first:
+        _send_album(settings, photos, caption=None)
+        send_text()
+    else:
+        send_text()
+        _send_album(settings, photos, caption=None)
+
+    for att, path in documents:
+        _upload(settings, "sendDocument", {"chat_id": settings.news_chat_id},
+                {"document": (att.original_filename, path)})
+    return skipped

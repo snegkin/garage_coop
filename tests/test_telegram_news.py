@@ -32,8 +32,11 @@ def _settings(db, news_chat_id="-1001234567890"):
 def _capture_posts(monkeypatch, status_code=200):
     sent = []
 
-    def fake_post(url, json=None, timeout=None):
-        sent.append({"url": url, "json": json})
+    def fake_post(url, json=None, data=None, files=None, timeout=None):
+        sent.append({
+            "url": url, "method": url.rsplit("/", 1)[-1], "json": json, "data": data,
+            "files": {k: (name, fh.read()) for k, (name, fh) in (files or {}).items()},
+        })
         return FakeResponse(status_code, text="Bad Request: chat not found")
 
     monkeypatch.setattr(telegram_bot.requests, "post", fake_post)
@@ -115,7 +118,7 @@ def test_long_news_falls_back_to_excerpt(app, db, monkeypatch):
     settings = _settings(db)
     sent = _capture_posts(monkeypatch)
     item = News(title="Длинная", body="слово " * 2000)
-    telegram_bot.publish_news(settings, item, "https://coop.example/news/1")
+    telegram_bot.publish_news(settings, item, "https://coop.example/news/1", app.config["UPLOAD_FOLDER"])
     text = sent[0]["json"]["text"]
     assert len(text) < 4096
     assert "…" in text
@@ -150,3 +153,121 @@ def test_chairman_saves_news_chat_id(db, client):
     settings = db.query(TelegramSettings).first()
     db.refresh(settings)
     assert settings.news_chat_id == "@coop_news"
+
+
+# ---------------------------------------------------------------------------
+# Картинки и файлы
+# ---------------------------------------------------------------------------
+
+def _news_with_files(app, db, body, files):
+    """files — [(имя, байты, is_inline)]; файлы кладутся прямо в UPLOAD_FOLDER."""
+    import os
+    from app.models import News, NewsAttachment
+    item = News(title="С вложениями", body=body)
+    db.add(item)
+    folder = app.config["UPLOAD_FOLDER"]
+    os.makedirs(folder, exist_ok=True)
+    for n, (name, content, inline) in enumerate(files):
+        stored = f"tgtest_{n}_{name}"
+        with open(os.path.join(folder, stored), "wb") as fh:
+            fh.write(content)
+        db.add(NewsAttachment(news=item, original_filename=name, stored_filename=stored, is_inline=inline))
+    db.commit()
+    return item
+
+
+def _publish(app, settings, item, **kw):
+    return telegram_bot.publish_news(settings, item, "https://coop.example/news/1", app.config["UPLOAD_FOLDER"], **kw)
+
+
+def test_short_text_with_photos_is_one_album_post(app, db, monkeypatch):
+    import json
+    settings = _settings(db)
+    sent = _capture_posts(monkeypatch)
+    item = _news_with_files(app, db, "Короткий текст\n\n![](/news/attachments/1/a.jpg)", [
+        ("a.jpg", b"A", True), ("b.png", b"B", False), ("doc.pdf", b"PDF", False),
+    ])
+    assert _publish(app, settings, item) == []
+
+    assert [s["method"] for s in sent] == ["sendMediaGroup", "sendDocument"]
+    media = json.loads(sent[0]["data"]["media"])
+    assert [m["media"] for m in media] == ["attach://file0", "attach://file1"]
+    assert "Короткий текст" in media[0]["caption"] and media[0]["parse_mode"] == "HTML"
+    assert "caption" not in media[1]
+    assert sent[0]["files"] == {"file0": ("a.jpg", b"A"), "file1": ("b.png", b"B")}
+    assert sent[1]["files"]["document"] == ("doc.pdf", b"PDF")
+
+
+def test_single_photo_uses_send_photo_with_caption(app, db, monkeypatch):
+    settings = _settings(db)
+    sent = _capture_posts(monkeypatch)
+    item = _news_with_files(app, db, "Текст", [("a.jpg", b"A", False)])
+    _publish(app, settings, item)
+    assert [s["method"] for s in sent] == ["sendPhoto"]
+    assert "Текст" in sent[0]["data"]["caption"]
+
+
+def test_long_text_with_photos_text_first_by_default(app, db, monkeypatch):
+    settings = _settings(db)
+    sent = _capture_posts(monkeypatch)
+    item = _news_with_files(app, db, "длинно " * 300, [("a.jpg", b"A", False), ("b.jpg", b"B", False)])
+    _publish(app, settings, item)
+    assert [s["method"] for s in sent] == ["sendMessage", "sendMediaGroup"]
+    assert "caption" not in sent[1]["data"]["media"]
+
+
+def test_long_text_with_photos_album_first(app, db, monkeypatch):
+    settings = _settings(db)
+    sent = _capture_posts(monkeypatch)
+    item = _news_with_files(app, db, "длинно " * 300, [("a.jpg", b"A", False), ("b.jpg", b"B", False)])
+    _publish(app, settings, item, album_first=True)
+    assert [s["method"] for s in sent] == ["sendMediaGroup", "sendMessage"]
+
+
+def test_more_than_ten_photos_split_into_albums(app, db, monkeypatch):
+    import json
+    settings = _settings(db)
+    sent = _capture_posts(monkeypatch)
+    item = _news_with_files(app, db, "Фотоотчёт", [(f"p{n}.jpg", b"x", False) for n in range(11)])
+    _publish(app, settings, item)
+    assert [s["method"] for s in sent] == ["sendMediaGroup", "sendPhoto"]
+    assert len(json.loads(sent[0]["data"]["media"])) == 10
+    assert "caption" not in sent[1]["data"]
+
+
+def test_oversized_files(app, db, monkeypatch):
+    """Фото больше 10 МБ уходит документом, файл больше 50 МБ — пропускается."""
+    settings = _settings(db)
+    sent = _capture_posts(monkeypatch)
+    monkeypatch.setattr(telegram_bot, "PHOTO_MAX_BYTES", 3)
+    monkeypatch.setattr(telegram_bot, "DOCUMENT_MAX_BYTES", 5)
+    item = _news_with_files(app, db, "Текст", [("big.jpg", b"1234", False), ("huge.pdf", b"123456", False)])
+    assert _publish(app, settings, item) == ["huge.pdf"]
+    assert [s["method"] for s in sent] == ["sendMessage", "sendDocument"]
+    assert sent[1]["files"]["document"][0] == "big.jpg"
+
+
+def test_create_news_with_uploaded_photo_end_to_end(db, client, monkeypatch):
+    from io import BytesIO
+    _settings(db)
+    sent = _capture_posts(monkeypatch)
+    _login_board(db, client)
+    client.post("/news/new", data={
+        "title": "Субботник", "body": "Приходите!", "publish_telegram": "1",
+        "attachments": [(BytesIO(b"JPEGDATA"), "photo.jpg")],
+    }, content_type="multipart/form-data")
+    assert [s["method"] for s in sent] == ["sendPhoto"]
+    assert sent[0]["files"]["photo"] == ("photo.jpg", b"JPEGDATA")
+    assert "Субботник" in sent[0]["data"]["caption"]
+
+
+def test_telegram_layout_endpoint(db, client):
+    _login_board(db, client)
+    short = client.post("/news/telegram-layout", data={"title": "Т", "body": "коротко"}).get_json()
+    long = client.post("/news/telegram-layout", data={"title": "Т", "body": "длинно " * 300}).get_json()
+    assert short == {"fits_caption": True}
+    assert long == {"fits_caption": False}
+
+
+def test_caption_length_counts_utf16_and_ignores_tags():
+    assert telegram_bot._visible_length("<b>a&amp;b</b>😀") == 5

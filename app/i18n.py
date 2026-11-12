@@ -261,6 +261,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Свернуть": "Collapse",
         "Скопировать": "Copy",
         "Скопировано": "Copied",
+        "Скопировать скрытый текст, не показывая его": "Copy hidden text without revealing it",
 
         "Форматирование": "Formatting",
         "Вставить картинку": "Insert image",

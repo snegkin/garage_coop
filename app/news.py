@@ -164,11 +164,28 @@ def _publish_to_telegram(item: News) -> None:
     if not telegram_bot.news_group_enabled(settings):
         return
     try:
-        telegram_bot.publish_news(settings, item, url_for("news.view", news_id=item.id, _external=True))
+        skipped = telegram_bot.publish_news(
+            settings, item, url_for("news.view", news_id=item.id, _external=True),
+            current_app.config["UPLOAD_FOLDER"], album_first=bool(request.form.get("telegram_album_first")),
+        )
     except telegram_bot.TelegramError as exc:
         settings.last_error = str(exc)
         database.db_session.commit()
         flash(_("Не удалось отправить новость в Telegram: {error}", error=str(exc)), "warning")
+        return
+    if skipped:
+        flash(_("В Telegram не отправлены слишком большие файлы (больше 50 МБ): {names}",
+                names=", ".join(skipped)), "warning")
+
+
+@bp.route("/telegram-layout", methods=["POST"])
+@roles_required(RoleEnum.BOARD)
+def telegram_layout():
+    """Форма новости спрашивает при наборе: влезет ли текст подписью к
+    альбому (один пост) — если нет, показывает выбор порядка двух сообщений.
+    Считается тем же кодом, что потом собирает пост (telegram_bot.fits_caption)."""
+    f = request.form
+    return jsonify(fits_caption=telegram_bot.fits_caption(f.get("title", ""), f.get("body", "")))
 
 
 @bp.route("/<int:news_id>/edit", methods=["GET", "POST"])

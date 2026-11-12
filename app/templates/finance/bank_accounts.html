@@ -157,6 +157,13 @@
             <input class="form-control" name="account_number" value="{{ cred.account_number if cred and cred.account_number else '' }}" placeholder="{{ account.checking_account }}">
             <div class="form-text">{{ _("Заполнять, только если отличается от расчётного счёта выше.") }}</div>
           </div>
+          <div class="mb-3">
+            <label class="form-label" for="webhookUrl{{ account.id }}">{{ _("Адрес для уведомлений (веб-хук)") }}</label>
+            <input class="form-control font-monospace" id="webhookUrl{{ account.id }}" readonly value="{{ url_for('bank_webhooks.modulbank', _external=True) }}" onfocus="this.select()">
+            <div class="form-text">
+              {{ _("Чтобы платежи появлялись в выписке сразу, а не при утренней загрузке, впишите этот адрес в ЛК Модульбанка при генерации токена: «Настройки» → «Услуги» → «API Банка» → «Генерация токена авторизации». Нужно право operation-history. Адрес задаётся вместе с токеном — после генерации вставьте новый токен в поле выше. В песочнице уведомления не приходят.") }}
+            </div>
+          </div>
           {% else %}
           <div class="row g-2 mb-3">
             <div class="col-6">
@@ -218,6 +225,7 @@
           <div class="text-muted small">
             {{ _("Баланс синхронизирован") }}: {{ fmt_date(cred.last_balance_sync_at) if cred.last_balance_sync_at else "—" }}<br>
             {{ _("Выписка синхронизирована") }}: {{ fmt_date(cred.last_statement_sync_at) if cred.last_statement_sync_at else "—" }}
+            {% if account.api_provider.value == "modulbank" %}<br>{{ _("Последнее уведомление банка") }}: {{ fmt_date(cred.last_webhook_at) if cred.last_webhook_at else "—" }}{% endif %}
           </div>
           {% endif %}
         </div>

@@ -240,6 +240,7 @@ def create_app(config_class=Config):
     from .meetings import bp as meetings_bp
     from .cooperative import bp as cooperative_bp
     from .bank_sync import bp as bank_sync_bp
+    from .bank_webhooks import bp as bank_webhooks_bp
     from .cabinet import bp as cabinet_bp
     from .power import bp as power_bp
     from .electricity_monitor import bp as electricity_monitor_bp
@@ -277,6 +278,9 @@ def create_app(config_class=Config):
     app.register_blueprint(meetings_bp)
     app.register_blueprint(cooperative_bp)
     app.register_blueprint(bank_sync_bp)
+    # Уведомления банка о новых операциях: без сессии и CSRF-токена, подлинность — по подписи.
+    csrf.exempt(bank_webhooks_bp)
+    app.register_blueprint(bank_webhooks_bp)
     app.register_blueprint(cabinet_bp)
     app.register_blueprint(power_bp)
     app.register_blueprint(electricity_monitor_bp)

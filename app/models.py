@@ -252,6 +252,10 @@ class BankApiCredential(Base):
 
     last_balance_sync_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
     last_statement_sync_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
+    # Когда пришло последнее уведомление банка с верной подписью (веб-хук,
+    # app/bank_webhooks.py) — чтобы председатель видел, что адрес в ЛК банка
+    # вписан правильно: в песочнице веб-хуки не проверить.
+    last_webhook_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
     last_error: Mapped[str | None] = mapped_column(Text)  # текст последней ошибки синхронизации, для показа в UI
 
     bank_account: Mapped["BankAccount"] = relationship(back_populates="api_credential")

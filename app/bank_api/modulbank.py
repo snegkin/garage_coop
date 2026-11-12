@@ -35,12 +35,16 @@ _resolve_account_id). В песочнице у истории операций �
 (accounting.amount_without_bank_fee), как и задумано для банков, которые
 списывают комиссию отдельно.
 
+**Веб-хуки** (уведомления о новых операциях) принимает
+app/bank_webhooks.py; подпись — webhook_signature() ниже.
+
 **Реестров начислений/платежей в API нет.** Ручной файловый путь
 (app/bank_api/registry_file.py) от банка не зависит.
 """
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 from decimal import Decimal
 
 import requests
@@ -238,6 +242,15 @@ def _parse_operation(op: dict) -> StatementLine | None:
         document_number=op.get("docNumber") or None,
         counterparty_account=_normalize_number(op.get("contragentBankAccountNumber")) or None,
     )
+
+
+def webhook_signature(token: str, operation_id: str) -> str:
+    """Подпись уведомления (веб-хука), как её считает банк для токена из ЛК:
+    SHA-1 в HEX от «<первые 10 символов токена>&<id операции>» в UTF-8.
+    Подписан только id операции — остальные поля уведомления (сумма,
+    назначение…) подписью не защищены, поэтому app/bank_webhooks.py берёт
+    их не из уведомления, а заново из истории операций."""
+    return hashlib.sha1(f"{token[:10]}&{operation_id}".encode("utf-8")).hexdigest()
 
 
 def _normalize_number(raw) -> str:

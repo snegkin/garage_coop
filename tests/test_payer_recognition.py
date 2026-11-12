@@ -96,9 +96,9 @@ def test_pd4_purpose_puts_account_number_first():
 
 
 def test_pd4_purpose_strips_characters_banks_reject():
-    """Сбербанк не принимает перевод с «;», «|» и т.п. в назначении."""
-    purpose = pd4_purpose("10640", 'Целевой взнос; "ремонт" | крыша & ворота', "12А")
-    assert purpose == "ЛС 10640 Целевой взнос ремонт крыша ворота, гараж №12А"
+    """Сбербанк не принимает перевод с «;», «|», «!» в назначении."""
+    purpose = pd4_purpose("10640", 'Целевой взнос; "ремонт" | крыша & ворота!', "12А")
+    assert purpose == 'ЛС 10640 Целевой взнос "ремонт" крыша & ворота, гараж №12А'
     assert bank_sync.extract_account_number(purpose) == "10640"
     assert len(pd4_purpose("1", "х" * 500)) == 210
 

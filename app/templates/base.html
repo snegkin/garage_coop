@@ -2340,12 +2340,16 @@ document.addEventListener("click", function (e) {
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{{ _("Закрыть") }}"></button>
       </div>
       <div class="modal-body">
-        <div id="progressSteps"></div>
+        <div id="progressSteps" class="overflow-auto" style="max-height: 55vh;"></div>
         <div id="progressSummary" class="alert d-none mb-0 mt-3"></div>
       </div>
       <div class="modal-footer">
+        <div class="form-check me-auto mb-0">
+          <input class="form-check-input" type="checkbox" id="progressAutoClose" checked>
+          <label class="form-check-label" for="progressAutoClose">{{ _("Закрыть автоматически") }}</label>
+        </div>
         <button type="button" class="btn btn-outline-primary d-none" id="progressRetry">{{ _("Ещё раз") }}</button>
-        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _("Закрыть") }}</button>
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" id="progressClose">{{ _("Закрыть") }}</button>
       </div>
     </div>
   </div>
@@ -2356,8 +2360,11 @@ document.addEventListener("click", function (e) {
     running: "{{ _("Выполняется…") }}",
     stillRunning: "{{ _("Операция продолжается на сервере — результат будет виден на странице.") }}",
     network: "{{ _("Не удалось получить ответ сервера — проверьте соединение и попробуйте ещё раз.") }}",
-    skipped: "{{ _("пропущено") }}"
+    skipped: "{{ _("пропущено") }}",
+    close: "{{ _("Закрыть") }}"
   };
+  var AUTO_CLOSE_SECONDS = 5;
+  var AUTO_CLOSE_KEY = "progressAutoClose";
   var ICON = {
     running: '<span class="spinner-border spinner-border-sm text-primary" role="status"></span>',
     ok: '<span class="text-success fw-bold">✓</span>',
@@ -2369,7 +2376,46 @@ document.addEventListener("click", function (e) {
   var stepsEl = document.getElementById("progressSteps");
   var summaryEl = document.getElementById("progressSummary");
   var retryEl = document.getElementById("progressRetry");
-  var state = { form: null, running: false, redirect: null };
+  var closeEl = document.getElementById("progressClose");
+  var autoCloseEl = document.getElementById("progressAutoClose");
+  var state = { form: null, running: false, redirect: null, ok: false, timer: null };
+
+  // Выбор чекбокса запоминаем в браузере; по умолчанию включён.
+  try {
+    if (window.localStorage.getItem(AUTO_CLOSE_KEY) === "0") autoCloseEl.checked = false;
+  } catch (e) { /* хранилище недоступно — остаётся включённым */ }
+
+  // Автопрокрутка списка шагов вниз — пока пользователь сам не отмотал вверх.
+  function nearBottom() {
+    return stepsEl.scrollHeight - stepsEl.scrollTop - stepsEl.clientHeight < 40;
+  }
+  function scrollDown() {
+    stepsEl.scrollTop = stepsEl.scrollHeight;
+  }
+
+  function stopCountdown() {
+    if (state.timer) window.clearInterval(state.timer);
+    state.timer = null;
+    closeEl.textContent = TEXT.close;
+  }
+
+  // Обратный отсчёт до автозакрытия — только после успешного завершения,
+  // чтобы ошибки и предупреждения не исчезали сами.
+  function startCountdown() {
+    stopCountdown();
+    if (!autoCloseEl.checked || state.running || !state.ok) return;
+    var left = AUTO_CLOSE_SECONDS;
+    closeEl.textContent = TEXT.close + " (" + left + ")";
+    state.timer = window.setInterval(function () {
+      left -= 1;
+      if (left <= 0) {
+        stopCountdown();
+        window.bootstrap.Modal.getOrCreateInstance(modalEl).hide();
+        return;
+      }
+      closeEl.textContent = TEXT.close + " (" + left + ")";
+    }, 1000);
+  }
 
   function el(tag, cls, text) {
     var node = document.createElement(tag);
@@ -2402,6 +2448,7 @@ document.addEventListener("click", function (e) {
   }
 
   function render(ev) {
+    var stick = nearBottom();
     var key = "progressStep-" + (ev.group ? ev.group + "-" : "") + ev.id;
     var item = document.getElementById(key);
     if (!item) {
@@ -2433,6 +2480,7 @@ document.addEventListener("click", function (e) {
     if (ev.hint) body.appendChild(el("div", "small mt-1", ev.hint));
     row.appendChild(icon);
     row.appendChild(body);
+    if (stick) scrollDown();
   }
 
   function finish(ok, message, category, redirect) {
@@ -2444,6 +2492,9 @@ document.addEventListener("click", function (e) {
       retryEl.classList.remove("d-none");
       retryEl.disabled = false;
     }
+    state.ok = !!ok && (!category || category === "success")
+      && !stepsEl.querySelector(".text-danger, .text-warning");
+    startCountdown();
   }
 
   function start(form) {
@@ -2451,6 +2502,8 @@ document.addEventListener("click", function (e) {
     state.form = form;
     state.running = true;
     state.redirect = null;
+    state.ok = false;
+    stopCountdown();
     document.getElementById("progressModalLabel").textContent = form.getAttribute("data-progress") || "";
     stepsEl.innerHTML = "";
     summaryEl.className = "alert alert-secondary mb-0 mt-3";
@@ -2522,11 +2575,20 @@ document.addEventListener("click", function (e) {
     }
   });
 
+  autoCloseEl.addEventListener("change", function () {
+    try {
+      window.localStorage.setItem(AUTO_CLOSE_KEY, autoCloseEl.checked ? "1" : "0");
+    } catch (e) { /* не страшно */ }
+    if (autoCloseEl.checked) startCountdown();
+    else stopCountdown();
+  });
+
   retryEl.addEventListener("click", function () {
     if (state.form && !state.running) start(state.form);
   });
 
   modalEl.addEventListener("hidden.bs.modal", function () {
+    stopCountdown();
     // Закрыли во время выполнения — задача на сервере доходит до конца;
     // закрыли после — показываем обновлённую страницу.
     if (state.running) {

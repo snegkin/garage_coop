@@ -30,6 +30,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Выйти": "Log out",
         "Сохранить": "Save",
         "Отмена": "Cancel",
+        "Закрыть автоматически": "Close automatically",
         "Редактировать": "Edit",
         "Добавить": "Add",
         "Комментарий": "Comment",

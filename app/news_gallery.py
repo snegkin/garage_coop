@@ -7,10 +7,12 @@ NewsGalleryImage): то, что нужно из года в год — субб�
 Вставка — копия файла в новое inline-вложение новости (тот же путь, что у
 «Вставить картинку», news.upload_inline_attachment): дальше она живёт как
 обычная картинка новости — показ в ленте, альбом в Telegram/MAX, очистка
-неиспользованных (scripts/cleanup_orphan_attachments.py). Удаление или
-замена картинки в галерее старые новости не трогает.
+неиспользованных (scripts/cleanup_orphan_attachments.py). Удаление
+картинки из галереи старые новости не трогает, а ЗАМЕНА обновляет и
+вставленные копии (см. replace(): копии находятся по содержимому файла).
 """
 import datetime as dt
+import hashlib
 import os
 import shutil
 import uuid
@@ -117,12 +119,49 @@ def rename(image_id):
     return redirect(url_for("news_gallery.index"))
 
 
+def _file_digest(path: str) -> str | None:
+    try:
+        h = hashlib.sha256()
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(1 << 16), b""):
+                h.update(chunk)
+        return h.hexdigest()
+    except OSError:
+        return None
+
+
+def _news_copies(folder: str, gallery_path: str) -> list[NewsAttachment]:
+    """Inline-вложения новостей, которые побайтно совпадают с файлом
+    галереи — т.е. вставленные из неё копии (use() копирует файл как есть).
+    Отдельной связи в БД нет: так находятся и копии, вставленные раньше,
+    чем появилась замена. Сначала отсев по размеру — хэшируем немногое."""
+    try:
+        size = os.path.getsize(gallery_path)
+    except OSError:
+        return []
+    digest = None
+    copies = []
+    for att in database.db_session.query(NewsAttachment).filter(NewsAttachment.is_inline.is_(True)):
+        path = os.path.join(folder, att.stored_filename)
+        try:
+            if os.path.getsize(path) != size:
+                continue
+        except OSError:
+            continue
+        digest = digest or _file_digest(gallery_path)
+        if digest and _file_digest(path) == digest:
+            copies.append(att)
+    return copies
+
+
 @bp.route("/<int:image_id>/replace", methods=["POST"])
 @roles_required(RoleEnum.BOARD)
 def replace(image_id):
     """Заменить файл картинки, сохранив подпись и счётчик использования
-    (например, обновлённые тарифы). Уже вставленные в новости копии не
-    меняются — там отдельные файлы (см. use())."""
+    (например, обновлённые тарифы). Копии в новостях тоже получают новый
+    файл; адрес вложения (/news/attachments/<id>/<имя>) в тексте новости
+    не меняется, поэтому править текст не нужно. Уже отправленное в
+    Telegram/MAX, понятно, остаётся как было."""
     image = _get(image_id)
     file_storage = request.files.get("image")
     folder = current_app.config["UPLOAD_FOLDER"]
@@ -132,17 +171,44 @@ def replace(image_id):
     if not stored:
         flash(_("Выберите картинку: jpg, png, webp или gif."), "danger")
         return redirect(url_for("news_gallery.index"))
-    old_stored = image.stored_filename
+
+    old_files = [image.stored_filename]
+    copies = _news_copies(folder, os.path.join(folder, image.stored_filename))
+    ext = os.path.splitext(stored)[1].lower()
+    new_files = []
+    try:
+        for att in copies:
+            copy_name = f"{uuid.uuid4().hex}{ext}"
+            shutil.copyfile(os.path.join(folder, stored), os.path.join(folder, copy_name))
+            new_files.append(copy_name)
+            old_files.append(att.stored_filename)
+            att.stored_filename = copy_name
+            att.content_type = file_storage.content_type
+    except OSError:
+        database.db_session.rollback()
+        for name in new_files + [stored]:
+            try:
+                os.remove(os.path.join(folder, name))
+            except OSError:
+                pass
+        flash(_("Не удалось сохранить файл. Попробуйте ещё раз."), "danger")
+        return redirect(url_for("news_gallery.index"))
+
     image.original_filename = file_storage.filename
     image.stored_filename = stored
     image.content_type = file_storage.content_type
-    audit.record("news_gallery.replace", f"В галерее новостей заменена картинка «{image.title}»")
+    audit.record("news_gallery.replace", f"В галерее новостей заменена картинка «{image.title}»"
+                 + (f", обновлено копий в новостях: {len(copies)}" if copies else ""))
     database.db_session.commit()
-    try:
-        os.remove(os.path.join(folder, old_stored))
-    except OSError:
-        pass
-    flash(_("Картинка заменена. В уже опубликованных новостях осталась прежняя."), "success")
+    for name in old_files:
+        try:
+            os.remove(os.path.join(folder, name))
+        except OSError:
+            pass
+    if copies:
+        flash(_("Картинка заменена, в новостях тоже: {n}.", n=len(copies)), "success")
+    else:
+        flash(_("Картинка заменена."), "success")
     return redirect(url_for("news_gallery.index"))
 
 

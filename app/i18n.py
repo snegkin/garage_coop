@@ -2120,8 +2120,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         # news/gallery.html, news/_gallery_picker.html, news_gallery.py
         "Галерея картинок для новостей": "News image gallery",
         "Галерея": "Gallery",
-        "Картинки, которые нужны из года в год: субботник, собрание, подорожание электроэнергии. В форме новости кнопка «Из галереи» вставляет выбранную в текст. Удаление и замена отсюда уже опубликованные новости не трогают.":
-            "Images you need year after year: clean-up day, meeting, electricity price rise. In the news form the «From gallery» button inserts the chosen one into the text. Deleting or replacing here doesn't affect published news.",
+        "Картинки, которые нужны из года в год: субботник, собрание, подорожание электроэнергии. В форме новости кнопка «Из галереи» вставляет выбранную в текст. Удаление отсюда уже опубликованные новости не трогает, а замена меняет картинку и в них.":
+            "Images you need year after year: clean-up day, meeting, electricity price rise. In the news form the «From gallery» button inserts the chosen one into the text. Deleting here doesn't affect published news; replacing updates the image in them too.",
         "Картинки": "Images",
         "например, Субботник": "e.g. Clean-up day",
         "По ней картинку легко найти. Пусто — имя файла.": "Makes the image easy to find. Empty — the file name.",
@@ -2142,8 +2142,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Картинки добавлены в галерею: {n}.": "Images added to the gallery: {n}.",
         "Подпись сохранена.": "Caption saved.",
         "Заменить картинку": "Replace image",
-        "Картинка заменена. В уже опубликованных новостях осталась прежняя.":
-            "The image was replaced. Published news keep the previous one.",
+        "Картинка заменена.": "The image was replaced.",
+        "Не удалось сохранить файл. Попробуйте ещё раз.": "Couldn't save the file. Please try again.",
+        "Картинка заменена, в новостях тоже: {n}.": "The image was replaced, in news too: {n}.",
         "Картинка удалена из галереи. В уже опубликованных новостях она осталась.":
             "The image was removed from the gallery. It stays in published news.",
         "Файл картинки пропал с диска — удалите её из галереи и загрузите заново.":

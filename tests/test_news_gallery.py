@@ -93,29 +93,43 @@ def test_rename(db, client):
     assert image.title == "Тарифы на электроэнергию"
 
 
-def test_replace_keeps_title_and_news_copies(app, db, client):
+PNG2 = PNG.replace(b"\x90wS\xde", b"\x90wS\xdf")  # другой файл того же размера
+
+
+def test_replace_keeps_title_and_updates_news_copies(app, db, client):
     _login_board(db, client)
     _upload(client, title="Тарифы")
     image = db.query(NewsGalleryImage).one()
     image.use_count = 3
     db.commit()
-    used = client.post(f"/news/gallery/{image.id}/use").get_json()["url"]
+    url = client.post(f"/news/gallery/{image.id}/use").get_json()["url"]
+    client.post("/news/new", data={"title": "Тарифы", "body": f"![]({url})"})
     att = db.query(NewsAttachment).one()
-    old_stored = image.stored_filename
+    # посторонняя картинка новости того же размера, но другая — не трогается
+    other = NewsAttachment(news_id=att.news_id, original_filename="x.png", stored_filename="other.png",
+                           is_inline=True)
     folder = app.config["UPLOAD_FOLDER"]
+    with open(os.path.join(folder, "other.png"), "wb") as f:
+        f.write(PNG2)
+    db.add(other)
+    db.commit()
+    old_gallery, old_copy = image.stored_filename, att.stored_filename
 
-    resp = client.post(f"/news/gallery/{image.id}/replace", data={"image": (io.BytesIO(PNG), "tarify-2027.png")},
+    new_png = PNG + b"tarify-2027"
+    resp = client.post(f"/news/gallery/{image.id}/replace", data={"image": (io.BytesIO(new_png), "tarify-2027.png")},
                        content_type="multipart/form-data")
     assert resp.status_code == 302
     db.refresh(image)
+    db.refresh(att)
+    db.refresh(other)
     assert image.title == "Тарифы" and image.use_count == 4
     assert image.original_filename == "tarify-2027.png"
-    assert image.stored_filename != old_stored
-    assert os.path.isfile(os.path.join(folder, image.stored_filename))
-    assert not os.path.exists(os.path.join(folder, old_stored))
-    # копия, уже вставленная в новость, не тронута
-    assert os.path.isfile(os.path.join(folder, att.stored_filename))
-    assert client.get(used).status_code == 200
+    assert not os.path.exists(os.path.join(folder, old_gallery))
+    assert not os.path.exists(os.path.join(folder, old_copy))
+    # копия в новости — новый файл, адрес в тексте новости прежний
+    assert att.stored_filename not in (old_copy, image.stored_filename)
+    assert client.get(url).data == new_png
+    assert other.stored_filename == "other.png"
     # адрес картинки в галерее сменился — браузер не покажет старую из кэша
     assert image.stored_filename[:8] in client.get("/news/gallery/").get_data(as_text=True)
 

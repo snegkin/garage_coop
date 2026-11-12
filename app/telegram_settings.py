@@ -48,12 +48,27 @@ def save_settings():
 
     settings.bot_username = f.get("bot_username", "").strip().lstrip("@") or None
     settings.news_chat_id = f.get("news_chat_id", "").strip() or None
+
+    api_base_url = f.get("api_base_url", "").strip().rstrip("/")
+    if api_base_url and not api_base_url.startswith(("https://", "http://")):
+        flash(_("Адрес Bot API должен начинаться с https://"), "danger")
+        return redirect(url_for("telegram_settings.view"))
+    settings.api_base_url = api_base_url or None
+
+    proxy_url = f.get("proxy_url", "").strip()
+    if f.get("proxy_clear"):
+        settings.proxy_url_encrypted = None
+    elif proxy_url:
+        if not proxy_url.startswith(telegram_bot.PROXY_SCHEMES):
+            flash(_("Прокси указывается адресом вида socks5h://логин:пароль@хост:порт или http://хост:порт."), "danger")
+            return redirect(url_for("telegram_settings.view"))
+        settings.proxy_url_encrypted = crypto.encrypt(proxy_url)
     token = f.get("bot_token", "").strip()
     if token:
         settings.bot_token_encrypted = crypto.encrypt(token)
     settings.last_error = None
 
-    audit.record("telegram.settings_save", f"Настройки Telegram-бота обновлены (бот: @{settings.bot_username or '—'}, группа новостей: {settings.news_chat_id or '—'})")
+    audit.record("telegram.settings_save", f"Настройки Telegram-бота обновлены (бот: @{settings.bot_username or '—'}, группа новостей: {settings.news_chat_id or '—'}, адрес API: {settings.api_base_url or 'стандартный'}, прокси: {'задан' if settings.proxy_url_encrypted else 'нет'})")
     database.db_session.commit()
     flash(_("Настройки Telegram сохранены."), "success")
     return redirect(url_for("telegram_settings.view"))

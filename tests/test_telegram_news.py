@@ -32,8 +32,8 @@ def _settings(db, news_chat_id="-1001234567890"):
 def _capture_posts(monkeypatch, status_code=200):
     sent = []
 
-    def fake_post(url, json=None, data=None, files=None, timeout=None):
-        sent.append({
+    def fake_post(url, json=None, data=None, files=None, timeout=None, proxies=None):
+        sent.append({"proxies": proxies,
             "url": url, "method": url.rsplit("/", 1)[-1], "json": json, "data": data,
             "files": {k: (name, fh.read()) for k, (name, fh) in (files or {}).items()},
         })
@@ -293,3 +293,82 @@ def test_connection_error_does_not_leak_token(app, db, monkeypatch):
     assert "123:ABC" not in text
     assert "нет маршрута" in text
     assert "123:ABC" not in progress._exc_text(Exception("/bot123:ABC/getMe"))
+
+
+
+# ---------------------------------------------------------------------------
+# Обход блокировки: свой адрес Bot API и прокси
+# ---------------------------------------------------------------------------
+
+def test_custom_api_base_and_proxy_are_used(app, db, monkeypatch):
+    settings = _settings(db)
+    settings.api_base_url = "https://tg-relay.example/"
+    settings.proxy_url_encrypted = crypto.encrypt("socks5h://u:p@proxy.example:1080")
+    db.commit()
+    sent = _capture_posts(monkeypatch)
+    item = _news_with_files(app, db, "Текст", [("a.jpg", b"A", False), ("doc.pdf", b"D", False)])
+    _publish(app, settings, item)
+    assert sent[0]["url"] == "https://tg-relay.example/bot123:ABC/sendPhoto"
+    proxy = {"http": "socks5h://u:p@proxy.example:1080", "https": "socks5h://u:p@proxy.example:1080"}
+    assert all(s["proxies"] == proxy for s in sent)
+
+
+def test_get_requests_use_proxy(app, db, monkeypatch):
+    settings = _settings(db)
+    settings.proxy_url_encrypted = crypto.encrypt("http://proxy.example:3128")
+    db.commit()
+    calls = []
+
+    def fake_get(url, params=None, timeout=None, proxies=None):
+        calls.append((url, proxies))
+        return FakeResponse(200, {"ok": True, "result": {"username": "coop_bot"}})
+
+    monkeypatch.setattr(telegram_bot.requests, "get", fake_get)
+    telegram_bot.get_me(settings)
+    assert calls == [("https://api.telegram.org/bot123:ABC/getMe",
+                      {"http": "http://proxy.example:3128", "https": "http://proxy.example:3128"})]
+
+
+def _login_chair(db, client):
+    make_user(db, "tg_chair2", "pass1234", role=RoleEnum.CHAIRMAN)
+    db.commit()
+    login(client, "tg_chair2", "pass1234")
+
+
+def _save(client, **fields):
+    data = {"bot_username": "coop_bot", "bot_token": "", **fields}
+    return client.post("/telegram/settings", data=data, follow_redirects=True)
+
+
+def test_save_api_base_and_proxy(db, client):
+    _settings(db)
+    _login_chair(db, client)
+    _save(client, api_base_url="https://tg-relay.example/", proxy_url="socks5h://u:p@h:1080")
+    settings = db.query(TelegramSettings).first()
+    db.refresh(settings)
+    assert settings.api_base_url == "https://tg-relay.example"
+    assert crypto.decrypt(settings.proxy_url_encrypted) == "socks5h://u:p@h:1080"
+
+    page = client.get("/telegram/").get_data(as_text=True)
+    assert "u:p@h" not in page  # пароль прокси в форму не возвращается
+
+    _save(client, api_base_url="https://tg-relay.example")  # пустое поле — прокси прежний
+    db.refresh(settings)
+    assert settings.proxy_url_encrypted
+
+    _save(client, proxy_clear="1")
+    db.refresh(settings)
+    assert settings.proxy_url_encrypted is None
+    assert settings.api_base_url is None
+
+
+def test_save_rejects_bad_proxy_and_url(db, client):
+    _settings(db)
+    _login_chair(db, client)
+    resp = _save(client, proxy_url="proxy.example:1080")
+    assert "socks5h://" in resp.get_data(as_text=True)
+    resp = _save(client, api_base_url="tg-relay.example")
+    assert "должен начинаться с https://" in resp.get_data(as_text=True)
+    settings = db.query(TelegramSettings).first()
+    db.refresh(settings)
+    assert settings.proxy_url_encrypted is None and settings.api_base_url is None

@@ -53,6 +53,22 @@ def _token(settings: TelegramSettings) -> str:
     return token
 
 
+def _api(settings: TelegramSettings, token: str, method: str) -> str:
+    base = (settings.api_base_url or API_BASE).rstrip("/")
+    return f"{base}/bot{token}/{method}"
+
+
+def _net(settings: TelegramSettings) -> dict:
+    """Доп. аргументы requests: прокси, если задан (только для Telegram —
+    передаётся в каждый запрос, а не через переменные окружения процесса,
+    чтобы банк/СМС/eWeLink продолжали ходить напрямую)."""
+    proxy = crypto.decrypt(settings.proxy_url_encrypted) if settings.proxy_url_encrypted else None
+    return {"proxies": {"http": proxy, "https": proxy}} if proxy else {}
+
+
+PROXY_SCHEMES = ("socks5h://", "socks5://", "http://", "https://")
+
+
 def is_configured(settings: TelegramSettings | None) -> bool:
     return bool(settings and settings.bot_token_encrypted and settings.bot_username)
 
@@ -71,9 +87,10 @@ def send_message(settings: TelegramSettings, chat_id: int | str, text: str,
         payload["link_preview_options"] = {"is_disabled": True}
     try:
         resp = requests.post(
-            f"{API_BASE}/bot{token}/sendMessage",
+            _api(settings, token, "sendMessage"),
             json=payload,
             timeout=REQUEST_TIMEOUT,
+            **_net(settings),
         )
     except requests.RequestException as exc:
         raise TelegramError(f"Telegram: {mask_secrets_in_text(str(exc))}") from exc
@@ -90,7 +107,8 @@ def get_updates(settings: TelegramSettings, offset: int | None, timeout: int = 0
     if offset is not None:
         params["offset"] = offset
     try:
-        resp = requests.get(f"{API_BASE}/bot{token}/getUpdates", params=params, timeout=REQUEST_TIMEOUT + timeout)
+        resp = requests.get(_api(settings, token, "getUpdates"), params=params,
+                            timeout=REQUEST_TIMEOUT + timeout, **_net(settings))
     except requests.RequestException as exc:
         raise TelegramError(f"Telegram: {mask_secrets_in_text(str(exc))}") from exc
     if resp.status_code != 200:
@@ -106,7 +124,7 @@ def get_me(settings: TelegramSettings) -> dict:
     (показывает имя бота, подтверждает, что токен рабочий)."""
     token = _token(settings)
     try:
-        resp = requests.get(f"{API_BASE}/bot{token}/getMe", timeout=REQUEST_TIMEOUT)
+        resp = requests.get(_api(settings, token, "getMe"), timeout=REQUEST_TIMEOUT, **_net(settings))
     except requests.RequestException as exc:
         raise TelegramError(f"Telegram: {mask_secrets_in_text(str(exc))}") from exc
     data = resp.json()
@@ -270,10 +288,11 @@ def _upload(settings: TelegramSettings, method: str, data: dict, files: dict) ->
     try:
         for field, (filename, path) in files.items():
             handles[field] = (filename, open(path, "rb"))
-        resp = requests.post(f"{API_BASE}/bot{token}/{method}", data=data, files=handles, timeout=UPLOAD_TIMEOUT)
+        resp = requests.post(_api(settings, token, method), data=data, files=handles,
+                             timeout=UPLOAD_TIMEOUT, **_net(settings))
     except requests.RequestException as exc:
         raise TelegramError(f"Telegram: {mask_secrets_in_text(str(exc))}") from exc
-    except OSError as exc:
+    except OSError as exc:  # нет файла вложения (InvalidSchema и пр. — уже RequestException выше)
         raise TelegramError(f"Файл вложения недоступен: {exc}") from exc
     finally:
         for _name, fh in handles.values():

@@ -3068,6 +3068,13 @@ class TelegramSettings(Base):
     # канала/группы. Пусто — не дублировать. Бот должен быть участником
     # группы (в канале — администратором с правом публикации).
     news_chat_id: Mapped[str | None] = mapped_column(String(64))
+    # Обход блокировки api.telegram.org с сервера в РФ (см. docs/deployment.md,
+    # «Telegram из РФ»): свой ретранслятор Bot API на зарубежном VPS вместо
+    # https://api.telegram.org и/или прокси (socks5h://…, http://…) — только
+    # для запросов к Telegram, банк/СМС и прочие API идут напрямую. Прокси
+    # хранится зашифрованным — в адресе бывает пароль.
+    api_base_url: Mapped[str | None] = mapped_column(String(255))
+    proxy_url_encrypted: Mapped[str | None] = mapped_column(Text)
 
 
 class WebPushSettings(Base):

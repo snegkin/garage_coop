@@ -67,6 +67,12 @@ def _mask_pairs(pairs):
     return [(k, MASK if _SECRET_KEY_RE.search(k) else v) for k, v in pairs]
 
 
+def mask_secrets_in_text(text: str) -> str:
+    """Токен бота Telegram в произвольном тексте (сообщения исключений
+    requests повторяют адрес запроса как есть: /bot<токен>/getMe)."""
+    return _TELEGRAM_BOT_RE.sub(f"/bot{MASK}/", text)
+
+
 def mask_url(url: str) -> str:
     parts = urlsplit(url)
     path = _TELEGRAM_BOT_RE.sub(f"/bot{MASK}/", parts.path)

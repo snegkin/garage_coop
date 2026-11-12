@@ -271,3 +271,25 @@ def test_telegram_layout_endpoint(db, client):
 
 def test_caption_length_counts_utf16_and_ignores_tags():
     assert telegram_bot._visible_length("<b>a&amp;b</b>😀") == 5
+
+
+def test_connection_error_does_not_leak_token(app, db, monkeypatch):
+    import pytest
+    import requests
+    from app import progress
+    settings = _settings(db)
+
+    def boom(url, **kw):
+        raise requests.ConnectionError(f"Max retries exceeded with url: {url.split('api.telegram.org')[1]} "
+                                       "[Errno 101] Network is unreachable")
+
+    monkeypatch.setattr(telegram_bot.requests, "get", boom)
+    with pytest.raises(telegram_bot.TelegramError) as info:
+        telegram_bot.get_me(settings)
+    assert "123:ABC" not in str(info.value)
+    assert "/bot***/getMe" in str(info.value)
+
+    text = progress._connection_error_text(requests.ConnectionError("url: /bot123:ABC/getMe Network is unreachable"))
+    assert "123:ABC" not in text
+    assert "нет маршрута" in text
+    assert "123:ABC" not in progress._exc_text(Exception("/bot123:ABC/getMe"))

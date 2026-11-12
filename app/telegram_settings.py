@@ -36,7 +36,7 @@ def view():
     return render_template(
         "telegram_settings/page.html", settings=settings,
         is_configured=telegram_bot.is_configured(settings),
-        outbox=messenger_outbox.problems(),
+        outbox=messenger_outbox.problems(messenger_outbox.CHANNEL_TELEGRAM),
     )
 
 

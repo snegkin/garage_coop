@@ -51,14 +51,17 @@
     <input class="form-control" type="file" name="attachments" multiple>
   </div>
 
-  {% if telegram_group %}
+  {% if news_channels %}
+  {% include "news/_send_options_js.html" %}
+  {% for c in news_channels %}
+  {% set publish_id = "publish" ~ c.id[0]|upper ~ c.id[1:] %}
   <div class="form-check mb-3">
-    <input class="form-check-input" type="checkbox" name="publish_telegram" value="1" id="publishTelegram" checked>
-    <label class="form-check-label" for="publishTelegram">{{ _("Опубликовать и в группе Telegram") }}</label>
+    <input class="form-check-input" type="checkbox" name="publish_{{ c.id }}" value="1" id="{{ publish_id }}" checked>
+    <label class="form-check-label" for="{{ publish_id }}">{{ _("Опубликовать и в группе {channel}", channel=c.label) }}</label>
   </div>
-  {% with order_visible=false %}{% include "news/_telegram_options.html" %}{% endwith %}
-  {% include "news/_telegram_options_js.html" %}
-  <script>initTelegramOptions(document);</script>
+  {% with order_visible=false, channel=c.id, channel_label=c.label %}{% include "news/_send_options.html" %}{% endwith %}
+  <script>initSendOptions(document, "{{ c.id }}");</script>
+  {% endfor %}
   {% endif %}
 
   <div class="d-flex justify-content-end gap-2">

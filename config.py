@@ -80,6 +80,11 @@ class Config:
     # Trusted Root CA (НУЦ Минцифры, корень действует до 2032 года).
     MODULBANK_API_CA_BUNDLE = os.environ.get("MODULBANK_API_CA_BUNDLE") or os.path.join(
         BANK_CA_BUNDLES_FOLDER, "russian_trusted_root_ca.pem")
+    # MAX (app/max_bot.py): platform-api2.max.ru — сертификат НУЦ Минцифры,
+    # тот же корень, что у Модульбанка. Добавляется к certifi (адреса
+    # загрузки файлов MAX могут быть на других хостах с обычными УЦ).
+    MAX_API_CA_BUNDLE = os.environ.get("MAX_API_CA_BUNDLE") or os.path.join(
+        BANK_CA_BUNDLES_FOLDER, "russian_trusted_root_ca.pem")
 
     # Google reCAPTCHA v2 (чекбокс «Я не робот») на странице восстановления
     # пароля (см. app/recaptcha.py, app/auth.py: forgot_password) — ключи

@@ -150,7 +150,7 @@
             <li><hr class="dropdown-divider"></li>
             <li><h6 class="dropdown-header">{{ _("Коммуникации") }}</h6></li>
             <li><a class="dropdown-item d-flex justify-content-between align-items-center" href="{{ url_for('mailbox.inbox') }}">{{ _("Почта") }}<span class="badge bg-primary rounded-pill {{ 'd-none' if not mailbox_unread_count }}" data-mailbox-unread>{{ mailbox_unread_count }}</span></a></li>
-            <li><a class="dropdown-item" href="{{ url_for('sms_settings.view') }}">{{ _("СМС и Telegram") }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('sms_settings.view') }}">{{ _("СМС и мессенджеры") }}</a></li>
             {% endif %}
 
             {% if is_chairman() %}

@@ -3088,10 +3088,35 @@ class MessengerOutboxStatus(str, enum.Enum):
     CANCELLED = "cancelled"
 
 
+class MaxSettings(Base):
+    """Единственная запись — бот мессенджера MAX для дублирования новостей
+    в канал/группу (app/max_bot.py, настройки — app/max_settings.py).
+    Бота создаёт подтверждённая организация на business.max.ru, токен
+    шифруется тем же Fernet, что и остальные секреты API. last_marker —
+    курсор GET /updates (scripts/poll_telegram.py). known_chats — JSON-список
+    чатов/каналов, куда добавили бота (из апдейтов bot_added): готового
+    способа узнать ID канала API MAX не даёт, страница настроек показывает
+    их для выбора."""
+    __tablename__ = "max_settings"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    bot_token_encrypted: Mapped[str | None] = mapped_column(Text)
+    # Имя бота — только для показа, берётся из GET /me при проверке связи.
+    bot_username: Mapped[str | None] = mapped_column(String(64))
+    # Куда дублировать новости — ID канала/группы. Пусто — не дублировать.
+    # Бот должен быть администратором канала/группы.
+    news_chat_id: Mapped[str | None] = mapped_column(String(64))
+    last_marker: Mapped[int | None] = mapped_column(BigInteger)
+    known_chats: Mapped[str | None] = mapped_column(Text)
+    last_error: Mapped[str | None] = mapped_column(Text)
+    last_polled_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
+
+
 class MessengerOutbox(Base):
-    """Очередь исходящих сообщений бота (app/messenger_outbox.py) — разбирается
-    cron-скриптом scripts/poll_telegram.py раз в минуту, с повторами при
-    недоступности Telegram/прокси. kind="message" — текст text в chat_id
+    """Очередь исходящих сообщений в мессенджеры (app/messenger_outbox.py) —
+    разбирается cron-скриптом scripts/poll_telegram.py раз в минуту, с
+    повторами при недоступности сервиса/прокси. channel — куда: "telegram"
+    или "max" (только новости). kind="message" — текст text в chat_id
     (уведомления), kind="news" — новость news_id в группу из настроек:
     несколько шагов (текст, альбомы, документы), steps_done — сколько уже
     отправлено, повтор продолжает с места сбоя, не дублируя отправленное.
@@ -3100,6 +3125,7 @@ class MessengerOutbox(Base):
     __tablename__ = "messenger_outbox"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    channel: Mapped[str] = mapped_column(String(16), default="telegram", server_default="telegram")
     kind: Mapped[str] = mapped_column(String(16))
     chat_id: Mapped[str | None] = mapped_column(String(64))
     text: Mapped[str | None] = mapped_column(Text)

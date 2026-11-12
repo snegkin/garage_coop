@@ -333,3 +333,14 @@ def telegram_html(text: str, base_url: str) -> str:
     parser.feed(html)
     parser.close()
     return parser.result()
+
+
+_TG_SPOILER_SPAN_RE = re.compile(r'<span class="tg-spoiler">(.*?)</span>', re.S)
+
+
+def max_html(text: str, base_url: str) -> str:
+    """Markdown новости -> HTML для сообщения MAX (см. max_bot.news_text).
+    Набор тегов MAX (b, i, u, s, code, pre, a, blockquote) совпадает с
+    телеграмовским, поэтому берём telegram_html; спойлера в MAX нет —
+    его текст остаётся обычным."""
+    return _TG_SPOILER_SPAN_RE.sub(r"\1", telegram_html(text, base_url))

@@ -32,46 +32,25 @@ import requests
 from . import database
 from .api_log import mask_secrets_in_text
 from .bank_api import crypto
+from .messenger_errors import MessengerError, MessengerUncertain, is_connect_stage
 from .models import News, Person, TelegramSettings
 
 API_BASE = "https://api.telegram.org"
 REQUEST_TIMEOUT = 10
 
 
-class TelegramError(Exception):
-    """status_code — HTTP-код, если Telegram ответил ошибкой (400 — неверный
-    chat_id/разметка, 403 — бота выгнали из группы, 429 — слишком часто);
-    transport=True — запрос до Telegram не дошёл (сеть, прокси, ретранслятор),
-    повтор безопасен. Очередь (app/messenger_outbox.py) решает по ним, повторять
-    ли отправку."""
-
-    def __init__(self, message: str, status_code: int | None = None, transport: bool = False):
-        super().__init__(message)
-        self.status_code = status_code
-        self.transport = transport
+class TelegramError(MessengerError):
+    """Ошибка Telegram (см. MessengerError: status_code, transport)."""
 
 
-class TelegramUncertain(TelegramError):
-    """Запрос ушёл, но ответа нет (таймаут чтения, обрыв соединения) —
-    Telegram мог его принять. Повтор может задвоить сообщение, поэтому
-    очередь такое автоматически не повторяет."""
-
-
-# Признаки сбоя ДО отправки запроса (не удалось соединиться) — повтор
-# безопасен. Всё прочее после установленного соединения — неизвестность.
-_CONNECT_STAGE_MARKERS = (
-    "NewConnectionError", "Failed to establish a new connection", "Connection refused",
-    "Network is unreachable", "NameResolutionError", "getaddrinfo", "ConnectTimeoutError",
-)
+class TelegramUncertain(TelegramError, MessengerUncertain):
+    """Запрос ушёл, но ответа нет — Telegram мог его принять (см.
+    MessengerUncertain)."""
 
 
 def _request_error(exc: requests.RequestException, idempotent: bool) -> TelegramError:
     message = f"Telegram: {mask_secrets_in_text(str(exc))}"
-    connect_stage = isinstance(exc, (
-        requests.ConnectTimeout, requests.exceptions.ProxyError, requests.exceptions.SSLError,
-        requests.exceptions.InvalidSchema, requests.exceptions.InvalidURL, requests.exceptions.MissingSchema,
-    )) or (not isinstance(exc, requests.ReadTimeout) and any(m in str(exc) for m in _CONNECT_STAGE_MARKERS))
-    if connect_stage or idempotent:
+    if is_connect_stage(exc) or idempotent:
         return TelegramError(message, transport=True)
     return TelegramUncertain(message, transport=True)
 

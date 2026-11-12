@@ -27,10 +27,12 @@
           {% if current_user and is_board() %}
           {% call actions.menu() %}
             {{ actions.link(url_for('news.edit', news_id=item.id), "pencil", _("Изменить")) }}
-            {% if telegram_group %}
-            <li><button type="button" class="dropdown-item" data-bs-toggle="modal" data-bs-target="#telegramSendModal"
-                        data-url="{{ url_for('news.send_telegram', news_id=item.id) }}"><span class="dropdown-icon"><i class="bi bi-telegram" aria-hidden="true"></i></span>{{ _("Отправить в Telegram") }}</button></li>
-            {% endif %}
+            {% for channel in news_channels %}
+            {% set send_label = _("Отправить в {channel}", channel=channel.label) %}
+            <li><button type="button" class="dropdown-item" data-bs-toggle="modal" data-bs-target="#messengerSendModal"
+                        data-url="{{ url_for('news.send_to_channel', news_id=item.id, channel_id=channel.id) }}"
+                        data-channel="{{ channel.id }}" data-title="{{ send_label }}" data-icon="{{ channel.icon }}"><span class="dropdown-icon"><i class="bi {{ channel.icon }}" aria-hidden="true"></i></span>{{ send_label }}</button></li>
+            {% endfor %}
             {{ actions.post(url_for('news.delete', news_id=item.id), "trash", _("Удалить"), confirm=_("Удалить новость?"), danger=True) }}
           {% endcall %}
           {% endif %}
@@ -131,20 +133,20 @@
   </div>
 </div>
 
-{% if telegram_group %}
-{# Одно окно на все новости: тело (история отправок, варианты) подгружается
-   для выбранной по data-url кнопки меню. Форма внутри .modal отправляется
-   общим AJAX-обработчиком base.html (submitFormAjax). Обработчик открытия —
-   делегированный на document: #mainContent вместе с этим окном после
-   отправки заменяется целиком. #}
-<div class="modal fade" id="telegramSendModal" tabindex="-1" aria-hidden="true">
+{% if news_channels %}
+{# Одно окно на все новости и мессенджеры: заголовок — из data-title кнопки
+   меню, тело (история отправок, варианты) подгружается по её data-url.
+   Форма внутри .modal отправляется общим AJAX-обработчиком base.html
+   (submitFormAjax). Обработчик открытия — делегированный на document:
+   #mainContent вместе с этим окном после отправки заменяется целиком. #}
+<div class="modal fade" id="messengerSendModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog">
     <form method="post" class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title"><i class="bi bi-telegram" aria-hidden="true"></i> {{ _("Отправить в Telegram") }}</h5>
+        <h5 class="modal-title"><i class="bi" id="messengerSendIcon" aria-hidden="true"></i> <span id="messengerSendTitle"></span></h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{{ _('Закрыть') }}"></button>
       </div>
-      <div class="modal-body" id="telegramSendBody"></div>
+      <div class="modal-body" id="messengerSendBody"></div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
         <button class="btn btn-primary">{{ _("Отправить") }}</button>
@@ -152,23 +154,27 @@
     </form>
   </div>
 </div>
-{% include "news/_telegram_options_js.html" %}
+{% include "news/_send_options_js.html" %}
 <script>
 (function () {
-  if (window.telegramSendModalBound) return;  // после AJAX-подмены страницы — не вешать второй раз
-  window.telegramSendModalBound = true;
+  if (window.messengerSendModalBound) return;  // после AJAX-подмены страницы — не вешать второй раз
+  window.messengerSendModalBound = true;
   document.addEventListener("show.bs.modal", function (e) {
-    if (e.target.id !== "telegramSendModal" || !e.relatedTarget) return;
-    var url = e.relatedTarget.getAttribute("data-url");
+    if (e.target.id !== "messengerSendModal" || !e.relatedTarget) return;
+    var button = e.relatedTarget;
+    var url = button.getAttribute("data-url");
+    var channel = button.getAttribute("data-channel");
     var form = e.target.querySelector("form");
-    var body = e.target.querySelector("#telegramSendBody");
+    var body = e.target.querySelector("#messengerSendBody");
+    e.target.querySelector("#messengerSendTitle").textContent = button.getAttribute("data-title");
+    e.target.querySelector("#messengerSendIcon").className = "bi " + button.getAttribute("data-icon");
     form.action = url;
     body.innerHTML = '<div class="text-center py-3"><div class="spinner-border" role="status"></div></div>';
     fetch(url, { headers: { "X-Requested-With": "XMLHttpRequest" } })
       .then(function (r) { if (!r.ok) throw new Error(r.status); return r.text(); })
       .then(function (html) {
         body.innerHTML = html;
-        window.initTelegramOptions(body);
+        window.initSendOptions(body, channel);
         if (window.initUtcDatetimes) window.initUtcDatetimes(body);
       })
       .catch(function () {

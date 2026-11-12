@@ -1303,7 +1303,7 @@ document.addEventListener("keydown", function (e) {
       btn.className = "wiki-spoiler-copy";
       btn.title = COPY_LABEL;
       btn.setAttribute("aria-label", COPY_LABEL);
-      btn.innerHTML = '<i class="bi bi-clipboard" aria-hidden="true"></i>';
+      btn.innerHTML = '<i class="bi bi-copy" aria-hidden="true"></i>';
       el.insertAdjacentElement("afterend", btn);
     });
   }
@@ -1321,7 +1321,7 @@ document.addEventListener("keydown", function (e) {
       setTimeout(function () {
         btn.classList.remove("is-copied");
         btn.title = COPY_LABEL;
-        btn.innerHTML = '<i class="bi bi-clipboard" aria-hidden="true"></i>';
+        btn.innerHTML = '<i class="bi bi-copy" aria-hidden="true"></i>';
       }, 1500);
     }).catch(function () {});
   });

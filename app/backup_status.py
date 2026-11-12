@@ -95,9 +95,8 @@ def backup_warnings(log_dir: str, backup_dir: str, now: dt.datetime | None = Non
     elif finished is None or now - finished > OFFSITE_MAX_AGE:
         warnings.append(_("Внешний бэкап не запускался с {date}: проверьте cron backup_offsite.",
                           date=finished.strftime("%d.%m.%Y %H:%M") if finished else "?"))
-    elif not status.get("restic"):
-        warnings.append(_("Внешний репозиторий бэкапа не настроен (RESTIC_REPOSITORY): "
-                          "копии есть только на сервере и у председателя."))
+    # Без RESTIC_REPOSITORY не предупреждаем: внешний репозиторий — опция,
+    # копия у председателя (агент, проверка ниже) — уже вторая вне сервера.
 
     last_pull = _last_pull(log_dir)
     if last_pull is None:

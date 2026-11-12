@@ -1,5 +1,5 @@
 # Агент локального бэкапа на ЭТОМ компьютере — то же, что шаги установки
-# в backup_agent/README.md. Ключ, пароль репозитория и known_hosts
+# в agents/backup/README.md. Ключ, пароль репозитория и known_hosts
 # создаются один раз и дальше не трогаются.
 
 - name: "[бэкап] Пакеты"
@@ -28,13 +28,13 @@
 
 - name: "[бэкап] Программа агента"
   ansible.builtin.copy:
-    src: "{{ repo_root }}/backup_agent/coop_backup_agent.py"
+    src: "{{ repo_root }}/agents/backup/coop_backup_agent.py"
     dest: /opt/coop-backup/coop_backup_agent.py
     mode: "0755"
 
 - name: "[бэкап] Юнит и таймер systemd"
   ansible.builtin.copy:
-    src: "{{ repo_root }}/backup_agent/{{ item }}"
+    src: "{{ repo_root }}/agents/backup/{{ item }}"
     dest: "/etc/systemd/system/{{ item }}"
     mode: "0644"
   loop: [coop-backup.service, coop-backup.timer]

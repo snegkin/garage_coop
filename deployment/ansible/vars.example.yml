@@ -53,15 +53,15 @@ app_env_extra:
 # local_backup_repository: /mnt/backup/coop-restic
 # local_backup_mount: /mnt/backup
 #
-# local_ezp_agent: true          # .deb КриптоПро — в ezp_agent/cryptopro/ (см. README там)
-# ezp_client_cert: gm-voshod.cer # в ezp_agent/certs/
+# local_ezp_agent: true          # .deb КриптоПро — в agents/ezp/cryptopro/ (см. README там)
+# ezp_client_cert: gm-voshod.cer # в agents/ezp/certs/
 # ezp_agent_token: "…"
 # ezp_id: "…"
 # ezp_token: "…"
 # ezp_pin: "…"
 # ezp_production: false
 
-# Агент бэкапа на ДРУГОМ компьютере (ставится руками, backup_agent/README.md) —
+# Агент бэкапа на ДРУГОМ компьютере (ставится руками, agents/backup/README.md) —
 # его открытый ключ. Для агента на этом компьютере не нужно:
 # backup_agent_pubkeys:
 #   - "ssh-ed25519 AAAA… coop-backup"

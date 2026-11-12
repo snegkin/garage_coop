@@ -77,12 +77,12 @@ COOP_VARS=vars.yml ansible-playbook -i inventory.ini site.yml
 | `.env`, systemd-юнит (`repair_db.sh` перед стартом), проверка ответа, cron; при `backup_agent_pubkeys` — первый запуск `backup_offsite`, если `instance/backup_staging/` ещё нет: агент председателя сразу находит, что забрать | `app` |
 | Конфиг `deploy.sh` (`deploy_conf_path`: по умолчанию `~/.config/garage-coop/deploy.conf`, можно `deployment/deploy-from-git/deploy.conf`), если его ещё нет | `app` |
 | **На этом компьютере**, если `local_backup_agent: true`: агент бэкапа целиком. Ключ агента сам попадает на сервер, `known_hosts` заполняется ключом сервера из его `/etc/ssh` (без `ssh-keyscan`), пароль restic создаётся один раз. Затем первый проход и таймер | `local` |
-| **На этом компьютере**, если `local_ezp_agent: true`: КриптоПро CSP из `ezp_agent/cryptopro/*.deb`, цепочка ФНС в `mRoot`/`mCA`, сертификат КЭП с Рутокена в хранилище `ezp-agent` (токен должен быть вставлен), конфиги, службы и `check`. Пока чего-то не хватает, службы не запускаются, а плейбук пишет, чего именно | `local` |
+| **На этом компьютере**, если `local_ezp_agent: true`: КриптоПро CSP из `agents/ezp/cryptopro/*.deb`, цепочка ФНС в `mRoot`/`mCA`, сертификат КЭП с Рутокена в хранилище `ezp-agent` (токен должен быть вставлен), конфиги, службы и `check`. Пока чего-то не хватает, службы не запускаются, а плейбук пишет, чего именно | `local` |
 
 Агенты ставятся вторым play на `localhost` через sudo, поэтому нужен
 `-K`. `./run.sh` добавляет его сам, когда в `vars.yml` включён один из
 агентов. Только агенты: `./run.sh --tags local`. Письмо в Почту
-и тестовые письма (`ezp_agent/README.md`, шаги 6 и «Проверка») остаются
+и тестовые письма (`agents/ezp/README.md`, шаги 6 и «Проверка») остаются
 ручными.
 
 ## Повторные прогоны

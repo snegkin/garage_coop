@@ -23,12 +23,12 @@ venv/
 
 
 # Сертификаты КЭП для агента ЭЗП — в git только README (в клиентском — СНИЛС/ИНН председателя)
-ezp_agent/certs/*
-!ezp_agent/certs/README.md
+agents/ezp/certs/*
+!agents/ezp/certs/README.md
 
 # Пакеты КриптоПро CSP (лицензионный дистрибутив) — в git только README
-ezp_agent/cryptopro/*
-!ezp_agent/cryptopro/README.md
+agents/ezp/cryptopro/*
+!agents/ezp/cryptopro/README.md
 # Распакованный дистрибутив КриптоПро, где бы ни лежал
 linux-amd64_deb/
 linux-amd64_deb.tgz

@@ -31,7 +31,7 @@ D=~/Downloads/linux-amd64_deb
 for p in lsb-cprocsp-base lsb-cprocsp-rdr-64 lsb-cprocsp-kc1-64 lsb-cprocsp-capilite-64 \
          cprocsp-curl-64 lsb-cprocsp-ca-certs cprocsp-rdr-pcsc-64 cprocsp-rdr-rutoken-64 \
          cprocsp-stunnel-64 ifd-rutokens cprocsp-compat-debian; do
-    cp "$D"/${p}_*.deb ezp_agent/cryptopro/
+    cp "$D"/${p}_*.deb agents/ezp/cryptopro/
 done
 ```
 

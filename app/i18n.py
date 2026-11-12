@@ -2016,6 +2016,19 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Опубликовать и в группе Telegram": "Also post to the Telegram group",
         "Не удалось отправить новость в Telegram: {error}": "Could not send the news to Telegram: {error}",
         "Сначала картинки, потом текст": "Images first, then text",
+        "Адрес Bot API должен начинаться с https://": "The Bot API address must start with https://",
+        "Прокси указывается адресом вида socks5h://логин:пароль@хост:порт или http://хост:порт.":
+            "The proxy must look like socks5h://user:password@host:port or http://host:port.",
+        "Доступ к Telegram из РФ": "Telegram access from Russia",
+        "С серверов в России api.telegram.org обычно недоступен. Запросы бота можно пустить через свой ретранслятор Bot API или прокси на зарубежном сервере (см. docs/deployment.md, «Telegram из РФ»). Остальные внешние API (банк, СМС) продолжают ходить напрямую.":
+            "api.telegram.org is usually unreachable from servers in Russia. Bot requests can go through your own Bot API relay or a proxy on a foreign server (see docs/deployment.md, «Telegram from Russia»). Other external APIs (bank, SMS) keep going directly.",
+        "Адрес Bot API": "Bot API address",
+        "Пусто — стандартный https://api.telegram.org.": "Empty — the standard https://api.telegram.org.",
+        "Прокси": "Proxy",
+        "задан — оставьте пустым, чтобы не менять": "set — leave empty to keep",
+        "socks5h://… (имена резолвит прокси) или http://…. Пусто — без прокси.":
+            "socks5h://… (the proxy resolves names) or http://…. Empty — no proxy.",
+        "Убрать прокси": "Remove proxy",
         "Текст длиннее 1024 символов не помещается подписью к картинкам — в Telegram уйдут два сообщения. Выключено — сначала текст, потом картинки.":
             "Text longer than 1024 characters doesn't fit as an image caption — two messages will be sent to Telegram. Off — text first, then images.",
         "В Telegram не отправлены слишком большие файлы (больше 50 МБ): {names}":

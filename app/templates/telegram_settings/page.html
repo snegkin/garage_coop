@@ -29,6 +29,26 @@
     <input class="form-control" type="text" name="news_chat_id" value="{{ settings.news_chat_id or '' }}" placeholder="-1001234567890 {{ _('или') }} @my_coop_channel">
     <div class="form-text">{{ _("Новые новости сайта будут дублироваться сюда. Добавьте бота в группу и отправьте там команду /chatid — бот ответит ID группы. Для канала бот должен быть администратором. Пусто — не дублировать.") }}</div>
   </div>
+  <details class="mb-3" {% if settings.api_base_url or settings.proxy_url_encrypted %}open{% endif %}>
+    <summary class="mb-2">{{ _("Доступ к Telegram из РФ") }}</summary>
+    <p class="form-text">{{ _("С серверов в России api.telegram.org обычно недоступен. Запросы бота можно пустить через свой ретранслятор Bot API или прокси на зарубежном сервере (см. docs/deployment.md, «Telegram из РФ»). Остальные внешние API (банк, СМС) продолжают ходить напрямую.") }}</p>
+    <div class="mb-3">
+      <label class="form-label">{{ _("Адрес Bot API") }}</label>
+      <input class="form-control" type="url" name="api_base_url" value="{{ settings.api_base_url or '' }}" placeholder="https://api.telegram.org">
+      <div class="form-text">{{ _("Пусто — стандартный https://api.telegram.org.") }}</div>
+    </div>
+    <div class="mb-2">
+      <label class="form-label">{{ _("Прокси") }}</label>
+      <input class="form-control" type="password" name="proxy_url" autocomplete="off" placeholder="{{ _('задан — оставьте пустым, чтобы не менять') if settings.proxy_url_encrypted else 'socks5h://user:pass@host:1080' }}">
+      <div class="form-text">{{ _("socks5h://… (имена резолвит прокси) или http://…. Пусто — без прокси.") }}</div>
+    </div>
+    {% if settings.proxy_url_encrypted %}
+    <div class="form-check">
+      <input class="form-check-input" type="checkbox" name="proxy_clear" value="1" id="proxyClear">
+      <label class="form-check-label" for="proxyClear">{{ _("Убрать прокси") }}</label>
+    </div>
+    {% endif %}
+  </details>
   <button class="btn btn-primary">{{ _("Сохранить") }}</button>
 </form>
 

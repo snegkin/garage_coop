@@ -493,6 +493,68 @@ Telegram: добавьте бота в группу (для канала — а�
 больше 10 МБ уходит документом, файлы больше 50 МБ не отправляются (правление
 увидит предупреждение). Правки новости повторно не отправляются.
 
+### Telegram из РФ
+
+С VPS в России `api.telegram.org` обычно недоступен (`curl -4 https://api.telegram.org/`
+висит до таймаута). Запросы бота — и только они, банк/СМС/eWeLink ходят напрямую —
+пускаются через внешнюю точку на зарубежном сервере, настраивается на `/telegram/`,
+блок «Доступ к Telegram из РФ». Подойдёт самый дешёвый VPS: трафик бота мизерный.
+
+**Вариант 1 — ретранслятор Bot API (nginx).** На зарубежном VPS с доменом и
+сертификатом (certbot):
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name tg-relay.example.org;
+    ssl_certificate     /etc/letsencrypt/live/tg-relay.example.org/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/tg-relay.example.org/privkey.pem;
+
+    client_max_body_size 50m;          # фото/файлы новостей
+    access_log off;                    # в пути запроса — токен бота
+
+    # Только IP нашего сервера — чтобы ретранслятором не пользовались чужие
+    allow 203.0.113.10;
+    deny all;
+
+    location /bot {
+        proxy_pass https://api.telegram.org;
+        proxy_ssl_server_name on;
+        proxy_set_header Host api.telegram.org;
+        proxy_read_timeout 90s;
+    }
+}
+```
+
+На `/telegram/` в поле «Адрес Bot API» — `https://tg-relay.example.org`.
+
+**Вариант 2 — SOCKS-прокси через SSH, без настройки зарубежного сервера**
+(нужен только SSH-доступ к нему). На нашем сервере — systemd-юнит:
+
+```ini
+# /etc/systemd/system/tg-socks.service
+[Unit]
+Description=SOCKS-туннель для Telegram
+After=network-online.target
+
+[Service]
+ExecStart=/usr/bin/ssh -N -D 127.0.0.1:1080 -o ServerAliveInterval=30 -o ExitOnForwardFailure=yes -i /root/.ssh/tg_tunnel tunnel@foreign.example.org
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+```
+
+`systemctl enable --now tg-socks`, затем на `/telegram/` в поле «Прокси» —
+`socks5h://127.0.0.1:1080` (`socks5h` — имя api.telegram.org резолвит удалённая
+сторона). Нужен пакет PySocks (есть в requirements.txt).
+
+В обоих вариантах TLS до Telegram сквозной (сертификат проверяется), промежуточный
+сервер содержимого не видит — кроме ретранслятора из варианта 1, который сам
+завершает TLS и видит токен в пути: это должен быть свой сервер. Проверка — кнопка
+«Проверить подключение» на `/telegram/`.
+
 ## Агент ЭЗП (Почта России)
 
 Заказные письма уходят в Почту через API ИС ЭПС («Система-Система»).

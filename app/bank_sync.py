@@ -1625,6 +1625,7 @@ def _allocate_payment_to_account(
             "Платёж зачтён на ваш счёт",
             f"На счёт {target.account_number} зачтён платёж {audit.format_amount(amount)} ₽ "
             f"от {audit.format_date(date)} (банковская выписка).",
+            url=notifications.path_for("finance.member_account_detail", account_id=target.id),
         )
     else:
         reallocate_garage_charges(target)
@@ -1668,6 +1669,7 @@ def _notify_unallocated(member_account: MemberAccount | None, amount: Decimal, d
         "Зачёт платежа отменён",
         f"Зачёт платежа {audit.format_amount(amount)} ₽ от {audit.format_date(date)} "
         f"на счёт {member_account.account_number} отменён правлением кооператива.",
+        url=notifications.path_for("finance.member_account_detail", account_id=member_account.id),
     )
 
 

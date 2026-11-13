@@ -128,6 +128,7 @@ def resolve_if_due(proposal: VoteProposal) -> bool:
         notifications.after_commit(
             notifications.notify_user_id, proposer.id, "my_requests",
             f"Предложение «{proposal.title}» {verdict}", member_text,
+            notifications.path_for("proposals.detail", proposal_id=proposal.id),
         )
     return True
 

@@ -245,3 +245,60 @@ def test_profile_page_exposes_vapid_public_key(db, client):
     settings = db.query(WebPushSettings).first()
     assert settings is not None and settings.public_key
     assert f'data-vapid-key="{settings.public_key}"' in body
+
+
+# ---------------------------------------------------------------------------
+# Куда ведёт клик по уведомлению
+# ---------------------------------------------------------------------------
+
+import json
+
+from app import notifications
+
+def _capture_push_payloads(monkeypatch):
+    payloads = []
+
+    def fake_webpush(subscription_info, data=None, vapid_private_key=None, vapid_claims=None):
+        payloads.append(json.loads(data))
+
+    monkeypatch.setattr(webpush, "webpush", fake_webpush)
+    return payloads
+
+
+def _push_user(db):
+    user = make_user(db, "pushurl", "pass1234", role=RoleEnum.MEMBER, person=make_person(db, full_name="Пуш Ссылкин"))
+    user.notify_via_email = False
+    user.notify_via_webpush = True
+    user.notify_payment = True
+    db.commit()
+    webpush.subscribe(user.id, "https://push.example.com/url", "p", "a")
+    return user
+
+
+def test_push_carries_explicit_url(app, db, monkeypatch):
+    _make_webpush_settings(db)
+    user = _push_user(db)
+    payloads = _capture_push_payloads(monkeypatch)
+    with app.test_request_context():
+        notifications.notify(user, "payment", "Тема", "Текст",
+                             url=notifications.path_for("forum.view", topic_id=5, _anchor="post-7"))
+    assert payloads[0]["url"] == "/forum/5#post-7"
+
+
+def test_push_url_falls_back_to_link_on_last_line(app, db, monkeypatch):
+    _make_webpush_settings(db)
+    user = _push_user(db)
+    payloads = _capture_push_payloads(monkeypatch)
+    notifications.notify(user, "payment", "Тема", "Текст\n\nhttps://gsk.example.com/voting/3?x=1")
+    notifications.notify(user, "payment", "Тема", "Без ссылки")
+    assert [p["url"] for p in payloads] == ["/voting/3?x=1", "/"]
+
+
+def test_path_for_works_outside_request(app):
+    with app.app_context():
+        assert notifications.path_for("finance.member_account_detail", account_id=4) == "/finance/member-accounts/4"
+
+
+def test_service_worker_navigates_to_notification_url(client):
+    js = client.get("/service-worker.js").get_data(as_text=True)
+    assert "notificationclick" in js and "navigate(url)" in js

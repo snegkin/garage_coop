@@ -93,8 +93,11 @@ def unsubscribe(user_id: int, endpoint: str) -> None:
     database.db_session.commit()
 
 
-def send(settings: WebPushSettings, subscription: WebPushSubscription, title: str, body: str) -> None:
-    """Поднимает WebPushError при сбое — вызывающий код (notifications.notify)
+def send(settings: WebPushSettings, subscription: WebPushSubscription, title: str, body: str,
+         url: str | None = None) -> None:
+    """url — путь на сайте (/forum/5#post-12), куда ведёт клик по
+    уведомлению (см. notificationclick в main._SERVICE_WORKER_JS); None —
+    на главную. Поднимает WebPushError при сбое — вызывающий код (notifications.notify)
     сам решает, что делать (обычно — залогировать, и при is_expired(exc)
     удалить подписку)."""
     private_key = crypto.decrypt(settings.private_key_encrypted)
@@ -113,7 +116,7 @@ def send(settings: WebPushSettings, subscription: WebPushSubscription, title: st
                 "endpoint": subscription.endpoint,
                 "keys": {"p256dh": subscription.p256dh, "auth": subscription.auth},
             },
-            data=json.dumps({"title": title, "body": body}, ensure_ascii=False),
+            data=json.dumps({"title": title, "body": body, "url": url or "/"}, ensure_ascii=False),
             vapid_private_key=vapid,
             vapid_claims={"sub": settings.subject or "mailto:admin@example.com"},
         )

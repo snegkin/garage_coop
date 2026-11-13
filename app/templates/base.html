@@ -576,6 +576,13 @@ function initChatWidget(cfg) {
   });
   closeBtn.addEventListener("click", close);
   if (backBtn) backBtn.addEventListener("click", close);
+  // Ссылка из уведомления (например, push «Непрочитанные сообщения в чате
+  // правления», см. notifications.run_board_chat_digest) — /#board-chat:
+  // сразу открыть чат. Якорь убираем, чтобы «Обновить» не открывало снова.
+  if (location.hash === "#" + cfg.prefix + "-chat") {
+    history.replaceState(history.state, "", location.pathname + location.search);
+    open();
+  }
 
   form.addEventListener("submit", function (e) {
     e.preventDefault();

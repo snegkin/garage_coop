@@ -122,7 +122,7 @@ from app.models import CertificateRequest, CertificateRequestStatus
 def test_member_requests_and_chairman_issues(db, client, monkeypatch):
     owner, garage, _chairman = _setup(db)
     sent = []
-    monkeypatch.setattr(notifications, "notify", lambda user, event, subject, body: sent.append((user.person_id, subject)))
+    monkeypatch.setattr(notifications, "notify", lambda user, event, subject, body, **kw: sent.append((user.person_id, subject)))
 
     login(client, "owner", "pass1234")
     resp = client.post("/certificates/my", data={"garage_id": str(garage.id), "comment": "2 экземпляра"})
@@ -162,7 +162,7 @@ def test_request_only_own_garage_and_reject(db, client, monkeypatch):
     other_garage = make_garage(db, number="77")
     db.commit()
     sent = []
-    monkeypatch.setattr(notifications, "notify", lambda user, event, subject, body: sent.append((user.person_id, body)))
+    monkeypatch.setattr(notifications, "notify", lambda user, event, subject, body, **kw: sent.append((user.person_id, body)))
 
     login(client, "owner", "pass1234")
     client.post("/certificates/my", data={"garage_id": str(other_garage.id)})

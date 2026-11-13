@@ -43,7 +43,7 @@ MAIL_PREVIEW_LIMIT = 5  # последних писем во входящих д
 # была "/", а не "/static/" (scope службы-worker'а — путь, из которого он
 # отдан, если не указано иначе). Сам он ничего не показывает, кроме
 # push-события — вся логика (что показывать) приходит в теле пуша,
-# см. webpush.send: data={"title":..., "body":...}.
+# см. webpush.send: data={"title":..., "body":..., "url":...}.
 _SERVICE_WORKER_JS = """
 self.addEventListener('push', function (event) {
   var data = {};
@@ -55,16 +55,30 @@ self.addEventListener('push', function (event) {
     data: { url: data.url || '/' }
   }));
 });
-// Клик — в уже открытое окно сайта (в установленном PWA — окно приложения),
-// если оно есть, иначе — новое.
+// Клик — переходим туда, откуда пришло уведомление (data.url — путь на
+// сайте, см. webpush.send). Если окно сайта/приложения уже открыто —
+// переводим его на этот адрес и выводим на передний план (иначе в PWA
+// плодились бы окна), если нет или navigate() недоступен (окно ещё не под
+// контролем этого worker'а) — открываем новое: в установленном PWA адрес
+// внутри scope открывается в окне приложения.
 self.addEventListener('notificationclick', function (event) {
   event.notification.close();
-  var url = (event.notification.data && event.notification.data.url) || '/';
+  var url = new URL((event.notification.data && event.notification.data.url) || '/', self.location.origin).href;
   event.waitUntil(clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function (list) {
+    var client = null;
     for (var i = 0; i < list.length; i++) {
-      if (url === '/' && 'focus' in list[i]) return list[i].focus();
+      if (new URL(list[i].url).origin === self.location.origin) { client = list[i]; break; }
     }
-    return clients.openWindow(url);
+    if (!client) return clients.openWindow(url);
+    var focused = client.focus ? client.focus() : Promise.resolve(client);
+    return Promise.resolve(focused).then(function (c) {
+      c = c || client;
+      if (c.url === url) return c;
+      if (!('navigate' in c)) return clients.openWindow(url);
+      return c.navigate(url).then(function (navigated) {
+        return navigated || clients.openWindow(url);
+      });
+    }).catch(function () { return clients.openWindow(url); });
   }));
 });
 """

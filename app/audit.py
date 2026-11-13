@@ -25,7 +25,7 @@ from decimal import Decimal
 from flask import g, url_for
 
 from . import database
-from .models import AuditLog, WikiPage
+from .models import AuditLog, ForumPost, WikiPage
 
 
 def record(action: str, summary: str, entity_type: str | None = None, entity_id: int | None = None, actor=None,
@@ -157,4 +157,13 @@ def entity_url(entity_type: str | None, entity_id: int | None) -> str | None:
         return url_for("certificates.detail", certificate_id=entity_id)
     if entity_type == "certificate_request":
         return url_for("certificates.list_certificates")
+    if entity_type == "news":
+        return url_for("news.view", news_id=entity_id)
+    if entity_type == "forum_topic":
+        return url_for("forum.view", topic_id=entity_id)
+    if entity_type == "forum_post":
+        post = database.db_session.get(ForumPost, entity_id)
+        return url_for("forum.view", topic_id=post.topic_id, _anchor=f"post-{post.id}") if post else None
+    if entity_type == "bulletin_post":
+        return url_for("bulletin.list_posts", _anchor=f"bulletin-{entity_id}")
     return None

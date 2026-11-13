@@ -302,3 +302,14 @@ def test_path_for_works_outside_request(app):
 def test_service_worker_navigates_to_notification_url(client):
     js = client.get("/service-worker.js").get_data(as_text=True)
     assert "notificationclick" in js and "navigate(url)" in js
+
+
+def test_failure_url_points_to_section(app):
+    with app.app_context():
+        assert notifications.failure_url("bank:3") == "/cooperative/bank-accounts/3/statement"
+        assert notifications.failure_url("ewelink") == "/electricity/"
+        assert notifications.failure_url("power_phase:abc") == "/electricity/"
+        assert notifications.failure_url("dvr:ffmpeg") == "/surveillance/"
+        assert notifications.failure_url("dvr:2") == "/surveillance/"
+        assert notifications.failure_url("counterparty_api:5") == "/counterparties/5"
+        assert notifications.failure_url("что-то другое") is None

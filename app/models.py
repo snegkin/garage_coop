@@ -3120,6 +3120,11 @@ class TelegramSettings(Base):
     # канала/группы. Пусто — не дублировать. Бот должен быть участником
     # группы (в канале — администратором с правом публикации).
     news_chat_id: Mapped[str | None] = mapped_column(String(64))
+    # Закрытая группа правления — мост с чатом правления на сайте
+    # (app/board_chat.py). ID группы (-100…, /chatid). Пусто — моста нет.
+    # Бот должен быть администратором группы, иначе (privacy mode) не видит
+    # обычные сообщения.
+    board_chat_id: Mapped[str | None] = mapped_column(String(64))
     # Обход блокировки api.telegram.org с сервера в РФ (см. docs/deployment.md,
     # «Telegram из РФ»): свой ретранслятор Bot API на зарубежном VPS вместо
     # https://api.telegram.org и/или прокси (socks5h://…, http://…) — только
@@ -3158,6 +3163,8 @@ class MaxSettings(Base):
     # Куда дублировать новости — ID канала/группы. Пусто — не дублировать.
     # Бот должен быть администратором канала/группы.
     news_chat_id: Mapped[str | None] = mapped_column(String(64))
+    # Закрытая группа правления — мост с чатом правления (app/board_chat.py).
+    board_chat_id: Mapped[str | None] = mapped_column(String(64))
     last_marker: Mapped[int | None] = mapped_column(BigInteger)
     known_chats: Mapped[str | None] = mapped_column(Text)
     last_error: Mapped[str | None] = mapped_column(Text)
@@ -3355,13 +3362,27 @@ class BoardChatMessage(Base):
     редактирования и удаления (тот же принцип неизменности, что у
     AuditLog), без вложений и разметки (обычный текст)."""
     __tablename__ = "board_chat_message"
+    __table_args__ = (
+        UniqueConstraint("source", "external_message_id", name="uq_board_chat_message_source_external"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    author_id: Mapped[int] = mapped_column(ForeignKey("user.id", ondelete="CASCADE"), index=True)
+    # NULL — сообщение пришло из группы правления в мессенджере от человека,
+    # чей мессенджер не привязан к профилю члена правления (тогда автор —
+    # external_author). См. app/board_chat.py: ingest_external.
+    author_id: Mapped[int | None] = mapped_column(ForeignKey("user.id", ondelete="CASCADE"), index=True)
     body: Mapped[str] = mapped_column(Text)
     created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.utcnow, index=True)
+    # Откуда сообщение: "site" (виджет), "telegram" или "max" — группа
+    # правления (TelegramSettings/MaxSettings.board_chat_id). Мост пересылает
+    # сообщение во все точки, кроме той, откуда оно пришло.
+    source: Mapped[str] = mapped_column(String(16), default="site", server_default="site")
+    # Имя в мессенджере — только когда author_id не найден.
+    external_author: Mapped[str | None] = mapped_column(String(128))
+    # id сообщения в мессенджере — повторный апдейт не создаст дубль.
+    external_message_id: Mapped[str | None] = mapped_column(String(64))
 
-    author: Mapped["User"] = relationship()
+    author: Mapped["User | None"] = relationship()
 
 
 # ---------------------------------------------------------------------------

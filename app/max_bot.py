@@ -260,6 +260,11 @@ def send_notification(settings: MaxSettings, user_id: int | str, text: str) -> N
     send_message(settings, None, text, user_id=user_id)
 
 
+def send_group_message(settings: MaxSettings, chat_id: int | str, text: str) -> None:
+    """Сообщение в группу (мост чата правления, очередь kind="group")."""
+    send_message(settings, chat_id, text)
+
+
 def link_url(settings: MaxSettings | None, token: str) -> str | None:
     """Диплинк привязки; имени бота ещё нет (не проверяли подключение) — None."""
     if not settings or not settings.bot_username:
@@ -318,6 +323,30 @@ def _forget_chat(settings: MaxSettings, chat_id) -> None:
     settings.known_chats = json.dumps(chats, ensure_ascii=False)
 
 
+def _ingest_board_chat(message: dict) -> None:
+    """Сообщение из группы правления (MaxSettings.board_chat_id) -> чат
+    правления на сайте (app/board_chat.py: ingest_external). Свои сообщения
+    бота (и других ботов) и команды пропускаем."""
+    from . import board_chat
+    recipient = message.get("recipient") or {}
+    if not board_chat.is_board_chat(board_chat.SOURCE_MAX, recipient.get("chat_id")):
+        return
+    sender = message.get("sender") or {}
+    if sender.get("is_bot"):
+        return
+    body = message.get("body") or {}
+    text = (body.get("text") or "").strip()
+    if text.startswith("/"):
+        return
+    if body.get("attachments"):
+        text = f"[вложение в MAX] {text}".strip()
+    if not text:
+        return
+    name = sender.get("name") or " ".join(
+        p for p in (sender.get("first_name"), sender.get("last_name")) if p) or sender.get("username")
+    board_chat.ingest_external(board_chat.SOURCE_MAX, body.get("mid"), sender.get("user_id"), name, text)
+
+
 def poll_updates() -> tuple[int, int]:
     """GET /updates (без ожидания — cron раз в минуту): привязывает аккаунты
     (bot_started с токеном), запоминает чаты и каналы, куда бота добавили
@@ -354,6 +383,8 @@ def poll_updates() -> tuple[int, int]:
             if chat_id is not None and chat_type in ("chat", "channel") and str(chat_id) not in seen:
                 _remember_chat(settings, chat_id, chat_type == "channel")
                 seen.add(str(chat_id))
+            if chat_type == "chat":
+                _ingest_board_chat(update["message"])
     if data.get("marker") is not None:
         settings.last_marker = data["marker"]
     settings.last_error = None

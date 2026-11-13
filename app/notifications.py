@@ -663,8 +663,25 @@ def notify_failure(source: str, title: str, error: str, threshold: int = 1) -> b
     if threshold > 1:
         body_text += f"\n\nНеудачных попыток подряд: {mark.consecutive_failures}."
     body_text += "\n\nСледующее сообщение об этом сбое — не раньше чем через сутки."
-    _send_to_board("failures", f"failure:{source}", f"Сбой: {title}", body_text)
+    _send_to_board("failures", f"failure:{source}", f"Сбой: {title}", body_text, url=failure_url(source))
     return True
+
+
+def failure_url(source: str) -> str | None:
+    """Куда ведёт клик по push о сбое — раздел, где сбой видно и чинят:
+    банк — выписка этого счёта, eWeLink и фазы электропитания — мониторинг
+    электроэнергии, регистратор — страница с кадрами камер, личный кабинет
+    контрагента — его карточка. Неизвестный источник — None (главная)."""
+    kind, _sep, ident = source.partition(":")
+    if kind == "bank" and ident.isdigit():
+        return path_for("bank_sync.statement", account_id=int(ident))
+    if kind in ("ewelink", "power_phase"):
+        return path_for("electricity_monitor.view")
+    if kind == "dvr":
+        return path_for("surveillance.view")
+    if kind == "counterparty_api" and ident.isdigit():
+        return path_for("counterparties.detail", counterparty_id=int(ident))
+    return None
 
 
 NEW_MAIL_LISTED_LIMIT = 5

@@ -59,6 +59,9 @@ PERMANENT_STATUS_CODES = {0, 400, 403, 404}
 
 KIND_MESSAGE = "message"
 KIND_NEWS = "news"
+# Сообщение в группу (мост чата правления, app/board_chat.py) — не в
+# личный диалог: MAX различает user_id и chat_id получателя.
+KIND_GROUP = "group"
 
 CHANNEL_TELEGRAM = "telegram"
 CHANNEL_MAX = "max"
@@ -71,6 +74,13 @@ def enqueue_message(chat_id: int | str, text: str, channel: str = CHANNEL_TELEGR
     Person.max_user_id. Без commit — вызывающий коммитит вместе со своим
     изменением."""
     item = MessengerOutbox(kind=KIND_MESSAGE, channel=channel, chat_id=str(chat_id), text=text)
+    database.db_session.add(item)
+    return item
+
+
+def enqueue_group_message(chat_id: int | str, text: str, channel: str = CHANNEL_TELEGRAM) -> MessengerOutbox:
+    """Сообщение в группу/чат (chat_id группы). Без commit — как enqueue_message."""
+    item = MessengerOutbox(kind=KIND_GROUP, channel=channel, chat_id=str(chat_id), text=text)
     database.db_session.add(item)
     return item
 
@@ -96,6 +106,9 @@ def _retry_delay(attempts: int) -> dt.timedelta:
 def _send(bot, settings, item: MessengerOutbox, upload_folder: str) -> None:
     if item.kind == KIND_MESSAGE:
         bot.send_notification(settings, item.chat_id, item.text)
+        return
+    if item.kind == KIND_GROUP:
+        bot.send_group_message(settings, item.chat_id, item.text)
         return
     if item.news is None:
         raise MessengerError("Новость удалена с сайта", status_code=0)

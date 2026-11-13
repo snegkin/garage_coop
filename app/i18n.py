@@ -2035,6 +2035,11 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Бот Telegram (getMe)": "Telegram bot (getMe)",
         "Проверка подключения к Telegram": "Checking the Telegram connection",
         "Группа для новостей": "News group",
+        "Группа правления": "Board group",
+        "Мост с чатом правления на сайте: сообщения ходят в обе стороны с задержкой до минуты. Только закрытая группа, где состоят одни члены правления. Сделайте бота администратором группы, иначе он не видит обычные сообщения, и отправьте там /chatid. Автор показывается логином на сайте, если его Telegram привязан в профиле. Пусто — моста нет.":
+            "Bridge with the board chat on the site: messages go both ways with up to a minute's delay. Only a private group with board members alone. Make the bot an administrator of the group, otherwise it can't see regular messages, and send /chatid there. The author is shown by their site login if their Telegram is linked in the profile. Leave empty to disable.",
+        "ID группы правления — отрицательное число (-100…), его присылает бот по команде /chatid в группе.":
+            "The board group ID is a negative number (-100…); the bot sends it in reply to /chatid in the group.",
         "или": "or",
         "Новые новости сайта будут дублироваться сюда. Добавьте бота в группу и отправьте там команду /chatid — бот ответит ID группы. Для канала бот должен быть администратором. Пусто — не дублировать.":
             "New site news will be duplicated here. Add the bot to the group and send /chatid there — the bot will reply with the group ID. For a channel the bot must be an administrator. Leave empty to disable.",
@@ -2114,6 +2119,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "группа": "group",
         "новости": "news",
         "Новости сюда": "Post news here",
+        "правление": "board",
+        "Мост с чатом правления на сайте: сообщения ходят в обе стороны с задержкой до минуты. Только закрытая группа, где состоят одни члены правления; бот должен быть её администратором. Автор показывается логином на сайте, если его MAX привязан в профиле. Пусто — моста нет.":
+            "Bridge with the board chat on the site: messages go both ways with up to a minute's delay. Only a private group with board members alone; the bot must be its administrator. The author is shown by their site login if their MAX is linked in the profile. Leave empty to disable.",
         "Пока ни одного.": "None yet.",
         "Обновить список": "Refresh list",
         "Очередь отправки и список чатов разбирает cron-скрипт scripts/poll_messengers.sh (см. docs/deployment.md, раздел «Автоматизация») — общий для Telegram и MAX.":

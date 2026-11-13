@@ -31,6 +31,11 @@
     <input class="form-control" type="text" name="news_chat_id" value="{{ settings.news_chat_id or '' }}" placeholder="-1001234567890 {{ _('или') }} @my_coop_channel">
     <div class="form-text">{{ _("Новые новости сайта будут дублироваться сюда. Добавьте бота в группу и отправьте там команду /chatid — бот ответит ID группы. Для канала бот должен быть администратором. Пусто — не дублировать.") }}</div>
   </div>
+  <div class="mb-3">
+    <label class="form-label">{{ _("Группа правления") }}</label>
+    <input class="form-control" type="text" name="board_chat_id" value="{{ settings.board_chat_id or '' }}" placeholder="-1001234567890">
+    <div class="form-text">{{ _("Мост с чатом правления на сайте: сообщения ходят в обе стороны с задержкой до минуты. Только закрытая группа, где состоят одни члены правления. Сделайте бота администратором группы, иначе он не видит обычные сообщения, и отправьте там /chatid. Автор показывается логином на сайте, если его Telegram привязан в профиле. Пусто — моста нет.") }}</div>
+  </div>
   </div>
   <div class="col-lg-6">
   <details class="mb-3" {% if settings.api_base_url or settings.proxy_url_encrypted %}open{% endif %}>

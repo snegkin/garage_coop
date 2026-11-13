@@ -12,8 +12,8 @@
   <thead><tr><th>{{ _("Банк") }}</th><th>{{ _("БИК") }}</th><th>{{ _("Расчётный счёт") }}</th><th>{{ _("Корр. счёт") }}</th><th>{{ _("Баланс") }}</th><th>{{ _("Основной") }}</th><th>{{ _("% банка") }}</th><th>{{ _("API банка") }}</th><th>{{ _("Комментарий") }}</th><th class="no-sort"></th></tr></thead>
   <tbody>
     {% for account in bank_accounts %}
-    <tr>
-      <td>{{ account.bank_name }}</td>
+    <tr class="{{ 'text-muted' if account.is_archived }}">
+      <td>{{ account.bank_name }}{% if account.is_archived %} <span class="badge bg-secondary">{{ _("архив") }}</span>{% endif %}</td>
       <td>{{ account.bik or "—" }}</td>
       <td>{{ account.checking_account }}</td>
       <td>{{ account.correspondent_account or "—" }}</td>
@@ -45,9 +45,12 @@
           <ul class="dropdown-menu dropdown-menu-end">
             {% if account.api_provider.value != "none" %}
             <li><a class="dropdown-item" href="{{ url_for('bank_sync.statement', account_id=account.id) }}">{{ _("Выписка") }}</a></li>
+            {% endif %}
+            {% if account.registries_available %}
             <li><a class="dropdown-item" href="{{ url_for('bank_sync.charge_registry', account_id=account.id) }}">{{ _("Реестр начислений") }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('bank_sync.payment_registry', account_id=account.id) }}">{{ _("Реестр платежей") }}</a></li>
-            {% if is_chairman() %}
+            {% endif %}
+            {% if is_chairman() and account.api_provider.value != "none" and not account.is_archived %}
             <li><hr class="dropdown-divider"></li>
             <li>
               <form method="post" action="{{ url_for('bank_sync.sync_balance', account_id=account.id) }}" class="d-inline" data-progress="{{ _("Остаток по счёту из банка") }}">
@@ -56,14 +59,28 @@
             </li>
             <li><button class="dropdown-item" data-bs-toggle="modal" data-bs-target="#bankApiSettingsModal{{ account.id }}">{{ _("Настроить API") }}</button></li>
             {% endif %}
-            {% endif %}
             {% if is_chairman() %}
             <li><hr class="dropdown-divider"></li>
             <li><button class="dropdown-item" data-bs-toggle="modal" data-bs-target="#editBankAccountModal{{ account.id }}">{{ _("Изменить") }}</button></li>
             <li>
+              {% if account.is_archived %}
+              <form method="post" action="{{ url_for('cooperative.unarchive_bank_account', account_id=account.id) }}" class="d-inline">
+                <button class="dropdown-item">{{ _("Вернуть из архива") }}</button>
+              </form>
+              {% else %}
+              <form method="post" action="{{ url_for('cooperative.archive_bank_account', account_id=account.id) }}" class="d-inline" onsubmit="return confirm('{{ _("Перенести счёт в архив? История по нему сохранится, но счёт не будет предлагаться для платежей, попадать в реквизиты и баланс кооператива и синхронизироваться с банком.") }}')">
+                <button class="dropdown-item">{{ _("В архив") }}</button>
+              </form>
+              {% endif %}
+            </li>
+            <li>
+              {% if account.id in accounts_with_history %}
+              <span class="dropdown-item disabled" title="{{ _("По счёту есть выписки, реестры или платежи — удалить нельзя, только перенести в архив.") }}">{{ _("Удалить") }}</span>
+              {% else %}
               <form method="post" action="{{ url_for('cooperative.delete_bank_account', account_id=account.id) }}" class="d-inline" onsubmit="return confirm('{{ _("Удалить расчётный счёт?") }}')">
                 <button class="dropdown-item text-danger">{{ _("Удалить") }}</button>
               </form>
+              {% endif %}
             </li>
             {% endif %}
           </ul>
@@ -71,7 +88,7 @@
       </td>
     </tr>
     {% else %}
-    <tr><td colspan="9" class="text-muted">{{ _("Расчётных счетов пока нет.") }}</td></tr>
+    <tr><td colspan="10" class="text-muted">{{ _("Расчётных счетов пока нет.") }}</td></tr>
     {% endfor %}
   </tbody>
 </table>

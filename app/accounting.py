@@ -452,8 +452,26 @@ def cooperative_balance() -> Decimal:
     (ожидаемые поступления от членов по лицевым счетам) — тот отражает,
     сколько кооперативу должны, а этот — сколько денег реально есть.
     """
-    total = database.db_session.query(func.coalesce(func.sum(BankAccount.balance), 0)).scalar()
+    total = (
+        database.db_session.query(func.coalesce(func.sum(BankAccount.balance), 0))
+        .filter(BankAccount.is_archived.is_(False))
+        .scalar()
+    )
     return Decimal(total)
+
+
+def bank_accounts_with_history() -> set[int]:
+    """id счетов, за которыми есть история — строки выписки, реестры,
+    платежи контрагентам, ПД-4. Такой счёт не удаляется (каскад стёр бы
+    выписки и реестры, а платежи потеряли бы счёт), только в архив."""
+    from .models import ChargeRegistryFile, PaymentRegistryEntry, PD4Document
+    ids: set[int] = set()
+    for model in (BankStatementLine, ChargeRegistryFile, PaymentRegistryEntry, CounterpartyPayment, PD4Document):
+        ids.update(
+            row[0] for row in database.db_session.query(model.bank_account_id)
+            .filter(model.bank_account_id.isnot(None)).distinct()
+        )
+    return ids
 
 
 # ---------------------------------------------------------------------------
@@ -1049,6 +1067,7 @@ def get_primary_bank_account():
     from .models import BankAccount
     return (
         database.db_session.query(BankAccount)
+        .filter(BankAccount.is_archived.is_(False))
         .order_by(BankAccount.is_primary.desc(), BankAccount.id)
         .first()
     )

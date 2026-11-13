@@ -164,12 +164,31 @@ class BankAccount(Base):
     # придёт на этот счёт (см. accounting.bank_fee_multiplier).
     bank_fee_percent: Mapped[Decimal | None] = mapped_column(Numeric(5, 3))
 
+    # Архивный (закрытый) счёт: история — выписки, реестры, платежи —
+    # остаётся, но счёт не предлагается для новых платежей, не попадает в
+    # реквизиты/ПД-4 и сводный баланс, не синхронизируется с банком.
+    # Удалить счёт можно, только пока за ним нет истории (см.
+    # cooperative.delete_bank_account), иначе — только в архив.
+    is_archived: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0", nullable=False)
+
     api_credential: Mapped["BankApiCredential | None"] = relationship(
         back_populates="bank_account", uselist=False, cascade="all, delete-orphan"
     )
     registry_format: Mapped["BankRegistryFormat | None"] = relationship(
         back_populates="bank_account", uselist=False, cascade="all, delete-orphan"
     )
+
+    @property
+    def is_sberbank(self) -> bool:
+        """Счёт в Сбербанке — подключён API Сбера или банк назван так в
+        реквизитах (счёт без API, напр. «ПАО СБЕРБАНК»)."""
+        return self.api_provider == BankApiProvider.SBERBANK or "сбер" in (self.bank_name or "").lower()
+
+    @property
+    def registries_available(self) -> bool:
+        """Реестры начислений/платежей — формат СберБизнес Онлайн, у других
+        банков (Модульбанк и т.п.) их нет; у архивного счёта — тоже."""
+        return self.is_sberbank and not self.is_archived
 
 
 class BankApiCredential(Base):

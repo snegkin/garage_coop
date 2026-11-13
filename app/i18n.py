@@ -310,6 +310,14 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Расчётный счёт добавлен.": "Settlement account added.",
         "Расчётный счёт обновлён.": "Settlement account updated.",
         "Расчётный счёт удалён.": "Settlement account deleted.",
+        "Расчётный счёт перенесён в архив.": "Settlement account archived.",
+        "Расчётный счёт возвращён из архива.": "Settlement account restored from the archive.",
+        "По счёту есть выписки, реестры или платежи — удалить его нельзя. Перенесите счёт в архив: история сохранится.":
+            "The account has statements, registries or payments, so it can't be deleted. Archive it instead: its history will be kept.",
+        "Перенести счёт в архив? История по нему сохранится, но счёт не будет предлагаться для платежей, попадать в реквизиты и баланс кооператива и синхронизироваться с банком.":
+            "Archive this account? Its history will be kept, but it won't be offered for payments, shown in the cooperative's details and balance, or synced with the bank.",
+        "По счёту есть выписки, реестры или платежи — удалить нельзя, только перенести в архив.":
+            "The account has statements, registries or payments — it can't be deleted, only archived.",
         "Удалить расчётный счёт?": "Delete this settlement account?",
         "Баланс кооператива": "Cooperative balance",
         "сумма по всем лицевым счетам": "sum across all personal accounts",

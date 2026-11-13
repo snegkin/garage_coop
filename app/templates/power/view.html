@@ -422,7 +422,7 @@
             <label class="form-label">{{ _("Оплатить со счёта") }}</label>
             <select class="form-select" name="bank_account_id">
               <option value="">{{ _("— не оплачивать сейчас, оплатить позже —") }}</option>
-              {% for acc in bank_accounts %}
+              {% for acc in bank_accounts if not acc.is_archived %}
               <option value="{{ acc.id }}">{{ acc.bank_name }} ({{ acc.checking_account }}){% if acc.balance is not none %} — {{ fmt2(acc.balance) }} ₽{% endif %}</option>
               {% endfor %}
             </select>

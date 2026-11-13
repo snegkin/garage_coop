@@ -19,6 +19,7 @@ from .models import (
 )
 from .bank_sync import is_aggregate_registry_payment
 from .accounting import (
+    bank_accounts_with_history,
     get_settings, electricity_account_number, member_account_number, person_member_account_number,
     owner_index_for, balance as _balance,
     compute_land_tax, reallocate_member_charges, dues_due_date, get_primary_bank_account,
@@ -38,10 +39,13 @@ bp = Blueprint("finance", __name__, url_prefix="/finance")
 def bank_accounts():
     accounts = (
         database.db_session.query(BankAccount)
-        .order_by(BankAccount.is_primary.desc(), BankAccount.bank_name)
+        .order_by(BankAccount.is_archived, BankAccount.is_primary.desc(), BankAccount.bank_name)
         .all()
     )
-    return render_template("finance/bank_accounts.html", bank_accounts=accounts)
+    return render_template(
+        "finance/bank_accounts.html", bank_accounts=accounts,
+        accounts_with_history=bank_accounts_with_history(),
+    )
 
 
 # ---------------------------------------------------------------------------

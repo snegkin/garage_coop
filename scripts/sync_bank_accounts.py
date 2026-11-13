@@ -51,7 +51,13 @@ def main() -> int:
 
 def _sync_bank_accounts() -> bool:
     """Возвращает True, если хотя бы одна синхронизация завершилась ошибкой."""
-    accounts = database.db_session.query(BankAccount).order_by(BankAccount.id).all()
+    # Архивные (закрытые) счета не синхронизируем — см. BankAccount.is_archived.
+    accounts = (
+        database.db_session.query(BankAccount)
+        .filter(BankAccount.is_archived.is_(False))
+        .order_by(BankAccount.id)
+        .all()
+    )
     if not accounts:
         _log("Расчётных счетов в справочнике нет — синхронизировать нечего.")
         return False

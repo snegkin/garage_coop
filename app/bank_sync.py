@@ -48,6 +48,17 @@ def _get_account(account_id: int) -> BankAccount:
     return account
 
 
+@bp.before_request
+def _registries_only_for_sberbank():
+    """Реестры начислений/платежей (/registry/...) — формат СберБизнес
+    Онлайн: у счёта в другом банке их нет — 404, а не страница, с которой
+    нечего делать (ссылки на них скрыты, см. BankAccount.registries_available).
+    Архивный счёт в Сбере по прямой ссылке открывается — там его история."""
+    rule = request.url_rule.rule if request.url_rule else ""
+    if "/registry/" in rule and not _get_account(request.view_args["account_id"]).is_sberbank:
+        abort(404)
+
+
 def _get_or_create_credential(account: BankAccount) -> BankApiCredential:
     if account.api_credential is None:
         account.api_credential = BankApiCredential(bank_account_id=account.id)

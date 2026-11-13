@@ -246,3 +246,9 @@ def test_chatid_reply_failure_logged(app, db, monkeypatch, caplog):
         telegram_bot.poll_and_link_accounts()
     assert "команда /chatid" in caplog.text
     assert "не удалось ответить на /chatid" in caplog.text
+
+
+def test_chatid_command_case_insensitive():
+    assert telegram_bot._is_chatid_command("/chatId")
+    assert telegram_bot._is_chatid_command("/CHATID@coop_bot")
+    assert not telegram_bot._is_chatid_command("/chatids")

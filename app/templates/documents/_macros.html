@@ -1,0 +1,90 @@
+{% import "legal_docs/_macros.html" as legal %}
+
+{# Документ на бланке кооператива (раздел «Бланки и шаблоны»).
+   number — текст номера (или None — без номера и даты под заголовком);
+   addressee/body — HTML; editable — заголовок, правая колонка шапки и
+   текст редактируются прямо на листе (шаблон или составляемый документ):
+   поля формы title / addressee_html (#docAddresseeInput) / body_html
+   (#docBodyInput, редактор applications/_editor.html). #}
+{% macro doc_sheet(coop, title, number, date, addressee, body, show_signature, signer, signer_role, editable=False) %}
+<div class="legal-doc">
+  <div class="legal-header-columns">
+    <div class="legal-header-left">
+      {% include "legal_docs/_letterhead.html" %}
+    </div>
+    {% if editable %}
+    <div class="legal-header-right doc-addressee" id="docAddressee" contenteditable="true" data-plain-editor data-input="docAddresseeInput" data-placeholder="{{ _('Кому / по месту требования — можно оставить пустым') }}" spellcheck="true">{{ addressee|safe }}</div>
+    {% else %}
+    <div class="legal-header-right doc-addressee">{{ addressee|safe }}</div>
+    {% endif %}
+  </div>
+  {% if editable %}
+  <p class="print-title"><input class="application-title-input" name="title" id="docTitle" value="{{ title }}" placeholder="{{ _('Заголовок документа') }}" aria-label="{{ _('Заголовок документа') }}"></p>
+  {% elif title %}
+  <p class="print-title">{{ title }}</p>
+  {% endif %}
+  {% if number %}{{ legal.number_and_date(number, date) }}{% endif %}
+  {% if editable %}
+  <div class="application-body" id="docBody" contenteditable="true" data-sheet-editor data-input="docBodyInput" spellcheck="true">{{ body|safe }}</div>
+  {% else %}
+  <div class="application-body">{{ body|safe }}</div>
+  {% endif %}
+  {% if show_signature %}{{ legal.signature_block(signer, date, signer_role) }}{% endif %}
+</div>
+{% endmacro %}
+
+
+{# Стиль поверх applications/_sheet_style.html: правая колонка шапки. #}
+{% macro style() %}
+<style>
+.legal-print .doc-addressee p { margin: 0 0 2mm; text-indent: 0; }
+.legal-print .doc-addressee[contenteditable] { min-height: 8mm; outline: 1px dashed #ccc; outline-offset: 1mm; }
+.legal-print .doc-addressee[contenteditable]:focus { outline-color: #0d6efd; }
+.legal-print .doc-addressee[contenteditable]:empty::before { content: attr(data-placeholder); color: #999; font-size: 11px; }
+@media print { .legal-print .doc-addressee[contenteditable] { outline: none; } }
+.doc-vars code { cursor: pointer; }
+.doc-vars code:hover { text-decoration: underline; }
+</style>
+{% endmacro %}
+
+
+{# Шапка справа без панели форматирования: при отправке формы HTML —
+   в скрытое поле, вставка из буфера — только текстом. Плюс вставка
+   подстановок кликом по [data-insert-var] — в то поле листа, где был
+   курсор. #}
+{% macro script() %}
+<script>
+(function () {
+  document.querySelectorAll("[data-plain-editor]").forEach(function (el) {
+    var input = document.getElementById(el.dataset.input);
+    if (input && input.form) input.form.addEventListener("submit", function () {
+      input.value = el.textContent.trim() ? el.innerHTML : "";
+    });
+    el.addEventListener("paste", function (e) {
+      e.preventDefault();
+      var text = (e.clipboardData || window.clipboardData).getData("text/plain");
+      document.execCommand("insertText", false, text);
+    });
+  });
+  var last = document.getElementById("docBody");
+  ["docBody", "docAddressee", "docTitle"].forEach(function (id) {
+    var el = document.getElementById(id);
+    if (el) el.addEventListener("focus", function () { last = el; });
+  });
+  document.querySelectorAll("[data-insert-var]").forEach(function (btn) {
+    btn.addEventListener("mousedown", function (e) { e.preventDefault(); });
+    btn.addEventListener("click", function () {
+      if (!last) return;
+      var text = "{" + "{" + btn.dataset.insertVar + "}" + "}";
+      if (last.tagName === "INPUT") {
+        last.focus();
+        last.setRangeText(text, last.selectionStart, last.selectionEnd, "end");
+      } else {
+        if (document.activeElement !== last) last.focus();
+        document.execCommand("insertText", false, text);
+      }
+    });
+  });
+})();
+</script>
+{% endmacro %}

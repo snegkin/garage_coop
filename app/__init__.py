@@ -259,6 +259,7 @@ def create_app(config_class=Config):
     from .proposals import bp as proposals_bp
     from .applications import bp as applications_bp
     from .certificates import bp as certificates_bp
+    from .documents import bp as documents_bp
     from .news import bp as news_bp
     from .news_gallery import bp as news_gallery_bp
     from .bulletin import bp as bulletin_bp
@@ -301,6 +302,7 @@ def create_app(config_class=Config):
     app.register_blueprint(proposals_bp)
     app.register_blueprint(applications_bp)
     app.register_blueprint(certificates_bp)
+    app.register_blueprint(documents_bp)
     app.register_blueprint(news_bp)
     app.register_blueprint(news_gallery_bp)
     app.register_blueprint(bulletin_bp)

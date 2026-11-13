@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% import "documents/_macros.html" as m %}
+{% import "applications/_editor.html" as editor %}
+{% block title %}{{ template.name if template else (source.title or _("Документ")) }}{% endblock %}
+{% block content %}
+{% set doc_name = template.name if template else (source.title or _("Документ")) %}
+{% include "applications/_sheet_style.html" %}
+{{ m.style() }}
+<div class="d-flex justify-content-between align-items-center mb-3 no-print flex-wrap gap-2" style="max-width: 210mm; margin: 0 auto;">
+  <h3 class="mb-0">{{ doc_name }}</h3>
+  <a data-back-link data-back-label="&larr; {{ _('Назад') }}" class="btn btn-outline-secondary btn-sm" href="{{ url_for('documents.index') }}">{{ _("← к бланкам и шаблонам") }}</a>
+</div>
+
+{% if cert_request %}
+<div class="alert alert-info no-print" style="max-width: 210mm; margin: 0 auto 1rem;">
+  {{ _("Справка по запросу от {date}", date=cert_request.created_at.strftime('%d.%m.%Y')) }}{% if cert_request.comment %}: «{{ cert_request.comment }}»{% endif %}.
+  {{ _("После выдачи собственнику придёт уведомление, что справку можно забрать у председателя.") }}
+</div>
+{% endif %}
+{% if recipient != "none" and not cert_request %}
+<form method="get" action="{{ url_for('documents.create') }}" class="no-print mb-3" style="max-width: 210mm; margin: 0 auto;">
+  {% for k, v in keep.items() %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
+  {% if recipient == "garage" %}
+  <label class="form-label small mb-1" for="docOwner">{{ _("Собственник и гараж") }}</label>
+  <select class="form-select" name="owner" id="docOwner" onchange="this.form.submit()">
+    <option value="">—</option>
+    {% for o in ownerships %}
+    <option value="{{ o.person_id }}:{{ o.garage_id }}"{% if person and garage and o.person_id == person.id and o.garage_id == garage.id %} selected{% endif %}>{{ o.person.full_name }} — {{ _("гараж") }} № {{ o.garage.number }}{% if o.share != 1 %} ({{ _("доля") }} {{ fmt2(o.share) }}){% endif %}</option>
+    {% endfor %}
+  </select>
+  {% else %}
+  <label class="form-label small mb-1" for="docPerson">{{ _("Кому") }}</label>
+  <select class="form-select" name="person_id" id="docPerson" onchange="this.form.submit()">
+    <option value="">—</option>
+    {% for p in persons %}
+    <option value="{{ p.id }}"{% if person and p.id == person.id %} selected{% endif %}>{{ p.full_name }}</option>
+    {% endfor %}
+  </select>
+  {% endif %}
+  <div class="form-text">{{ _("Текст подставляется по данным реестра на выбранного адресата — проверьте его и при необходимости поправьте прямо на бланке.") }}</div>
+</form>
+{% endif %}
+
+{% if not need_recipient %}
+<div class="no-print" style="max-width: 210mm; margin: 0 auto;">
+  {% if missing %}
+  <div class="alert alert-warning small">{{ _("Не заполнены в реестре — в тексте прочерк, допишите от руки или в карточке:") }} {{ missing|join(", ") }}.</div>
+  {% endif %}
+  {% if debt %}
+  <div class="alert alert-warning small">{{ _("Задолженность адресата на сегодня: {amount} ₽.", amount=fmt2(debt)) }}</div>
+  {% endif %}
+</div>
+<form method="post" action="{{ url_for('documents.create') }}">
+  {% for k, v in keep.items() %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
+  {% if recipient == "garage" and not cert_request %}<input type="hidden" name="owner" value="{{ person.id }}:{{ garage.id }}">{% endif %}
+  {% if recipient == "person" %}<input type="hidden" name="person_id" value="{{ person.id }}">{% endif %}
+  <div class="no-print d-flex align-items-end gap-3 mb-2" style="max-width: 210mm; margin: 0 auto;">
+    <div>
+      <label class="form-label small mb-1" for="docDate">{{ _("Дата документа") }}</label>
+      <input class="form-control form-control-sm" type="date" name="issued_at" id="docDate" value="{{ issued_at.isoformat() }}" required>
+    </div>
+  </div>
+  <div style="max-width: 210mm; margin: 0 auto;">
+    {{ editor.toolbar("docBody") }}
+  </div>
+  <div class="legal-print">
+    {{ m.doc_sheet(coop, title, _("(присваивается при сохранении)") if show_number else None, issued_at,
+                   addressee_html, body_html, show_signature, chairman, signer_role, editable=True) }}
+  </div>
+  <input type="hidden" name="addressee_html" id="docAddresseeInput">
+  <input type="hidden" name="body_html" id="docBodyInput">
+  <div class="d-flex justify-content-end gap-2 my-3 no-print" style="max-width: 210mm; margin: 0 auto;">
+    {% set reset_args = dict(keep) %}
+    {% if recipient == "garage" and not cert_request %}{% set _x = reset_args.update({"owner": person.id ~ ":" ~ garage.id}) %}{% endif %}
+    {% if recipient == "person" %}{% set _x = reset_args.update({"person_id": person.id}) %}{% endif %}
+    <a class="btn btn-outline-secondary" href="{{ url_for('documents.create', **reset_args) }}">{{ _("Вернуть исходный текст") }}</a>
+    <button class="btn btn-primary"><i class="bi bi-check2-square" aria-hidden="true"></i> {{ _("Сохранить в журнал") }}</button>
+  </div>
+</form>
+{{ editor.script() }}
+{{ m.script() }}
+{% endif %}
+{% endblock %}

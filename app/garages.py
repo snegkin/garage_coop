@@ -411,7 +411,7 @@ def detail(garage_id):
 
     # Локальный импорт: applications тянет legal_docs → persons, а те — garages.
     from .applications import visible_applications
-    from .certificates import visible_certificates
+    from .documents import visible_documents
 
     return render_template(
         "garages/detail.html",
@@ -440,7 +440,7 @@ def detail(garage_id):
         ownership_events=ownership_events,
         is_owner_or_board=is_owner_or_board(garage),
         applications=visible_applications(garage_id=garage.id),
-        certificates=visible_certificates(garage_id=garage.id),
+        documents=visible_documents(garage_id=garage.id),
         is_garage_owner=g.user.person_id is not None and g.user.person_id in {o.person_id for o in garage.ownerships},
     )
 

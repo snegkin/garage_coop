@@ -1,0 +1,19 @@
+{# Таблица документов (IssuedDocument) — журнал раздела «Бланки и
+   шаблоны», блоки на карточках человека/гаража, личный кабинет.
+   Ожидает documents. #}
+<table class="table table-sm bg-body sortable align-middle">
+  <thead><tr><th>№</th><th>{{ _("Дата") }}</th><th>{{ _("Документ") }}</th><th>{{ _("Кому") }}</th><th>{{ _("Гараж") }}</th></tr></thead>
+  <tbody>
+    {% for d in documents %}
+    {% set url = url_for('documents.detail', document_id=d.id) %}
+    {% set kind = d.template.name if d.template else (d.title or _("Документ")) %}
+    <tr>
+      <td><a href="{{ url }}">{{ d.number or "—" }}</a></td>
+      <td data-sort-value="{{ d.issued_at.isoformat() }}">{{ fmt_date(d.issued_at) }}</td>
+      <td><a href="{{ url }}">{{ kind }}</a>{% if d.title and d.title|lower != kind|lower %} <span class="small text-muted">«{{ d.title }}»</span>{% endif %}</td>
+      <td>{% if d.person %}{% if is_board() %}<a href="{{ url_for('persons.detail', person_id=d.person_id) }}">{{ d.person.full_name }}</a>{% else %}{{ d.person.full_name }}{% endif %}{% endif %}</td>
+      <td>{% if d.garage %}<a href="{{ url_for('garages.detail', garage_id=d.garage_id) }}">{{ d.garage.number }}</a>{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>

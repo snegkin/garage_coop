@@ -16,6 +16,8 @@
   <tr><th>{{ _("Дата регистрации") }}</th><td>{{ fmt_date(coop.registration_date) }}</td></tr>
   <tr><th>{{ _("Email") }}</th><td>{% if coop.email %}<a href="mailto:{{ coop.email }}">{{ coop.email }}</a>{% else %}—{% endif %}</td></tr>
   <tr><th>{{ _("Сайт") }}</th><td>{% if coop.website %}<a href="{{ coop.website }}" target="_blank" rel="noopener">{{ coop.website }}</a>{% else %}—{% endif %}</td></tr>
+  <tr><th>{{ _("Телефон") }}</th><td>{{ coop.phone or "—" }}</td></tr>
+  <tr><th>{{ _("Группы в соцсетях и мессенджерах") }}</th><td>{% if coop.social_links %}{% for line in coop.social_links.splitlines() if line.strip() %}{{ line }}{% if not loop.last %}<br>{% endif %}{% endfor %}{% else %}—{% endif %}</td></tr>
   {% if is_board() %}
   <tr>
     <th>{{ _("Баланс") }}</th>

@@ -162,7 +162,7 @@ def test_board_answer_notifies_applicant(db, client, monkeypatch):
     client.get("/auth/logout")
 
     sent = []
-    monkeypatch.setattr(notifications, "notify", lambda user, event, subject, body: sent.append((user.person_id, event, subject)))
+    monkeypatch.setattr(notifications, "notify", lambda user, event, subject, body, **kw: sent.append((user.person_id, event, subject)))
 
     login(client, "board1", "pass1234")
     resp = client.post(f"/applications/{application.id}/decide", data={"decision": "answer", "response_html": "<p><br></p>"})

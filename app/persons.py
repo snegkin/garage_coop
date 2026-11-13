@@ -886,6 +886,7 @@ def approve_revision(person_id, revision_id):
     notifications.after_commit(
         notifications.notify_user_id, revision.submitted_by_user_id, "my_requests",
         "Изменения данных одобрены", "Председатель одобрил изменения ваших данных — они уже применены в карточке.",
+        notifications.path_for("cabinet.profile"),
     )
     database.db_session.commit()
     flash(_("Изменения для «{name}» одобрены и применены.", name=person.full_name), "success")
@@ -916,6 +917,7 @@ def reject_revision(person_id, revision_id):
         notifications.notify_user_id, revision.submitted_by_user_id, "my_requests",
         "Изменения данных отклонены",
         "Председатель отклонил изменения ваших данных. Уточнить причину можно у правления.",
+        notifications.path_for("cabinet.profile"),
     )
     database.db_session.commit()
     flash(_("Изменения для «{name}» отклонены.", name=person.full_name), "info")

@@ -146,6 +146,7 @@ def create():
         database.db_session.commit()
         notifications.notify_subscribers(
             "news", "Новая новость", item.title, exclude_user_id=g.user.id, board_group="documents",
+            url=notifications.path_for("news.view", news_id=item.id),
         )
         flash(_("Новость добавлена."), "success")
         for channel in news_channels():

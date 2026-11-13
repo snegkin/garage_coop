@@ -626,6 +626,7 @@ def add_member_charge(account_id):
         notifications.user_for_person(account.person_id), "charge",
         "Начисление на ваш счёт",
         f"На счёт {account.account_number} начислено {fmt2(amount)} ₽ ({year} год).",
+        url=notifications.path_for("finance.member_account_detail", account_id=account.id),
     )
     new_balance = _balance(account)
     return respond(
@@ -786,6 +787,7 @@ def add_member_payment(account_id):
         notifications.user_for_person(account.person_id), "payment",
         "Платёж зачтён на ваш счёт",
         f"На счёт {account.account_number} зачтён платёж {fmt2(amount)} ₽ от {format_date(date)}.",
+        url=notifications.path_for("finance.member_account_detail", account_id=account.id),
     )
     new_balance = _balance(account)
     return respond(
@@ -958,6 +960,7 @@ def transfer_member_account_funds(account_id):
         notifications.user_for_person(target.person_id), "payment",
         "Платёж зачтён на ваш счёт",
         f"На счёт {target.account_number} зачтено {fmt2(amount)} ₽ (зачёт со счёта {source.account_number}).",
+        url=notifications.path_for("finance.member_account_detail", account_id=target.id),
     )
     flash(_("Зачёт выполнен."), "success")
     return redirect(url_for("finance.member_account_detail", account_id=source.id))
@@ -1882,17 +1885,20 @@ def mass_charge():
                         f"на сумму {audit.format_amount(sum((a for _n, _g, a in charged_rows), Decimal('0')))}",
             )
         database.db_session.commit()
-        by_person: dict[int, list[tuple[str, Decimal]]] = {}
+        by_person: dict[int, list[tuple[int, str, Decimal]]] = {}
         for acc, acc_amount in charged_accounts:
-            by_person.setdefault(acc.person_id, []).append((acc.account_number, acc_amount))
+            by_person.setdefault(acc.person_id, []).append((acc.id, acc.account_number, acc_amount))
         for person_id, lines in by_person.items():
-            total_amount = sum((a for _n, a in lines), Decimal("0"))
-            details = ", ".join(f"{number} — {fmt2(a)} ₽" for number, a in lines)
+            total_amount = sum((a for _id, _n, a in lines), Decimal("0"))
+            details = ", ".join(f"{number} — {fmt2(a)} ₽" for _id, number, a in lines)
+            account_ids = {acc_id for acc_id, _n, _a in lines}
             notifications.notify(
                 notifications.user_for_person(person_id), "charge",
                 "Начисление на ваш счёт",
                 f"По итогам массового начисления «{fee_type.name}» за {year} год на ваши счета "
                 f"начислено {fmt2(total_amount)} ₽: {details}.",
+                url=notifications.path_for("finance.member_account_detail", account_id=next(iter(account_ids)))
+                if len(account_ids) == 1 else notifications.path_for("finance.member_accounts"),
             )
         results = {
             "fee_type_name": fee_type.name,

@@ -163,6 +163,7 @@ def create():
     database.db_session.commit()
     notifications.notify_subscribers(
         "forum", "Новая тема на форуме", title, exclude_user_id=g.user.id,
+        url=notifications.path_for("forum.view", topic_id=topic.id),
     )
     flash(_("Тема создана."), "success")
     return redirect(url_for("forum.view", topic_id=topic.id))
@@ -207,6 +208,7 @@ def reply(topic_id):
     database.db_session.commit()
     notifications.notify_users(
         participant_ids, "forum", "Новый ответ в теме форума", topic.title, exclude_user_id=g.user.id,
+        url=notifications.path_for("forum.view", topic_id=topic.id, _anchor=f"post-{post.id}"),
     )
     return redirect(url_for("forum.view", topic_id=topic.id))
 

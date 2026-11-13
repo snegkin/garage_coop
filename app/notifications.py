@@ -33,6 +33,7 @@ VK в списке каналов нет (по решению пользоват
 """
 import datetime as dt
 import json
+from urllib.parse import urlsplit
 
 from flask import current_app, has_request_context, request
 
@@ -90,8 +91,40 @@ def channel_is_ready(user: User, channel: NotificationChannel) -> bool:
     return False
 
 
+def path_for(endpoint: str, _anchor: str | None = None, **values) -> str:
+    """Путь на сайте для поля url уведомлений (куда ведёт клик по push,
+    см. webpush.send) — как url_for, но работает и вне запроса (cron-
+    скрипты: разнесение выписки, опрос почты), где url_for без SERVER_NAME
+    падает. Путь, а не полный адрес: хост из cron неизвестен, а service
+    worker сам достраивает его до адреса своего сайта."""
+    path = current_app.url_map.bind("localhost").build(endpoint, values)
+    return f"{path}#{_anchor}" if _anchor else path
+
+
+def _push_url(url: str | None, body_text: str) -> str | None:
+    """Куда вести по клику на push. Явный url вызывающего кода — в
+    приоритете; иначе — ссылка последней строкой текста, если она там
+    есть (так уже устроены уведомления правлению о действиях из журнала,
+    о заявлениях, справках, голосованиях, документах). Полный адрес
+    сводится к пути — см. path_for."""
+    if not url:
+        lines = [line.strip() for line in (body_text or "").splitlines() if line.strip()]
+        last = lines[-1] if lines else ""
+        if last.startswith(("http://", "https://")) and " " not in last:
+            url = last
+    if not url:
+        return None
+    parts = urlsplit(url)
+    path = parts.path or "/"
+    if parts.query:
+        path += "?" + parts.query
+    if parts.fragment:
+        path += "#" + parts.fragment
+    return path
+
+
 def notify_subscribers(event: str, subject: str, body_text: str, exclude_user_id: int | None = None,
-                       board_group: str | None = None) -> None:
+                       board_group: str | None = None, url: str | None = None) -> None:
     """Рассылка всем, кто подписан на это событие (notify_<event>=True) —
     новости/объявления доски (всем) и новая тема форума (всем, кроме
     автора). Кооператив небольшой — цикл по всем подписчикам, без
@@ -107,11 +140,11 @@ def notify_subscribers(event: str, subject: str, body_text: str, exclude_user_id
             continue
         if board_group is not None and _receives_board_group(user, board_group):
             continue
-        notify(user, event, subject, body_text)
+        notify(user, event, subject, body_text, url=url)
 
 
 def notify_users(user_ids, event: str, subject: str, body_text: str, exclude_user_id: int | None = None,
-                 board_group: str | None = None) -> None:
+                 board_group: str | None = None, url: str | None = None) -> None:
     """Как notify_subscribers, но только для конкретного набора user_id —
     участники темы форума при ответе (в отличие от новой темы, которая
     уходит ВСЕМ подписчикам)."""
@@ -123,21 +156,22 @@ def notify_users(user_ids, event: str, subject: str, body_text: str, exclude_use
     for user in users:
         if board_group is not None and _receives_board_group(user, board_group):
             continue
-        notify(user, event, subject, body_text)
+        notify(user, event, subject, body_text, url=url)
 
 
 def notify_persons(person_ids, event: str, subject: str, body_text: str, exclude_user_id: int | None = None,
-                   board_group: str | None = None) -> None:
+                   board_group: str | None = None, url: str | None = None) -> None:
     """Как notify_users, но по id людей — учётные записи тех из них, у кого
     они есть (участники голосования считаются по людям-собственникам)."""
     ids = [pid for pid in person_ids if pid is not None]
     if not ids:
         return
     user_ids = [uid for (uid,) in database.db_session.query(User.id).filter(User.person_id.in_(ids))]
-    notify_users(user_ids, event, subject, body_text, exclude_user_id=exclude_user_id, board_group=board_group)
+    notify_users(user_ids, event, subject, body_text, exclude_user_id=exclude_user_id, board_group=board_group,
+                 url=url)
 
 
-def notify(user: User | None, event: str, subject: str, body_text: str) -> None:
+def notify(user: User | None, event: str, subject: str, body_text: str, url: str | None = None) -> None:
     """event — один из "charge"/"payment"/"news"/"forum"/"board_chat"/
     "vote"/"meeting"/"my_requests"/"documents",
     соответствует колонке notify_<event> на User. Ничего не делает, если
@@ -145,13 +179,15 @@ def notify(user: User | None, event: str, subject: str, body_text: str) -> None:
     вызывающему коду не нужно проверять это самому. Ошибка отправки
     логируется и не пробрасывается — уведомление не должно ронять
     транзакцию, породившую событие (начисление, платёж и т.п. к этому
-    моменту уже сохранены)."""
+    моменту уже сохранены). url — куда ведёт клик по push-уведомлению
+    (path_for(...)); без него — ссылка из последней строки текста, если
+    есть, иначе главная (см. _push_url)."""
     if user is None or not getattr(user, f"notify_{event}", False):
         return
-    _deliver(user, event, subject, body_text)
+    _deliver(user, event, subject, body_text, url=url)
 
 
-def _deliver(user: User, event: str, subject: str, body_text: str) -> None:
+def _deliver(user: User, event: str, subject: str, body_text: str, url: str | None = None) -> None:
     """Отправка по всем отмеченным и готовым каналам без проверки подписки
     на событие — её делает вызывающий код: notify() по колонке
     notify_<event>, _dispatch_board_event() по группе в notify_board_events."""
@@ -163,14 +199,15 @@ def _deliver(user: User, event: str, subject: str, body_text: str) -> None:
         # pywebpush) иначе откатывало загрузку выписки целиком — и не
         # должно мешать доставке по остальным каналам.
         try:
-            _send(user, channel, event, subject, body_text)
+            _send(user, channel, event, subject, body_text, url=url)
         except Exception:
             current_app.logger.exception(
                 "Не удалось отправить уведомление user_id=%s канал=%s событие=%s", user.id, channel.value, event,
             )
 
 
-def _send(user: User, channel: NotificationChannel, event: str, subject: str, body_text: str) -> None:
+def _send(user: User, channel: NotificationChannel, event: str, subject: str, body_text: str,
+          url: str | None = None) -> None:
     if channel == NotificationChannel.EMAIL:
         settings = database.db_session.query(MailboxSettings).first()
         if settings is None:
@@ -202,7 +239,7 @@ def _send(user: User, channel: NotificationChannel, event: str, subject: str, bo
         subscriptions = database.db_session.query(WebPushSubscription).filter_by(user_id=user.id).all()
         for subscription in subscriptions:
             try:
-                webpush.send(settings, subscription, subject, body_text)
+                webpush.send(settings, subscription, subject, body_text, url=_push_url(url, body_text))
             except webpush.WebPushError as exc:
                 if webpush.is_expired(exc):
                     database.db_session.delete(subscription)
@@ -335,6 +372,7 @@ def run_board_chat_digest() -> int:
         notify(
             user, "board_chat", "Непрочитанные сообщения в чате правления",
             "В чате правления есть непрочитанные сообщения (более 10 минут).",
+            url=path_for("main.index", _anchor="board-chat"),
         )
         user.board_chat_notified_message_id = last_message.id
         notified += 1
@@ -393,11 +431,11 @@ def dispatch_after_commit() -> None:
             current_app.logger.exception("Не удалось разослать уведомление %s", getattr(fn, "__name__", fn))
 
 
-def notify_user_id(user_id: int | None, event: str, subject: str, body_text: str) -> None:
+def notify_user_id(user_id: int | None, event: str, subject: str, body_text: str, url: str | None = None) -> None:
     """notify() по id учётной записи — для after_commit()."""
     if user_id is None:
         return
-    notify(database.db_session.get(User, user_id), event, subject, body_text)
+    notify(database.db_session.get(User, user_id), event, subject, body_text, url=url)
 
 
 # ---------------------------------------------------------------------------
@@ -544,17 +582,20 @@ def queue_board_event(action: str, summary: str, entity_type: str | None, entity
     group = board_group_for_action(action)
     if group is None:
         return
-    link = None
-    if has_request_context():
+    link = path = None
+    if has_request_context():  # entity_url строит через url_for — вне запроса (cron) не работает
         from .audit import entity_url
         path = entity_url(entity_type, entity_id)
         if path:
             link = request.host_url.rstrip("/") + path
-    after_commit(_dispatch_board_event, action, group, summary, link, actor_user_id, actor_name)
+    # Нет карточки у сущности — по клику на push хотя бы в журнал аудита,
+    # где это действие видно первым.
+    after_commit(_dispatch_board_event, action, group, summary, link, actor_user_id, actor_name,
+                 path or path_for("governance.audit_log"))
 
 
 def _dispatch_board_event(action: str, group: str, summary: str, link: str | None,
-                          actor_user_id: int | None, actor_name: str | None) -> None:
+                          actor_user_id: int | None, actor_name: str | None, url: str | None = None) -> None:
     min_level = ROLE_LEVEL[RoleEnum.CHAIRMAN] if action in CHAIRMAN_ONLY_BOARD_ACTIONS else ROLE_LEVEL[RoleEnum.BOARD]
     label = BOARD_EVENT_GROUPS[group]["label"]
     subject = f"{label}: {summary}"
@@ -566,11 +607,13 @@ def _dispatch_board_event(action: str, group: str, summary: str, link: str | Non
     if link:
         lines.append(link)
     body_text = "\n".join(lines).rstrip()
-    _send_to_board(group, f"board:{action}", subject, body_text, min_level=min_level, exclude_user_id=actor_user_id)
+    _send_to_board(group, f"board:{action}", subject, body_text, min_level=min_level, exclude_user_id=actor_user_id,
+                   url=url)
 
 
 def _send_to_board(group: str, event: str, subject: str, body_text: str,
-                   min_level: int = ROLE_LEVEL[RoleEnum.BOARD], exclude_user_id: int | None = None) -> int:
+                   min_level: int = ROLE_LEVEL[RoleEnum.BOARD], exclude_user_id: int | None = None,
+                   url: str | None = None) -> int:
     sent = 0
     for user in database.db_session.query(User).filter(User.is_active.is_(True)).all():
         if ROLE_LEVEL[user.role] < min_level:
@@ -579,7 +622,7 @@ def _send_to_board(group: str, event: str, subject: str, body_text: str,
             continue
         if group not in board_event_groups(user):
             continue
-        _deliver(user, event, subject, body_text)
+        _deliver(user, event, subject, body_text, url=url)
         sent += 1
     return sent
 
@@ -649,7 +692,11 @@ def notify_new_mail(messages, total: int) -> int:
         lines.append(f"• {sender}: «{message.subject or 'без темы'}»")
     if total > len(lines):
         lines.append(f"…и ещё {total - len(lines)}" if lines else f"Новых писем: {total}")
-    return _send_to_board("mail", "mail:new", subject, "\n".join(lines))
+    if total == 1 and messages:
+        url = path_for("mailbox.view_message", uid=messages[0].uid)
+    else:
+        url = path_for("mailbox.inbox")
+    return _send_to_board("mail", "mail:new", subject, "\n".join(lines), url=url)
 
 
 def reset_failure(source: str) -> None:

@@ -806,21 +806,70 @@ function initChatWidget(cfg) {
         }
       });
     input.value = "";
+    setExpanded(false);
     autoGrow();
     toggleEmoji(false);
   });
 
-  // Поле ввода растёт по тексту (до max-height в CSS), не меньше высоты,
-  // заданной разделителем (min-height); своей ручки ресайза у него нет.
-  function autoGrow() {
-    input.style.height = "auto";
-    input.style.height = input.scrollHeight + 2 + "px";
+  // Поле ввода — как в Telegram: растёт по тексту до AUTO_LINES строк (или
+  // до высоты, заданной разделителем, если она больше), дальше —
+  // прокрутка; с 3-й строки в углу поля значок «развернуть» — поле ввода
+  // раскрывается на всё окно чата (form.is-expanded), значок сворачивает.
+  var AUTO_LINES = 6, EXPAND_FROM_LINES = 3;
+  var inputWrap = document.createElement("span");
+  inputWrap.className = "chat-widget-input-wrap";
+  input.parentNode.insertBefore(inputWrap, input);
+  inputWrap.appendChild(input);
+  var expandBtn = document.createElement("button");
+  expandBtn.type = "button";
+  expandBtn.className = "chat-widget-expand d-none";
+  inputWrap.appendChild(expandBtn);
+  var expanded = false;
+
+  function lineMetrics() {
+    var cs = getComputedStyle(input);
+    var lh = parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.5;
+    var pad = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
+    var border = parseFloat(cs.borderTopWidth) + parseFloat(cs.borderBottomWidth);
+    return { lh: lh, pad: pad, border: border };
   }
+  function autoGrow() {
+    var m = lineMetrics();
+    input.style.height = "auto";
+    var content = input.scrollHeight;  // с паддингами, без рамки
+    var lines = Math.round((content - m.pad) / m.lh);
+    expandBtn.classList.toggle("d-none", !expanded && lines < EXPAND_FROM_LINES);
+    if (expanded) { input.style.height = ""; return; }
+    var cap = Math.max(m.lh * AUTO_LINES + m.pad + m.border, parseFloat(input.style.minHeight) || 0);
+    input.style.height = Math.min(content + m.border, cap) + "px";
+  }
+  function setExpanded(on, noFocus) {
+    expanded = on;
+    form.classList.toggle("is-expanded", on);
+    var label = on ? cfg.collapseLabel : cfg.expandLabel;
+    expandBtn.title = label || "";
+    expandBtn.setAttribute("aria-label", label || "");
+    expandBtn.innerHTML = '<i class="bi ' + (on ? "bi-arrows-angle-contract" : "bi-arrows-angle-expand") + '" aria-hidden="true"></i>';
+    // развёрнутая форма — от низа шапки до низа окна
+    form.style.top = on ? headerEl.offsetHeight + "px" : "";
+    autoGrow();
+    if (!noFocus) input.focus();
+  }
+  setExpanded(false, true);
+  expandBtn.addEventListener("click", function () { setExpanded(!expanded); });
   input.addEventListener("input", autoGrow);
 
-  // Enter отправляет, Shift+Enter — перенос строки (обычное поведение чатов).
+  // Enter отправляет, Shift+Enter — перенос строки (обычное поведение
+  // чатов). В развёрнутом поле — наоборот удобнее: Enter — перенос,
+  // Ctrl+Enter — отправить; Esc сворачивает.
   input.addEventListener("keydown", function (e) {
-    if (e.key === "Enter" && !e.shiftKey) {
+    if (e.key === "Escape" && expanded) {
+      e.preventDefault();
+      setExpanded(false);
+      return;
+    }
+    if (e.key !== "Enter") return;
+    if (expanded ? (e.ctrlKey || e.metaKey) : !e.shiftKey) {
       e.preventDefault();
       form.requestSubmit();
     }
@@ -864,6 +913,8 @@ function initChatWidget(cfg) {
   initChatWidget({
     prefix: "board",
     emojiLabel: "{{ _('Смайлики') }}",
+    expandLabel: "{{ _('Развернуть поле ввода') }}",
+    collapseLabel: "{{ _('Свернуть поле ввода') }}",
     splitterLabel: "{{ _('Потяните, чтобы изменить высоту поля ввода; двойной клик — по умолчанию') }}",
     listUrl: "{{ url_for('board_chat.list_messages') }}",
     sendUrl: "{{ url_for('board_chat.send_message') }}",
@@ -904,6 +955,8 @@ function initChatWidget(cfg) {
   initChatWidget({
     prefix: "revision",
     emojiLabel: "{{ _('Смайлики') }}",
+    expandLabel: "{{ _('Развернуть поле ввода') }}",
+    collapseLabel: "{{ _('Свернуть поле ввода') }}",
     splitterLabel: "{{ _('Потяните, чтобы изменить высоту поля ввода; двойной клик — по умолчанию') }}",
     listUrl: "{{ url_for('revision_chat.list_messages') }}",
     sendUrl: "{{ url_for('revision_chat.send_message') }}",
@@ -1292,7 +1345,25 @@ tr.table-info-subtle { --bs-table-bg: var(--bs-info-bg-subtle); --bs-table-borde
 .chat-widget-emoji-panel.d-none { display: none; }
 .chat-widget-emoji-panel button { background: none; border: none; border-radius: .3rem; font-size: 1.25rem; line-height: 1; padding: .25rem 0; }
 .chat-widget-emoji-panel button:hover, .chat-widget-emoji-panel button:focus-visible { background: var(--bs-tertiary-bg); }
-.chat-widget-form textarea { resize: none; min-height: 2.2rem; max-height: 60vh; overflow-y: auto; }
+.chat-widget-form textarea { resize: none; min-height: 2.2rem; overflow-y: auto; }
+.chat-widget-input-wrap { position: relative; flex: 1; min-width: 0; display: flex; }
+.chat-widget-input-wrap textarea { flex: 1; }
+/* Значок «развернуть/свернуть» в правом верхнем углу поля (как в Telegram). */
+.chat-widget-expand {
+  position: absolute; top: .2rem; right: .35rem; z-index: 1;
+  background: var(--bs-body-bg); border: none; border-radius: .3rem; padding: .1rem .2rem;
+  color: var(--bs-secondary-color); font-size: .8rem; line-height: 1;
+}
+.chat-widget-expand:hover { color: var(--bs-body-color); }
+.chat-widget-input-wrap textarea { padding-right: 1.6rem; }
+/* Развёрнутое поле — на всё окно под шапкой (top задаёт JS). */
+.chat-widget-form.is-expanded {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 4;
+  background: var(--bs-body-bg); align-items: stretch;
+}
+.chat-widget-form.is-expanded .chat-widget-input-wrap textarea { height: auto !important; max-height: none; }
+.chat-widget-form.is-expanded .chat-widget-emoji-btn,
+.chat-widget-form.is-expanded .chat-widget-send { align-self: flex-end; }
 .wiki-tree-toggle { display: inline-block; width: 1.1rem; text-align: center; }
 .wiki-tree-toggle .chevron { display: inline-block; transition: transform .15s; }
 .wiki-tree-toggle.collapsed .chevron { transform: rotate(-90deg); }

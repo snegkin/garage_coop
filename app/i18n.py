@@ -2133,6 +2133,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "правление": "board",
         "Закрепить": "Pin",
         "Смайлики": "Emoji",
+        "Развернуть поле ввода": "Expand the input",
+        "Свернуть поле ввода": "Collapse the input",
         "Потяните, чтобы изменить высоту поля ввода; двойной клик — по умолчанию": "Drag to change the input height; double-click to reset",
         "Открепить": "Unpin",
         "Закреплённое сообщение": "Pinned message",

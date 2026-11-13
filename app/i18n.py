@@ -2132,6 +2132,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Новости сюда": "Post news here",
         "правление": "board",
         "Закрепить": "Pin",
+        "Смайлики": "Emoji",
         "Открепить": "Unpin",
         "Закреплённое сообщение": "Pinned message",
         "Удалить сообщение? Оно удалится и в группах Telegram и MAX.": "Delete the message? It will also be deleted in the Telegram and MAX groups.",

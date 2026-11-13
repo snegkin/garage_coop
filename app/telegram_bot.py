@@ -253,7 +253,10 @@ def _ingest_board_chat(message: dict, text: str) -> bool:
     # подпись и пометка, чтобы на сайте было видно, что что-то прислали.
     attachment = any(message.get(k) for k in _ATTACHMENT_KEYS)
     body = text or (message.get("caption") or "").strip()
-    if attachment:
+    if message.get("sticker"):
+        # Картинку стикера не переносим — только его эмодзи.
+        body = f"[стикер {message['sticker'].get('emoji') or ''}]".replace(" ]", "]")
+    elif attachment:
         body = f"[вложение в Telegram] {body}".strip()
     if not body:
         return True  # сервисное сообщение (вступил/вышел, закреп и т. п.)

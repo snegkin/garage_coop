@@ -1167,9 +1167,20 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         # --- Правление: созывы, ревизионная комиссия ---
         "Правление кооператива": "Cooperative board",
         "Журнал аудита": "Audit log",
-        "Логи сервера": "Server logs",
-        "Логи cron-скриптов (синхронизация с банком, опрос eWeLink, резервные копии…) и журнал обмена с внешними API (external_api-ДАТА.log) — запросы к банку и сервисам с ответами, секреты скрыты. Содержат персональные данные — не пересылайте целиком.":
-            "Cron script logs (bank sync, eWeLink polling, backups…) and the external API log (external_api-DATE.log) — requests to the bank and services with responses, secrets hidden. They contain personal data — do not share them in full.",
+        "Логи": "Logs",
+        "логи": "logs",
+        "Логи фоновых задач и обмена с внешними сервисами": "Background task and external service logs",
+        "Пеня и ключевая ставка": "Penalty and key rate",
+        "Мониторинг электроэнергии": "Electricity monitoring",
+        "Каналы уведомлений (СМС, Telegram, MAX)": "Notification channels (SMS, Telegram, MAX)",
+        "Резервные копии, обслуживание базы и вложений, ошибки самого приложения (app-ДАТА.log) и полный журнал обмена с внешними API (external_api-ДАТА.log). Логи остальных cron-задач — в их разделах (кнопка «Логи» на странице раздела). Содержат персональные данные — не пересылайте целиком.":
+            "Backups, database and attachment maintenance, application errors (app-DATE.log) and the full external API log (external_api-DATE.log). Logs of other cron tasks are in their sections (the “Logs” button on the section page). They contain personal data — do not share them in full.",
+        "Логи фоновых задач раздела и журнал обмена с внешними API (external_api-ДАТА.log) — в нём показаны только запросы к сервисам этого раздела, секреты скрыты. Содержат персональные данные — не пересылайте целиком.":
+            "Background task logs of this section and the external API log (external_api-DATE.log) — only requests to this section's services are shown, secrets hidden. They contain personal data — do not share them in full.",
+        "Логи фоновых задач раздела. Содержат персональные данные — не пересылайте целиком.":
+            "Background task logs of this section. They contain personal data — do not share them in full.",
+        "Показаны только запросы к сервисам раздела": "Only requests to this section's services are shown",
+        "Скачивается файл целиком — со всеми сервисами.": "The download is the whole file — all services.",
         "Изменён": "Modified",
         "ошибки": "errors",
         "Логов пока нет.": "No logs yet.",

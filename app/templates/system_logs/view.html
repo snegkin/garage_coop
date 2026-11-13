@@ -1,7 +1,7 @@
 {% extends "base.html" %}
-{% block title %}{{ name }} — {{ _("Логи сервера") }}{% endblock %}
+{% block title %}{{ name }} — {{ _("Логи") }}: {{ _(sec.label) }}{% endblock %}
 {% block content %}
-<p class="mb-1"><a href="{{ url_for('system_logs.index') }}">← {{ _("Логи сервера") }}</a></p>
+<p class="mb-1"><a href="{{ url_for('system_logs.index', section=section) }}">← {{ _("Логи") }}: {{ _(sec.label) }}</a></p>
 <h3 class="mb-3 text-break">{{ name }} <small class="text-muted fs-6">{{ size|filesizeformat }}</small></h3>
 
 <form method="get" class="d-flex align-items-end gap-2 mb-3 flex-wrap">
@@ -9,7 +9,7 @@
     <label class="form-label mb-0">{{ _("Файл") }}</label>
     <select class="form-select" onchange="window.location = this.value">
       {% for f in files %}
-      <option value="{{ url_for('system_logs.view', name=f.name, lines=max_lines, q=query or None, errors=1 if only_errors else None, noise=1 if show_noise else None) }}" {% if f.name == name %}selected{% endif %}>{{ f.name }}</option>
+      <option value="{{ url_for('system_logs.view', section=section, name=f.name, lines=max_lines, q=query or None, errors=1 if only_errors else None, noise=1 if show_noise else None) }}" {% if f.name == name %}selected{% endif %}>{{ f.name }}</option>
       {% endfor %}
     </select>
   </div>
@@ -32,9 +32,12 @@
     <label class="form-check-label" for="showNoise">{{ _("Служебные строки alembic") }}</label>
   </div>
   <button class="btn btn-primary">{{ _("Показать") }}</button>
-  <a class="btn btn-outline-secondary" href="{{ url_for('system_logs.download', name=name) }}">{{ _("Скачать целиком") }}</a>
+  <a class="btn btn-outline-secondary" href="{{ url_for('system_logs.download', section=section, name=name) }}">{{ _("Скачать целиком") }}</a>
 </form>
 
+{% if host_filtered %}
+<p class="text-muted small mb-1">{{ _("Показаны только запросы к сервисам раздела") }} ({{ sec.api_hosts|join(", ") }}). {{ _("Скачивается файл целиком — со всеми сервисами.") }}</p>
+{% endif %}
 {% if truncated %}
 <p class="text-muted small mb-1">{{ _("Показан конец файла — более ранние строки не выведены, полный файл можно скачать.") }}</p>
 {% endif %}

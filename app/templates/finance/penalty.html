@@ -1,7 +1,10 @@
 {% extends "base.html" %}
 {% block title %}{{ _("Пеня") }}{% endblock %}
 {% block content %}
-<h3 class="mb-3">{{ _("Автоматическое начисление пени") }}</h3>
+<div class="d-flex justify-content-between align-items-center gap-2 mb-3">
+  <h3 class="mb-0">{{ _("Автоматическое начисление пени") }}</h3>
+  {% with logs_section = "penalty" %}{% include "system_logs/_link.html" %}{% endwith %}
+</div>
 
 <div class="row g-4">
   <div class="col-md-6">

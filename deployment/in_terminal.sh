@@ -46,8 +46,19 @@ in_terminal() {
         trap _in_terminal_pause EXIT
         return 0
     fi
-    # Консоль есть или графики нет — работаем как обычно.
-    if [ -t 0 ] || { [ -z "${DISPLAY:-}" ] && [ -z "${WAYLAND_DISPLAY:-}" ]; }; then
+    # Окно открыл файловый менеджер сам (Dolphin: «konsole --hold -e
+    # скрипт»): консоль есть, но родитель — эмулятор терминала, а не
+    # оболочка. Тоже ждём Enter, иначе итог висит без подсказки.
+    if [ -t 0 ]; then
+        case "$(ps -o comm= -p "$PPID" 2>/dev/null)" in
+            konsole|gnome-terminal-*|ptyxis*|xfce4-terminal|mate-terminal|kitty|alacritty|xterm)
+                _in_terminal_active=1
+                trap _in_terminal_pause EXIT ;;
+        esac
+        return 0
+    fi
+    # Графики нет — работаем как обычно.
+    if [ -z "${DISPLAY:-}" ] && [ -z "${WAYLAND_DISPLAY:-}" ]; then
         return 0
     fi
 

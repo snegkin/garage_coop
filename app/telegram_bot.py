@@ -124,6 +124,11 @@ def send_notification(settings: TelegramSettings, chat_id: int | str, text: str)
     send_message(settings, chat_id, text)
 
 
+def send_group_message(settings: TelegramSettings, chat_id: int | str, text: str) -> None:
+    """Сообщение в группу (мост чата правления, очередь kind="group")."""
+    send_message(settings, chat_id, text)
+
+
 def get_updates(settings: TelegramSettings, offset: int | None, timeout: int = 0) -> list[dict]:
     """timeout=0 — обычный short-poll (используется из cron раз в минуту,
     держать HTTP-соединение открытым долгим long-poll'ом внутри cron-скрипта
@@ -175,10 +180,44 @@ def _reply_chat_id(settings: TelegramSettings, chat: dict) -> None:
             settings, chat["id"],
             f"ID этого чата: {chat['id']}\n"
             "Впишите его в настройках Telegram на сайте кооператива "
-            "(поле «Группа для новостей»).",
+            "(поле «Группа для новостей» или «Группа правления»).",
         )
     except TelegramError:
         pass  # подсказка — best-effort
+
+
+def _display_name(user: dict) -> str:
+    name = " ".join(p for p in (user.get("first_name"), user.get("last_name")) if p)
+    return name or user.get("username") or str(user.get("id", "?"))
+
+
+_ATTACHMENT_KEYS = ("photo", "document", "video", "voice", "audio", "sticker", "animation", "video_note")
+
+
+def _ingest_board_chat(message: dict, text: str) -> bool:
+    """Сообщение из группы правления (TelegramSettings.board_chat_id) -> чат
+    правления на сайте (app/board_chat.py: ingest_external). True — это была
+    группа правления (сообщение обработано, дальше не разбирать). Команды
+    боту и сообщения других ботов в чат не попадают."""
+    from . import board_chat
+    if not board_chat.is_board_chat(board_chat.SOURCE_TELEGRAM, message["chat"]["id"]):
+        return False
+    sender = message.get("from") or {}
+    if sender.get("is_bot") or text.startswith("/"):
+        return True
+    # Вложения на сайт не переносим (в чате правления их нет) — только
+    # подпись и пометка, чтобы на сайте было видно, что что-то прислали.
+    attachment = any(message.get(k) for k in _ATTACHMENT_KEYS)
+    body = text or (message.get("caption") or "").strip()
+    if attachment:
+        body = f"[вложение в Telegram] {body}".strip()
+    if not body:
+        return True  # сервисное сообщение (вступил/вышел, закреп и т. п.)
+    board_chat.ingest_external(
+        board_chat.SOURCE_TELEGRAM, f"{message['chat']['id']}:{message['message_id']}",
+        sender.get("id"), _display_name(sender), body,
+    )
+    return True
 
 
 def poll_and_link_accounts() -> tuple[int, int]:
@@ -208,6 +247,8 @@ def poll_and_link_accounts() -> tuple[int, int]:
         text = (message.get("text") or "").strip()
         if _is_chatid_command(text):
             _reply_chat_id(settings, message["chat"])
+            continue
+        if update.get("message") and _ingest_board_chat(message, text):
             continue
         if not text.startswith("/start "):
             continue

@@ -470,6 +470,14 @@ function initChatWidget(cfg) {
     var author = document.createElement("span");
     author.className = "chat-widget-author";
     author.textContent = msg.author_name;  // textContent — не innerHTML, обычный текст, не разметка
+    // Пришло из группы правления в мессенджере (мост, app/board_chat.py)
+    if (msg.source === "telegram" || msg.source === "max") {
+      var via = document.createElement("i");
+      via.className = "bi " + (msg.source === "telegram" ? "bi-telegram" : "bi-chat-dots") + " ms-1 text-muted";
+      via.title = msg.source === "telegram" ? "Telegram" : "MAX";
+      via.setAttribute("aria-label", via.title);
+      author.appendChild(via);
+    }
     el.appendChild(author);
 
     var body = document.createElement("div");

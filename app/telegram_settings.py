@@ -4,6 +4,8 @@ app/telegram_bot.py) — токен создаётся у @BotFather, настр
 председатель, тот же принцип, что у почты/СМС/eWeLink/API банка
 (app/mailbox.py, app/sms_settings.py, app/electricity_monitor.py, app/bank_sync.py).
 """
+import re
+
 from flask import Blueprint, render_template, request, redirect, url_for, flash, abort
 
 from . import database
@@ -73,6 +75,11 @@ def save_settings():
 
     settings.bot_username = f.get("bot_username", "").strip().lstrip("@") or None
     settings.news_chat_id = f.get("news_chat_id", "").strip() or None
+    board_chat_id = f.get("board_chat_id", "").strip()
+    if board_chat_id and not re.match(r"^-\d{1,20}$", board_chat_id):
+        flash(_("ID группы правления — отрицательное число (-100…), его присылает бот по команде /chatid в группе."), "danger")
+        return redirect(url_for("telegram_settings.view"))
+    settings.board_chat_id = board_chat_id or None
 
     api_base_url = f.get("api_base_url", "").strip().rstrip("/")
     if api_base_url and not api_base_url.startswith(("https://", "http://")):
@@ -93,7 +100,7 @@ def save_settings():
         settings.bot_token_encrypted = crypto.encrypt(token)
     settings.last_error = None
 
-    audit.record("telegram.settings_save", f"Настройки Telegram-бота обновлены (бот: @{settings.bot_username or '—'}, группа новостей: {settings.news_chat_id or '—'}, адрес API: {settings.api_base_url or 'стандартный'}, прокси: {'задан' if settings.proxy_url_encrypted else 'нет'})")
+    audit.record("telegram.settings_save", f"Настройки Telegram-бота обновлены (бот: @{settings.bot_username or '—'}, группа новостей: {settings.news_chat_id or '—'}, группа правления: {settings.board_chat_id or '—'}, адрес API: {settings.api_base_url or 'стандартный'}, прокси: {'задан' if settings.proxy_url_encrypted else 'нет'})")
     database.db_session.commit()
     flash(_("Настройки Telegram сохранены."), "success")
     return redirect(url_for("telegram_settings.view"))

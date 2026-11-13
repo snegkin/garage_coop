@@ -75,11 +75,15 @@ def save_settings():
     settings = _get_or_create_settings()
     f = request.form
 
-    chat_id = f.get("news_chat_id", "").strip()
-    if chat_id and not _CHAT_ID_RE.match(chat_id):
-        flash(_("ID канала MAX — число (его показывает список «Чаты бота»)."), "danger")
-        return redirect(url_for("max_settings.view"))
-    settings.news_chat_id = chat_id or None
+    # Кнопки в списке «Чаты бота» шлют только одно из полей — второе не трогаем.
+    for field in ("news_chat_id", "board_chat_id"):
+        if field not in f:
+            continue
+        chat_id = f.get(field, "").strip()
+        if chat_id and not _CHAT_ID_RE.match(chat_id):
+            flash(_("ID канала MAX — число (его показывает список «Чаты бота»)."), "danger")
+            return redirect(url_for("max_settings.view"))
+        setattr(settings, field, chat_id or None)
 
     token = f.get("bot_token", "").strip()
     if token:
@@ -88,7 +92,7 @@ def save_settings():
         settings.last_marker = None
     settings.last_error = None
 
-    audit.record("max.settings_save", f"Настройки бота MAX обновлены (канал новостей: {settings.news_chat_id or '—'})")
+    audit.record("max.settings_save", f"Настройки бота MAX обновлены (канал новостей: {settings.news_chat_id or '—'}, группа правления: {settings.board_chat_id or '—'})")
     database.db_session.commit()
     flash(_("Настройки MAX сохранены."), "success")
     return redirect(url_for("max_settings.view"))

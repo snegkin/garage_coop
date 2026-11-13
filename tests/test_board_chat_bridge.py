@@ -386,3 +386,30 @@ def test_delete_message_from_telegram_deletes_original(app, db, client, monkeypa
     monkeypatch.setattr(telegram_bot.requests, "post", lambda url, json=None, **kw: calls.append(json) or FakeResponse(200))
     messenger_outbox.process(app.config["UPLOAD_FOLDER"])
     assert calls == [{"chat_id": TG_GROUP, "message_id": 55}]
+
+
+def test_telegram_sticker_shown_as_its_emoji(app, db, monkeypatch):
+    _bridges(db, max_=False)
+    _tg_updates(monkeypatch, [
+        {"message_id": 7, "chat": {"id": int(TG_GROUP)}, "from": {"id": 5001, "first_name": "Пётр"},
+         "sticker": {"emoji": "😂", "file_id": "x"}},
+    ])
+    telegram_bot.poll_and_link_accounts()
+    assert db.query(BoardChatMessage).one().body == "[стикер 😂]"
+
+
+def test_emoji_passes_through_bridge_as_text(db, client):
+    _bridges(db, max_=False)
+    _board_user(db)
+    login(client, "board1", "pass1234")
+    client.post("/board-chat/messages", data={"body": "готово 👍😀"})
+    assert db.query(MessengerOutbox).one().text == "board1: готово 👍😀"
+
+
+def test_widget_has_emoji_picker(db, client):
+    _board_user(db)
+    login(client, "board1", "pass1234")
+    body = client.get("/dashboard").get_data(as_text=True)
+    if "chat-widget-emoji-panel" not in body:
+        body = client.get("/cabinet/garages").get_data(as_text=True)
+    assert "chat-widget-emoji-panel" in body and "bi-emoji-smile" in body

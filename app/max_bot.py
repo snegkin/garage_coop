@@ -354,7 +354,10 @@ def _ingest_board_chat(message: dict) -> None:
     text = (body.get("text") or "").strip()
     if text.startswith("/"):
         return
-    if body.get("attachments"):
+    attachments = body.get("attachments") or []
+    if attachments and all(a.get("type") == "sticker" for a in attachments):
+        text = f"[стикер] {text}".strip()
+    elif attachments:
         text = f"[вложение в MAX] {text}".strip()
     if not text:
         return

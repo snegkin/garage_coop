@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Бланки и шаблоны") }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+  <h3 class="mb-0">{{ _("Бланки и шаблоны") }}</h3>
+  <a class="btn btn-outline-primary" href="{{ url_for('documents.edit_template') }}"><i class="bi bi-plus-lg" aria-hidden="true"></i> {{ _("Новый шаблон") }}</a>
+</div>
+<p class="text-muted small">{{ _("Документы на официальном бланке кооператива: справки, уведомления, объявления, информационные листы. Шаблон задаёт заголовок и текст с подстановками из реестра; документ составляется по шаблону, правится прямо на бланке и сохраняется в журнал — для печати и PDF.") }}</p>
+
+{% if open_requests %}
+<h5 id="certificate-requests">{{ _("Запросы справок о владении гаражом") }}</h5>
+<table class="table table-sm bg-body align-middle mb-4">
+  <thead><tr><th>{{ _("Дата") }}</th><th>{{ _("Кто") }}</th><th>{{ _("Гараж") }}</th><th>{{ _("Комментарий") }}</th><th>{{ _("Статус") }}</th><th class="no-sort"></th></tr></thead>
+  <tbody>
+    {% for r in open_requests %}
+    {% set badge = certificate_request_badge(r) %}
+    <tr>
+      <td>{{ r.created_at.strftime('%d.%m.%Y') }}</td>
+      <td><a href="{{ url_for('persons.detail', person_id=r.person_id) }}">{{ r.person.full_name }}</a></td>
+      <td>{% if r.garage_id %}<a href="{{ url_for('garages.detail', garage_id=r.garage_id) }}">№ {{ r.garage_number }}</a>{% else %}№ {{ r.garage_number }}{% endif %}</td>
+      <td class="small">{{ r.comment or "" }}</td>
+      <td><span class="badge {{ badge[1] }}">{{ _("готова, ждёт получения") if r.status.value == 'ready' else badge[0] }}</span></td>
+      <td class="text-end">
+        {% if is_chairman() %}
+        <div class="d-flex gap-1 justify-content-end flex-wrap">
+          {% if r.status.value == 'requested' %}
+          <a class="btn btn-sm btn-primary" href="{{ url_for('documents.create', request_id=r.id) }}">{{ _("Оформить справку") }}</a>
+          <form method="post" action="{{ url_for('certificates.reject_request', request_id=r.id) }}" class="d-flex gap-1"
+                onsubmit="return confirm({{ _('Отказать в справке?')|tojson|forceescape }})">
+            <input class="form-control form-control-sm" name="reason" placeholder="{{ _('причина отказа') }}" style="width: 12rem;">
+            <button class="btn btn-sm btn-outline-danger">{{ _("Отказать") }}</button>
+          </form>
+          {% else %}
+          {% if r.document %}<a class="btn btn-sm btn-outline-primary" href="{{ url_for('documents.detail', document_id=r.document_id) }}"><i class="bi bi-printer" aria-hidden="true"></i> № {{ r.document.number or "" }}</a>{% endif %}
+          <form method="post" action="{{ url_for('certificates.request_handed_over', request_id=r.id) }}">
+            <button class="btn btn-sm btn-success">{{ _("Выдана на руки") }}</button>
+          </form>
+          {% endif %}
+        </div>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+<h5>{{ _("Шаблоны") }}</h5>
+<div class="row g-3 mb-3">
+  {% for t in templates if not t.is_archived %}
+  <div class="col-sm-6 col-lg-4">
+    <div class="card h-100">
+      <div class="card-body">
+        <h6 class="card-title mb-1">{{ t.name }}</h6>
+        <div class="small text-muted">
+          {% if t.title %}«{{ t.title }}» · {% endif %}{{ document_recipient_label(t.recipient) }}{% if t.show_number %} · {{ _("с номером") }}{% endif %}{% if t.chairman_only %} · {{ _("составляет председатель") }}{% endif %}
+        </div>
+      </div>
+      <div class="card-footer bg-transparent d-flex gap-2 flex-wrap">
+        {% if not t.chairman_only or is_chairman() %}
+        <a class="btn btn-sm btn-primary" href="{{ url_for('documents.create', template_id=t.id) }}">{{ _("Составить") }}</a>
+        {% endif %}
+        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('documents.edit_template', template_id=t.id) }}" title="{{ _('Редактировать шаблон') }}" aria-label="{{ _('Редактировать шаблон') }}"><i class="bi bi-pencil" aria-hidden="true"></i></a>
+        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('documents.edit_template', copy_of=t.id) }}" title="{{ _('Новый шаблон на основе этого') }}" aria-label="{{ _('Новый шаблон на основе этого') }}"><i class="bi bi-copy" aria-hidden="true"></i></a>
+        <form method="post" action="{{ url_for('documents.archive_template', template_id=t.id) }}" class="ms-auto">
+          <button class="btn btn-sm btn-outline-secondary" title="{{ _('Убрать в архив') }}" aria-label="{{ _('Убрать в архив') }}"><i class="bi bi-archive" aria-hidden="true"></i></button>
+        </form>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+{% if missing_defaults %}
+<form method="post" action="{{ url_for('documents.add_defaults') }}" class="mb-3">
+  <button class="btn btn-sm btn-outline-primary"><i class="bi bi-magic" aria-hidden="true"></i> {{ _("Добавить стандартные шаблоны") }}</button>
+  <span class="small text-muted ms-2">{{ missing_defaults|join(", ") }}</span>
+</form>
+{% endif %}
+
+{% set archived = templates|selectattr("is_archived")|list %}
+{% if archived %}
+<details class="mb-4">
+  <summary class="small text-muted">{{ _("Шаблоны в архиве") }}: {{ archived|length }}</summary>
+  <ul class="list-unstyled mt-2">
+    {% for t in archived %}
+    <li class="d-flex align-items-center gap-2 mb-1">
+      <a href="{{ url_for('documents.edit_template', template_id=t.id) }}">{{ t.name }}</a>
+      <form method="post" action="{{ url_for('documents.archive_template', template_id=t.id) }}">
+        <button class="btn btn-sm btn-link p-0">{{ _("вернуть из архива") }}</button>
+      </form>
+    </li>
+    {% endfor %}
+  </ul>
+</details>
+{% endif %}
+
+<h5>{{ _("Журнал документов") }}</h5>
+{% if documents %}
+{% include "documents/_list_table.html" %}
+{% else %}
+<p class="text-muted">{{ _("Документов пока нет.") }}</p>
+{% endif %}
+{% endblock %}

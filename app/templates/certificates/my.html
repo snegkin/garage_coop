@@ -39,7 +39,7 @@
       <td>{{ r.created_at.strftime('%d.%m.%Y') }}</td>
       <td>№ {{ r.garage_number }}</td>
       <td><span class="badge {{ badge[1] }}">{{ badge[0] }}</span>{% if r.reject_reason %} <span class="small text-muted">{{ r.reject_reason }}</span>{% endif %}</td>
-      <td>{% if r.certificate %}<a href="{{ url_for('certificates.detail', certificate_id=r.certificate_id) }}">№ {{ r.certificate.number }}</a>{% else %}—{% endif %}</td>
+      <td>{% if r.document %}<a href="{{ url_for('documents.detail', document_id=r.document_id) }}">№ {{ r.document.number or "" }}</a>{% else %}—{% endif %}</td>
     </tr>
     {% endfor %}
   </tbody>
@@ -48,6 +48,7 @@
 
 {% if certificates %}
 <h5>{{ _("Выданные справки") }}</h5>
-{% include "certificates/_list_table.html" %}
+{% set documents = certificates %}
+{% include "documents/_list_table.html" %}
 {% endif %}
 {% endblock %}

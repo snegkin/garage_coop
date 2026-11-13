@@ -105,7 +105,7 @@ def items(user, by_key: dict[str, int] | None = None) -> list[dict]:
         ("pd", "exclamation-triangle", _("Ожидает одобрения"), url_for("persons.list_persons")),
         ("votes", "check2-square", _("Не проголосовано"), url_for("voting.list_votes")),
         ("proposals", "lightbulb", _("Предложения ждут решения"), url_for("proposals.list_proposals")),
-        ("certificates", "file-earmark-check", _("Запрошены справки"), url_for("certificates.list_certificates")),
+        ("certificates", "file-earmark-check", _("Запрошены справки"), url_for("documents.index", _anchor="certificate-requests")),
         ("applications", "file-earmark-text", _("Заявления ждут решения"),
          url_for("applications.list_applications", status="submitted")),
     ]

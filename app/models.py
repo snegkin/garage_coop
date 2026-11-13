@@ -54,6 +54,10 @@ class Cooperative(Base):
     postal_address: Mapped[str | None] = mapped_column(Text)
     email: Mapped[str | None] = mapped_column(String(255))
     website: Mapped[str | None] = mapped_column(String(255))
+    phone: Mapped[str | None] = mapped_column(String(100))
+    # Группы/каналы в соцсетях и мессенджерах — по ссылке на строку
+    # («Telegram: https://t.me/…»); для бланков (app/documents.py, {{соцсети}}).
+    social_links: Mapped[str | None] = mapped_column(Text)
 
     registration_date: Mapped[dt.date | None] = mapped_column(Date)
 
@@ -1311,32 +1315,6 @@ class ApplicationRead(Base):
     )
 
 
-class GarageCertificate(Base):
-    """
-    Справка правления о владении гаражом (для оформления гаража в
-    собственность по «гаражной амнистии», ст. 3.7 Федерального закона
-    № 137-ФЗ) — выдаёт председатель (app/certificates.py). Журнал выданных
-    справок: номер «<год>-<N>» (CertificateCounter), текст на момент выдачи
-    (body_html — из редактора на бланке, санитизирован как у заявлений),
-    повторная печать — того же текста. Подшивается к человеку и гаражу.
-    """
-    __tablename__ = "garage_certificate"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    number: Mapped[str] = mapped_column(String(30), unique=True)
-    person_id: Mapped[int] = mapped_column(ForeignKey("person.id", ondelete="CASCADE"), index=True)
-    garage_id: Mapped[int | None] = mapped_column(ForeignKey("garage.id", ondelete="SET NULL"), index=True)
-    garage_number: Mapped[str] = mapped_column(String(20))
-    body_html: Mapped[str] = mapped_column(Text)
-    issued_at: Mapped[dt.date] = mapped_column(Date, index=True)
-    issued_by_person_id: Mapped[int | None] = mapped_column(ForeignKey("person.id", ondelete="SET NULL"))
-    created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.now)
-
-    person: Mapped["Person"] = relationship(foreign_keys=[person_id])
-    garage: Mapped["Garage | None"] = relationship()
-    issued_by: Mapped["Person | None"] = relationship(foreign_keys=[issued_by_person_id])
-
-
 class CertificateRequestStatus(str, enum.Enum):
     REQUESTED = "requested"        # член кооператива запросил, ждёт председателя
     READY = "ready"                # справка выдана в журнале, распечатана — забрать у председателя
@@ -1346,8 +1324,9 @@ class CertificateRequestStatus(str, enum.Enum):
 
 class CertificateRequest(Base):
     """Запрос справки о владении гаражом из личного кабинета собственника
-    (certificates.request_certificate). Председатель оформляет по нему
-    справку (GarageCertificate, certificate_id) → READY, собственнику
+    (certificates.my_certificates). Председатель оформляет по нему справку
+    — документ по шаблону с code="garage_certificate" (IssuedDocument,
+    document_id, см. app/documents.py) → READY, собственнику
     уведомление «заберите»; потом отмечает выдачу на руки → HANDED_OVER."""
     __tablename__ = "certificate_request"
 
@@ -1360,19 +1339,81 @@ class CertificateRequest(Base):
         Enum(CertificateRequestStatus), default=CertificateRequestStatus.REQUESTED, index=True
     )
     created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.now)
-    certificate_id: Mapped[int | None] = mapped_column(ForeignKey("garage_certificate.id", ondelete="SET NULL"))
+    document_id: Mapped[int | None] = mapped_column(ForeignKey("issued_document.id", ondelete="SET NULL"))
     ready_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
     handed_over_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
     reject_reason: Mapped[str | None] = mapped_column(Text)
 
     person: Mapped["Person"] = relationship()
     garage: Mapped["Garage | None"] = relationship()
-    certificate: Mapped["GarageCertificate | None"] = relationship()
+    document: Mapped["IssuedDocument | None"] = relationship()
 
 
-class CertificateCounter(Base):
-    """Последний номер справки за год — как ApplicationCounter."""
-    __tablename__ = "certificate_counter"
+class DocumentTemplate(Base):
+    """
+    Шаблон документа на бланке кооператива (app/documents.py): объявления,
+    справки, уведомления, информационные листы. Текст (body_html) и шапка
+    справа (addressee_html) — HTML из того же редактора, что у заявлений,
+    с подстановками вида {{ИНН}}, {{ФИО}} (documents.VARIABLES) —
+    подставляются при создании документа по шаблону.
+
+    recipient — кому документ: "none" (объявление, информационный лист),
+    "person" (человек из реестра), "garage" (собственник + гараж).
+    """
+    __tablename__ = "document_template"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(200))
+    title: Mapped[str] = mapped_column(String(200), default="")
+    addressee_html: Mapped[str] = mapped_column(Text, default="")
+    body_html: Mapped[str] = mapped_column(Text, default="")
+    recipient: Mapped[str] = mapped_column(String(10), default="none")
+    show_number: Mapped[bool] = mapped_column(Boolean, default=True)
+    show_signature: Mapped[bool] = mapped_column(Boolean, default=True)
+    signer_role: Mapped[str] = mapped_column(String(100), default="Председатель")
+    code: Mapped[str | None] = mapped_column(String(40), unique=True)
+    chairman_only: Mapped[bool] = mapped_column(Boolean, default=False)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    is_archived: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.now)
+    updated_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.now, onupdate=dt.datetime.now)
+
+
+class IssuedDocument(Base):
+    """
+    Документ, составленный по шаблону (или копией другого документа) —
+    журнал «Бланков и шаблонов». Хранится текст на момент составления
+    (подстановки уже выполнены, текст поправлен на бланке), повторная
+    печать — того же текста. Номер «<год>-<N>» (DocumentCounter) — только
+    если у шаблона show_number.
+    """
+    __tablename__ = "issued_document"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    template_id: Mapped[int | None] = mapped_column(ForeignKey("document_template.id", ondelete="SET NULL"), index=True)
+    number: Mapped[str | None] = mapped_column(String(30), unique=True)
+    title: Mapped[str] = mapped_column(String(200), default="")
+    addressee_html: Mapped[str] = mapped_column(Text, default="")
+    body_html: Mapped[str] = mapped_column(Text)
+    issued_at: Mapped[dt.date] = mapped_column(Date, index=True)
+    person_id: Mapped[int | None] = mapped_column(ForeignKey("person.id", ondelete="SET NULL"), index=True)
+    garage_id: Mapped[int | None] = mapped_column(ForeignKey("garage.id", ondelete="SET NULL"), index=True)
+    show_signature: Mapped[bool] = mapped_column(Boolean, default=True)
+    signer_role: Mapped[str] = mapped_column(String(100), default="Председатель")
+    signer_person_id: Mapped[int | None] = mapped_column(ForeignKey("person.id", ondelete="SET NULL"))
+    created_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("user.id", ondelete="SET NULL"))
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.now)
+
+    template: Mapped["DocumentTemplate | None"] = relationship()
+    person: Mapped["Person | None"] = relationship(foreign_keys=[person_id])
+    garage: Mapped["Garage | None"] = relationship()
+    signer: Mapped["Person | None"] = relationship(foreign_keys=[signer_person_id])
+
+
+class DocumentCounter(Base):
+    """Последний номер документа из «Бланков и шаблонов» за год — номер не
+    переиспользуется, даже если документ удалят."""
+    __tablename__ = "document_counter"
 
     year: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
     last_number: Mapped[int] = mapped_column(Integer, default=0)

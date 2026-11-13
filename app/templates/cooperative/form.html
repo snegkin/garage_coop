@@ -25,6 +25,15 @@
       <label class="form-label">{{ _("Сайт") }}</label>
       <input class="form-control" type="text" name="website" value="{{ coop.website or '' }}" placeholder="https://...">
     </div>
+    <div class="col-md-4">
+      <label class="form-label">{{ _("Телефон") }}</label>
+      <input class="form-control" type="text" name="phone" value="{{ coop.phone or '' }}">
+    </div>
+    <div class="col-md-8">
+      <label class="form-label">{{ _("Группы в соцсетях и мессенджерах") }}</label>
+      <textarea class="form-control" name="social_links" rows="3" placeholder="Telegram: https://t.me/...&#10;VK: https://vk.com/...">{{ coop.social_links or '' }}</textarea>
+      <div class="form-text">{{ _("По строке на группу — для бланков и объявлений (подстановка «соцсети»).") }}</div>
+    </div>
 
     <div class="col-12"><hr></div>
     <div class="col-12"><h5>{{ _("Реквизиты") }}</h5></div>

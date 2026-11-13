@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% import "documents/_macros.html" as m %}
+{% import "applications/_editor.html" as editor %}
+{% block title %}{{ _("Шаблон документа") }}{% endblock %}
+{% block content %}
+{% include "applications/_sheet_style.html" %}
+{{ m.style() }}
+<div class="d-flex justify-content-between align-items-center mb-3 no-print flex-wrap gap-2">
+  <h3 class="mb-0">{{ _("Шаблон документа") }}{% if template %}: {{ template.name }}{% endif %}</h3>
+  <a data-back-link data-back-label="&larr; {{ _('Назад') }}" class="btn btn-outline-secondary btn-sm" href="{{ url_for('documents.index') }}">{{ _("← к бланкам и шаблонам") }}</a>
+</div>
+
+<form method="post">
+  <div class="row g-2 mb-3 no-print">
+    <div class="col-md-5">
+      <label class="form-label small mb-1" for="tplName">{{ _("Название шаблона") }}</label>
+      <input class="form-control form-control-sm" name="name" id="tplName" value="{{ draft.name }}" required maxlength="200">
+    </div>
+    <div class="col-md-4">
+      <label class="form-label small mb-1" for="tplRecipient">{{ _("Кому документ") }}</label>
+      <select class="form-select form-select-sm" name="recipient" id="tplRecipient">
+        {% for value in recipients %}
+        <option value="{{ value }}"{% if draft.recipient == value %} selected{% endif %}>{{ document_recipient_label(value) }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-3">
+      <label class="form-label small mb-1" for="tplOrder">{{ _("Порядок в списке") }}</label>
+      <input class="form-control form-control-sm" type="number" name="sort_order" id="tplOrder" value="{{ draft.sort_order or 0 }}">
+    </div>
+    <div class="col-md-8 d-flex gap-3 align-items-center flex-wrap">
+      <div class="form-check">
+        <input class="form-check-input" type="checkbox" name="show_number" id="tplNumber" value="1"{% if draft.show_number %} checked{% endif %}>
+        <label class="form-check-label small" for="tplNumber">{{ _("Номер и дата под заголовком") }}</label>
+      </div>
+      <div class="form-check">
+        <input class="form-check-input" type="checkbox" name="show_signature" id="tplSign" value="1"{% if draft.show_signature %} checked{% endif %}>
+        <label class="form-check-label small" for="tplSign">{{ _("Подпись и печать") }}</label>
+      </div>
+      <div class="form-check">
+        <input class="form-check-input" type="checkbox" name="chairman_only" id="tplChair" value="1"{% if draft.chairman_only %} checked{% endif %}>
+        <label class="form-check-label small" for="tplChair">{{ _("Составляет только председатель") }}</label>
+      </div>
+    </div>
+    <div class="col-md-4">
+      <label class="form-label small mb-1" for="tplSigner">{{ _("Подпись — должность") }}</label>
+      <input class="form-control form-control-sm" name="signer_role" id="tplSigner" value="{{ draft.signer_role }}" maxlength="100">
+    </div>
+  </div>
+
+  <div class="d-flex flex-wrap gap-3 align-items-start">
+    <div style="flex: 0 1 210mm; min-width: 0;">
+      {{ editor.toolbar("docBody") }}
+      <div class="legal-print">
+        {{ m.doc_sheet(coop, draft.title, _("(присваивается при сохранении документа)") if draft.show_number else None, today,
+                       draft.addressee_html, draft.body_html, draft.show_signature, chairman, draft.signer_role, editable=True) }}
+      </div>
+    </div>
+    <div class="card no-print doc-vars" style="flex: 1 1 16rem; position: sticky; top: 1rem;">
+      <div class="card-body small">
+        <h6>{{ _("Подстановки") }}</h6>
+        <p class="text-muted">{{ _("Щёлкните — подстановка вставится туда, где стоит курсор (в заголовок, шапку или текст). При составлении документа она заменится данными; пустые значения — прочерком для заполнения от руки. «Адресат» и «Гараж» работают, только если документ кому-то адресован.") }}</p>
+        {% for group, items in variable_groups %}
+        <div class="fw-semibold mt-2">{{ _(group) }}</div>
+        <ul class="list-unstyled mb-0">
+          {% for key, desc in items %}
+          <li><code data-insert-var="{{ key }}" role="button" tabindex="0">{{ "{" ~ "{" ~ key ~ "}" ~ "}" }}</code> — {{ _(desc) }}</li>
+          {% endfor %}
+        </ul>
+        {% endfor %}
+        <div class="mt-3 text-muted">{{ _("Данные кооператива, телефон и группы в соцсетях — в «Информации о кооперативе», реквизиты банка — основной расчётный счёт.") }}</div>
+      </div>
+    </div>
+  </div>
+  <input type="hidden" name="addressee_html" id="docAddresseeInput">
+  <input type="hidden" name="body_html" id="docBodyInput">
+  <div class="d-flex justify-content-end gap-2 my-3 no-print" style="max-width: 210mm;">
+    <button class="btn btn-primary"><i class="bi bi-check2" aria-hidden="true"></i> {{ _("Сохранить шаблон") }}</button>
+  </div>
+</form>
+{{ editor.script() }}
+{{ m.script() }}
+{% endblock %}

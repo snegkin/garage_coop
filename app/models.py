@@ -3206,8 +3206,15 @@ class MessengerOutbox(Base):
     last_error: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.utcnow)
     sent_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
+    # Мост чата правления (app/board_chat.py): к какому сообщению чата
+    # относится запись (копия в группу, удаление, закреп), и id копии в
+    # мессенджере после отправки — по нему потом удаляют/закрепляют.
+    board_message_id: Mapped[int | None] = mapped_column(
+        ForeignKey("board_chat_message.id", ondelete="SET NULL"), index=True)
+    external_id: Mapped[str | None] = mapped_column(String(64))
 
     news: Mapped["News | None"] = relationship()
+    board_message: Mapped["BoardChatMessage | None"] = relationship()
 
 
 class WebPushSettings(Base):
@@ -3358,9 +3365,12 @@ class SmsLog(Base):
 # ---------------------------------------------------------------------------
 
 class BoardChatMessage(Base):
-    """Общий чат правления — простой хронологический лог, без
-    редактирования и удаления (тот же принцип неизменности, что у
-    AuditLog), без вложений и разметки (обычный текст)."""
+    """Общий чат правления — хронологический лог без редактирования, без
+    вложений и разметки (обычный текст). Удаление — мягкое (deleted_at,
+    строка остаётся для истории, в чате не показывается): своё сообщение —
+    автор, любое — председатель. Закреплено не больше одного сообщения
+    (pinned_at). Удаление и закреп повторяются в группах правления в
+    мессенджерах (app/board_chat.py, MessengerOutbox.board_message_id)."""
     __tablename__ = "board_chat_message"
     __table_args__ = (
         UniqueConstraint("source", "external_message_id", name="uq_board_chat_message_source_external"),
@@ -3381,8 +3391,12 @@ class BoardChatMessage(Base):
     external_author: Mapped[str | None] = mapped_column(String(128))
     # id сообщения в мессенджере — повторный апдейт не создаст дубль.
     external_message_id: Mapped[str | None] = mapped_column(String(64))
+    deleted_at: Mapped[dt.datetime | None] = mapped_column(DateTime, index=True)
+    deleted_by_id: Mapped[int | None] = mapped_column(ForeignKey("user.id", ondelete="SET NULL"))
+    pinned_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
+    pinned_by_id: Mapped[int | None] = mapped_column(ForeignKey("user.id", ondelete="SET NULL"))
 
-    author: Mapped["User | None"] = relationship()
+    author: Mapped["User | None"] = relationship(foreign_keys=[author_id])
 
 
 # ---------------------------------------------------------------------------

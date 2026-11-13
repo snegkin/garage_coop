@@ -260,9 +260,25 @@ def send_notification(settings: MaxSettings, user_id: int | str, text: str) -> N
     send_message(settings, None, text, user_id=user_id)
 
 
-def send_group_message(settings: MaxSettings, chat_id: int | str, text: str) -> None:
-    """Сообщение в группу (мост чата правления, очередь kind="group")."""
-    send_message(settings, chat_id, text)
+def send_group_message(settings: MaxSettings, chat_id: int | str, text: str) -> str | None:
+    """Сообщение в группу (мост чата правления, очередь kind="group").
+    -> mid отправленного сообщения (для удаления/закрепа потом)."""
+    result = send_message(settings, chat_id, text) or {}
+    return ((result.get("message") or {}).get("body") or {}).get("mid")
+
+
+def delete_group_message(settings: MaxSettings, chat_id, external_id: str) -> None:
+    _request(settings, "DELETE", "/messages", idempotent=True, params={"message_id": external_id})
+
+
+def pin_group_message(settings: MaxSettings, chat_id, external_id: str) -> None:
+    _request(settings, "PUT", f"/chats/{chat_id}/pin", idempotent=True,
+             payload={"message_id": external_id, "notify": False})
+
+
+def unpin_group_message(settings: MaxSettings, chat_id, external_id: str) -> None:
+    """В MAX закреп в чате один — снимается без указания сообщения."""
+    _request(settings, "DELETE", f"/chats/{chat_id}/pin", idempotent=True)
 
 
 def link_url(settings: MaxSettings | None, token: str) -> str | None:

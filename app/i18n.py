@@ -2131,6 +2131,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "новости": "news",
         "Новости сюда": "Post news here",
         "правление": "board",
+        "Закрепить": "Pin",
+        "Открепить": "Unpin",
+        "Закреплённое сообщение": "Pinned message",
+        "Удалить сообщение? Оно удалится и в группах Telegram и MAX.": "Delete the message? It will also be deleted in the Telegram and MAX groups.",
         "ID группы из списка «Чаты бота»": "Group ID from the «Bot chats» list",
         "Группа правления указывается числовым ID, не ссылкой-приглашением. Добавьте бота в группу участником и сделайте администратором, нажмите «Обновить список» — группа появится в «Чатах бота», там нажмите «Группа правления».":
             "The board group is set by its numeric ID, not an invite link. Add the bot to the group as a member and make it an administrator, click «Refresh list» — the group will appear under «Bot chats»; click «Board group» there.",

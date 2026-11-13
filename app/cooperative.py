@@ -11,7 +11,7 @@ from . import notifications
 from .i18n import translate as _, parse_optional_decimal as _parse_decimal
 from .auth import login_required, roles_required
 from .models import Cooperative, BankAccount, BankApiProvider, RoleEnum, Document, DocumentType, Person, Counterparty, PostalDispatch
-from .accounting import cooperative_balance, get_primary_bank_account
+from .accounting import bank_accounts_with_history, cooperative_balance, get_primary_bank_account
 from .uploads import save_upload
 from .permissions import is_board
 
@@ -144,7 +144,7 @@ def edit_bank_account(account_id):
         abort(404)
 
     f = request.form
-    is_primary = bool(f.get("is_primary"))
+    is_primary = bool(f.get("is_primary")) and not account.is_archived  # архивный — не основной
     if is_primary and not account.is_primary:
         database.db_session.query(BankAccount).filter(BankAccount.id != account.id).update({"is_primary": False})
 
@@ -177,10 +177,47 @@ def delete_bank_account(account_id):
     account = database.db_session.get(BankAccount, account_id)
     if account is None:
         abort(404)
+    if account.id in bank_accounts_with_history():
+        # Каскад (ondelete=CASCADE) стёр бы выписки и реестры счёта, а
+        # платежи контрагентам и ПД-4 потеряли бы счёт — такой счёт
+        # только в архив.
+        flash(_("По счёту есть выписки, реестры или платежи — удалить его нельзя. Перенесите счёт в архив: история сохранится."), "danger")
+        return redirect(url_for("finance.bank_accounts"))
     audit.record("bank_account.delete", f"Удалён расчётный счёт: {account.bank_name}, {account.checking_account}")
     database.db_session.delete(account)
     database.db_session.commit()
     flash(_("Расчётный счёт удалён."), "success")
+    return redirect(url_for("finance.bank_accounts"))
+
+
+@bp.route("/bank-accounts/<int:account_id>/archive", methods=["POST"])
+@roles_required(RoleEnum.CHAIRMAN)
+def archive_bank_account(account_id):
+    """Закрытый счёт — в архив: история остаётся, но счёт пропадает из
+    форм платежей, реквизитов/ПД-4, сводного баланса и синхронизации с
+    банком (см. BankAccount.is_archived). Основным архивный счёт быть не
+    может — основным становится первый из действующих (get_primary_bank_account)."""
+    account = database.db_session.get(BankAccount, account_id)
+    if account is None:
+        abort(404)
+    account.is_archived = True
+    account.is_primary = False
+    audit.record("bank_account.archive", f"Расчётный счёт перенесён в архив: {account.bank_name}, {account.checking_account}")
+    database.db_session.commit()
+    flash(_("Расчётный счёт перенесён в архив."), "success")
+    return redirect(url_for("finance.bank_accounts"))
+
+
+@bp.route("/bank-accounts/<int:account_id>/unarchive", methods=["POST"])
+@roles_required(RoleEnum.CHAIRMAN)
+def unarchive_bank_account(account_id):
+    account = database.db_session.get(BankAccount, account_id)
+    if account is None:
+        abort(404)
+    account.is_archived = False
+    audit.record("bank_account.unarchive", f"Расчётный счёт возвращён из архива: {account.bank_name}, {account.checking_account}")
+    database.db_session.commit()
+    flash(_("Расчётный счёт возвращён из архива."), "success")
     return redirect(url_for("finance.bank_accounts"))
 
 

@@ -521,7 +521,7 @@
             <label class="form-label">{{ _("Счёт списания") }}</label>
             <select class="form-select" name="bank_account_id">
               <option value="">{{ _("— наличными / не указан —") }}</option>
-              {% for acc in bank_accounts %}
+              {% for acc in bank_accounts if not acc.is_archived %}
               <option value="{{ acc.id }}">{{ acc.bank_name }} ({{ acc.checking_account }}){% if acc.balance is not none %} — {{ fmt2(acc.balance) }} ₽{% endif %}</option>
               {% endfor %}
             </select>
@@ -588,7 +588,7 @@
             <label class="form-label">{{ _("Счёт списания") }}</label>
             <select class="form-select" name="bank_account_id">
               <option value="">{{ _("— наличными / не указан —") }}</option>
-              {% for acc in bank_accounts %}
+              {% for acc in bank_accounts if not acc.is_archived or p.bank_account_id == acc.id %}
               <option value="{{ acc.id }}" {{ "selected" if p.bank_account_id == acc.id }}>{{ acc.bank_name }} ({{ acc.checking_account }})</option>
               {% endfor %}
             </select>

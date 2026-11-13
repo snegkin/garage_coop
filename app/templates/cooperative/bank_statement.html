@@ -118,7 +118,7 @@
           {% endif %}
           <div class="text-danger small js-allocate-error d-none"></div>
         </form>
-        {% elif line.direction == "credit" and is_aggregate_registry_payment(line.payment_purpose) %}
+        {% elif line.direction == "credit" and account.is_sberbank and is_aggregate_registry_payment(line.payment_purpose) %}
         <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('bank_sync.payment_registry', account_id=account.id) }}">{{ _("Реестр") }}</a>
         {% endif %}
       </td>

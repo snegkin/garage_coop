@@ -306,11 +306,16 @@ def dashboard():
     # если есть что сравнивать.
     stale_registries = []
     if is_chairman():
-        accounts_with_registry = (
-            database.db_session.query(BankAccount)
-            .filter(BankAccount.id.in_(database.db_session.query(ChargeRegistryFile.bank_account_id)))
-            .all()
-        )
+        # Только действующие счета в Сбере: у архивного счёта (переехали в
+        # другой банк) устаревший реестр — не повод для напоминания.
+        accounts_with_registry = [
+            account for account in (
+                database.db_session.query(BankAccount)
+                .filter(BankAccount.id.in_(database.db_session.query(ChargeRegistryFile.bank_account_id)))
+                .all()
+            )
+            if account.registries_available
+        ]
         if accounts_with_registry:
             # Строки реестра зависят от счёта только через % комиссии банка
             # (сумма к оплате за электричество) — собираем один раз на

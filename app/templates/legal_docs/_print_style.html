@@ -79,9 +79,14 @@
    persons/penalty_calculation.html — см. git-историю: 483da64, b21a073,
    d905087). */
 .legal-print .signature-rows { text-align: left; width: 140mm !important; margin-left: auto !important; }
-.legal-print .signature-line { margin-bottom: 7mm; white-space: nowrap; }
-.legal-print .sig-role { display: inline-block; width: 28mm; }
-.legal-print .sig-blank { display: inline-block; width: 45mm; border-bottom: 1px solid #000; margin: 0 2mm; }
+/* Строка подписи — flex: должность бывает длинной («Председатель
+   правления», своя у шаблонов «Бланков и шаблонов») — она занимает
+   сколько нужно (не меньше 28 мм), а сжимается линия под подпись (не
+   уже 20 мм), а не наезжает должность на линию и не обрезается ФИО справа. */
+.legal-print .signature-line { margin-bottom: 7mm; display: flex; align-items: flex-end; white-space: nowrap; }
+.legal-print .sig-role { flex: none; min-width: 28mm; }
+.legal-print .sig-blank { display: block; flex: 0 1 45mm; min-width: 20mm; height: 1.2em; border-bottom: 1px solid #000; margin: 0 2mm; }
+.legal-print .sig-name, .legal-print .sig-date { flex: none; }
 .legal-print .sig-name { font-size: 10px; }
 .legal-print .sig-date { font-size: 10px; margin-left: 5mm; }
 .legal-print .stamp-place {

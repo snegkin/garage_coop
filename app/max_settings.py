@@ -81,7 +81,14 @@ def save_settings():
             continue
         chat_id = f.get(field, "").strip()
         if chat_id and not _CHAT_ID_RE.match(chat_id):
-            flash(_("ID канала MAX — число (его показывает список «Чаты бота»)."), "danger")
+            if field == "board_chat_id":
+                # Частая ошибка — вставить ссылку-приглашение https://max.ru/join/…:
+                # по ней бот в группу не попадёт, нужен ID из «Чатов бота».
+                flash(_("Группа правления указывается числовым ID, не ссылкой-приглашением. Добавьте бота "
+                        "в группу участником и сделайте администратором, нажмите «Обновить список» — группа "
+                        "появится в «Чатах бота», там нажмите «Группа правления»."), "danger")
+            else:
+                flash(_("ID канала MAX — число (его показывает список «Чаты бота»)."), "danger")
             return redirect(url_for("max_settings.view"))
         setattr(settings, field, chat_id or None)
 

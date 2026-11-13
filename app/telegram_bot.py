@@ -24,6 +24,7 @@ Bot API не позволяет написать произвольному @use
 import datetime as dt
 import html
 import json
+import logging
 import os
 import re
 
@@ -34,6 +35,8 @@ from .api_log import mask_secrets_in_text
 from .bank_api import crypto
 from .messenger_errors import MessengerError, MessengerUncertain, is_connect_stage
 from .models import News, Person, TelegramSettings
+
+logger = logging.getLogger(__name__)
 
 API_BASE = "https://api.telegram.org"
 REQUEST_TIMEOUT = 10
@@ -182,7 +185,9 @@ def _reply_chat_id(settings: TelegramSettings, chat: dict) -> None:
             "Впишите его в настройках Telegram на сайте кооператива "
             "(поле «Группа для новостей» или «Группа правления»).",
         )
-    except TelegramError:
+    except TelegramError as exc:
+        # Раньше ошибка молча терялась — и /chatid «просто не отвечал».
+        logger.warning("Telegram: не удалось ответить на /chatid в чат %s: %s", chat.get("id"), exc)
         pass  # подсказка — best-effort
 
 
@@ -220,6 +225,25 @@ def _ingest_board_chat(message: dict, text: str) -> bool:
     return True
 
 
+def _log_update(update: dict, message: dict | None) -> None:
+    """Строка в лог cron на каждый апдейт — тип, чат и (для команд) сама
+    команда; обычный текст не пишем (переписка правления в логе ни к чему).
+    Без этого «бот молчит» не отличить от «апдейт не пришёл»."""
+    kind = next((k for k in update if k != "update_id"), "?")
+    if not message:
+        chat = ((update.get(kind) or {}) if isinstance(update.get(kind), dict) else {}).get("chat") or {}
+        logger.info("Telegram: апдейт %s, чат %s", kind, chat.get("id"))
+        return
+    chat = message.get("chat") or {}
+    text = (message.get("text") or "").strip()
+    command = text.split(maxsplit=1)[0] if text.startswith("/") else ""
+    extra = ""
+    if message.get("migrate_to_chat_id"):
+        extra = f", группа стала супергруппой: новый ID {message['migrate_to_chat_id']}"
+    logger.info("Telegram: апдейт %s, чат %s (%s)%s%s", kind, chat.get("id"), chat.get("type"),
+                f", команда {command}" if command else "", extra)
+
+
 def poll_and_link_accounts() -> tuple[int, int]:
     """Сама логика cron-скрипта scripts/poll_messengers.py (тонкая обёртка,
     тот же принцип, что у app/notifications.py:run_board_chat_digest и
@@ -242,6 +266,7 @@ def poll_and_link_accounts() -> tuple[int, int]:
     for update in updates:
         settings.last_update_id = update["update_id"]
         message = update.get("message") or update.get("channel_post")
+        _log_update(update, message)
         if not message:
             continue
         text = (message.get("text") or "").strip()

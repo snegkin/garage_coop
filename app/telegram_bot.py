@@ -170,7 +170,8 @@ def get_me(settings: TelegramSettings) -> dict:
 def _is_chatid_command(text: str) -> bool:
     """/chatid или /chatid@имя_бота (так Telegram подставляет команду,
     выбранную из меню в группе)."""
-    command = text.split(maxsplit=1)[0] if text else ""
+    # Без учёта регистра: «/chatId», набранное руками, — та же команда.
+    command = text.split(maxsplit=1)[0].lower() if text else ""
     return command == "/chatid" or command.startswith("/chatid@")
 
 

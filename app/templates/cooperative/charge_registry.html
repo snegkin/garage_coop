@@ -32,7 +32,7 @@
           <td class="text-muted small">
             {% if not c.in_before %}{{ _("новый счёт в реестре") }}
             {% elif not c.in_after %}{{ _("счёт убран из реестра") }}
-            {% elif c.other_fields %}{{ _("изменилось") }}: {{ c.other_fields|map("extract", column_labels)|join(", ") }}{% endif %}
+            {% elif c.other_fields %}{{ _("изменилось") }}: {% for field in c.other_fields %}{{ column_labels.get(field, field) }}{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}
           </td>
         </tr>
         {% endfor %}

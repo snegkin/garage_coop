@@ -1887,6 +1887,33 @@ def test_charge_registry_staleness_lists_changes(app, db, client):
     assert "новый счёт в реестре" in page
 
 
+def test_charge_registry_page_lists_changed_fields_other_than_amount(app, db, client):
+    """Сумма та же, но поменялось ФИО плательщика — страница открывается
+    (раньше падала с 500: в шаблоне был несуществующий Jinja-фильтр
+    «extract») и называет изменившееся поле по-русски."""
+    person = make_person(db, full_name="Иванов Иван Иванович")
+    garage = make_garage(db)
+    fee_type = FeeType(code="membership", name="Членский взнос")
+    db.add(fee_type)
+    db.flush()
+    member_account = MemberAccount(person_id=person.id, garage_id=garage.id, fee_type_id=fee_type.id, account_number="10121")
+    db.add(member_account)
+    db.flush()
+    db.add(Charge(account_id=member_account.id, year=2026, amount=Decimal("500.00")))
+    bank_account = make_bank_account(db, provider=BankApiProvider.SBERBANK)
+    make_user(db, "chair_fields", "pass12345", role=RoleEnum.CHAIRMAN)
+    db.commit()
+    login(client, "chair_fields", "pass12345")
+    _generate_charge_registry(client, db, bank_account)
+
+    person.full_name = "Петров Пётр Петрович"
+    db.commit()
+
+    response = client.get(f"/cooperative/bank-accounts/{bank_account.id}/registry/charges")
+    assert response.status_code == 200
+    assert "изменилось: ФИО плательщика" in response.get_data(as_text=True)
+
+
 def test_charge_registry_requires_cooperative_inn(app, db, client):
     person = make_person(db)
     garage = make_garage(db)

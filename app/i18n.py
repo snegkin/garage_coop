@@ -2133,6 +2133,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "правление": "board",
         "Закрепить": "Pin",
         "Смайлики": "Emoji",
+        "Потяните, чтобы изменить высоту поля ввода; двойной клик — по умолчанию": "Drag to change the input height; double-click to reset",
         "Открепить": "Unpin",
         "Закреплённое сообщение": "Pinned message",
         "Удалить сообщение? Оно удалится и в группах Telegram и MAX.": "Delete the message? It will also be deleted in the Telegram and MAX groups.",

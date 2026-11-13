@@ -229,20 +229,23 @@ def test_widget_present_for_board_member(db, client):
 
 
 def test_widget_panel_is_resizable_and_draggable(db, client):
-    """Окно чата меняет размер за любой край или угол (ручки
-    .chat-widget-resize — нативный уголок resize:both был слишком мелким) и
-    перетаскивается за шапку; поле ввода растёт по тексту само, без своей
-    ручки (resize:none + autoGrow)."""
+    """Окно чата меняет размер нативным уголком (resize:both) и
+    перетаскивается за шапку; размер не затирается нулями при закрытии
+    (isHidden). Высоту поля ввода задаёт разделитель над ним (splitter,
+    запоминается), а по тексту поле растёт само (autoGrow)."""
     _board_user(db)
     login(client, "board1", "pass1234")
     resp = client.get("/dashboard")
     body = resp.get_data(as_text=True)
-    assert "resize: both" not in body
-    assert ".chat-widget-resize--nw" in body and '"ne", "nw", "se", "sw"' in body
+    assert "resize: both" in body
+    assert "chat-widget-resize" not in body
     assert "cursor: move" in body
     assert "ResizeObserver" in body
+    assert "if (isMobile() || isHidden()) return;" in body
     assert ".chat-widget-form textarea { resize: none;" in body
     assert 'input.addEventListener("input", autoGrow)' in body
+    assert "chat-widget-splitter" in body and "chatWidgetInputHeight:" in body
+    assert "bi-send-fill" in body
 
 
 def test_widget_panel_is_fullscreen_on_mobile(db, client):
@@ -261,7 +264,7 @@ def test_widget_panel_is_fullscreen_on_mobile(db, client):
     assert ".chat-widget-back { display: block; }" in mobile_css
     assert 'class="chat-widget-back"' in body
     assert "history.pushState" in body
-    assert "function saveGeometry() {\n    if (isMobile()) return;" in body
+    assert "function saveGeometry() {\n    if (isMobile() || isHidden()) return;" in body
 
 
 def test_widget_absent_for_plain_member(db, client):

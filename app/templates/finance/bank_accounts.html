@@ -3,9 +3,12 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h3>{{ _("Расчётные счета") }}</h3>
-  {% if is_chairman() %}
-  <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#createBankAccountModal">+ {{ _("Добавить счёт") }}</button>
-  {% endif %}
+  <div class="d-flex gap-2 align-items-center">
+    {% with logs_section = "bank" %}{% include "system_logs/_link.html" %}{% endwith %}
+    {% if is_chairman() %}
+    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#createBankAccountModal">+ {{ _("Добавить счёт") }}</button>
+    {% endif %}
+  </div>
 </div>
 
 <table class="table table-bordered bg-body sortable">

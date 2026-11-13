@@ -5,7 +5,10 @@
 <div class="d-flex justify-content-between align-items-center mb-4">
   <h3 class="mb-0">{{ _("Видеонаблюдение") }}</h3>
   {% if current_user and is_chairman() %}
-  <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addRecorderModal">+ {{ _("Добавить регистратор") }}</button>
+  <div class="d-flex gap-2 align-items-center">
+    {% with logs_section = "surveillance" %}{% include "system_logs/_link.html" %}{% endwith %}
+    <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addRecorderModal">+ {{ _("Добавить регистратор") }}</button>
+  </div>
   {% endif %}
 </div>
 

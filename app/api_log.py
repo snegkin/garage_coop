@@ -120,7 +120,7 @@ def format_body(body, content_type: str | None, max_len: int) -> str:
 def install_app_log(log_dir: str, keep_days: int = 7) -> None:
     """Предупреждения и ошибки самого приложения (WARNING и выше, с
     трассировкой) — в <log_dir>/app-ГГГГ-ММ-ДД.log рядом с журналом API,
-    чтобы их было видно на странице «Логи сервера», а не только в выводе
+    чтобы их было видно на сайте (раздел «Сервер», app/system_logs.py), а не только в выводе
     gunicorn/journalctl. Например «Bad form input» из app/errors.py —
     за ним прячутся настоящие исключения разбора данных."""
     os.makedirs(log_dir, exist_ok=True)

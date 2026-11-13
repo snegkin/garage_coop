@@ -24,40 +24,40 @@ def _chairman(db, client):
 
 def test_index_lists_only_log_files(app, db, client, log_dir):
     _chairman(db, client)
-    html = client.get("/system-logs/").get_data(as_text=True)
+    html = client.get("/logs/bank/").get_data(as_text=True)
     assert "sync_bank_accounts.log" in html
     assert "secret.txt" not in html
 
 
 def test_view_highlights_errors_and_filters(app, db, client, log_dir):
     _chairman(db, client)
-    html = client.get("/system-logs/sync_bank_accounts.log").get_data(as_text=True)
+    html = client.get("/logs/bank/sync_bank_accounts.log").get_data(as_text=True)
     assert "строка 1" in html and "text-danger" in html
 
-    html = client.get("/system-logs/sync_bank_accounts.log?errors=1").get_data(as_text=True)
+    html = client.get("/logs/bank/sync_bank_accounts.log?errors=1").get_data(as_text=True)
     assert "ОШИБКА: сбой" in html and "строка 1" not in html
 
-    html = client.get("/system-logs/sync_bank_accounts.log?q=СТРОКА 3").get_data(as_text=True)
+    html = client.get("/logs/bank/sync_bank_accounts.log?q=СТРОКА 3").get_data(as_text=True)
     assert "строка 3" in html and "строка 1" not in html
 
 
 def test_download(app, db, client, log_dir):
     _chairman(db, client)
-    resp = client.get("/system-logs/sync_bank_accounts.log/download")
+    resp = client.get("/logs/bank/sync_bank_accounts.log/download")
     assert resp.status_code == 200 and "ОШИБКА" in resp.get_data(as_text=True)
 
 
 @pytest.mark.parametrize("name", ["secret.txt", "..%2Fcoop.db", "missing.log"])
 def test_files_outside_list_are_not_served(app, db, client, log_dir, name):
     _chairman(db, client)
-    assert client.get(f"/system-logs/{name}").status_code == 404
+    assert client.get(f"/logs/bank/{name}").status_code == 404
 
 
 def test_board_member_has_no_access(app, db, client, log_dir):
     make_user(db, "board_logs", "pass12345", role=RoleEnum.BOARD)
     db.commit()
     login(client, "board_logs", "pass12345")
-    resp = client.get("/system-logs/sync_bank_accounts.log")
+    resp = client.get("/logs/bank/sync_bank_accounts.log")
     assert resp.status_code in (302, 403)
     assert "ОШИБКА" not in resp.get_data(as_text=True)
 
@@ -105,7 +105,7 @@ def test_errors_filter_finds_rare_errors_beyond_line_window(app, db, client, log
         "[2026-10-09T02:53:13] Ошибка подключения к eWeLink: таймаут\n" + ok, encoding="utf-8",
     )
     _chairman(db, client)
-    html = client.get("/system-logs/poll_ewelink.log?errors=1").get_data(as_text=True)
+    html = client.get("/logs/electricity/poll_ewelink.log?errors=1").get_data(as_text=True)
     assert "Ошибка подключения к eWeLink" in html and "Опрошено устройств" not in html
 
 
@@ -117,9 +117,9 @@ def test_alembic_noise_hidden_by_default(app, db, client, log_dir):
         encoding="utf-8",
     )
     _chairman(db, client)
-    html = client.get("/system-logs/poll.log").get_data(as_text=True)
+    html = client.get("/logs/server/poll.log").get_data(as_text=True)
     assert "баланс обновлён" in html and "setup plugin" not in html and "Context impl" not in html
-    html = client.get("/system-logs/poll.log?noise=1").get_data(as_text=True)
+    html = client.get("/logs/server/poll.log?noise=1").get_data(as_text=True)
     assert "setup plugin" in html and "Context impl" in html
 
 
@@ -128,13 +128,57 @@ def test_gzip_archive_viewed_and_downloaded(app, db, client, log_dir):
     with gzip.open(log_dir / "poll_ewelink.log.2.gz", "wt", encoding="utf-8") as f:
         f.write("".join(f"строка {i}\n" for i in range(1000)) + "[2026-10-09T02:53:13] Ошибка подключения к eWeLink\n")
     _chairman(db, client)
-    assert "poll_ewelink.log.2.gz" in client.get("/system-logs/").get_data(as_text=True)
+    assert "poll_ewelink.log.2.gz" in client.get("/logs/electricity/").get_data(as_text=True)
 
-    html = client.get("/system-logs/poll_ewelink.log.2.gz?lines=200&noise=1").get_data(as_text=True)
+    html = client.get("/logs/electricity/poll_ewelink.log.2.gz?lines=200&noise=1").get_data(as_text=True)
     assert "строка 999" in html and "строка 801<" in html and "строка 800<" not in html
-    html = client.get("/system-logs/poll_ewelink.log.2.gz?errors=1").get_data(as_text=True)
+    html = client.get("/logs/electricity/poll_ewelink.log.2.gz?errors=1").get_data(as_text=True)
     assert "Ошибка подключения" in html and "строка 999" not in html
 
-    resp = client.get("/system-logs/poll_ewelink.log.2.gz/download")
+    resp = client.get("/logs/electricity/poll_ewelink.log.2.gz/download")
     assert resp.mimetype == "application/gzip"
     assert gzip.decompress(resp.data).decode().startswith("строка 0\n")
+
+
+def test_server_section_has_unassigned_logs_only(app, db, client, log_dir):
+    (log_dir / "backup_db.log").write_text("копия\n", encoding="utf-8")
+    (log_dir / "new_cron_script.log").write_text("x\n", encoding="utf-8")
+    _chairman(db, client)
+    html = client.get("/logs/server/").get_data(as_text=True)
+    assert "backup_db.log" in html and "new_cron_script.log" in html
+    assert "sync_bank_accounts.log" not in html
+    bank = client.get("/logs/bank/").get_data(as_text=True)
+    assert "sync_bank_accounts.log" in bank and "backup_db.log" not in bank
+    # Чужой файл из другого раздела по адресу раздела не открывается.
+    assert client.get("/logs/bank/backup_db.log").status_code == 404
+    assert client.get("/logs/nope/").status_code == 404
+
+
+def test_api_log_filtered_by_section_hosts(app, db, client, log_dir):
+    (log_dir / "external_api-2026-11-12.log").write_text(
+        "2026-11-12 14:39:43,066 [1] → POST https://api.modulbank.ru/v1/account-info {}\n"
+        "2026-11-12 14:39:43,153 [1] ← 400 POST https://api.modulbank.ru/v1/account-info (86 мс) <html>\n"
+        "тело ответа банка\n"
+        "2026-11-12 14:40:00,000 [2] → GET https://eu-apia.coolkit.cc/v2/device\n"
+        "2026-11-12 14:40:00,100 [2] ← 200 GET https://eu-apia.coolkit.cc/v2/device (10 мс) {}\n"
+        "ответ eWeLink\n",
+        encoding="utf-8",
+    )
+    _chairman(db, client)
+    bank = client.get("/logs/bank/external_api-2026-11-12.log").get_data(as_text=True)
+    assert "modulbank" in bank and "тело ответа банка" in bank
+    assert "coolkit" not in bank and "ответ eWeLink" not in bank
+    power = client.get("/logs/electricity/external_api-2026-11-12.log").get_data(as_text=True)
+    assert "coolkit" in power and "ответ eWeLink" in power and "modulbank" not in power
+    full = client.get("/logs/server/external_api-2026-11-12.log").get_data(as_text=True)
+    assert "modulbank" in full and "coolkit" in full
+    # Видеонаблюдение к внешним API не обращается — журнала там нет.
+    assert client.get("/logs/surveillance/external_api-2026-11-12.log").status_code == 404
+
+
+def test_section_pages_link_to_their_logs(app, db, client, log_dir):
+    _chairman(db, client)
+    html = client.get("/finance/bank-accounts").get_data(as_text=True)
+    assert 'href="/logs/bank/"' in html
+    html = client.get("/surveillance/").get_data(as_text=True)
+    assert 'href="/logs/surveillance/"' in html

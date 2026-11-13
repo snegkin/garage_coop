@@ -3,7 +3,10 @@
    адрес (/sms/, /telegram/, /max/), чтобы их POST-роуты с redirect обратно на
    свою страницу и AJAX-подмена #mainContent работали без изменений.
    Ожидает active_channel = "sms" | "telegram" | "max". #}
-<h3 class="mb-3">{{ _("Каналы уведомлений") }}</h3>
+<div class="d-flex justify-content-between align-items-center gap-2 mb-3">
+  <h3 class="mb-0">{{ _("Каналы уведомлений") }}</h3>
+  {% with logs_section = "messaging" %}{% include "system_logs/_link.html" %}{% endwith %}
+</div>
 <ul class="nav nav-tabs mb-3">
   <li class="nav-item">
     <a class="nav-link {{ 'active' if active_channel == 'sms' }}" href="{{ url_for('sms_settings.view') }}">{{ _("СМС") }}</a>

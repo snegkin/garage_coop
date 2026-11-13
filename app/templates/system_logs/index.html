@@ -1,8 +1,19 @@
 {% extends "base.html" %}
-{% block title %}{{ _("Логи сервера") }}{% endblock %}
+{% block title %}{{ _("Логи") }}: {{ _(sec.label) }}{% endblock %}
 {% block content %}
-<h3 class="mb-3">{{ _("Логи сервера") }}</h3>
-<p class="text-muted small">{{ _("Логи cron-скриптов (синхронизация с банком, опрос eWeLink, резервные копии…) и журнал обмена с внешними API (external_api-ДАТА.log) — запросы к банку и сервисам с ответами, секреты скрыты. Содержат персональные данные — не пересылайте целиком.") }}</p>
+{% if sec.back %}
+<p class="mb-1"><a href="{{ url_for(sec.back) }}">← {{ _(sec.label) }}</a></p>
+<h3 class="mb-3">{{ _("Логи") }}: {{ _(sec.label) }}</h3>
+{% else %}
+<h3 class="mb-3">{{ _(sec.label) }}: {{ _("логи") }}</h3>
+{% endif %}
+{% if section == "server" %}
+<p class="text-muted small">{{ _("Резервные копии, обслуживание базы и вложений, ошибки самого приложения (app-ДАТА.log) и полный журнал обмена с внешними API (external_api-ДАТА.log). Логи остальных cron-задач — в их разделах (кнопка «Логи» на странице раздела). Содержат персональные данные — не пересылайте целиком.") }}</p>
+{% elif sec.api_hosts %}
+<p class="text-muted small">{{ _("Логи фоновых задач раздела и журнал обмена с внешними API (external_api-ДАТА.log) — в нём показаны только запросы к сервисам этого раздела, секреты скрыты. Содержат персональные данные — не пересылайте целиком.") }}</p>
+{% else %}
+<p class="text-muted small">{{ _("Логи фоновых задач раздела. Содержат персональные данные — не пересылайте целиком.") }}</p>
+{% endif %}
 
 <table class="table table-bordered bg-body table-sm sortable">
   <thead>
@@ -16,10 +27,10 @@
   <tbody>
     {% for f in files %}
     <tr>
-      <td><a href="{{ url_for('system_logs.view', name=f.name) }}">{{ f.name }}</a></td>
+      <td><a href="{{ url_for('system_logs.view', section=section, name=f.name) }}">{{ f.name }}</a></td>
       <td class="text-nowrap" data-sort-value="{{ f.mtime }}">{{ fmt_date(f.modified) }} {{ f.modified.strftime("%H:%M") }}</td>
       <td class="text-end text-nowrap" data-sort-value="{{ f.size }}">{{ f.size|filesizeformat }}</td>
-      <td class="text-nowrap"><a href="{{ url_for('system_logs.view', name=f.name, errors=1) }}">{{ _("ошибки") }}</a> · <a href="{{ url_for('system_logs.download', name=f.name) }}">{{ _("скачать") }}</a></td>
+      <td class="text-nowrap"><a href="{{ url_for('system_logs.view', section=section, name=f.name, errors=1) }}">{{ _("ошибки") }}</a> · <a href="{{ url_for('system_logs.download', section=section, name=f.name) }}">{{ _("скачать") }}</a></td>
     </tr>
     {% else %}
     <tr><td colspan="4" class="text-muted">{{ _("Логов пока нет.") }}</td></tr>

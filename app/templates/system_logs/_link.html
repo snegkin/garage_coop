@@ -1,0 +1,6 @@
+{# Кнопка «Логи» на странице раздела — его логи (см. app/system_logs.py:
+   SECTIONS). Только председатель: в логах персональные данные.
+   Ожидает logs_section — код раздела. #}
+{% if current_user and is_chairman() %}
+<a class="btn btn-sm btn-outline-secondary text-nowrap" href="{{ url_for('system_logs.index', section=logs_section) }}" title="{{ _('Логи фоновых задач и обмена с внешними сервисами') }}"><i class="bi bi-journal-text" aria-hidden="true"></i> {{ _("Логи") }}</a>
+{% endif %}

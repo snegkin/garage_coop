@@ -3,7 +3,8 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h3 class="mb-0">{{ _("Почта правления") }}</h3>
-  <div class="d-flex gap-2">
+  <div class="d-flex gap-2 align-items-center">
+    {% with logs_section = "mailbox" %}{% include "system_logs/_link.html" %}{% endwith %}
     {% if is_configured %}
     <a class="btn btn-primary" href="{{ url_for('mailbox.compose') }}">+ {{ _("Написать письмо") }}</a>
     {% endif %}

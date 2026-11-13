@@ -164,6 +164,7 @@ def create_app(config_class=Config):
             since = user.board_chat_read_at or dt.datetime.min
             board_chat_unread = database.db_session.query(BoardChatMessage).filter(
                 BoardChatMessage.created_at > since,
+                BoardChatMessage.deleted_at.is_(None),
                 # NULL — автор из мессенджера без привязки (мост, app/board_chat.py);
                 # без is_(None) SQL-сравнение с NULL такие сообщения отбросило бы
                 or_(BoardChatMessage.author_id.is_(None), BoardChatMessage.author_id != user.id),

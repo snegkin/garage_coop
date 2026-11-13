@@ -229,17 +229,20 @@ def test_widget_present_for_board_member(db, client):
 
 
 def test_widget_panel_is_resizable_and_draggable(db, client):
-    """Окно чата можно менять в размере (нативная ручка resize:both) и
-    перетаскивать за шапку (JS-обработчик на .chat-widget-header); поле
-    ввода — тоже с изменяемой высотой (resize:vertical), не resize:none."""
+    """Окно чата меняет размер за любой край или угол (ручки
+    .chat-widget-resize — нативный уголок resize:both был слишком мелким) и
+    перетаскивается за шапку; поле ввода растёт по тексту само, без своей
+    ручки (resize:none + autoGrow)."""
     _board_user(db)
     login(client, "board1", "pass1234")
     resp = client.get("/dashboard")
     body = resp.get_data(as_text=True)
-    assert "resize: both" in body
+    assert "resize: both" not in body
+    assert ".chat-widget-resize--nw" in body and '"ne", "nw", "se", "sw"' in body
     assert "cursor: move" in body
     assert "ResizeObserver" in body
-    assert ".chat-widget-form textarea { resize: vertical;" in body
+    assert ".chat-widget-form textarea { resize: none;" in body
+    assert 'input.addEventListener("input", autoGrow)' in body
 
 
 def test_widget_panel_is_fullscreen_on_mobile(db, client):

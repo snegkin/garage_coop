@@ -252,3 +252,137 @@ def test_chatid_command_case_insensitive():
     assert telegram_bot._is_chatid_command("/chatId")
     assert telegram_bot._is_chatid_command("/CHATID@coop_bot")
     assert not telegram_bot._is_chatid_command("/chatids")
+
+
+# ---------------------------------------------------------------------------
+# Удаление и закреп
+# ---------------------------------------------------------------------------
+
+def _post(client, body="сообщение"):
+    return client.post("/board-chat/messages", data={"body": body}).get_json()["message"]["id"]
+
+
+def _actions(db):
+    return sorted((i.channel, i.kind) for i in db.query(MessengerOutbox)
+                  if i.kind.startswith("group_"))
+
+
+def test_delete_own_message_hides_it_and_relays(db, client):
+    _bridges(db)
+    _board_user(db)
+    login(client, "board1", "pass1234")
+    message_id = _post(client)
+
+    assert client.post(f"/board-chat/messages/{message_id}/delete").status_code == 200
+
+    data = client.get("/board-chat/messages").get_json()
+    assert data["messages"] == [] and data["deleted_ids"] == [message_id]
+    assert db.get(BoardChatMessage, message_id).deleted_at is not None
+    assert _actions(db) == [("max", "group_delete"), ("telegram", "group_delete")]
+
+
+def test_only_author_or_chairman_can_delete(db, client):
+    _board_user(db, "board1")
+    _board_user(db, "board2")
+    chair = make_person(db, full_name="Председатель")
+    make_user(db, "chair", "pass1234", role=RoleEnum.CHAIRMAN, person=chair)
+    db.commit()
+    login(client, "board1", "pass1234")
+    message_id = _post(client)
+    assert client.get("/board-chat/messages").get_json()["messages"][0]["can_delete"] is True
+    client.get("/auth/logout")
+
+    login(client, "board2", "pass1234")
+    assert client.get("/board-chat/messages").get_json()["messages"][0]["can_delete"] is False
+    assert client.post(f"/board-chat/messages/{message_id}/delete").status_code == 403
+    client.get("/auth/logout")
+
+    login(client, "chair", "pass1234")
+    assert client.post(f"/board-chat/messages/{message_id}/delete").status_code == 200
+
+
+def test_pin_keeps_single_pinned_and_relays(db, client):
+    _bridges(db, max_=False)
+    _board_user(db)
+    login(client, "board1", "pass1234")
+    first, second = _post(client, "раз"), _post(client, "два")
+
+    client.post(f"/board-chat/messages/{first}/pin")
+    assert client.get("/board-chat/messages").get_json()["pinned"]["id"] == first
+    client.post(f"/board-chat/messages/{second}/pin")
+    assert client.get("/board-chat/messages").get_json()["pinned"]["id"] == second
+    assert db.get(BoardChatMessage, first).pinned_at is None
+    kinds = [(i.kind, i.board_message_id) for i in db.query(MessengerOutbox).order_by(MessengerOutbox.id)
+             if i.kind.startswith("group_")]
+    assert kinds == [("group_pin", first), ("group_unpin", first), ("group_pin", second)]
+
+    client.post(f"/board-chat/messages/{second}/unpin")
+    assert client.get("/board-chat/messages").get_json()["pinned"] is None
+
+
+def test_actions_use_ids_of_sent_copies(app, db, client, monkeypatch):
+    """Копия ушла — её id запомнен; удаление/закреп бьют по нему в обоих мессенджерах."""
+    _bridges(db)
+    _board_user(db)
+    login(client, "board1", "pass1234")
+    message_id = _post(client)
+
+    fake = FakeMax(monkeypatch)
+    tg_calls = []
+
+    def tg_post(url, json=None, **kw):
+        tg_calls.append((url.rsplit("/", 1)[-1], json))
+        return FakeResponse(200, {"ok": True, "result": {"message_id": 777}})
+
+    monkeypatch.setattr(telegram_bot.requests, "post", tg_post)
+    messenger_outbox.process(app.config["UPLOAD_FOLDER"])
+    copies = {i.channel: i.external_id for i in db.query(MessengerOutbox).filter_by(kind="group")}
+    assert copies == {"telegram": "777", "max": "m1"}
+
+    client.post(f"/board-chat/messages/{message_id}/pin")
+    client.post(f"/board-chat/messages/{message_id}/delete")
+    assert messenger_outbox.process(app.config["UPLOAD_FOLDER"]) == (4, 0)
+
+    assert [c for c in tg_calls if c[0] != "sendMessage"] == [
+        ("pinChatMessage", {"chat_id": TG_GROUP, "message_id": 777, "disable_notification": True}),
+        ("deleteMessage", {"chat_id": TG_GROUP, "message_id": 777}),
+    ]
+    max_calls = [(m, p, prm, js) for m, p, prm, js, _h in fake.calls if p != "/messages" or m == "DELETE"]
+    assert max_calls == [
+        ("PUT", f"/chats/{MAX_GROUP}/pin", None, {"message_id": "m1", "notify": False}),
+        ("DELETE", "/messages", {"message_id": "m1"}, None),
+    ]
+
+
+def test_delete_before_copy_sent_cancels_copy(app, db, client, monkeypatch):
+    _bridges(db, max_=False)
+    _board_user(db)
+    login(client, "board1", "pass1234")
+    message_id = _post(client)
+    client.post(f"/board-chat/messages/{message_id}/delete")
+    calls = []
+    monkeypatch.setattr(telegram_bot.requests, "post", lambda url, json=None, **kw: calls.append(url) or FakeResponse(200))
+
+    messenger_outbox.process(app.config["UPLOAD_FOLDER"])
+
+    copy = db.query(MessengerOutbox).filter_by(kind="group").one()
+    assert copy.status.value == "cancelled"
+    assert calls == []  # ни отправки, ни удаления
+
+
+def test_delete_message_from_telegram_deletes_original(app, db, client, monkeypatch):
+    _bridges(db, max_=False)
+    _board_user(db)
+    chair = make_person(db, full_name="Председатель")
+    make_user(db, "chair", "pass1234", role=RoleEnum.CHAIRMAN, person=chair)
+    db.commit()
+    _tg_updates(monkeypatch, [_tg_message("из телеги", message_id=55)])
+    telegram_bot.poll_and_link_accounts()
+    message = db.query(BoardChatMessage).one()
+
+    login(client, "chair", "pass1234")
+    assert client.post(f"/board-chat/messages/{message.id}/delete").status_code == 200
+    calls = []
+    monkeypatch.setattr(telegram_bot.requests, "post", lambda url, json=None, **kw: calls.append(json) or FakeResponse(200))
+    messenger_outbox.process(app.config["UPLOAD_FOLDER"])
+    assert calls == [{"chat_id": TG_GROUP, "message_id": 55}]

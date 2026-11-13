@@ -23,13 +23,21 @@ base.html). Простой хронологический лог (BoardChatMessa
 telegram_chat_id/max_user_id), иначе имя из мессенджера с пометкой.
 Петли нет: сообщение никогда не отправляется туда, откуда пришло, а
 собственные сообщения бота при опросе пропускаются.
+
+Удаление (своё — автор, любое — председатель) и закреп (одно сообщение,
+любой член правления) повторяются в группах — очередь
+(messenger_outbox.enqueue_group_action), по id копии, запомненному при
+отправке. Из мессенджеров на сайт удаление и закреп не переносятся: Bot API
+Telegram об удалениях ботам не сообщает.
 """
 import datetime as dt
 
-from flask import Blueprint, request, jsonify, g
+from flask import Blueprint, request, jsonify, g, abort
 
+from . import audit
 from . import database
 from .auth import roles_required
+from .permissions import is_chairman
 from .models import RoleEnum, BoardChatMessage, User, Person, TelegramSettings, MaxSettings
 
 bp = Blueprint("board_chat", __name__, url_prefix="/board-chat")
@@ -81,9 +89,17 @@ def relay_to_messengers(message: BoardChatMessage) -> int:
     for source, chat_id in _bridges().items():
         if source == message.source:
             continue
-        messenger_outbox.enqueue_group_message(chat_id, text, channel=source)
+        messenger_outbox.enqueue_group_message(chat_id, text, channel=source, board_message=message)
         count += 1
     return count
+
+
+def _relay_action(kind: str, message: BoardChatMessage) -> None:
+    """Удаление/закреп/открепление — во всех группах, включая ту, откуда
+    сообщение пришло (там удаляется/закрепляется оригинал). Без commit."""
+    from . import messenger_outbox
+    for source, chat_id in _bridges().items():
+        messenger_outbox.enqueue_group_action(kind, chat_id, message, channel=source)
 
 
 def is_board_chat(source: str, chat_id) -> bool:
@@ -146,23 +162,116 @@ def _serialize(message: BoardChatMessage) -> dict:
         # electricity_monitor.py: history-data).
         "created_at": message.created_at.isoformat() + "Z",
         "is_mine": message.author_id == g.user.id,
+        "can_delete": _can_delete(message),
+        "pinned": message.pinned_at is not None,
     }
+
+
+def _can_delete(message: BoardChatMessage) -> bool:
+    return (message.author_id is not None and message.author_id == g.user.id) or is_chairman()
+
+
+def _pinned() -> BoardChatMessage | None:
+    return (
+        database.db_session.query(BoardChatMessage)
+        .filter(BoardChatMessage.pinned_at.isnot(None), BoardChatMessage.deleted_at.is_(None))
+        .order_by(BoardChatMessage.pinned_at.desc())
+        .first()
+    )
+
+
+# Опрос раз в несколько секунд, пока панель открыта; при открытии панель
+# перечитывает всё заново — удалённое раньше этого окна она и так не покажет.
+DELETED_WINDOW = dt.timedelta(minutes=10)
 
 
 @bp.route("/messages")
 @roles_required(RoleEnum.BOARD)
 def list_messages():
+    """Кроме новых сообщений — id недавно удалённых (виджет убирает их у
+    себя) и текущее закреплённое (null — нет)."""
     after_id = request.args.get("after_id", type=int)
-    query = database.db_session.query(BoardChatMessage)
+    query = database.db_session.query(BoardChatMessage).filter(BoardChatMessage.deleted_at.is_(None))
     if after_id is not None:
         messages = query.filter(BoardChatMessage.id > after_id).order_by(BoardChatMessage.id).all()
     else:
         messages = query.order_by(BoardChatMessage.id.desc()).limit(MESSAGES_PAGE_SIZE).all()
         messages.reverse()
+    now = dt.datetime.utcnow()
+    deleted_ids = [
+        row.id for row in database.db_session.query(BoardChatMessage.id)
+        .filter(BoardChatMessage.deleted_at > now - DELETED_WINDOW)
+    ]
+    pinned = _pinned()
 
-    g.user.board_chat_read_at = dt.datetime.utcnow()
+    g.user.board_chat_read_at = now
     database.db_session.commit()
-    return jsonify(messages=[_serialize(m) for m in messages])
+    return jsonify(
+        messages=[_serialize(m) for m in messages],
+        deleted_ids=deleted_ids,
+        pinned=_serialize(pinned) if pinned else None,
+    )
+
+
+def _get_message(message_id: int) -> BoardChatMessage:
+    message = database.db_session.get(BoardChatMessage, message_id)
+    if message is None or message.deleted_at is not None:
+        abort(404)
+    return message
+
+
+@bp.route("/messages/<int:message_id>/delete", methods=["POST"])
+@roles_required(RoleEnum.BOARD)
+def delete_message(message_id):
+    message = _get_message(message_id)
+    if not _can_delete(message):
+        abort(403)
+    message.deleted_at = dt.datetime.utcnow()
+    message.deleted_by_id = g.user.id
+    message.pinned_at = None
+    # Копии, ещё ждущие отправки, просто не отправляем — удалять будет нечего.
+    from . import messenger_outbox
+    from .models import MessengerOutbox, MessengerOutboxStatus
+    database.db_session.query(MessengerOutbox).filter_by(
+        kind=messenger_outbox.KIND_GROUP, board_message_id=message.id, status=MessengerOutboxStatus.PENDING,
+    ).update({"status": MessengerOutboxStatus.CANCELLED})
+    _relay_action("group_delete", message)
+    audit.record(
+        "board_chat.delete",
+        f"Удалено сообщение чата правления #{message.id} (автор: {author_name(message)})",
+        entity_type="board_chat_message", entity_id=message.id,
+    )
+    database.db_session.commit()
+    return jsonify(ok=True)
+
+
+@bp.route("/messages/<int:message_id>/pin", methods=["POST"])
+@roles_required(RoleEnum.BOARD)
+def pin_message(message_id):
+    """Закреплено одно сообщение: прежнее открепляется (и в группах тоже —
+    в Telegram закрепов может быть несколько, держим как на сайте)."""
+    message = _get_message(message_id)
+    previous = _pinned()
+    if previous is not None and previous.id != message.id:
+        previous.pinned_at = None
+        _relay_action("group_unpin", previous)
+    if previous is None or previous.id != message.id:
+        message.pinned_at = dt.datetime.utcnow()
+        message.pinned_by_id = g.user.id
+        _relay_action("group_pin", message)
+    database.db_session.commit()
+    return jsonify(ok=True, pinned=_serialize(message))
+
+
+@bp.route("/messages/<int:message_id>/unpin", methods=["POST"])
+@roles_required(RoleEnum.BOARD)
+def unpin_message(message_id):
+    message = _get_message(message_id)
+    if message.pinned_at is not None:
+        message.pinned_at = None
+        _relay_action("group_unpin", message)
+        database.db_session.commit()
+    return jsonify(ok=True)
 
 
 @bp.route("/messages", methods=["POST"])

@@ -119,6 +119,42 @@ def send_message(settings: TelegramSettings, chat_id: int | str, text: str,
         raise _request_error(exc, idempotent=False) from exc
     if resp.status_code != 200:
         raise _status_error(resp)
+    try:
+        return (resp.json().get("result") or {}).get("message_id")
+    except ValueError:
+        return None
+
+
+def _call(settings: TelegramSettings, method: str, payload: dict) -> None:
+    """Простой вызов Bot API (deleteMessage, pinChatMessage, …) — все
+    идемпотентны: повтор после обрыва ничего не задвоит."""
+    try:
+        resp = requests.post(_api(settings, _token(settings), method), json=payload,
+                             timeout=REQUEST_TIMEOUT, **_net(settings))
+    except requests.RequestException as exc:
+        raise _request_error(exc, idempotent=True) from exc
+    if resp.status_code != 200:
+        raise _status_error(resp)
+
+
+def _message_id(external_id: str) -> int:
+    """id сообщения Telegram из external_id: у копий — просто число, у
+    сообщений, пришедших из группы (BoardChatMessage.external_message_id), —
+    «chat_id:message_id»."""
+    return int(str(external_id).rsplit(":", 1)[-1])
+
+
+def delete_group_message(settings: TelegramSettings, chat_id, external_id: str) -> None:
+    _call(settings, "deleteMessage", {"chat_id": chat_id, "message_id": _message_id(external_id)})
+
+
+def pin_group_message(settings: TelegramSettings, chat_id, external_id: str) -> None:
+    _call(settings, "pinChatMessage", {"chat_id": chat_id, "message_id": _message_id(external_id),
+                                       "disable_notification": True})
+
+
+def unpin_group_message(settings: TelegramSettings, chat_id, external_id: str) -> None:
+    _call(settings, "unpinChatMessage", {"chat_id": chat_id, "message_id": _message_id(external_id)})
 
 
 def send_notification(settings: TelegramSettings, chat_id: int | str, text: str) -> None:
@@ -127,9 +163,11 @@ def send_notification(settings: TelegramSettings, chat_id: int | str, text: str)
     send_message(settings, chat_id, text)
 
 
-def send_group_message(settings: TelegramSettings, chat_id: int | str, text: str) -> None:
-    """Сообщение в группу (мост чата правления, очередь kind="group")."""
-    send_message(settings, chat_id, text)
+def send_group_message(settings: TelegramSettings, chat_id: int | str, text: str) -> str | None:
+    """Сообщение в группу (мост чата правления, очередь kind="group").
+    -> id отправленного сообщения (для удаления/закрепа потом)."""
+    message_id = send_message(settings, chat_id, text)
+    return str(message_id) if message_id is not None else None
 
 
 def get_updates(settings: TelegramSettings, offset: int | None, timeout: int = 0) -> list[dict]:

@@ -316,8 +316,8 @@ function initChatWidget(cfg) {
   var pollTimer = null;
   var csrfMeta = document.querySelector('meta[name="csrf-token"]');
 
-  // Перетаскивание (за шапку) и изменение размера (нативная ручка resize:
-  // both, см. CSS .chat-widget-panel) — размер и положение запоминаются в
+  // Перетаскивание (за шапку) и изменение размера (за края и углы, см.
+  // .chat-widget-resize ниже) — размер и положение запоминаются в
   // localStorage, отдельно на каждый виджет (правления/ревизионной
   // комиссии) и каждый браузер; сброс к позиции по умолчанию не нужен —
   // достаточно один раз почистить localStorage вручную.
@@ -407,9 +407,63 @@ function initChatWidget(cfg) {
     saveGeometry();
   });
 
-  // resize:both не даёт JS-события сам по себе — ResizeObserver ловит
-  // фактическое изменение коробки панели независимо от того, чем оно
-  // вызвано (перетаскиванием ручки или программным изменением стилей).
+  // Изменение размера — за любую сторону или угол панели, как у окна
+  // (ручки .chat-widget-resize, создаются здесь — одинаковые у обоих чатов).
+  // Нативный уголок resize:both был слишком мелким, чтобы в него попадать.
+  var MIN_W = 260, MIN_H = 280;
+  var resizeState = null;
+  ["n", "s", "e", "w", "ne", "nw", "se", "sw"].forEach(function (dir) {
+    var handle = document.createElement("div");
+    handle.className = "chat-widget-resize chat-widget-resize--" + dir;
+    handle.setAttribute("aria-hidden", "true");
+    handle.addEventListener("mousedown", function (e) {
+      if (isMobile() || e.button !== 0) return;
+      var rect = panel.getBoundingClientRect();
+      resizeState = { handle: handle, dir: dir, x: e.clientX, y: e.clientY,
+                      left: rect.left, top: rect.top, width: rect.width, height: rect.height };
+      panel.style.left = rect.left + "px";
+      panel.style.top = rect.top + "px";
+      panel.style.right = "auto";
+      panel.style.bottom = "auto";
+      handle.classList.add("is-active");
+      document.body.style.userSelect = "none";
+      document.body.style.cursor = getComputedStyle(handle).cursor;
+      e.preventDefault();
+      e.stopPropagation();
+    });
+    panel.appendChild(handle);
+  });
+  document.addEventListener("mousemove", function (e) {
+    if (!resizeState) return;
+    var st = resizeState, dx = e.clientX - st.x, dy = e.clientY - st.y;
+    var left = st.left, top = st.top, width = st.width, height = st.height;
+    if (st.dir.indexOf("e") >= 0) width = Math.min(Math.max(st.width + dx, MIN_W), window.innerWidth - st.left);
+    if (st.dir.indexOf("s") >= 0) height = Math.min(Math.max(st.height + dy, MIN_H), window.innerHeight - st.top);
+    if (st.dir.indexOf("w") >= 0) {
+      width = Math.min(Math.max(st.width - dx, MIN_W), st.left + st.width);
+      left = st.left + st.width - width;
+    }
+    if (st.dir.indexOf("n") >= 0) {
+      height = Math.min(Math.max(st.height - dy, MIN_H), st.top + st.height);
+      top = st.top + st.height - height;
+    }
+    panel.style.left = left + "px";
+    panel.style.top = top + "px";
+    panel.style.width = width + "px";
+    panel.style.height = height + "px";
+  });
+  document.addEventListener("mouseup", function () {
+    if (!resizeState) return;
+    resizeState.handle.classList.remove("is-active");
+    resizeState = null;
+    document.body.style.userSelect = "";
+    document.body.style.cursor = "";
+    clampToViewport();
+    saveGeometry();
+  });
+
+  // ResizeObserver — на случай изменения размера не мышью (окно браузера
+  // сузилось и т. п.): держит панель в пределах экрана и запоминает размер.
   if (window.ResizeObserver) {
     new ResizeObserver(function () {
       clampToViewport();
@@ -489,8 +543,93 @@ function initChatWidget(cfg) {
     time.textContent = new Date(msg.created_at).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"});
     el.appendChild(time);
 
+    el.dataset.id = msg.id;
+    if (cfg.messageUrl) el.appendChild(messageActions(msg));
+
     messagesEl.appendChild(el);
     if (msg.id > lastId) lastId = msg.id;
+  }
+
+  // Удаление и закреп (только чат правления — cfg.messageUrl; см.
+  // app/board_chat.py). Кнопки видны при наведении на сообщение, на
+  // сенсорных экранах — всегда (CSS .chat-widget-actions).
+  function messageUrl(id, action) {
+    return cfg.messageUrl.replace("/0/", "/" + id + "/").replace(/[^/]+$/, action);
+  }
+  function postAction(id, action) {
+    return fetch(messageUrl(id, action), {
+      method: "POST",
+      headers: csrfMeta ? { "X-CSRFToken": csrfMeta.getAttribute("content") } : {},
+    }).then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); });
+  }
+  function actionButton(icon, title, onClick) {
+    var btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "chat-widget-action";
+    btn.title = title;
+    btn.setAttribute("aria-label", title);
+    btn.innerHTML = '<i class="bi ' + icon + '" aria-hidden="true"></i>';
+    btn.addEventListener("click", onClick);
+    return btn;
+  }
+  function messageActions(msg) {
+    var box = document.createElement("span");
+    box.className = "chat-widget-actions";
+    box.appendChild(actionButton("bi-pin-angle", cfg.pinLabel, function () {
+      postAction(msg.id, "pin").then(function (data) { renderPinned(data.pinned); }).catch(function () {});
+    }));
+    if (msg.can_delete) {
+      box.appendChild(actionButton("bi-trash", cfg.deleteLabel, function () {
+        if (!window.confirm(cfg.deleteConfirm)) return;
+        postAction(msg.id, "delete").then(function () {
+          removeMessages([msg.id]);
+          if (pinnedId === msg.id) renderPinned(null);
+        }).catch(function () {});
+      }));
+    }
+    return box;
+  }
+  function removeMessages(ids) {
+    (ids || []).forEach(function (id) {
+      var el = messagesEl.querySelector('.chat-widget-message[data-id="' + id + '"]');
+      if (el) el.remove();
+    });
+  }
+
+  // Плашка закреплённого сообщения под шапкой; клик — прокрутить к нему.
+  var pinnedEl = null, pinnedId = null;
+  if (cfg.messageUrl) {
+    pinnedEl = document.createElement("div");
+    pinnedEl.className = "chat-widget-pinned d-none";
+    messagesEl.parentNode.insertBefore(pinnedEl, messagesEl);
+  }
+  function renderPinned(msg) {
+    if (!pinnedEl) return;
+    pinnedId = msg ? msg.id : null;
+    pinnedEl.innerHTML = "";
+    pinnedEl.classList.toggle("d-none", !msg);
+    if (!msg) return;
+    var icon = document.createElement("i");
+    icon.className = "bi bi-pin-angle-fill";
+    icon.setAttribute("aria-hidden", "true");
+    var text = document.createElement("span");
+    text.className = "chat-widget-pinned-text";
+    text.textContent = msg.author_name + ": " + msg.body;
+    text.title = cfg.pinnedLabel;
+    text.addEventListener("click", function () {
+      var el = messagesEl.querySelector('.chat-widget-message[data-id="' + msg.id + '"]');
+      if (el) el.scrollIntoView({ block: "center", behavior: "smooth" });
+    });
+    var unpin = actionButton("bi-x-lg", cfg.unpinLabel, function () {
+      postAction(msg.id, "unpin").then(function () { renderPinned(null); }).catch(function () {});
+    });
+    pinnedEl.appendChild(icon);
+    pinnedEl.appendChild(text);
+    pinnedEl.appendChild(unpin);
+  }
+  function applyState(data) {
+    removeMessages(data.deleted_ids);
+    if ("pinned" in data) renderPinned(data.pinned);
   }
 
   function scrollToBottom() {
@@ -501,6 +640,7 @@ function initChatWidget(cfg) {
     fetch(cfg.listUrl + "?after_id=" + lastId)
       .then(function (r) { return r.json(); })
       .then(function (data) {
+        applyState(data);
         if (!data.messages || !data.messages.length) return;
         data.messages.forEach(renderMessage);
         scrollToBottom();
@@ -515,6 +655,7 @@ function initChatWidget(cfg) {
         messagesEl.innerHTML = "";
         lastId = 0;
         (data.messages || []).forEach(renderMessage);
+        applyState(data);
         scrollToBottom();
         badge.classList.add("d-none");
       })
@@ -611,7 +752,16 @@ function initChatWidget(cfg) {
         }
       });
     input.value = "";
+    autoGrow();
   });
+
+  // Поле ввода растёт по тексту (до max-height в CSS), без своей ручки
+  // ресайза — второй уголок рядом с уголком панели только путал.
+  function autoGrow() {
+    input.style.height = "auto";
+    input.style.height = input.scrollHeight + 2 + "px";
+  }
+  input.addEventListener("input", autoGrow);
 
   // Enter отправляет, Shift+Enter — перенос строки (обычное поведение чатов).
   input.addEventListener("keydown", function (e) {
@@ -662,6 +812,12 @@ function initChatWidget(cfg) {
     sendUrl: "{{ url_for('board_chat.send_message') }}",
     heartbeatUrl: "{{ url_for('board_chat.heartbeat') }}",
     participantsUrl: "{{ url_for('board_chat.participants') }}",
+    messageUrl: "{{ url_for('board_chat.pin_message', message_id=0) }}",
+    pinLabel: "{{ _('Закрепить') }}",
+    unpinLabel: "{{ _('Открепить') }}",
+    pinnedLabel: "{{ _('Закреплённое сообщение') }}",
+    deleteLabel: "{{ _('Удалить') }}",
+    deleteConfirm: "{{ _('Удалить сообщение? Оно удалится и в группах Telegram и MAX.') }}",
     youLabel: "{{ _('вы') }}",
     chatOpenLabel: "{{ _('чат открыт') }}",
   });
@@ -991,13 +1147,27 @@ tr.table-info-subtle { --bs-table-bg: var(--bs-info-bg-subtle); --bs-table-borde
   min-width: 260px; min-height: 280px;
   background: var(--bs-body-bg); border: 1px solid var(--bs-border-color); border-radius: .5rem;
   box-shadow: 0 .5rem 1.5rem rgba(0, 0, 0, .35); display: flex; flex-direction: column;
-  /* resize:both требует overflow, отличный от visible, у самого элемента —
-     реального переполнения при этом не возникает, внутренние блоки
-     (сообщения/список участников) прокручиваются сами по себе. Ручку для
-     изменения размера браузер рисует сам, в правом нижнем углу. */
-  overflow: auto;
-  resize: both;
+  /* Размер меняется за края и углы (.chat-widget-resize, JS
+     initChatWidget) — внутренние блоки прокручиваются сами по себе. */
+  overflow: hidden;
 }
+/* Ручки изменения размера: полосы по краям и квадраты в углах, невидимые,
+   курсор подсказывает направление; при наведении край подсвечивается. */
+.chat-widget-resize { position: absolute; z-index: 2; }
+.chat-widget-resize--n, .chat-widget-resize--s { left: 10px; right: 10px; height: 8px; cursor: ns-resize; }
+.chat-widget-resize--e, .chat-widget-resize--w { top: 10px; bottom: 10px; width: 8px; cursor: ew-resize; }
+.chat-widget-resize--n { top: 0; }
+.chat-widget-resize--s { bottom: 0; }
+.chat-widget-resize--e { right: 0; }
+.chat-widget-resize--w { left: 0; }
+.chat-widget-resize--ne, .chat-widget-resize--nw, .chat-widget-resize--se, .chat-widget-resize--sw { width: 14px; height: 14px; }
+.chat-widget-resize--ne { top: 0; right: 0; cursor: nesw-resize; }
+.chat-widget-resize--sw { bottom: 0; left: 0; cursor: nesw-resize; }
+.chat-widget-resize--nw { top: 0; left: 0; cursor: nwse-resize; }
+.chat-widget-resize--se { bottom: 0; right: 0; cursor: nwse-resize; }
+.chat-widget-resize::after { content: ""; position: absolute; inset: 2px; border-radius: 3px; background: var(--bs-primary); opacity: 0; transition: opacity .15s; }
+.chat-widget-resize:hover::after, .chat-widget-resize.is-active::after { opacity: .5; }
+.chat-widget-resize--ne::after, .chat-widget-resize--nw::after, .chat-widget-resize--se::after, .chat-widget-resize--sw::after { display: none; }
 .chat-widget-panel--left { right: auto; left: 1.25rem; }
 /* Перетаскивание — за шапку (см. initChatWidget: drag*); after выбора
    позиции мышью панель переходит на left/top (см. JS), правило right/left
@@ -1025,15 +1195,27 @@ tr.table-info-subtle { --bs-table-bg: var(--bs-info-bg-subtle); --bs-table-borde
 /* min-height:0 — без него flex-итем с overflow:auto по умолчанию не
    сжимается меньше высоты своего контента (min-height:auto), из-за чего
    при большом числе сообщений раздувался бы уже весь .chat-widget-panel
-   (у него тоже overflow:auto — нужен для работы resize:both), а не только
+   (у него overflow:hidden — содержимое просто обрезалось бы), а не только
    эта область — классический баг флексбокса. */
 .chat-widget-messages { flex: 1; min-height: 0; overflow-y: auto; padding: .5rem .75rem; display: flex; flex-direction: column; gap: .5rem; }
 .chat-widget-message { max-width: 85%; padding: .35rem .6rem; border-radius: .75rem; background: var(--bs-tertiary-bg); white-space: pre-wrap; word-break: break-word; font-size: .875rem; }
 .chat-widget-message.is-mine { align-self: flex-end; background: var(--bs-primary-bg-subtle); }
 .chat-widget-message .chat-widget-author { font-size: .75rem; font-weight: 600; opacity: .75; display: block; }
 .chat-widget-message .chat-widget-time { font-size: .7rem; opacity: .6; display: block; margin-top: .15rem; }
+/* Действия с сообщением (чат правления): при наведении; на сенсорных
+   экранах наведения нет — показываем всегда, приглушённо. */
+.chat-widget-message { position: relative; }
+.chat-widget-actions { position: absolute; top: .15rem; right: .25rem; display: none; gap: .1rem; }
+.chat-widget-message:hover .chat-widget-actions { display: inline-flex; }
+@media (hover: none) { .chat-widget-actions { display: inline-flex; position: static; opacity: .6; } }
+.chat-widget-action { background: var(--bs-body-bg); border: 1px solid var(--bs-border-color); border-radius: .3rem; color: var(--bs-secondary-color); font-size: .75rem; line-height: 1; padding: .2rem .3rem; }
+.chat-widget-action:hover { color: var(--bs-body-color); }
+.chat-widget-pinned { display: flex; align-items: center; gap: .4rem; padding: .35rem .75rem; border-bottom: 1px solid var(--bs-border-color); font-size: .8rem; background: var(--bs-tertiary-bg); flex: none; }
+.chat-widget-pinned .bi-pin-angle-fill { color: var(--bs-primary); }
+.chat-widget-pinned-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.chat-widget-pinned .chat-widget-action { border: none; background: none; }
 .chat-widget-form { display: flex; align-items: flex-end; gap: .4rem; padding: .5rem; border-top: 1px solid var(--bs-border-color); flex: none; }
-.chat-widget-form textarea { resize: vertical; min-height: 2.2rem; max-height: 40vh; }
+.chat-widget-form textarea { resize: none; min-height: 2.2rem; max-height: 40vh; overflow-y: auto; }
 .wiki-tree-toggle { display: inline-block; width: 1.1rem; text-align: center; }
 .wiki-tree-toggle .chevron { display: inline-block; transition: transform .15s; }
 .wiki-tree-toggle.collapsed .chevron { transform: rotate(-90deg); }
@@ -1186,8 +1368,9 @@ tr.table-info-subtle { --bs-table-bg: var(--bs-info-bg-subtle); --bs-table-borde
     width: 100% !important; max-width: none; min-width: 0;
     height: var(--chat-viewport-height, 100dvh) !important; max-height: none; min-height: 0;
     border: none; border-radius: 0; box-shadow: none;
-    resize: none; overflow: hidden; z-index: 1600;
+    overflow: hidden; z-index: 1600;
   }
+  .chat-widget-resize { display: none; }
   .chat-widget-header {
     cursor: default; justify-content: flex-start; gap: .25rem;
     padding: calc(.6rem + env(safe-area-inset-top)) .75rem .6rem; font-size: 1.05rem;

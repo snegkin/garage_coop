@@ -353,6 +353,7 @@ def run_board_chat_digest() -> int:
     сообщение остаётся непрочитанным."""
     last_message = (
         database.db_session.query(BoardChatMessage)
+        .filter(BoardChatMessage.deleted_at.is_(None))
         .order_by(BoardChatMessage.id.desc())
         .first()
     )
@@ -537,6 +538,8 @@ IGNORED_BOARD_ACTIONS = frozenset({
     "forum.topic_create", "forum.reply_create", "forum.post_edit", "forum.post_delete",
     "forum.topic_delete", "forum.topic_close", "forum.topic_reopen",
     "mailbox.message_trash", "mailbox.message_delete",
+    # Удаление в чате правления — правление и так видит его в самом чате.
+    "board_chat.delete",
     # Каждый член при первом входе после введения галочки — волна однотипных
     # сообщений правлению; сам факт и так в журнале.
     "account.pd_notice",

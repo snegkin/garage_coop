@@ -62,6 +62,16 @@ KIND_NEWS = "news"
 # Сообщение в группу (мост чата правления, app/board_chat.py) — не в
 # личный диалог: MAX различает user_id и chat_id получателя.
 KIND_GROUP = "group"
+# Повтор действий чата правления в группе: удалить/закрепить/открепить копию
+# сообщения board_message (id копии берётся при отправке — см. _board_target).
+KIND_GROUP_DELETE = "group_delete"
+KIND_GROUP_PIN = "group_pin"
+KIND_GROUP_UNPIN = "group_unpin"
+GROUP_ACTIONS = {
+    KIND_GROUP_DELETE: "delete_group_message",
+    KIND_GROUP_PIN: "pin_group_message",
+    KIND_GROUP_UNPIN: "unpin_group_message",
+}
 
 CHANNEL_TELEGRAM = "telegram"
 CHANNEL_MAX = "max"
@@ -78,11 +88,53 @@ def enqueue_message(chat_id: int | str, text: str, channel: str = CHANNEL_TELEGR
     return item
 
 
-def enqueue_group_message(chat_id: int | str, text: str, channel: str = CHANNEL_TELEGRAM) -> MessengerOutbox:
-    """Сообщение в группу/чат (chat_id группы). Без commit — как enqueue_message."""
-    item = MessengerOutbox(kind=KIND_GROUP, channel=channel, chat_id=str(chat_id), text=text)
+def enqueue_group_message(chat_id: int | str, text: str, channel: str = CHANNEL_TELEGRAM,
+                          board_message=None) -> MessengerOutbox:
+    """Сообщение в группу/чат (chat_id группы). board_message — сообщение
+    чата правления, копией которого оно является (для удаления/закрепа
+    потом). Без commit — как enqueue_message."""
+    item = MessengerOutbox(kind=KIND_GROUP, channel=channel, chat_id=str(chat_id), text=text,
+                           board_message=board_message)
     database.db_session.add(item)
     return item
+
+
+def enqueue_group_action(kind: str, chat_id: int | str, board_message, channel: str) -> MessengerOutbox:
+    """Удалить/закрепить/открепить в группе копию board_message (kind —
+    один из GROUP_ACTIONS). text — только для списка «Очередь отправки»."""
+    labels = {KIND_GROUP_DELETE: "Удалить", KIND_GROUP_PIN: "Закрепить", KIND_GROUP_UNPIN: "Открепить"}
+    item = MessengerOutbox(kind=kind, channel=channel, chat_id=str(chat_id), board_message=board_message,
+                           text=f"{labels[kind]}: {board_message.body[:60]}")
+    database.db_session.add(item)
+    return item
+
+
+def _board_target(item: MessengerOutbox) -> str | None:
+    """id копии board_message в группе item.channel, к которой применить
+    действие. None — копии нет (сообщение туда не ушло) — делать нечего.
+    Копия ещё в очереди: удаление просто отменяет её отправку, закрепу —
+    подождать (повторяемая ошибка)."""
+    message = item.board_message
+    if message is None:
+        return None
+    if message.source == item.channel:
+        return message.external_message_id
+    copy = (
+        database.db_session.query(MessengerOutbox)
+        .filter_by(kind=KIND_GROUP, channel=item.channel, board_message_id=message.id)
+        .order_by(MessengerOutbox.id.desc())
+        .first()
+    )
+    if copy is None:
+        return None
+    if copy.external_id:
+        return copy.external_id
+    if copy.status == MessengerOutboxStatus.PENDING:
+        if item.kind == KIND_GROUP_DELETE:
+            copy.status = MessengerOutboxStatus.CANCELLED
+            return None
+        raise MessengerError("Сообщение ещё не отправлено в группу — повторим позже", status_code=503)
+    return None
 
 
 def enqueue_news(news: News, url: str, album_first: bool = False, silent: bool = False,
@@ -108,7 +160,12 @@ def _send(bot, settings, item: MessengerOutbox, upload_folder: str) -> None:
         bot.send_notification(settings, item.chat_id, item.text)
         return
     if item.kind == KIND_GROUP:
-        bot.send_group_message(settings, item.chat_id, item.text)
+        item.external_id = bot.send_group_message(settings, item.chat_id, item.text)
+        return
+    if item.kind in GROUP_ACTIONS:
+        target = _board_target(item)
+        if target is not None:
+            getattr(bot, GROUP_ACTIONS[item.kind])(settings, item.chat_id, target)
         return
     if item.news is None:
         raise MessengerError("Новость удалена с сайта", status_code=0)

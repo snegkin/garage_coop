@@ -316,8 +316,8 @@ function initChatWidget(cfg) {
   var pollTimer = null;
   var csrfMeta = document.querySelector('meta[name="csrf-token"]');
 
-  // Перетаскивание (за шапку) и изменение размера (за края и углы, см.
-  // .chat-widget-resize ниже) — размер и положение запоминаются в
+  // Перетаскивание (за шапку) и изменение размера (нативная ручка resize:
+  // both, см. CSS .chat-widget-panel) — размер и положение запоминаются в
   // localStorage, отдельно на каждый виджет (правления/ревизионной
   // комиссии) и каждый браузер; сброс к позиции по умолчанию не нужен —
   // достаточно один раз почистить localStorage вручную.
@@ -333,8 +333,13 @@ function initChatWidget(cfg) {
   var mobileQuery = window.matchMedia("(max-width: 575.98px)");
   function isMobile() { return mobileQuery.matches; }
 
+  // Закрытая панель (d-none) имеет нулевой размер — ResizeObserver
+  // срабатывает и на закрытие, и без этой проверки в localStorage
+  // записывались 0×0, а при следующем открытии окно сжималось до минимума.
+  function isHidden() { return panel.classList.contains("d-none") || panel.offsetWidth === 0; }
+
   function saveGeometry() {
-    if (isMobile()) return;
+    if (isMobile() || isHidden()) return;
     try {
       var rect = panel.getBoundingClientRect();
       var geo = { width: rect.width + "px", height: rect.height + "px" };
@@ -363,7 +368,7 @@ function initChatWidget(cfg) {
   }
 
   function clampToViewport() {
-    if (isMobile()) return;
+    if (isMobile() || isHidden()) return;
     var rect = panel.getBoundingClientRect();
     var maxLeft = Math.max(window.innerWidth - rect.width, 0);
     var maxTop = Math.max(window.innerHeight - rect.height, 0);
@@ -407,60 +412,64 @@ function initChatWidget(cfg) {
     saveGeometry();
   });
 
-  // Изменение размера — за любую сторону или угол панели, как у окна
-  // (ручки .chat-widget-resize, создаются здесь — одинаковые у обоих чатов).
-  // Нативный уголок resize:both был слишком мелким, чтобы в него попадать.
-  var MIN_W = 260, MIN_H = 280;
-  var resizeState = null;
-  ["n", "s", "e", "w", "ne", "nw", "se", "sw"].forEach(function (dir) {
-    var handle = document.createElement("div");
-    handle.className = "chat-widget-resize chat-widget-resize--" + dir;
-    handle.setAttribute("aria-hidden", "true");
-    handle.addEventListener("mousedown", function (e) {
-      if (isMobile() || e.button !== 0) return;
-      var rect = panel.getBoundingClientRect();
-      resizeState = { handle: handle, dir: dir, x: e.clientX, y: e.clientY,
-                      left: rect.left, top: rect.top, width: rect.width, height: rect.height };
-      panel.style.left = rect.left + "px";
-      panel.style.top = rect.top + "px";
-      panel.style.right = "auto";
-      panel.style.bottom = "auto";
-      handle.classList.add("is-active");
-      document.body.style.userSelect = "none";
-      document.body.style.cursor = getComputedStyle(handle).cursor;
-      e.preventDefault();
-      e.stopPropagation();
-    });
-    panel.appendChild(handle);
+  // Разделитель между перепиской и полем ввода: тянется мышью вверх/вниз
+  // и задаёт высоту поля ввода (min-height — длинный текст растит поле и
+  // дальше, см. autoGrow). Высота запоминается в localStorage вместе с
+  // размером окна; двойной клик — вернуть по умолчанию. На телефоне скрыт.
+  var inputHeightKey = "chatWidgetInputHeight:" + cfg.prefix;
+  var INPUT_MIN_H = 35;
+  var splitter = document.createElement("div");
+  splitter.className = "chat-widget-splitter";
+  splitter.setAttribute("role", "separator");
+  splitter.setAttribute("aria-orientation", "horizontal");
+  splitter.title = cfg.splitterLabel || "";
+  form.parentNode.insertBefore(splitter, form);
+
+  function maxInputHeight() {
+    // переписке оставляем хотя бы ~100px
+    return Math.max(INPUT_MIN_H, input.offsetHeight + messagesEl.clientHeight - 100);
+  }
+  function setInputHeight(h, save) {
+    if (h == null) {
+      input.style.minHeight = "";
+    } else {
+      input.style.minHeight = Math.round(Math.min(Math.max(h, INPUT_MIN_H), maxInputHeight())) + "px";
+    }
+    autoGrow();
+    if (save) {
+      try {
+        if (h == null) localStorage.removeItem(inputHeightKey);
+        else localStorage.setItem(inputHeightKey, parseFloat(input.style.minHeight));
+      } catch (e) {}
+    }
+  }
+  try {
+    var savedInputH = parseFloat(localStorage.getItem(inputHeightKey));
+    if (savedInputH > 0 && !isMobile()) input.style.minHeight = savedInputH + "px";
+  } catch (e) {}
+
+  var splitState = null;
+  splitter.addEventListener("mousedown", function (e) {
+    if (isMobile() || e.button !== 0) return;
+    splitState = { y: e.clientY, h: input.offsetHeight };
+    splitter.classList.add("is-active");
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "row-resize";
+    e.preventDefault();
   });
   document.addEventListener("mousemove", function (e) {
-    if (!resizeState) return;
-    var st = resizeState, dx = e.clientX - st.x, dy = e.clientY - st.y;
-    var left = st.left, top = st.top, width = st.width, height = st.height;
-    if (st.dir.indexOf("e") >= 0) width = Math.min(Math.max(st.width + dx, MIN_W), window.innerWidth - st.left);
-    if (st.dir.indexOf("s") >= 0) height = Math.min(Math.max(st.height + dy, MIN_H), window.innerHeight - st.top);
-    if (st.dir.indexOf("w") >= 0) {
-      width = Math.min(Math.max(st.width - dx, MIN_W), st.left + st.width);
-      left = st.left + st.width - width;
-    }
-    if (st.dir.indexOf("n") >= 0) {
-      height = Math.min(Math.max(st.height - dy, MIN_H), st.top + st.height);
-      top = st.top + st.height - height;
-    }
-    panel.style.left = left + "px";
-    panel.style.top = top + "px";
-    panel.style.width = width + "px";
-    panel.style.height = height + "px";
+    if (!splitState) return;
+    setInputHeight(splitState.h - (e.clientY - splitState.y), false);
   });
   document.addEventListener("mouseup", function () {
-    if (!resizeState) return;
-    resizeState.handle.classList.remove("is-active");
-    resizeState = null;
+    if (!splitState) return;
+    splitState = null;
+    splitter.classList.remove("is-active");
     document.body.style.userSelect = "";
     document.body.style.cursor = "";
-    clampToViewport();
-    saveGeometry();
+    setInputHeight(parseFloat(input.style.minHeight), true);
   });
+  splitter.addEventListener("dblclick", function () { setInputHeight(null, true); });
 
   // ResizeObserver — на случай изменения размера не мышью (окно браузера
   // сузилось и т. п.): держит панель в пределах экрана и запоминает размер.
@@ -801,8 +810,8 @@ function initChatWidget(cfg) {
     toggleEmoji(false);
   });
 
-  // Поле ввода растёт по тексту (до max-height в CSS), без своей ручки
-  // ресайза — второй уголок рядом с уголком панели только путал.
+  // Поле ввода растёт по тексту (до max-height в CSS), не меньше высоты,
+  // заданной разделителем (min-height); своей ручки ресайза у него нет.
   function autoGrow() {
     input.style.height = "auto";
     input.style.height = input.scrollHeight + 2 + "px";
@@ -847,7 +856,7 @@ function initChatWidget(cfg) {
     <div id="boardChatMessages" class="chat-widget-messages"></div>
     <form id="boardChatForm" class="chat-widget-form">
       <textarea id="boardChatInput" class="form-control form-control-sm" rows="1" placeholder="{{ _('Написать сообщение…') }}"></textarea>
-      <button type="submit" class="btn btn-sm btn-primary">{{ _("Отправить") }}</button>
+      <button type="submit" class="btn btn-sm btn-primary chat-widget-send" title="{{ _('Отправить') }}" aria-label="{{ _('Отправить') }}"><i class="bi bi-send-fill" aria-hidden="true"></i></button>
     </form>
   </div>
 </div>
@@ -855,6 +864,7 @@ function initChatWidget(cfg) {
   initChatWidget({
     prefix: "board",
     emojiLabel: "{{ _('Смайлики') }}",
+    splitterLabel: "{{ _('Потяните, чтобы изменить высоту поля ввода; двойной клик — по умолчанию') }}",
     listUrl: "{{ url_for('board_chat.list_messages') }}",
     sendUrl: "{{ url_for('board_chat.send_message') }}",
     heartbeatUrl: "{{ url_for('board_chat.heartbeat') }}",
@@ -886,7 +896,7 @@ function initChatWidget(cfg) {
     <div id="revisionChatMessages" class="chat-widget-messages"></div>
     <form id="revisionChatForm" class="chat-widget-form">
       <textarea id="revisionChatInput" class="form-control form-control-sm" rows="1" placeholder="{{ _('Написать сообщение…') }}"></textarea>
-      <button type="submit" class="btn btn-sm btn-primary">{{ _("Отправить") }}</button>
+      <button type="submit" class="btn btn-sm btn-primary chat-widget-send" title="{{ _('Отправить') }}" aria-label="{{ _('Отправить') }}"><i class="bi bi-send-fill" aria-hidden="true"></i></button>
     </form>
   </div>
 </div>
@@ -894,6 +904,7 @@ function initChatWidget(cfg) {
   initChatWidget({
     prefix: "revision",
     emojiLabel: "{{ _('Смайлики') }}",
+    splitterLabel: "{{ _('Потяните, чтобы изменить высоту поля ввода; двойной клик — по умолчанию') }}",
     listUrl: "{{ url_for('revision_chat.list_messages') }}",
     sendUrl: "{{ url_for('revision_chat.send_message') }}",
   });
@@ -1195,27 +1206,13 @@ tr.table-info-subtle { --bs-table-bg: var(--bs-info-bg-subtle); --bs-table-borde
   min-width: 260px; min-height: 280px;
   background: var(--bs-body-bg); border: 1px solid var(--bs-border-color); border-radius: .5rem;
   box-shadow: 0 .5rem 1.5rem rgba(0, 0, 0, .35); display: flex; flex-direction: column;
-  /* Размер меняется за края и углы (.chat-widget-resize, JS
-     initChatWidget) — внутренние блоки прокручиваются сами по себе. */
-  overflow: hidden;
+  /* resize:both требует overflow, отличный от visible, у самого элемента —
+     реального переполнения при этом не возникает, внутренние блоки
+     (сообщения/список участников) прокручиваются сами по себе. Ручку для
+     изменения размера браузер рисует сам, в правом нижнем углу. */
+  overflow: auto;
+  resize: both;
 }
-/* Ручки изменения размера: полосы по краям и квадраты в углах, невидимые,
-   курсор подсказывает направление; при наведении край подсвечивается. */
-.chat-widget-resize { position: absolute; z-index: 2; }
-.chat-widget-resize--n, .chat-widget-resize--s { left: 10px; right: 10px; height: 8px; cursor: ns-resize; }
-.chat-widget-resize--e, .chat-widget-resize--w { top: 10px; bottom: 10px; width: 8px; cursor: ew-resize; }
-.chat-widget-resize--n { top: 0; }
-.chat-widget-resize--s { bottom: 0; }
-.chat-widget-resize--e { right: 0; }
-.chat-widget-resize--w { left: 0; }
-.chat-widget-resize--ne, .chat-widget-resize--nw, .chat-widget-resize--se, .chat-widget-resize--sw { width: 14px; height: 14px; }
-.chat-widget-resize--ne { top: 0; right: 0; cursor: nesw-resize; }
-.chat-widget-resize--sw { bottom: 0; left: 0; cursor: nesw-resize; }
-.chat-widget-resize--nw { top: 0; left: 0; cursor: nwse-resize; }
-.chat-widget-resize--se { bottom: 0; right: 0; cursor: nwse-resize; }
-.chat-widget-resize::after { content: ""; position: absolute; inset: 2px; border-radius: 3px; background: var(--bs-primary); opacity: 0; transition: opacity .15s; }
-.chat-widget-resize:hover::after, .chat-widget-resize.is-active::after { opacity: .5; }
-.chat-widget-resize--ne::after, .chat-widget-resize--nw::after, .chat-widget-resize--se::after, .chat-widget-resize--sw::after { display: none; }
 .chat-widget-panel--left { right: auto; left: 1.25rem; }
 /* Перетаскивание — за шапку (см. initChatWidget: drag*); after выбора
    позиции мышью панель переходит на left/top (см. JS), правило right/left
@@ -1243,7 +1240,7 @@ tr.table-info-subtle { --bs-table-bg: var(--bs-info-bg-subtle); --bs-table-borde
 /* min-height:0 — без него flex-итем с overflow:auto по умолчанию не
    сжимается меньше высоты своего контента (min-height:auto), из-за чего
    при большом числе сообщений раздувался бы уже весь .chat-widget-panel
-   (у него overflow:hidden — содержимое просто обрезалось бы), а не только
+   (у него тоже overflow:auto — нужен для работы resize:both), а не только
    эта область — классический баг флексбокса. */
 .chat-widget-messages { flex: 1; min-height: 0; overflow-y: auto; padding: .5rem .75rem; display: flex; flex-direction: column; gap: .5rem; }
 .chat-widget-message { max-width: 85%; padding: .35rem .6rem; border-radius: .75rem; background: var(--bs-tertiary-bg); white-space: pre-wrap; word-break: break-word; font-size: .875rem; }
@@ -1262,9 +1259,29 @@ tr.table-info-subtle { --bs-table-bg: var(--bs-info-bg-subtle); --bs-table-borde
 .chat-widget-pinned .bi-pin-angle-fill { color: var(--bs-primary); }
 .chat-widget-pinned-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
 .chat-widget-pinned .chat-widget-action { border: none; background: none; }
-.chat-widget-form { display: flex; align-items: flex-end; gap: .4rem; padding: .5rem; border-top: 1px solid var(--bs-border-color); flex: none; }
+.chat-widget-form { display: flex; align-items: flex-end; gap: .4rem; padding: .5rem; flex: none; }
+/* Разделитель переписка/поле ввода (JS: splitter) — он же верхняя граница
+   формы; полоса 7px для мыши, видна линия 1px, при наведении — ручка. */
+.chat-widget-splitter {
+  flex: none; height: 7px; margin: -3px 0; position: relative; z-index: 2; cursor: row-resize;
+}
+.chat-widget-splitter::before {
+  content: ""; position: absolute; left: 0; right: 0; top: 3px; height: 1px; background: var(--bs-border-color);
+}
+.chat-widget-splitter::after {
+  content: ""; position: absolute; left: 50%; top: 2px; width: 2.5rem; height: 3px; margin-left: -1.25rem;
+  border-radius: 2px; background: var(--bs-secondary-color); opacity: 0; transition: opacity .15s;
+}
+.chat-widget-splitter:hover::after, .chat-widget-splitter.is-active::after { opacity: .6; }
+/* Кнопки формы — квадратные, по высоте однострочного поля, значок по центру. */
+.chat-widget-form .chat-widget-emoji-btn, .chat-widget-form .chat-widget-send {
+  flex: none; width: 2.2rem; height: 2.2rem; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center; font-size: 1.05rem;
+}
+.chat-widget-form .chat-widget-send { border-radius: 50%; }
+.chat-widget-form .chat-widget-send .bi, .chat-widget-form .chat-widget-emoji-btn .bi { line-height: 1; }
+.chat-widget-form .chat-widget-send .bi::before, .chat-widget-form .chat-widget-emoji-btn .bi::before { vertical-align: 0; }
 .chat-widget-form { position: relative; }
-.chat-widget-emoji-btn { flex: none; }
 .chat-widget-emoji-panel {
   position: absolute; left: .5rem; right: .5rem; bottom: 100%; margin-bottom: .25rem; z-index: 3;
   display: grid; grid-template-columns: repeat(auto-fill, minmax(2rem, 1fr)); gap: .1rem;
@@ -1275,7 +1292,7 @@ tr.table-info-subtle { --bs-table-bg: var(--bs-info-bg-subtle); --bs-table-borde
 .chat-widget-emoji-panel.d-none { display: none; }
 .chat-widget-emoji-panel button { background: none; border: none; border-radius: .3rem; font-size: 1.25rem; line-height: 1; padding: .25rem 0; }
 .chat-widget-emoji-panel button:hover, .chat-widget-emoji-panel button:focus-visible { background: var(--bs-tertiary-bg); }
-.chat-widget-form textarea { resize: none; min-height: 2.2rem; max-height: 40vh; overflow-y: auto; }
+.chat-widget-form textarea { resize: none; min-height: 2.2rem; max-height: 60vh; overflow-y: auto; }
 .wiki-tree-toggle { display: inline-block; width: 1.1rem; text-align: center; }
 .wiki-tree-toggle .chevron { display: inline-block; transition: transform .15s; }
 .wiki-tree-toggle.collapsed .chevron { transform: rotate(-90deg); }
@@ -1428,9 +1445,9 @@ tr.table-info-subtle { --bs-table-bg: var(--bs-info-bg-subtle); --bs-table-borde
     width: 100% !important; max-width: none; min-width: 0;
     height: var(--chat-viewport-height, 100dvh) !important; max-height: none; min-height: 0;
     border: none; border-radius: 0; box-shadow: none;
-    overflow: hidden; z-index: 1600;
+    resize: none; overflow: hidden; z-index: 1600;
   }
-  .chat-widget-resize { display: none; }
+  .chat-widget-splitter { display: none; }
   .chat-widget-header {
     cursor: default; justify-content: flex-start; gap: .25rem;
     padding: calc(.6rem + env(safe-area-inset-top)) .75rem .6rem; font-size: 1.05rem;

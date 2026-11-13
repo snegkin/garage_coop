@@ -2131,8 +2131,11 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "новости": "news",
         "Новости сюда": "Post news here",
         "правление": "board",
-        "Мост с чатом правления на сайте: сообщения ходят в обе стороны с задержкой до минуты. Только закрытая группа, где состоят одни члены правления; бот должен быть её администратором. Автор показывается логином на сайте, если его MAX привязан в профиле. Пусто — моста нет.":
-            "Bridge with the board chat on the site: messages go both ways with up to a minute's delay. Only a private group with board members alone; the bot must be its administrator. The author is shown by their site login if their MAX is linked in the profile. Leave empty to disable.",
+        "ID группы из списка «Чаты бота»": "Group ID from the «Bot chats» list",
+        "Группа правления указывается числовым ID, не ссылкой-приглашением. Добавьте бота в группу участником и сделайте администратором, нажмите «Обновить список» — группа появится в «Чатах бота», там нажмите «Группа правления».":
+            "The board group is set by its numeric ID, not an invite link. Add the bot to the group as a member and make it an administrator, click «Refresh list» — the group will appear under «Bot chats»; click «Board group» there.",
+        "Мост с чатом правления на сайте: сообщения ходят в обе стороны с задержкой до минуты. Только закрытая группа, где состоят одни члены правления; бот должен быть её администратором. Новому боту MAX вступать в группы запрещено — сначала разрешите это на business.max.ru → Чат-боты → ⋮ → Настройки. Автор показывается логином на сайте, если его MAX привязан в профиле. Пусто — моста нет.":
+            "Bridge with the board chat on the site: messages go both ways with up to a minute's delay. Only a private group with board members alone; the bot must be its administrator. A new MAX bot can't join groups — allow it first at business.max.ru → Chat bots → ⋮ → Settings. The author is shown by their site login if their MAX is linked in the profile. Leave empty to disable.",
         "Пока ни одного.": "None yet.",
         "Обновить список": "Refresh list",
         "Очередь отправки и список чатов разбирает cron-скрипт scripts/poll_messengers.sh (см. docs/deployment.md, раздел «Автоматизация») — общий для Telegram и MAX.":

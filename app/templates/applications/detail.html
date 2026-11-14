@@ -18,9 +18,10 @@
     </div>
   </div>
   <div class="d-flex gap-2">
+    {{ legal.facsimile_toggle() }}
     <button class="btn btn-primary btn-sm" onclick="window.print()"><i class="bi bi-printer" aria-hidden="true"></i> {{ _("Печать") }}</button>
     {% if not (application.is_paper and application.status.value == 'submitted') %}
-    <a class="btn btn-outline-primary btn-sm" href="{{ url_for('applications.pdf', application_id=application.id) }}">{{ _("Скачать PDF") }}{% if application.is_paper %} ({{ _("ответ") }}){% endif %}</a>
+    <a class="btn btn-outline-primary btn-sm" data-pdf-link href="{{ url_for('applications.pdf', application_id=application.id) }}">{{ _("Скачать PDF") }}{% if application.is_paper %} ({{ _("ответ") }}){% endif %}</a>
     {% endif %}
     <a data-back-link data-back-label="&larr; {{ _('Назад') }}" class="btn btn-outline-secondary btn-sm" href="{{ url_for('applications.list_applications') }}">{{ _("← к заявлениям") }}</a>
   </div>

@@ -58,6 +58,9 @@ class Cooperative(Base):
     # Группы/каналы в соцсетях и мессенджерах — по ссылке на строку
     # («Telegram: https://t.me/…»); для бланков (app/documents.py, {{соцсети}}).
     social_links: Mapped[str | None] = mapped_column(Text)
+    # Изображение печати (PNG с прозрачным фоном, app/facsimile.py) —
+    # вставляется в документы только галочкой «Подпись и печать».
+    seal_png: Mapped[bytes | None] = mapped_column(LargeBinary, deferred=True)
 
     registration_date: Mapped[dt.date | None] = mapped_column(Date)
 
@@ -1457,6 +1460,9 @@ class Person(Base):
     email: Mapped[str | None] = mapped_column(String(120))
     telegram: Mapped[str | None] = mapped_column(String(120))
     vk: Mapped[str | None] = mapped_column(String(120))
+    # Изображение подписи (PNG с прозрачным фоном, app/facsimile.py) —
+    # загружает сам председатель; вставляется в документы только галочкой.
+    signature_png: Mapped[bytes | None] = mapped_column(LargeBinary, deferred=True)
     max_messenger: Mapped[str | None] = mapped_column(String(120))  # мессенджер "MAX" (VK) — имя атрибута не "max", чтобы не затенять builtin
 
     # Привязка Telegram-аккаунта для уведомлений (см. app/telegram_bot.py) —

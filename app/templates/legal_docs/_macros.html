@@ -11,13 +11,63 @@
 <div class="print-signatures">
   <div class="signature-rows">
     <div class="signature-line">
-      <span class="sig-role">{{ role or _("Председатель") }}</span><span class="sig-blank"></span>
+      <span class="sig-role">{{ role or _("Председатель") }}</span><span class="sig-blank">{{ fx_sign(chairman) }}</span>
       {% if chairman %}<span class="sig-name">/{{ chairman.short_name }}/</span>{% endif %}
       {% if date %}<span class="sig-date">{{ fmt_date(date) }}</span>{% endif %}
     </div>
   </div>
-  <div class="stamp-place">{{ _("М.П.") }}</div>
+  {{ stamp_place() }}
 </div>
+{% endmacro %}
+
+
+{# Факсимиле (app/facsimile.py, стиль — legal_docs/_facsimile_style.html):
+   подпись — внутрь .sig-blank, только если подписант — вошедший
+   председатель; место «М.П.» — с печатью, если она загружена. #}
+{% macro fx_sign(signer) %}{% if facsimile_signature(signer) %}<span class="fx-sign{% if facsimile_on() %} shown{% endif %}"></span>{% endif %}{% endmacro %}
+
+{% macro stamp_place() %}
+{% set seal = facsimile_seal() %}
+<div class="stamp-place{% if seal %} has-seal{% if facsimile_on() %} seal-shown{% endif %}{% endif %}">{{ _("М.П.") }}{% if seal %}<span class="fx-seal{% if facsimile_on() %} shown{% endif %}"></span>{% endif %}</div>
+{% endmacro %}
+
+
+{# Галочка «Подпись и печать» рядом с кнопками печати — только председателю,
+   если что-то загружено. Включает показ на экране (и в печати браузера) и
+   дописывает facsimile=1 к ссылкам PDF (a[data-pdf-link]) и к формам,
+   скачивающим PDF (input[name=format][value=pdf]). По умолчанию выключена. #}
+{% macro facsimile_toggle() %}
+{% if facsimile_available() %}
+<div class="form-check form-switch no-print mb-0 align-self-center" title="{{ _('Вставить изображения подписи председателя и печати кооператива — для документов, которые отправляются в электронном виде. Без галочки — под живую подпись.') }}">
+  <input class="form-check-input" type="checkbox" id="facsimileToggle" data-facsimile-toggle{% if facsimile_on() %} checked{% endif %}>
+  <label class="form-check-label small" for="facsimileToggle">{{ _("Подпись и печать") }}</label>
+</div>
+<script>
+(function () {
+  var cb = document.querySelector("[data-facsimile-toggle]");
+  function apply() {
+    var on = cb.checked;
+    document.body.classList.toggle("facsimile-on", on);
+    document.querySelectorAll("a[data-pdf-link]").forEach(function (a) {
+      var url = new URL(a.href, window.location.href);
+      if (on) url.searchParams.set("facsimile", "1"); else url.searchParams.delete("facsimile");
+      a.href = url.toString();
+    });
+    document.querySelectorAll('input[name="format"][value="pdf"]').forEach(function (fmt) {
+      var form = fmt.form, hidden = form.querySelector('input[name="facsimile"]');
+      if (on && !hidden) {
+        hidden = document.createElement("input");
+        hidden.type = "hidden"; hidden.name = "facsimile"; hidden.value = "1";
+        form.appendChild(hidden);
+      }
+      if (!on && hidden) hidden.remove();
+    });
+  }
+  cb.addEventListener("change", apply);
+  apply();
+})();
+</script>
+{% endif %}
 {% endmacro %}
 
 

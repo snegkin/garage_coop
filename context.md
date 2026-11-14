@@ -455,6 +455,22 @@ relationship-коллекции» выше — тот же класс пробл
 `CertificateRequest.document_id`. Миграция `a3d7e91c5b20` переносит
 `garage_certificate` в `issued_document`, если там что-то было.
 
+## Факсимиле подписи и печати (`app/facsimile.py`)
+`Cooperative.seal_png`, `Person.signature_png` (LargeBinary, deferred) —
+PNG после `prepare_image` (белый фон → прозрачный по яркости с плавным
+переходом, обрезка, ≤1200 px). В страницу — НЕ `<img>` в каждом
+документе, а фоном `.fx-sign`/`.fx-seal`, заданным один раз в
+`legal_docs/_facsimile_style.html` (включается из `_print_style.html`):
+пачка уведомлений иначе тащила бы data:-URI на каждого должника; нужен
+`print-color-adjust: exact`, иначе браузер не печатает фон. Элементы —
+`<span>`: правило сброса печати `body div {width/margin !important}`
+сбило бы размеры у `<div>`. Видимость: `.shown` (сервер, `facsimile_on()`
+— председатель + `facsimile=1` в запросе, так рендерится PDF) или
+`body.facsimile-on` (галочка `facsimile_toggle`, она же дописывает
+`facsimile=1` к `a[data-pdf-link]` и формам с `format=pdf`). Подпись —
+только если `signer.id == g.user.person_id`. Аудит `facsimile.pdf` — в
+`legal_docs._render_pdf_or_fallback`.
+
 ## Бланки и шаблоны (`app/documents.py`, `DocumentTemplate`/`IssuedDocument`)
 Подстановки `{{ключ}}` (регистр не важен, `VARIABLES`) выполняются ОДИН раз
 при открытии формы составления, дальше — обычный HTML из редактора;

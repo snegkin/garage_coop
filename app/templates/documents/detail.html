@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% import "documents/_macros.html" as m %}
+{% import "legal_docs/_macros.html" as legal %}
 {% block title %}{{ document.title or _("Документ") }}{% if document.number %} № {{ document.number }}{% endif %}{% endblock %}
 {% block content %}
 {% include "applications/_sheet_style.html" %}
@@ -14,8 +15,9 @@
     </div>
   </div>
   <div class="d-flex gap-2 flex-wrap">
+    {{ legal.facsimile_toggle() }}
     <button class="btn btn-primary btn-sm" onclick="window.print()"><i class="bi bi-printer" aria-hidden="true"></i> {{ _("Печать") }}</button>
-    <a class="btn btn-outline-primary btn-sm" href="{{ url_for('documents.pdf', document_id=document.id) }}">{{ _("Скачать PDF") }}</a>
+    <a class="btn btn-outline-primary btn-sm" data-pdf-link href="{{ url_for('documents.pdf', document_id=document.id) }}">{{ _("Скачать PDF") }}</a>
     {% if is_board() %}
     <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('documents.create', copy_of=document.id) }}" title="{{ _('Новый документ с этим текстом — можно поправить и сохранить') }}"><i class="bi bi-copy" aria-hidden="true"></i> {{ _("Составить копию") }}</a>
     <form method="post" action="{{ url_for('documents.delete', document_id=document.id) }}" onsubmit="return confirm({{ _('Удалить документ из журнала?')|tojson|forceescape }})">

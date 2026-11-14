@@ -5,6 +5,7 @@
 <div class="d-flex justify-content-between align-items-center mb-3 no-print">
   <h3 class="mb-0">{{ _("Уведомление о задолженности") }}</h3>
   <div class="d-flex gap-2">
+    {{ m.facsimile_toggle() }}
     <button class="btn btn-primary" onclick="window.print()">{{ _("Печать") }}</button>
     <form method="post" action="{{ url_for('legal_docs.debt_notice') }}" class="d-inline">
       {% for doc in docs %}<input type="hidden" name="person_id" value="{{ doc.person.id }}">{% endfor %}

@@ -241,7 +241,7 @@
   {% with messages = get_flashed_messages(with_categories=true) %}
     {% if messages %}
       {% for category, message in messages %}
-        <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+        <div class="alert alert-{{ category }} alert-dismissible fade show flash-message" role="alert">
           {{ message }}
           <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
         </div>
@@ -1579,6 +1579,10 @@ tr.table-info-subtle { --bs-table-bg: var(--bs-info-bg-subtle); --bs-table-borde
 @media print {
   .bottom-nav { display: none !important; }
   body { padding-bottom: 0 !important; }
+  /* Интерфейс, не часть документа — на бланк при печати не попадает:
+     незакрытые уведомления («Документ сохранён…»), пузыри и окна чатов
+     правления/ревизионной комиссии. */
+  .flash-message, .chat-widget-bubble, .chat-widget-panel { display: none !important; }
 }
 /* Шапка и контент на широких мониторах — шире бутстраповских 1320px
    (.container): таблицам с кнопками в правых колонках тесно, а на 2K/4K

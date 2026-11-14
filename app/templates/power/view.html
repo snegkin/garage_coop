@@ -176,7 +176,13 @@
         {% endif %}
       </td>
       <td>{{ r.comment or "—" }}</td>
-      <td>{% if r.document_id %}<a href="{{ url_for('cooperative.download_document', doc_id=r.document_id) }}">{{ _("скачать") }}</a>{% else %}—{% endif %}</td>
+      <td class="text-nowrap">
+        {% if r.document_id %}<a href="{{ url_for('cooperative.download_document', doc_id=r.document_id) }}">{{ _("скачать") }}</a>{% else %}<span class="text-muted">—</span>{% endif %}
+        <button type="button" class="btn btn-sm btn-link p-0 ms-1 align-baseline" data-bs-toggle="modal" data-bs-target="#readingDocumentModal"
+                data-action="{{ url_for('power.attach_master_reading_document', reading_id=r.id) }}"
+                data-period="{{ r.month }}.{{ r.year }}" data-replace="{{ 1 if r.document_id else 0 }}"
+                title="{{ _('Заменить документ') if r.document_id else _('Прикрепить документ') }}"><i class="bi bi-paperclip" aria-hidden="true"></i></button>
+      </td>
       <td class="no-sort">
         {% if loop.first %}
         <div class="d-flex gap-1 justify-content-end">
@@ -460,7 +466,7 @@
 <div class="modal fade" id="editReadingModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg">
     <div class="modal-content">
-      <form method="post" action="{{ url_for('power.edit_master_reading', reading_id=latest_reading.id) }}">
+      <form method="post" action="{{ url_for('power.edit_master_reading', reading_id=latest_reading.id) }}" enctype="multipart/form-data">
         <div class="modal-header">
           <h5 class="modal-title">{{ _("Изменить показание общего счётчика") }}</h5>
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
@@ -491,6 +497,14 @@
             <label class="form-label">{{ _("Комментарий") }}</label>
             <textarea class="form-control" name="comment">{{ latest_reading.comment or "" }}</textarea>
           </div>
+          <div class="mb-3">
+            <label class="form-label">{{ _("Документ от энергосбыта") }}</label>
+            {% if latest_reading.document_id %}
+            <div class="small mb-1">{{ _("Сейчас прикреплён:") }} <a href="{{ url_for('cooperative.download_document', doc_id=latest_reading.document_id) }}">{{ latest_reading.document.title }}</a></div>
+            {% endif %}
+            <input class="form-control" type="file" name="document_file">
+            {% if latest_reading.document_id %}<div class="form-text">{{ _("Выберите файл, чтобы заменить документ; без файла останется текущий.") }}</div>{% endif %}
+          </div>
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
@@ -501,6 +515,49 @@
   </div>
 </div>
 {% endif %}
+
+<!-- Модалка: прикрепить/заменить документ к любому показанию общего счётчика -->
+<div class="modal fade" id="readingDocumentModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" action="" enctype="multipart/form-data">
+        <div class="modal-header">
+          <h5 class="modal-title">{{ _("Документ к показанию за") }} <span data-role="period"></span></h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <p class="text-muted small d-none" data-role="replace-note">{{ _("У показания уже есть документ — новый файл заменит его в этой строке (прежний останется в разделе «Документы»).") }}</p>
+          <div class="mb-3">
+            <label class="form-label">{{ _("Файл") }}</label>
+            <input class="form-control" type="file" name="document_file" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">{{ _("Название") }}</label>
+            <input class="form-control" name="document_title" placeholder="{{ _('Счёт за электроэнергию') }} …">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+          <button class="btn btn-primary">{{ _("Прикрепить") }}</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  const modal = document.getElementById("readingDocumentModal");
+  modal.addEventListener("show.bs.modal", function (e) {
+    const btn = e.relatedTarget;
+    if (!btn) return;
+    const form = modal.querySelector("form");
+    form.reset();
+    form.action = btn.dataset.action;
+    modal.querySelector('[data-role="period"]').textContent = btn.dataset.period;
+    modal.querySelector('[data-role="replace-note"]').classList.toggle("d-none", btn.dataset.replace !== "1");
+  });
+})();
+</script>
 
 <script>
 (function () {

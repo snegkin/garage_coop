@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Бланки") }}{% endblock %}
+{% block content %}
+<h3 class="mb-2">{{ _("Бланки") }}</h3>
+<p class="text-muted small">{{ _("Бланки заявлений и других документов кооператива — распечатайте, заполните от руки и передайте в правление.") }}</p>
+{% if templates %}
+{% set public_blanks = templates %}
+{% include "documents/_public_links.html" %}
+{% else %}
+<p class="text-muted">{{ _("Общедоступных бланков пока нет.") }}</p>
+{% endif %}
+{% endblock %}

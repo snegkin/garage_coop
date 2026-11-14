@@ -41,6 +41,10 @@
         <input class="form-check-input" type="checkbox" name="chairman_only" id="tplChair" value="1"{% if draft.chairman_only %} checked{% endif %}>
         <label class="form-check-label small" for="tplChair">{{ _("Составляет только председатель") }}</label>
       </div>
+      <div class="form-check" title="{{ _('Бланк можно открыть, распечатать и скачать без входа — со страницы «О кооперативе». Подставляются только открытые сведения кооператива; данные людей, гаражей и расчётный счёт — прочерками для заполнения от руки.') }}">
+        <input class="form-check-input" type="checkbox" name="is_public" id="tplPublic" value="1"{% if draft.is_public %} checked{% endif %}>
+        <label class="form-check-label small" for="tplPublic">{{ _("Общедоступный бланк (скачать без входа)") }}</label>
+      </div>
     </div>
     <div class="col-md-4">
       <label class="form-label small mb-1" for="tplSigner">{{ _("Подпись — должность") }}</label>

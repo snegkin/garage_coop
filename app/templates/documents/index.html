@@ -53,7 +53,7 @@
       <div class="card-body">
         <h6 class="card-title mb-1">{{ t.name }}</h6>
         <div class="small text-muted">
-          {% if t.title %}«{{ t.title }}» · {% endif %}{{ document_recipient_label(t.recipient) }}{% if t.show_number %} · {{ _("с номером") }}{% endif %}{% if t.chairman_only %} · {{ _("составляет председатель") }}{% endif %}
+          {% if t.title %}«{{ t.title }}» · {% endif %}{{ document_recipient_label(t.recipient) }}{% if t.show_number %} · {{ _("с номером") }}{% endif %}{% if t.chairman_only %} · {{ _("составляет председатель") }}{% endif %}{% if t.is_public %} · <a href="{{ url_for('documents.public_view', template_id=t.id) }}">{{ _("общедоступный") }}</a>{% endif %}
         </div>
       </div>
       <div class="card-footer bg-transparent d-flex gap-2 flex-wrap">

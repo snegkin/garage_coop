@@ -1,0 +1,11 @@
+{# Список общедоступных бланков (documents.public_templates) — на странице
+   «О кооперативе» и на /documents/public/. Ожидает public_blanks. #}
+<ul class="list-unstyled mb-0">
+  {% for t in public_blanks %}
+  <li class="d-flex align-items-center gap-2 mb-2 flex-wrap">
+    <i class="bi bi-file-earmark-text" aria-hidden="true"></i>
+    <a href="{{ url_for('documents.public_view', template_id=t.id) }}">{{ t.name }}</a>
+    <a class="btn btn-sm btn-outline-primary py-0" href="{{ url_for('documents.public_pdf', template_id=t.id) }}">PDF</a>
+  </li>
+  {% endfor %}
+</ul>

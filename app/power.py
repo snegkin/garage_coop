@@ -43,6 +43,29 @@ def _readings_with_amounts(readings_desc):
     return result
 
 
+def _attach_reading_document(reading, file_storage, title=None):
+    """Прикрепляет загруженный файл к показанию общего счётчика: новый
+    Document привязывается к показанию и (если есть) к расходу перед
+    поставщиком. Прежний документ, если был, не удаляется — остаётся в
+    разделе «Документы» и у расхода, показание просто ссылается на новый.
+    Возвращает созданный Document или None, если файла нет / расширение
+    не разрешено."""
+    file_path = save_upload(file_storage, current_app.config["UPLOAD_FOLDER"])
+    if not file_path:
+        return None
+    title = title or _(
+        "Счёт за электроэнергию {month}.{year}", month=reading.month, year=reading.year
+    )
+    doc = Document(
+        doc_type=DocumentType.LETTER, date=dt.date.today(), title=title, file_path=file_path,
+        expense_id=reading.expense_id,
+    )
+    database.db_session.add(doc)
+    database.db_session.flush()
+    reading.document_id = doc.id
+    return doc
+
+
 def _tariffs_with_range(kind):
     """Список тарифов заданного вида, каждый — с датой окончания действия
     (день перед началом следующего ПО ЭТОМУ ЖЕ ВИДУ, не по обоим сразу —
@@ -253,17 +276,6 @@ def add_master_reading():
         flash(error, "danger")
         return redirect(url_for("power.view"))
 
-    document_id = None
-    file_path = save_upload(request.files.get("document_file"), current_app.config["UPLOAD_FOLDER"])
-    if file_path:
-        title = f.get("document_title") or _(
-            "Счёт за электроэнергию {month}.{year}", month=month, year=year
-        )
-        doc = Document(doc_type=DocumentType.LETTER, date=dt.date.today(), title=title, file_path=file_path)
-        database.db_session.add(doc)
-        database.db_session.flush()
-        document_id = doc.id
-
     reading = MasterMeterReading(
         year=year,
         month=month,
@@ -272,10 +284,10 @@ def add_master_reading():
         line_loss=parse_optional_decimal(f.get("line_loss")),
         tariff_id=tariff.id,
         comment=f.get("comment") or None,
-        document_id=document_id,
     )
     database.db_session.add(reading)
     database.db_session.flush()
+    doc = _attach_reading_document(reading, request.files.get("document_file"), f.get("document_title"))
 
     # Сумму считаем той же логикой, что и таблица показаний на экране
     # (относительно хронологически предыдущего показания, плюс потери в
@@ -317,7 +329,7 @@ def add_master_reading():
             # быть несколько документов (см. Expense.documents), тот же файл
             # от энергосбыта привязан и к показанию (reading.document_id
             # выше), и к заведённому по нему расходу.
-            if document_id is not None:
+            if doc is not None:
                 doc.expense_id = expense.id
 
             bank_account_id = f.get("bank_account_id")
@@ -457,11 +469,50 @@ def edit_master_reading(reading_id):
             database.db_session.add(expense)
             database.db_session.flush()
             reading.expense_id = expense.id
+            if reading.document is not None and reading.document.expense_id is None:
+                reading.document.expense_id = expense.id
             reallocate_counterparty_expenses(settings.supplier)
+
+    # Файл прикрепляем после пересчёта расхода — чтобы новый документ сразу
+    # привязался к актуальному (в т.ч. только что созданному) расходу.
+    _attach_reading_document(reading, request.files.get("document_file"), f.get("document_title"))
 
     audit.record("power.reading_edit", f"Изменено показание общего счётчика за {month}.{year}")
     database.db_session.commit()
     flash(_("Показание изменено."), "success")
+    return redirect(url_for("power.view"))
+
+
+@bp.route("/readings/<int:reading_id>/document", methods=["POST"])
+@roles_required(RoleEnum.BOARD)
+def attach_master_reading_document(reading_id):
+    """
+    Прикрепить (или заменить) документ от энергосбыта к ЛЮБОМУ показанию,
+    не только к последнему: файл не влияет ни на суммы, ни на цепочку
+    показаний, ни на оплату — поэтому ограничений «только последнее / только
+    пока не оплачено», как у edit_master_reading, здесь нет.
+    """
+    reading = database.db_session.get(MasterMeterReading, reading_id)
+    if reading is None:
+        abort(404)
+
+    file_storage = request.files.get("document_file")
+    if not file_storage or not file_storage.filename:
+        flash(_("Выберите файл."), "warning")
+        return redirect(url_for("power.view"))
+
+    replaced = reading.document_id is not None
+    doc = _attach_reading_document(reading, file_storage, request.form.get("document_title"))
+    if doc is None:
+        flash(_("Недопустимый тип файла."), "danger")
+        return redirect(url_for("power.view"))
+
+    audit.record(
+        "power.reading_document",
+        f"{'Заменён' if replaced else 'Прикреплён'} документ к показанию общего счётчика за {reading.month}.{reading.year}",
+    )
+    database.db_session.commit()
+    flash(_("Документ прикреплён."), "success")
     return redirect(url_for("power.view"))
 
 

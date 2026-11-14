@@ -5,6 +5,16 @@
 # Факт site_https — вход (сертификат уже есть) и выход (получен сейчас).
 # В шаблон он идёт переменной задачи nginx_https: свою переменную задача
 # может задать, а факт (set_fact) переменной задачи не перекрыть.
+#
+# coop_domain_aliases — другие домены кооператива (гм-восход.ru при
+# основном гм-восход.рф): в том же сертификате (--cert-name coop_domain,
+# путь live/ не меняется) и 301 на основной. Добавили домен — следующий
+# прогон расширит сертификат (--expand). DNS домена ещё не готов —
+# сертификат остаётся каким был, домен по HTTPS не отвечает, а по HTTP
+# всё равно редиректит; прогоните ещё раз, когда DNS обновится.
+
+- name: "[{{ service_name }}] Домены в сертификате"
+  ansible.builtin.import_tasks: cert_names.yml
 
 - name: "[{{ service_name }}] Сайт nginx"
   ansible.builtin.template:
@@ -13,6 +23,7 @@
     mode: "0644"
   vars:
     nginx_https: "{{ site_https }}"
+    nginx_alias_https: "{{ site_cert_aliases }}"
   notify: reload nginx
 
 - name: "[{{ service_name }}] Сайт включён"
@@ -30,14 +41,28 @@
   ansible.builtin.meta: flush_handlers
 
 - name: "[{{ service_name }}] Получить сертификат"
-  when: coop_domain | length > 0 and not site_https | bool
+  when: coop_domain | length > 0 and (not site_https | bool or site_cert_missing | length > 0)
+  vars:
+    # --cert-name: путь live/{{ coop_domain }}/ — тот же, что в шаблоне,
+    # и при добавлении доменов; --expand — дополнить, а не новый рядом.
+    certbot_argv: [certbot, certonly, --webroot, -w, /var/www/letsencrypt,
+                   --cert-name, "{{ coop_domain }}", --expand,
+                   --email, "{{ certbot_email }}", --agree-tos, --non-interactive, --no-eff-email]
   block:
     - name: "[{{ service_name }}] certbot certonly --webroot"
       ansible.builtin.command:
-        argv: [certbot, certonly, --webroot, -w, /var/www/letsencrypt, -d, "{{ coop_domain }}",
-               --email, "{{ certbot_email }}", --agree-tos, --non-interactive, --no-eff-email]
+        argv: "{{ certbot_argv + (['-d'] | product([coop_domain] + coop_domain_aliases | default([])) | flatten) }}"
       register: certbot
       failed_when: false
+
+    # Первый сертификат, а не готов DNS одного из дополнительных доменов —
+    # хотя бы на основной: иначе весь сайт остался бы по HTTP.
+    - name: "[{{ service_name }}] certbot — только основной домен"
+      ansible.builtin.command:
+        argv: "{{ certbot_argv + ['-d', coop_domain] }}"
+      register: certbot_main
+      failed_when: false
+      when: certbot.rc != 0 and not site_https | bool and coop_domain_aliases | default([]) | length > 0
 
     - name: "[{{ service_name }}] Не вышло — сайт пока по HTTP"
       ansible.builtin.debug:
@@ -46,7 +71,17 @@
           ещё не смотрит на этот сервер или не разошлась). Сайт работает по
           HTTP; когда DNS обновится — прогоните плейбук ещё раз (--tags nginx,app).
           {{ certbot.stderr | default('') | trim }}
-      when: certbot.rc != 0
+      when: certbot.rc != 0 and certbot_main.rc | default(1) != 0 and not site_https | bool
+
+    - name: "[{{ service_name }}] Не все домены в сертификате"
+      ansible.builtin.debug:
+        msg: >-
+          certbot не добавил в сертификат {{ coop_domain_aliases | difference(site_cert_aliases) | join(', ') }}
+          (A-запись ещё не смотрит на этот сервер?). Основной домен работает
+          по HTTPS, эти — только редирект по HTTP; когда DNS обновится —
+          прогоните плейбук ещё раз (--tags nginx,app).
+          {{ certbot.stderr | default('') | trim }}
+      when: certbot.rc != 0 and (site_https | bool or certbot_main.rc | default(1) == 0)
 
     # when блока проверяется перед КАЖДОЙ его задачей: после этого
     # set_fact всё ниже в блоке пропустилось бы — поэтому он последний,
@@ -54,7 +89,10 @@
     - name: "[{{ service_name }}] Сертификат получен (последним в блоке)"
       ansible.builtin.set_fact:
         site_https: true
-      when: certbot.rc == 0
+      when: certbot.rc == 0 or certbot_main.rc | default(1) == 0
+
+- name: "[{{ service_name }}] Домены в новом сертификате"
+  ansible.builtin.import_tasks: cert_names.yml
 
 - name: "[{{ service_name }}] Сайт nginx с HTTPS"
   ansible.builtin.template:
@@ -63,6 +101,7 @@
     mode: "0644"
   vars:
     nginx_https: "{{ site_https }}"
+    nginx_alias_https: "{{ site_cert_aliases }}"
   register: site_https_conf
   notify: reload nginx
 

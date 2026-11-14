@@ -24,6 +24,7 @@ NAME_RE = re.compile(r"^[a-z][a-z0-9-]{0,30}$")
 DOMAIN_RE = re.compile(r"^[A-Za-z0-9.-]+$")
 
 OPTIONAL = {
+    "aliases": [],
     "recaptcha_site_key": "",
     "recaptcha_secret_key": "",
     "env_extra": {},
@@ -40,12 +41,15 @@ KNOWN = set(REQUIRED) | set(OPTIONAL) | {"cron_minute_offset"}
 
 def coop_instances(instances, primary):
     """instances — coop_extra_instances; primary — {app_user, app_port,
-    coop_domain, app_secret_key, service_name, cron_jobs}."""
+    coop_domain, coop_domain_aliases, app_secret_key, service_name, cron_jobs}."""
     if not instances:
         return []
     if not isinstance(instances, list):
         raise AnsibleFilterError("coop_extra_instances — список кооперативов")
     cron_names = {job["name"] for job in primary.get("cron_jobs") or []}
+    primary_domains = {primary.get("coop_domain")} | set(primary.get("coop_domain_aliases") or [])
+    primary_domains.discard("")
+    primary_domains.discard(None)
     result, seen = [], {"name": set(), "port": set(), "domain": set()}
     for index, raw in enumerate(instances, start=1):
         if not isinstance(raw, dict):
@@ -65,11 +69,18 @@ def coop_instances(instances, primary):
             raise AnsibleFilterError(f"{label}: name совпадает с app_user основного кооператива")
 
         domain = str(raw["domain"])
-        if not DOMAIN_RE.match(domain):
-            raise AnsibleFilterError(
-                f"{label}: domain — в punycode: python3 -c \"print('пример.рф'.encode('idna').decode())\"")
-        if domain == primary.get("coop_domain"):
-            raise AnsibleFilterError(f"{label}: domain совпадает с coop_domain основного кооператива")
+        aliases = raw.get("aliases") or []
+        if not isinstance(aliases, list):
+            raise AnsibleFilterError(f"{label}: aliases — список доменов")
+        aliases = [str(alias) for alias in aliases]
+        for value in [domain] + aliases:
+            if not DOMAIN_RE.match(value):
+                raise AnsibleFilterError(
+                    f"{label}: {value} — домен в punycode: python3 -c \"print('пример.рф'.encode('idna').decode())\"")
+            if value in primary_domains:
+                raise AnsibleFilterError(f"{label}: домен {value} уже у основного кооператива (coop_domain или coop_domain_aliases)")
+        if len(set([domain] + aliases)) != len(aliases) + 1:
+            raise AnsibleFilterError(f"{label}: домены в domain и aliases повторяются")
 
         try:
             port = int(raw["port"])
@@ -84,7 +95,7 @@ def coop_instances(instances, primary):
         if secret == primary.get("app_secret_key"):
             raise AnsibleFilterError(f"{label}: secret_key как у основного кооператива — нужен свой")
 
-        for key, value in (("name", name), ("port", port), ("domain", domain)):
+        for key, value in [("name", name), ("port", port)] + [("domain", d) for d in [domain] + aliases]:
             if value in seen[key]:
                 raise AnsibleFilterError(f"{label}: {key} {value} уже занят другим кооперативом из списка")
             seen[key].add(value)
@@ -98,6 +109,7 @@ def coop_instances(instances, primary):
         item.update(
             name=name,
             domain=domain,
+            aliases=aliases,
             port=port,
             secret_key=secret,
             bank_api_encryption_key=str(raw["bank_api_encryption_key"]),

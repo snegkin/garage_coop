@@ -1,0 +1,21 @@
+# Какие из coop_domain_aliases уже есть в сертификате coop_domain (из
+# nginx_site.yml — до certbot и после): site_cert_aliases — им vhost по
+# HTTPS, site_cert_missing — их certbot должен добавить (--expand).
+# Сертификата нет (site_https: false) — нет и HTTPS у дополнительных.
+
+- name: "[{{ service_name }}] Имена в сертификате"
+  ansible.builtin.command:
+    argv: [openssl, x509, -noout, -ext, subjectAltName, -in,
+           "/etc/letsencrypt/live/{{ coop_domain }}/fullchain.pem"]
+  register: cert_san
+  changed_when: false
+  check_mode: false
+  when: site_https | bool and coop_domain_aliases | default([]) | length > 0
+
+- name: "[{{ service_name }}] Дополнительные домены: в сертификате и нет"
+  ansible.builtin.set_fact:
+    site_cert_aliases: "{{ aliases | intersect(names) }}"
+    site_cert_missing: "{{ aliases | difference(names) if site_https | bool else [] }}"
+  vars:
+    aliases: "{{ (coop_domain_aliases | default([])) if coop_domain else [] }}"
+    names: "{{ cert_san.stdout | default('') | regex_findall('DNS:([^,\\s]+)') }}"

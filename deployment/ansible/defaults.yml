@@ -17,6 +17,9 @@ app_port: 8000
 gunicorn_args: "-w 1 --threads 4 -k gthread"
 
 coop_domain: ""                    # пусто — без HTTPS, сайт по IP
+# Другие домены кооператива (тоже punycode): в том же сертификате, 301 на
+# coop_domain. A-записи — на этот же сервер. Пример — vars.example.yml.
+coop_domain_aliases: []
 certbot_email: ""
 
 # Дополнительные кооперативы на этом же сервере (docs/deployment.md,
@@ -31,6 +34,7 @@ certbot_email: ""
 #   coop_extra_instances:
 #     - name: coop2                          # [a-z][a-z0-9-]*, не app_user
 #       domain: xn--...xn--p1ai              # обязателен, punycode
+#       aliases: [example.ru]                # необязательно, как coop_domain_aliases
 #       port: 8001                           # свой, не app_port
 #       secret_key: "…"                      # свои, ≥32 символов; не как у основного
 #       bank_api_encryption_key: "…"

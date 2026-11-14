@@ -1,0 +1,25 @@
+{# Факсимиле подписи и печати (app/facsimile.py). Изображения — фоном
+   элементов .fx-sign / .fx-seal, заданным здесь один раз на страницу
+   (в пачке уведомлений не повторяются), и только у председателя.
+   Видны, если у элемента класс .shown (PDF, запрошенный с facsimile=1)
+   или на странице включена галочка (body.facsimile-on). Элементы —
+   <span>, не <div>: правило сброса печати `body div { width/margin …
+   !important }` в печатных формах иначе сбило бы размеры.
+   print-color-adjust — чтобы браузер печатал фон (по умолчанию нет). #}
+{% set fx_seal_uri = facsimile_seal() %}
+{% set fx_sign_uri = facsimile_own_signature() %}
+<style>
+.fx-sign, .fx-seal {
+  display: none; background-repeat: no-repeat; background-position: center; background-size: contain;
+  -webkit-print-color-adjust: exact; print-color-adjust: exact;
+}
+.fx-sign.shown, .facsimile-on .fx-sign, .fx-seal.shown, .facsimile-on .fx-seal { display: block; }
+.sig-blank { position: relative; }
+.fx-sign { position: absolute; left: -4mm; right: -4mm; bottom: -1mm; height: 15mm; }
+.stamp-place { position: relative; }
+/* Печать — по центру места «М.П.», чуть выше, заходит на подпись, как настоящая. */
+.fx-seal { position: absolute; width: 38mm; height: 38mm; left: 50%; top: 50%; margin: -30mm 0 0 -34mm; }
+.facsimile-on .stamp-place.has-seal, .stamp-place.has-seal.seal-shown { border-color: transparent !important; color: transparent !important; }
+{% if fx_seal_uri %}.fx-seal { background-image: url("{{ fx_seal_uri }}"); }{% endif %}
+{% if fx_sign_uri %}.fx-sign { background-image: url("{{ fx_sign_uri }}"); }{% endif %}
+</style>

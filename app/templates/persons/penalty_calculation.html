@@ -1,9 +1,12 @@
 {% extends "base.html" %}
+{% import "legal_docs/_macros.html" as legal %}
 {% block title %}{{ _("Расчёт пени") }} — {{ person.full_name }}{% endblock %}
 {% block content %}
+{% include "legal_docs/_facsimile_style.html" %}
 <div class="d-flex justify-content-between align-items-center mb-3 no-print">
   <h3 class="mb-0">{{ _("Расчёт пени") }} — {{ person.full_name }}</h3>
   <div class="d-flex gap-2">
+    {{ legal.facsimile_toggle() }}
     <button class="btn btn-primary" onclick="window.print()">{{ _("Печать") }}</button>
     <a data-back-link data-back-label="&larr; {{ _('Назад') }}" class="btn btn-outline-secondary" href="{{ url_for('persons.statement', person_id=person.id) }}">{{ _("Назад к выписке") }}</a>
   </div>
@@ -141,11 +144,11 @@
   <div class="print-signatures">
     <div class="signature-rows">
       <div class="signature-line">
-        <span class="sig-role">{{ _("Председатель") }}</span><span class="sig-blank"></span>
+        <span class="sig-role">{{ _("Председатель") }}</span><span class="sig-blank">{{ legal.fx_sign(chairman) }}</span>
         {% if chairman %}<span class="sig-name">/{{ chairman.short_name }}/</span>{% endif %}
       </div>
     </div>
-    <div class="stamp-place">{{ _("М.П.") }}</div>
+    {{ legal.stamp_place() }}
   </div>
 </div>
 {% endblock %}

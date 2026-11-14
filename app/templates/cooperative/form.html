@@ -113,4 +113,34 @@
     <a class="btn btn-secondary" href="{{ url_for('cooperative.view') }}">{{ _("Отмена") }}</a>
   </div>
 </form>
+
+<div class="bg-body p-4 rounded border mt-4" id="facsimile">
+  <h5>{{ _("Печать и подпись для документов") }}</h5>
+  <p class="text-muted small mb-3">{{ _("Скан или фото на белом фоне (PNG, JPG): фон станет прозрачным, поля обрежутся. В документы изображения вставляются только галочкой «Подпись и печать» рядом с кнопкой печати и только у председателя — без неё документ печатается под живую подпись. Каждый PDF с подписью и печатью записывается в журнал действий.") }}</p>
+  <div class="row g-4">
+    {% set seal_uri = facsimile_seal() %}
+    {% set sign_uri = facsimile_own_signature() %}
+    {% for kind, title, uri, action in [
+        ("seal", _("Печать кооператива"), seal_uri, url_for('facsimile.upload_seal')),
+        ("signature", _("Ваша подпись (председателя)"), sign_uri, url_for('facsimile.upload_signature')),
+    ] %}
+    <div class="col-md-6">
+      <div class="fw-semibold mb-2">{{ title }}</div>
+      <div class="border rounded d-flex align-items-center justify-content-center mb-2" style="height: 9rem; background: #fff repeating-conic-gradient(#f2f2f2 0% 25%, transparent 0% 50%) 50% / 16px 16px;">
+        {% if uri %}<img src="{{ uri }}" alt="{{ title }}" style="max-height: 8rem; max-width: 90%;">{% else %}<span class="text-muted small">{{ _("не загружено") }}</span>{% endif %}
+      </div>
+      <form method="post" action="{{ action }}" enctype="multipart/form-data" class="d-flex gap-2 flex-wrap">
+        <input class="form-control form-control-sm" type="file" name="image" accept="image/png,image/jpeg,image/webp" style="max-width: 18rem;" required>
+        <button class="btn btn-sm btn-primary">{{ _("Загрузить") }}</button>
+      </form>
+      {% if uri %}
+      <form method="post" action="{{ action }}" class="mt-2" onsubmit="return confirm({{ _('Удалить изображение?')|tojson|forceescape }})">
+        <input type="hidden" name="delete" value="1">
+        <button class="btn btn-sm btn-outline-danger">{{ _("Удалить") }}</button>
+      </form>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+</div>
 {% endblock %}

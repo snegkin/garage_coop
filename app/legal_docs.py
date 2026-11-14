@@ -230,7 +230,12 @@ def _selected_persons_or_redirect():
 
 
 def _render_pdf_or_fallback(template_name: str, filename: str, fallback_template: str, **context):
+    from .facsimile import facsimile_on
     html_str = render_template(template_name, **context)
+    if facsimile_on():
+        # PDF с изображениями подписи/печати уходит из системы — в журнал.
+        audit.record("facsimile.pdf", f"Сформирован PDF с подписью и печатью (факсимиле): {filename}")
+        database.db_session.commit()
     try:
         import weasyprint
     except ImportError:

@@ -21,6 +21,7 @@ PDF пишется в журнал аудита (legal_docs._render_pdf_or_fallb
 """
 import base64
 import io
+import json
 
 from flask import Blueprint, Response, request, redirect, url_for, flash, g
 from PIL import Image, ImageChops, ImageEnhance, ImageFilter, ImageMath, ImageOps, UnidentifiedImageError
@@ -225,6 +226,65 @@ def facsimile_own_signature() -> str | None:
         return None
     person = _own_person()
     return facsimile_signature(person)
+
+
+# ---------------------------------------------------------------------------
+# Расположение на бланке (ползунки на странице загрузки)
+# ---------------------------------------------------------------------------
+
+# ключ: (по умолчанию, минимум, максимум), мм.
+# Подпись: dx — сдвиг вправо, dy — насколько низ изображения ниже линии
+# подписи, h — высота. Печать: dx/dy — сдвиг центра печати от центра места
+# «М.П.» вправо/вниз, size — диаметр.
+SIGN_LAYOUT = {"dx": (0, -25, 25), "dy": (8, -5, 20), "h": (15, 6, 35)}
+SEAL_LAYOUT = {"dx": (-15, -45, 25), "dy": (-11, -40, 20), "size": (38, 20, 50)}
+
+
+def _layout(raw: str | None, spec: dict) -> dict:
+    try:
+        data = json.loads(raw) if raw else {}
+    except (TypeError, ValueError):
+        data = {}
+    out = {}
+    for key, (default, low, high) in spec.items():
+        try:
+            value = float(data.get(key, default))
+        except (TypeError, ValueError, AttributeError):
+            value = default
+        out[key] = round(float(max(low, min(high, value))), 1)
+    return out
+
+
+@bp.app_template_global("facsimile_layout")
+def facsimile_layout() -> dict:
+    """Расположение подписи (вошедшего председателя) и печати, мм."""
+    coop = _coop() if _is_chairman() else None
+    person = _own_person() if _is_chairman() else None
+    return {
+        "sign": _layout(person.signature_layout if person else None, SIGN_LAYOUT),
+        "seal": _layout(coop.seal_layout if coop else None, SEAL_LAYOUT),
+        "spec": {"sign": SIGN_LAYOUT, "seal": SEAL_LAYOUT},
+    }
+
+
+@bp.route("/layout", methods=["POST"])
+@roles_required(RoleEnum.CHAIRMAN)
+def save_layout():
+    f = request.form
+    reset = bool(f.get("reset"))
+    sign = None if reset else _layout(json.dumps({k: f.get("sign_" + k) for k in SIGN_LAYOUT}), SIGN_LAYOUT)
+    seal = None if reset else _layout(json.dumps({k: f.get("seal_" + k) for k in SEAL_LAYOUT}), SEAL_LAYOUT)
+    person = _own_person()
+    if person is not None:
+        person.signature_layout = json.dumps(sign) if sign else None
+    coop = _coop()
+    if coop is not None:
+        coop.seal_layout = json.dumps(seal) if seal else None
+    audit.record("facsimile.layout", "Изменено расположение подписи и печати на бланках"
+                 + (" (по умолчанию)" if reset else f": подпись {sign}, печать {seal}"))
+    database.db_session.commit()
+    flash(_("Расположение подписи и печати сохранено."), "success")
+    return redirect(url_for("cooperative.edit", _anchor="facsimile-layout"))
 
 
 @bp.app_template_global("facsimile_available")

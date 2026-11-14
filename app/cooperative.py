@@ -103,7 +103,8 @@ def edit():
         flash(_("Информация о кооперативе сохранена."), "success")
         return redirect(url_for("cooperative.view"))
 
-    return render_template("cooperative/form.html", coop=coop)
+    own_person = database.db_session.get(Person, g.user.person_id) if g.user.person_id else None
+    return render_template("cooperative/form.html", coop=coop, own_person=own_person, today=dt.date.today())
 
 
 # ---------------------------------------------------------------------------

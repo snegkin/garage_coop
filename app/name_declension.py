@@ -71,3 +71,21 @@ def genitive(full_name: str) -> str:
 def dative(full_name: str) -> str:
     """«кому/чему» — напр. «иск к Иванову Ивану Ивановичу»."""
     return decline(full_name, Case.DATIVE)
+
+
+def respected(full_name: str) -> str:
+    """«Уважаемый»/«Уважаемая» по отчеству, «Уважаемый(ая)» — если род не
+    определился."""
+    return {"male": "Уважаемый", "female": "Уважаемая"}.get(gender(full_name), "Уважаемый(ая)")
+
+
+def first_and_middle(full_name: str) -> str:
+    """Имя и отчество («Анна Ивановна») — для обращения; без отчества или
+    при неполном ФИО — ФИО как есть."""
+    parts = (full_name or "").split()
+    return " ".join(parts[1:]) if len(parts) == 3 else (full_name or "")
+
+
+def greeting(full_name: str) -> str:
+    """Обращение в письме: «Уважаемая Анна Ивановна»."""
+    return f"{respected(full_name)} {first_and_middle(full_name)}"

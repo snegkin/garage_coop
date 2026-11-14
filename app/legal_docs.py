@@ -67,6 +67,12 @@ def debt_notice_default_closing() -> str:
     )
 
 
+@bp.app_template_global("name_greeting")
+def name_greeting(full_name: str) -> str:
+    from . import name_declension
+    return name_declension.greeting(full_name)
+
+
 @bp.app_template_filter("legal_paragraphs")
 def legal_paragraphs(text: str | None) -> Markup:
     """Текст из формы → абзацы письма: пустая строка — новый абзац, перенос

@@ -226,6 +226,8 @@ VARIABLES = [
      lambda c: c.chairman.short_name if c.chairman else ""),
     ("сегодня", "дата документа", "Дата", lambda c: _date(c.today)),
     ("год", "год даты документа", "Дата", lambda c: str(c.today.year)),
+    ("сегодня+10", "дата документа плюс N дней — срок (любое N: {{сегодня+30}}, {{сегодня-1}})", "Дата",
+     lambda c: _date(c.today + dt.timedelta(days=10))),
     ("ФИО", "ФИО адресата", "Адресат", lambda c: c.person_attr(lambda p: p.full_name)),
     ("ФИО_кому", "ФИО в дательном падеже («Петровой Анне Ивановне»)", "Адресат",
      lambda c: c.person_attr(lambda p: name_declension.dative(p.full_name))),
@@ -273,16 +275,39 @@ _EMPTY_P_RE = re.compile(r"<p(?:\s[^>]*)?>(?:\s|&nbsp;)*</p>")
 PLACEHOLDER_RE = re.compile(r"\{\{\s*([^{}<>]+?)\s*\}\}")
 
 
+# {{сегодня+10}}, {{сегодня - 3}} — дата документа плюс/минус N дней
+# (срок оплаты, явки и т.п.).
+DATE_SHIFT_RE = re.compile(r"^сегодня\s*([+-])\s*(\d{1,4})$", re.IGNORECASE)
+
+
+def _resolve(raw_key: str, ctx: "Context") -> tuple[str, str] | None:
+    """(ключ, значение) подстановки или None, если ключ неизвестен."""
+    raw_key = raw_key.strip()
+    shift = DATE_SHIFT_RE.match(raw_key)
+    if shift:
+        days = int(shift.group(2)) * (1 if shift.group(1) == "+" else -1)
+        return raw_key, _date(ctx.today + dt.timedelta(days=days))
+    found = _BY_KEY.get(raw_key.lower())
+    if found is None:
+        return None
+    key, fn = found
+    return key, fn(ctx) or ""
+
+
+def _is_known(raw_key: str) -> bool:
+    raw_key = raw_key.strip()
+    return bool(DATE_SHIFT_RE.match(raw_key)) or raw_key.lower() in _BY_KEY
+
+
 def fill(html: str, ctx: Context, missing: set[str] | None = None) -> str:
     """Подставить значения в HTML шаблона. Неизвестные ключи остаются как
     есть (видно, что опечатка), пустые значения — прочерк для заполнения
     от руки; их ключи складываются в missing."""
     def replace(match: re.Match) -> str:
-        found = _BY_KEY.get(match.group(1).strip().lower())
-        if found is None:
+        resolved = _resolve(match.group(1), ctx)
+        if resolved is None:
             return match.group(0)
-        key, fn = found
-        value = fn(ctx) or ""
+        key, value = resolved
         if not value.strip():
             if key in OPTIONAL_KEYS:
                 return ""
@@ -295,12 +320,31 @@ def fill(html: str, ctx: Context, missing: set[str] | None = None) -> str:
     return _EMPTY_P_RE.sub("", PLACEHOLDER_RE.sub(replace, html or ""))
 
 
+def fill_text(text: str, ctx: Context, missing: set[str] | None = None) -> str:
+    """То же для обычного текста (заголовок документа): без HTML —
+    экранирует уже шаблон при выводе; многострочное значение — в строку."""
+    def replace(match: re.Match) -> str:
+        resolved = _resolve(match.group(1), ctx)
+        if resolved is None:
+            return match.group(0)
+        key, value = resolved
+        value = " ".join(value.split())
+        if not value:
+            if key in OPTIONAL_KEYS:
+                return ""
+            if missing is not None:
+                missing.add(key)
+            return BLANK
+        return value
+    return " ".join(PLACEHOLDER_RE.sub(replace, text or "").split())
+
+
 def unknown_placeholders(*htmls: str) -> list[str]:
     keys = []
     for html in htmls:
         for match in PLACEHOLDER_RE.finditer(html or ""):
             key = match.group(1).strip()
-            if key.lower() not in _BY_KEY and key not in keys:
+            if not _is_known(key) and key not in keys:
                 keys.append(key)
     return keys
 
@@ -665,7 +709,7 @@ def edit_template(template_id=None):
             summary=f"{'Изменён' if template else 'Создан'} шаблон документа «{draft.name}»",
         )
         database.db_session.commit()
-        unknown = unknown_placeholders(draft.addressee_html, draft.body_html)
+        unknown = unknown_placeholders(draft.title, draft.addressee_html, draft.body_html)
         if unknown:
             flash(_("Неизвестные подстановки останутся в тексте как есть: {keys}.",
                     keys=", ".join("{{" + k + "}}" for k in unknown)), "warning")
@@ -826,7 +870,13 @@ def create():
         flash(_("Документ сохранён в журнале."), "success")
         return redirect(url_for("documents.detail", document_id=document.id))
 
-    return _render_create(template, source, recipient, person, garage, coop, chairman, cert_request)
+    # Дата из адреса — пересчёт текста по новой дате ({{сегодня}}, {{сегодня+N}}).
+    try:
+        issued_at = dt.date.fromisoformat(request.args.get("issued_at") or "")
+    except ValueError:
+        issued_at = None
+    return _render_create(template, source, recipient, person, garage, coop, chairman, cert_request,
+                          issued_at=issued_at)
 
 
 def _render_create(template, source, recipient, person, garage, coop, chairman, cert_request=None,
@@ -839,7 +889,7 @@ def _render_create(template, source, recipient, person, garage, coop, chairman, 
             title, addressee_html, body_html = source.title, source.addressee_html, source.body_html
         else:
             ctx = Context(issued_at, person, garage)
-            title = template.title
+            title = fill_text(template.title, ctx, missing)
             addressee_html = fill(template.addressee_html, ctx, missing)
             body_html = fill(template.body_html, ctx, missing)
     labels = {key: desc for key, desc, _g, _f in VARIABLES}

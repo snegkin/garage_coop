@@ -17,6 +17,7 @@ PRIMARY = {
     "app_user": "coop",
     "app_port": 8000,
     "coop_domain": "xn--main.xn--p1ai",
+    "coop_domain_aliases": ["main.example.ru"],
     "app_secret_key": "p" * 40,
     "service_name": "garage-coop",
     "cron_jobs": [{"name": "backup_db"}, {"name": "poll_messengers"}],
@@ -59,6 +60,11 @@ def test_derived_fields_and_defaults():
     ({"secret_key": "p" * 40}, "как у основного"),
     ({"cron_enable": ["nope"]}, "nope"),
     ({"typo_field": 1}, "неизвестные поля typo_field"),
+    ({"aliases": "second.example.ru"}, "aliases — список"),
+    ({"aliases": ["второй.рф"]}, "punycode"),
+    ({"aliases": ["main.example.ru"]}, "основного"),
+    ({"domain": "main.example.ru"}, "основного"),
+    ({"aliases": ["xn--second.xn--p1ai"]}, "повторяются"),
 ])
 def test_validation(kw, message):
     with pytest.raises(coop.AnsibleFilterError, match=message):
@@ -70,6 +76,18 @@ def test_duplicates(field, value):
     other = {"name": "coop3", "port": 8002, "domain": "c3.example.ru", field: value}
     with pytest.raises(coop.AnsibleFilterError, match="уже занят"):
         coop.coop_instances([_inst(), _inst(**other)], PRIMARY)
+
+
+def test_aliases():
+    [a] = coop.coop_instances([_inst(aliases=["second.example.ru"])], PRIMARY)
+    assert a["aliases"] == ["second.example.ru"]
+    assert coop.coop_instances([_inst()], PRIMARY)[0]["aliases"] == []
+
+
+def test_alias_taken_by_other_instance():
+    with pytest.raises(coop.AnsibleFilterError, match="уже занят"):
+        coop.coop_instances([_inst(aliases=["c3.example.ru"]),
+                             _inst(name="coop3", port=8002, domain="c3.example.ru")], PRIMARY)
 
 
 @pytest.mark.parametrize("minute, offset, expected", [

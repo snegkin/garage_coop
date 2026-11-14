@@ -5,6 +5,9 @@ coop_domain: coop.example.ru       # A-запись должна уже смот
 # Кириллический домен — в punycode (xn--…), и в certbot_email тоже:
 #   python3 -c "print('пример.рф'.encode('idna').decode())"
 certbot_email: admin@example.ru
+# Другие домены кооператива — тот же сертификат и 301 на coop_domain
+# (A-записи — на этот же сервер):
+# coop_domain_aliases: [coop-example.ru]
 
 app_branch: master
 
@@ -71,6 +74,7 @@ app_env_extra:
 # coop_extra_instances:
 #   - name: coop2
 #     domain: xn--...xn--p1ai
+#     aliases: [coop2-example.ru]
 #     port: 8001
 #     secret_key: "<openssl rand -hex 32>"
 #     bank_api_encryption_key: "<openssl rand -hex 32>"

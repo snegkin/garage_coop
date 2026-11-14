@@ -7,7 +7,7 @@
 import datetime as dt
 import io
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFilter
 
 from app import facsimile
 from app.models import AuditLog, Cooperative, DocumentTemplate, IssuedDocument, Person, RoleEnum
@@ -138,3 +138,76 @@ def test_board_member_param_is_ignored(db, client):
     login(client, "board1", "pass1234")
     assert client.get(f"/documents/{own.id}/pdf?facsimile=1").data[:4] == b"%PDF"
     assert db.query(AuditLog).filter_by(action="facsimile.pdf").count() == 0
+
+
+def _photo_with_shadow() -> bytes:
+    """«Фото»: желтоватая бумага, свет — градиентом и с тенью в углу; штрих
+    тоже затемняется светом (отражение × освещение)."""
+    from PIL import ImageChops
+    refl = Image.new("RGB", (400, 300), (242, 237, 219))
+    ImageDraw.Draw(refl).line([(100, 150), (200, 120), (300, 170)], fill=(30, 30, 70), width=8)
+    light = Image.new("L", (400, 300))
+    px = light.load()
+    for y in range(300):
+        for x in range(400):
+            px[x, y] = 255 - int(110 * x / 400) - (70 if x + y < 120 else 0)
+    # Тень на фото всегда с мягким краем (рука/телефон не у самого листа).
+    light = light.filter(ImageFilter.GaussianBlur(4))
+    img = ImageChops.multiply(refl, Image.merge("RGB", [light] * 3))
+    out = io.BytesIO()
+    img.save(out, format="JPEG", quality=92)
+    return out.getvalue()
+
+
+def test_flatten_removes_shadow_and_gradient():
+    data = _photo_with_shadow()
+    clean = Image.open(io.BytesIO(facsimile.prepare_image(data)))
+    # Остался только штрих: рамка плотно вокруг него (~200×50 + поля), а не во весь снимок.
+    assert clean.width < 230 and clean.height < 80
+    raw = Image.open(io.BytesIO(facsimile.prepare_image(data, facsimile.Filter(flatten=False, despeckle=False))))
+    # Без выравнивания освещения тёмная правая часть бумаги считается «чернилами».
+    assert raw.width > 300
+
+
+def test_filter_color_and_strength():
+    data = _scan()
+    black = Image.open(io.BytesIO(facsimile.prepare_image(data, facsimile.Filter(color="black"))))
+    opaque = [p for p in black.getdata() if p[3] == 255]
+    assert opaque and all(p[:3] == (25, 25, 25) for p in opaque)
+    # Максимальная очистка светлого штриха — ничего не остаётся.
+    light = _scan((200, 205, 230))
+    try:
+        facsimile.prepare_image(light, facsimile.Filter(strength=100))
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("ожидался ValueError")
+    assert facsimile.prepare_image(light, facsimile.Filter(strength=0))[:4] == b"\x89PNG"
+    flt = facsimile.Filter.from_form({"strength": "abc", "flatten": "0", "color": "purple"})
+    assert (flt.strength, flt.flatten, flt.despeckle, flt.color) == (50, False, True, "original")
+
+
+def test_preview_endpoint(db, client):
+    _setup(db)
+    data = {"image": (io.BytesIO(_scan()), "seal.jpg"), "strength": "60", "flatten": "1", "color": "blue"}
+    login(client, "board1", "pass1234")
+    assert client.post("/facsimile/preview", data=data, content_type="multipart/form-data").status_code in (302, 403)
+    client.get("/auth/logout")
+
+    login(client, "chair", "pass1234")
+    data = {"image": (io.BytesIO(_scan()), "seal.jpg"), "strength": "60", "flatten": "1", "color": "blue"}
+    resp = client.post("/facsimile/preview", data=data, content_type="multipart/form-data")
+    assert resp.status_code == 200 and resp.mimetype == "image/png" and resp.data[:4] == b"\x89PNG"
+    assert db.query(Cooperative).one().seal_png is None  # предпросмотр ничего не сохраняет
+    resp = client.post("/facsimile/preview", data={"image": (io.BytesIO(_blank()), "x.png")},
+                       content_type="multipart/form-data")
+    assert resp.status_code == 422
+    page = client.get("/cooperative/edit").get_data(as_text=True)
+    assert "data-fx-form" in page and 'name="strength"' in page
+
+    # Сохранение — с теми же настройками, что в превью.
+    client.post("/facsimile/seal", data={"image": (io.BytesIO(_scan()), "seal.jpg"), "color": "black"},
+                content_type="multipart/form-data")
+    db.expire_all()
+    saved = Image.open(io.BytesIO(db.query(Cooperative).one().seal_png))
+    assert all(p[:3] == (25, 25, 25) for p in saved.getdata() if p[3] == 255)

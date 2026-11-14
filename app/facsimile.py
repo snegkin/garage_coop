@@ -22,8 +22,8 @@ PDF пишется в журнал аудита (legal_docs._render_pdf_or_fallb
 import base64
 import io
 
-from flask import Blueprint, request, redirect, url_for, flash, g
-from PIL import Image, ImageChops, ImageOps, UnidentifiedImageError
+from flask import Blueprint, Response, request, redirect, url_for, flash, g
+from PIL import Image, ImageChops, ImageEnhance, ImageFilter, ImageMath, ImageOps, UnidentifiedImageError
 
 from . import audit
 from . import database
@@ -34,37 +34,137 @@ from .models import Cooperative, Person, RoleEnum
 bp = Blueprint("facsimile", __name__, url_prefix="/facsimile")
 
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
-MAX_SIDE = 1200
-# Яркость (0–255): светлее TRANSPARENT_FROM — фон (полностью прозрачно),
-# темнее OPAQUE_UNTIL — чернила (непрозрачно), между — плавный переход,
-# чтобы края штрихов не были зубчатыми.
-OPAQUE_UNTIL = 160
-TRANSPARENT_FROM = 230
+MAX_SIDE = 1200          # px — итоговое изображение
+WORK_SIDE = 1600         # px — обработка (фото с телефона уменьшается заранее)
+SOFT_EDGE = 50           # ширина плавного перехода «чернила → фон» по яркости
+
+# Цвет чернил: None — как на фото; "vivid" — насыщеннее и темнее (бледная
+# печать/подпись на фото); кортеж — ровный цвет (самый чистый результат).
+COLORS = {
+    "original": None,
+    "vivid": "vivid",
+    "blue": (40, 65, 175),
+    "darkblue": (20, 30, 110),
+    "black": (25, 25, 25),
+}
 
 
-def prepare_image(data: bytes) -> bytes:
+class Filter:
+    """Настройки очистки (форма загрузки, ползунки предпросмотра).
+
+    strength 0–100 — сила очистки фона: больше — светлые места (бумага,
+    тени, бледные штрихи) уходят в прозрачность смелее. flatten —
+    выровнять освещение (фото: тень от руки/телефона, градиент от лампы).
+    despeckle — убрать крапинки (текстура бумаги, шум камеры)."""
+
+    def __init__(self, strength: int = 50, flatten: bool = True, despeckle: bool = True, color: str = "original"):
+        self.strength = max(0, min(100, int(strength)))
+        self.flatten = flatten
+        self.despeckle = despeckle
+        self.color = color if color in COLORS else "original"
+
+    @classmethod
+    def from_form(cls, form) -> "Filter":
+        try:
+            strength = int(form.get("strength", 50))
+        except (TypeError, ValueError):
+            strength = 50
+        return cls(strength=strength, flatten=form.get("flatten", "1") == "1",
+                   despeckle=form.get("despeckle", "1") == "1", color=form.get("color", "original"))
+
+
+def _paper_background(gray: Image.Image) -> Image.Image:
+    """Оценка яркости бумаги в каждой точке: на уменьшенной копии штрихи
+    «закрашиваются» соседним светлым (MaxFilter), остаются тени и
+    градиент освещения; размытие и обратное увеличение — гладкий фон."""
+    w, h = gray.size
+    # Уменьшение в 4 раза и морфологическое закрытие (MaxFilter, затем
+    # MinFilter того же размера): тонкие тёмные штрихи до ~24 px толщиной
+    # (ободок печати) «закрашиваются» светлым, а край большой тени
+    # остаётся на месте — один MaxFilter сдвинул бы его на тёмную сторону,
+    # и вдоль тени осталась бы полоса «чернил».
+    small = gray.resize((max(1, w // 4), max(1, h // 4)), Image.Resampling.BOX)
+    small = small.filter(ImageFilter.MaxFilter(7)).filter(ImageFilter.MinFilter(7)).filter(ImageFilter.GaussianBlur(1))
+    return small.resize((w, h), Image.Resampling.BILINEAR)
+
+
+def _paper_level(gray: Image.Image) -> int:
+    """Яркость бумаги — 90-й процентиль гистограммы (бумаги на снимке
+    больше, чем чернил)."""
+    hist = gray.histogram()
+    total, acc = sum(hist), 0
+    for level, count in enumerate(hist):
+        acc += count
+        if acc >= total * 0.9:
+            return max(level, 1)
+    return 255
+
+
+def prepare_image(data: bytes, flt: Filter | None = None) -> bytes:
     """Скан/фото подписи или печати → PNG с прозрачным фоном, без полей,
-    не больше MAX_SIDE по длинной стороне. ValueError — не картинка."""
+    не больше MAX_SIDE по длинной стороне. ValueError — не картинка или
+    после очистки ничего не осталось."""
+    flt = flt or Filter()
     try:
         img = Image.open(io.BytesIO(data))
         img.load()
     except (UnidentifiedImageError, OSError) as exc:
         raise ValueError("not an image") from exc
     img = ImageOps.exif_transpose(img).convert("RGBA")
-    span = TRANSPARENT_FROM - OPAQUE_UNTIL
-    alpha = img.convert("L").point(
-        lambda v: 255 if v <= OPAQUE_UNTIL else 0 if v >= TRANSPARENT_FROM else (TRANSPARENT_FROM - v) * 255 // span
-    )
-    alpha = ImageChops.multiply(alpha, img.getchannel("A"))
-    img.putalpha(alpha)
-    bbox = alpha.getbbox()
+    img.thumbnail((WORK_SIDE, WORK_SIDE))
+    source_alpha = img.getchannel("A")
+    rgb = img.convert("RGB")
+    gray = rgb.convert("L")
+
+    # Яркость относительно бумаги: бумага → ~255 и в тени, и на свету.
+    if flt.flatten:
+        background = _paper_background(gray)
+        norm = ImageMath.lambda_eval(
+            lambda a: a["convert"](a["min"](a["g"] * 255 / (a["b"] + 1), 255), "L"), g=gray, b=background)
+    else:
+        level = _paper_level(gray)
+        norm = gray.point(lambda v: min(255, v * 255 // level))
+
+    hi = 245 - flt.strength * 0.9            # светлее — прозрачно
+    lo = hi - SOFT_EDGE                      # темнее — непрозрачно
+    alpha = norm.point(lambda v: 255 if v <= lo else 0 if v >= hi else int((hi - v) * 255 / (hi - lo)))
+    if flt.despeckle:
+        alpha = alpha.filter(ImageFilter.MedianFilter(3))
+    alpha = ImageChops.multiply(alpha, source_alpha)
+
+    color = COLORS[flt.color]
+    if color in (None, "vivid") and flt.flatten:
+        # Цвет чернил — тоже относительно бумаги: в тени штрих не темнее,
+        # чем на свету, и без желтизны/серости бумаги.
+        rgb = Image.merge("RGB", [
+            ImageMath.lambda_eval(
+                lambda a: a["convert"](a["min"](a["c"] * 255 / (a["b"] + 1), 255), "L"), c=band, b=background)
+            for band in rgb.split()
+        ])
+    if color is None:
+        out = rgb
+    elif color == "vivid":
+        out = ImageEnhance.Brightness(ImageEnhance.Color(rgb).enhance(1.8)).enhance(0.8)
+    else:
+        out = Image.new("RGB", rgb.size, color)
+    # Под полностью прозрачным — ровный белый, а не шум бумаги: иначе PNG
+    # раздувается в разы (шум не сжимается), а видно его всё равно не было.
+    out = Image.composite(out, Image.new("RGB", out.size, (255, 255, 255)), alpha.point(lambda v: 255 if v else 0))
+    out = out.convert("RGBA")
+    out.putalpha(alpha)
+
+    # Рамка — по заметным штрихам: одиночные почти прозрачные точки
+    # (крапинки в углу) медианой убираются и поля не раздувают.
+    bbox = alpha.point(lambda v: 255 if v > 96 else 0).filter(ImageFilter.MedianFilter(5)).getbbox()
     if bbox is None:
         raise ValueError("empty image")
-    img = img.crop(bbox)
-    img.thumbnail((MAX_SIDE, MAX_SIDE))
-    out = io.BytesIO()
-    img.save(out, format="PNG", optimize=True)
-    return out.getvalue()
+    pad = 4
+    bbox = (max(0, bbox[0] - pad), max(0, bbox[1] - pad), min(out.width, bbox[2] + pad), min(out.height, bbox[3] + pad))
+    out = out.crop(bbox)
+    out.thumbnail((MAX_SIDE, MAX_SIDE))
+    buf = io.BytesIO()
+    out.save(buf, format="PNG", optimize=True)
+    return buf.getvalue()
 
 
 def _data_uri(png: bytes | None) -> str | None:
@@ -150,10 +250,26 @@ def _read_upload() -> bytes | None:
         flash(_("Файл слишком большой (не больше 10 МБ)."), "danger")
         return None
     try:
-        return prepare_image(data)
+        return prepare_image(data, Filter.from_form(request.form))
     except ValueError:
-        flash(_("Не удалось прочитать изображение — загрузите PNG или JPG."), "danger")
+        flash(_("Не удалось прочитать изображение — загрузите PNG или JPG (или ослабьте очистку фона)."), "danger")
         return None
+
+
+@bp.route("/preview", methods=["POST"])
+@roles_required(RoleEnum.CHAIRMAN)
+def preview():
+    """Предпросмотр очистки (ползунки на странице загрузки) — ничего не
+    сохраняет, отдаёт PNG; 422 — не картинка/после очистки пусто."""
+    file = request.files.get("image")
+    data = file.read(MAX_UPLOAD_BYTES + 1) if file is not None else b""
+    if not data or len(data) > MAX_UPLOAD_BYTES:
+        return Response(status=413 if data else 400)
+    try:
+        png = prepare_image(data, Filter.from_form(request.form))
+    except ValueError:
+        return Response(status=422)
+    return Response(png, mimetype="image/png", headers={"Cache-Control": "no-store"})
 
 
 @bp.route("/seal", methods=["POST"])

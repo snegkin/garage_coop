@@ -116,7 +116,8 @@
 
 <div class="bg-body p-4 rounded border mt-4" id="facsimile">
   <h5>{{ _("Печать и подпись для документов") }}</h5>
-  <p class="text-muted small mb-3">{{ _("Скан или фото на белом фоне (PNG, JPG): фон станет прозрачным, поля обрежутся. В документы изображения вставляются только галочкой «Подпись и печать» рядом с кнопкой печати и только у председателя — без неё документ печатается под живую подпись. Каждый PDF с подписью и печатью записывается в журнал действий.") }}</p>
+  <p class="text-muted small mb-3">{{ _("Скан или фото на белом листе (PNG, JPG). После выбора файла рядом появится результат очистки: бумага, тени и неравномерный свет убираются, фон становится прозрачным, поля обрезаются — подстройте ползунком и сохраните. В документы изображения вставляются только галочкой «Подпись и печать» рядом с кнопкой печати и только у председателя — без неё документ печатается под живую подпись. Каждый PDF с подписью и печатью записывается в журнал действий.") }}</p>
+  {% set checker = "background: #fff repeating-conic-gradient(#e9e9e9 0% 25%, transparent 0% 50%) 50% / 16px 16px;" %}
   <div class="row g-4">
     {% set seal_uri = facsimile_seal() %}
     {% set sign_uri = facsimile_own_signature() %}
@@ -124,23 +125,169 @@
         ("seal", _("Печать кооператива"), seal_uri, url_for('facsimile.upload_seal')),
         ("signature", _("Ваша подпись (председателя)"), sign_uri, url_for('facsimile.upload_signature')),
     ] %}
-    <div class="col-md-6">
+    <div class="col-lg-6">
       <div class="fw-semibold mb-2">{{ title }}</div>
-      <div class="border rounded d-flex align-items-center justify-content-center mb-2" style="height: 9rem; background: #fff repeating-conic-gradient(#f2f2f2 0% 25%, transparent 0% 50%) 50% / 16px 16px;">
-        {% if uri %}<img src="{{ uri }}" alt="{{ title }}" style="max-height: 8rem; max-width: 90%;">{% else %}<span class="text-muted small">{{ _("не загружено") }}</span>{% endif %}
+      <div class="small text-muted mb-1">{{ _("Сейчас") }}</div>
+      <div class="border rounded d-flex align-items-center justify-content-center mb-2" style="height: 8rem; {{ checker }}">
+        {% if uri %}<img src="{{ uri }}" alt="{{ title }}" style="max-height: 7rem; max-width: 90%;">{% else %}<span class="text-muted small">{{ _("не загружено") }}</span>{% endif %}
       </div>
-      <form method="post" action="{{ action }}" enctype="multipart/form-data" class="d-flex gap-2 flex-wrap">
-        <input class="form-control form-control-sm" type="file" name="image" accept="image/png,image/jpeg,image/webp" style="max-width: 18rem;" required>
-        <button class="btn btn-sm btn-primary">{{ _("Загрузить") }}</button>
-      </form>
       {% if uri %}
-      <form method="post" action="{{ action }}" class="mt-2" onsubmit="return confirm({{ _('Удалить изображение?')|tojson|forceescape }})">
+      <form method="post" action="{{ action }}" class="mb-3" onsubmit="return confirm({{ _('Удалить изображение?')|tojson|forceescape }})">
         <input type="hidden" name="delete" value="1">
         <button class="btn btn-sm btn-outline-danger">{{ _("Удалить") }}</button>
       </form>
       {% endif %}
+
+      <form method="post" action="{{ action }}" enctype="multipart/form-data" class="border rounded p-2" data-fx-form>
+        <input class="form-control form-control-sm mb-2" type="file" name="image" accept="image/png,image/jpeg,image/webp" required data-fx-file
+               aria-label="{{ _('Файл с изображением') }}">
+        <div data-fx-controls class="d-none">
+          <div class="row g-2 mb-2">
+            <div class="col-6">
+              <div class="small text-muted mb-1">{{ _("Фото") }}</div>
+              <div class="border rounded d-flex align-items-center justify-content-center" style="height: 10rem; background: #fff;">
+                <img data-fx-before alt="" style="max-height: 9.5rem; max-width: 95%;">
+              </div>
+            </div>
+            <div class="col-6">
+              <div class="small text-muted mb-1">{{ _("После очистки") }} <span class="spinner-border spinner-border-sm d-none" data-fx-busy aria-hidden="true"></span></div>
+              <div class="border rounded d-flex align-items-center justify-content-center" style="height: 10rem; {{ checker }}">
+                <img data-fx-after alt="" style="max-height: 9.5rem; max-width: 95%;">
+                <span class="small text-danger text-center px-2 d-none" data-fx-error></span>
+              </div>
+            </div>
+          </div>
+          <label class="form-label small mb-0" for="fxStrength-{{ kind }}">{{ _("Очистка фона") }}: <span data-fx-strength-value>50</span></label>
+          <input class="form-range" type="range" min="0" max="100" step="5" value="50" name="strength" id="fxStrength-{{ kind }}" data-fx-param>
+          <div class="d-flex justify-content-between small text-muted mb-2" style="margin-top: -.4rem;">
+            <span>{{ _("бережнее — бледные штрихи остаются") }}</span><span>{{ _("сильнее — меньше фона") }}</span>
+          </div>
+          <div class="d-flex flex-wrap gap-3 align-items-center mb-2">
+            <div class="form-check mb-0">
+              <input class="form-check-input" type="checkbox" name="flatten" value="1" id="fxFlatten-{{ kind }}" checked data-fx-param>
+              <input type="hidden" name="flatten" value="0">
+              <label class="form-check-label small" for="fxFlatten-{{ kind }}">{{ _("Выровнять освещение (тени, блики)") }}</label>
+            </div>
+            <div class="form-check mb-0">
+              <input class="form-check-input" type="checkbox" name="despeckle" value="1" id="fxDespeckle-{{ kind }}" checked data-fx-param>
+              <input type="hidden" name="despeckle" value="0">
+              <label class="form-check-label small" for="fxDespeckle-{{ kind }}">{{ _("Убрать крапинки") }}</label>
+            </div>
+            <div class="d-flex align-items-center gap-2">
+              <label class="small" for="fxColor-{{ kind }}">{{ _("Цвет") }}</label>
+              <select class="form-select form-select-sm" name="color" id="fxColor-{{ kind }}" style="width: auto;" data-fx-param>
+                <option value="original">{{ _("как на фото") }}</option>
+                <option value="vivid">{{ _("ярче") }}</option>
+                <option value="blue">{{ _("синий") }}</option>
+                <option value="darkblue">{{ _("тёмно-синий") }}</option>
+                <option value="black">{{ _("чёрный") }}</option>
+              </select>
+            </div>
+          </div>
+          <button class="btn btn-sm btn-primary" data-fx-save disabled>{{ _("Сохранить") }}</button>
+        </div>
+      </form>
     </div>
     {% endfor %}
   </div>
 </div>
+<script>
+(function () {
+  var PREVIEW_URL = {{ url_for('facsimile.preview')|tojson }};
+  var MAX_SIDE = 1600;
+  var TEXT = {
+    empty: {{ _("После очистки ничего не осталось — ослабьте очистку фона.")|tojson }},
+    bad: {{ _("Не удалось прочитать изображение — загрузите PNG или JPG.")|tojson }},
+  };
+  var csrf = (document.querySelector('meta[name="csrf-token"]') || {}).content || "";
+
+  // Фото с телефона — уменьшить в браузере до MAX_SIDE (с учётом поворота
+  // из EXIF): превью быстрее, лимит размера не мешает; этот же файл и
+  // сохраняется — результат совпадает с превью.
+  function downscale(file) {
+    return createImageBitmap(file, { imageOrientation: "from-image" }).then(function (bmp) {
+      var k = Math.min(1, MAX_SIDE / Math.max(bmp.width, bmp.height));
+      var canvas = document.createElement("canvas");
+      canvas.width = Math.round(bmp.width * k);
+      canvas.height = Math.round(bmp.height * k);
+      var ctx = canvas.getContext("2d");
+      ctx.fillStyle = "#fff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height);
+      return new Promise(function (resolve) { canvas.toBlob(resolve, "image/jpeg", 0.95); });
+    });
+  }
+
+  document.querySelectorAll("[data-fx-form]").forEach(function (form) {
+    var fileInput = form.querySelector("[data-fx-file]");
+    var controls = form.querySelector("[data-fx-controls]");
+    var before = form.querySelector("[data-fx-before]");
+    var after = form.querySelector("[data-fx-after]");
+    var busy = form.querySelector("[data-fx-busy]");
+    var error = form.querySelector("[data-fx-error]");
+    var save = form.querySelector("[data-fx-save]");
+    var strengthValue = form.querySelector("[data-fx-strength-value]");
+    var timer = null, seq = 0, afterUrl = null;
+
+    function showError(text) {
+      error.textContent = text;
+      error.classList.toggle("d-none", !text);
+      after.classList.toggle("d-none", !!text);
+      save.disabled = !!text;
+    }
+
+    function refresh() {
+      if (!fileInput.files.length) return;
+      strengthValue.textContent = form.elements.strength.value;
+      var my = ++seq;
+      busy.classList.remove("d-none");
+      save.disabled = true;
+      var data = new FormData(form);
+      fetch(PREVIEW_URL, { method: "POST", body: data, headers: { "X-CSRFToken": csrf }, credentials: "same-origin" })
+        .then(function (resp) {
+          if (my !== seq) return;
+          if (!resp.ok) { showError(resp.status === 422 ? TEXT.empty : TEXT.bad); return; }
+          return resp.blob().then(function (blob) {
+            if (my !== seq) return;
+            if (afterUrl) URL.revokeObjectURL(afterUrl);
+            afterUrl = URL.createObjectURL(blob);
+            after.src = afterUrl;
+            showError("");
+          });
+        })
+        .catch(function () { if (my === seq) showError(TEXT.bad); })
+        .finally(function () { if (my === seq) busy.classList.add("d-none"); });
+    }
+
+    function schedule() {
+      clearTimeout(timer);
+      strengthValue.textContent = form.elements.strength.value;
+      timer = setTimeout(refresh, 250);
+    }
+
+    fileInput.addEventListener("change", function () {
+      var file = fileInput.files[0];
+      if (!file || file.__fxPrepared) return;
+      busy.classList.remove("d-none");
+      downscale(file).then(function (blob) {
+        var prepared = new File([blob], "image.jpg", { type: "image/jpeg" });
+        prepared.__fxPrepared = true;
+        var dt = new DataTransfer();
+        dt.items.add(prepared);
+        fileInput.files = dt.files;
+        before.src = URL.createObjectURL(prepared);
+        controls.classList.remove("d-none");
+        refresh();
+      }).catch(function () {
+        // Браузер не открыл файл (например, HEIC) — пусть решит сервер.
+        controls.classList.remove("d-none");
+        refresh();
+      });
+    });
+    form.querySelectorAll("[data-fx-param]").forEach(function (el) {
+      el.addEventListener(el.type === "range" ? "input" : "change", schedule);
+    });
+  });
+})();
+</script>
 {% endblock %}

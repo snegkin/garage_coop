@@ -198,8 +198,9 @@ def test_member_application_templates(db, client):
     assert (join.recipient, leave.recipient, power.recipient) == ("none", "person", "garage")
 
     page = client.get(f"/documents/new?template_id={leave.id}&person_id={owner.id}").get_data(as_text=True)
-    assert "Председателю правления" in page and "Сидоров С.С." in page
-    assert "от Петрова Анна Ивановна" in page and "/Петрова А.И./" in page and "гаража № 42" in page
+    header = page.split('id="docAddressee"')[1].split("</div>")[0]
+    assert "В правление ГК" in header and "Председателю" not in header and "Сидоров" not in header
+    assert "от Петровой Анны Ивановны" in header and "/Петрова А.И./" in page and "гаража № 42" in page
 
     page = client.get(f"/documents/new?template_id={power.id}&garage_id={garage.id}").get_data(as_text=True)
     assert "гараж (бокс) № 42 (доля в праве 1/2)" in page
@@ -231,7 +232,7 @@ def test_public_blanks_without_login(db, client):
     assert "Заявление о вступлении в кооператив" in page and f"/documents/public/{leave.id}" in page
     assert f"/documents/public/{join.id}" in client.get("/cooperative/").get_data(as_text=True)
     page = client.get(f"/documents/public/{leave.id}").get_data(as_text=True)
-    assert "Председателю правления" in page and "Сидоров С.С." in page
+    assert "В правление ГК" in page
     # Данные человека — прочерками, а не чьи-то.
     assert "Петрова" not in page and documents.BLANK in page
     page = client.get(f"/documents/public/{notice.id}").get_data(as_text=True)
@@ -245,3 +246,31 @@ def test_public_blanks_without_login(db, client):
     db.commit()
     assert client.get(f"/documents/public/{leave.id}/pdf").status_code == 404
     assert client.get(f"/documents/new?template_id={join.id}").status_code in (302, 401, 403)
+
+
+def test_chairman_and_applicant_declension(db, app):
+    owner, garage, _chairman = _setup(db)
+    with app.test_request_context():
+        ctx = documents.Context(dt.date(2026, 11, 14), owner, garage)
+        html = documents.fill("{{председатель_кратко_кому}}|{{председатель_кому}}|от {{ФИО_от_кого}}", ctx)
+    assert html == "Сидорову С.С.|Сидорову Сидору Сидоровичу|от Петровой Анны Ивановны"
+    with app.test_request_context():
+        assert documents.fill("{{уважаемый}} {{имя_отчество}}!", ctx) == "Уважаемая Анна Ивановна!"
+
+
+def test_debt_notice_template_declension(db, client):
+    owner, _garage, _chairman = _setup(db)
+    login(client, "board1", "pass1234")
+    client.post("/documents/templates/defaults")
+    notice = db.query(DocumentTemplate).filter_by(name="Уведомление о задолженности").one()
+    page = client.get(f"/documents/new?template_id={notice.id}&person_id={owner.id}").get_data(as_text=True)
+    header = page.split('id="docAddressee"')[1].split("</div>")[0]
+    assert "Петровой Анне Ивановне" in header
+    assert "Уважаемая Анна Ивановна!" in page and "Уважаемый(ая)" not in page
+
+
+def test_greeting_fallbacks():
+    from app import name_declension
+    assert name_declension.greeting("Кузнецов Игорь Петрович") == "Уважаемый Игорь Петрович"
+    assert name_declension.greeting("Ли Мин") == "Уважаемый(ая) Ли Мин"
+    assert name_declension.greeting("Смит Джон Иванс") == "Уважаемый(ая) Джон Иванс"

@@ -102,10 +102,9 @@
 
   <p class="print-title">{{ _("Уведомление о задолженности") }}</p>
 
-  <p class="legal-p">
-    {{ _("Уважаемый(ая)") }} {{ person.full_name }}{% if person.residence_address or person.registration_address %},<br>
-    {{ person.residence_address or person.registration_address }}{% else %}!{% endif %}
-  </p>
+  {# Обращение по имени-отчеству, род — по отчеству («Уважаемая Анна
+     Ивановна!»); адрес — в шапке справа, в обращении не повторяется. #}
+  <p class="legal-p">{{ name_greeting(person.full_name) }}!</p>
   {{ (intro_text or debt_notice_default_intro(coop, today))|legal_paragraphs }}
 
   {% if years %}

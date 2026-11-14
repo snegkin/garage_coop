@@ -46,6 +46,7 @@ from .applications import sanitize_html, has_text, MAX_HTML_LENGTH
 from .auth import login_required, roles_required
 from .i18n import translate as _
 from .legal_docs import _render_pdf_or_fallback, _coop_and_chairman
+from .models import short_name_of
 from .models import (
     CertificateRequest, CertificateRequestStatus, DocumentCounter, DocumentTemplate, Garage,
     GarageOwnership, IssuedDocument, MemberAccount, Person, RoleEnum,
@@ -227,6 +228,10 @@ VARIABLES = [
      lambda c: c.chairman.full_name if c.chairman else ""),
     ("председатель_кратко", "председатель: «Иванов И.И.»", "Кооператив",
      lambda c: c.chairman.short_name if c.chairman else ""),
+    ("председатель_кому", "председатель в дательном падеже: «Иванову Ивану Ивановичу»", "Кооператив",
+     lambda c: name_declension.dative(c.chairman.full_name) if c.chairman else ""),
+    ("председатель_кратко_кому", "председатель в дательном падеже: «Иванову И.И.» (заявления)", "Кооператив",
+     lambda c: short_name_of(name_declension.dative(c.chairman.full_name)) if c.chairman else ""),
     ("сегодня", "дата документа", "Дата", lambda c: _date(c.today)),
     ("год", "год даты документа", "Дата", lambda c: str(c.today.year)),
     ("сегодня+10", "дата документа плюс N дней — срок (любое N: {{сегодня+30}}, {{сегодня-1}})", "Дата",
@@ -234,6 +239,12 @@ VARIABLES = [
     ("ФИО", "ФИО адресата", "Адресат", lambda c: c.person_attr(lambda p: p.full_name)),
     ("ФИО_кому", "ФИО в дательном падеже («Петровой Анне Ивановне»)", "Адресат",
      lambda c: c.person_attr(lambda p: name_declension.dative(p.full_name))),
+    ("уважаемый", "«Уважаемый» / «Уважаемая» — по отчеству адресата", "Адресат",
+     lambda c: c.person_attr(lambda p: name_declension.respected(p.full_name))),
+    ("имя_отчество", "имя и отчество адресата — для обращения («Анна Ивановна»)", "Адресат",
+     lambda c: c.person_attr(lambda p: name_declension.first_and_middle(p.full_name))),
+    ("ФИО_от_кого", "ФИО в родительном падеже («от Петровой Анны Ивановны»)", "Адресат",
+     lambda c: c.person_attr(lambda p: name_declension.genitive(p.full_name))),
     ("ФИО_кратко", "«Петрова А.И.»", "Адресат", lambda c: c.person_attr(lambda p: p.short_name)),
     ("дата_рождения", "дата рождения", "Адресат", lambda c: c.person_attr(lambda p: _date(p.birth_date))),
     ("паспорт", "паспорт: серия, номер, дата выдачи", "Адресат", lambda c: c.person_attr(_passport)),
@@ -367,10 +378,11 @@ def variable_groups(recipient: str = "garage") -> list[tuple[str, list[tuple[str
 # Стандартные шаблоны
 # ---------------------------------------------------------------------------
 
-# Заявления от члена кооператива: шапка — кому/от кого, внизу — подпись
+# Заявления от члена кооператива: шапка — «В правление …» (не на имя
+# председателя: состав правления меняется, бланк — нет) и от кого, внизу — подпись
 # заявителя (подпись председателя и М.П. у таких шаблонов выключены).
-_TO_CHAIRMAN = "<p>Председателю правления<br>{{кооператив_кратко}}<br>{{председатель_кратко}}</p>"
-_FROM_PERSON = "<p>от {{ФИО}}</p><p>адрес: {{адрес}}</p><p>телефон: {{телефон}}</p>"
+_TO_BOARD = "<p>В правление {{кооператив_кратко}}</p>"
+_FROM_PERSON = "<p>от {{ФИО_от_кого}}</p><p>адрес: {{адрес}}</p><p>телефон: {{телефон}}</p>"
 # Отступ перед подписью — пустым абзацем: margin санитайзер не пропускает
 # (applications.ALLOWED_CSS). Абзацы с прочерками для заполнения от руки —
 # по левому краю (_FILL): по ширине прочерк, ушедший на новую строку,
@@ -414,7 +426,7 @@ DEFAULT_TEMPLATES = [
         "show_number": False,
         "show_signature": False,
         # Бланк: вступающего обычно ещё нет в реестре — данные от руки.
-        "addressee_html": _TO_CHAIRMAN + (
+        "addressee_html": _TO_BOARD + (
             "<p>от __________________________________<br>__________________________________<br>"
             "<span style=\"font-size: 9pt\">(фамилия, имя, отчество полностью)</span></p>"
             "<p>паспорт: серия ______ № ____________<br>выдан ______________________________<br>"
@@ -440,7 +452,7 @@ DEFAULT_TEMPLATES = [
         "recipient": "person",
         "show_number": False,
         "show_signature": False,
-        "addressee_html": _TO_CHAIRMAN + _FROM_PERSON,
+        "addressee_html": _TO_BOARD + _FROM_PERSON,
         "body_html": (
             _FILL + "Прошу исключить меня из членов {{кооператив_кратко}} по собственному желанию в связи с "
             "______________________________ (продажей, дарением гаража № {{гараж}} и т. п.).</p>"
@@ -458,7 +470,7 @@ DEFAULT_TEMPLATES = [
         "recipient": "garage",
         "show_number": False,
         "show_signature": False,
-        "addressee_html": _TO_CHAIRMAN + _FROM_PERSON,
+        "addressee_html": _TO_BOARD + _FROM_PERSON,
         "body_html": (
             "<p>Прошу подключить принадлежащий мне гараж (бокс) № {{гараж}} (доля в праве {{доля}}) к "
             "электрической сети {{кооператив_кратко}}.</p>"
@@ -475,9 +487,9 @@ DEFAULT_TEMPLATES = [
         "name": "Уведомление о задолженности",
         "title": "УВЕДОМЛЕНИЕ О ЗАДОЛЖЕННОСТИ",
         "recipient": "person",
-        "addressee_html": "<p>{{ФИО}}</p><p>{{адрес}}</p>",
+        "addressee_html": "<p>{{ФИО_кому}}</p><p>{{адрес}}</p>",
         "body_html": (
-            "<p style=\"text-align: center; text-indent: 0\">Уважаемый(ая) {{ФИО}}!</p>"
+            "<p style=\"text-align: center; text-indent: 0\">{{уважаемый}} {{имя_отчество}}!</p>"
             "<p>Правление {{кооператив_кратко}} уведомляет, что по данным учёта кооператива на {{сегодня}} "
             "за Вами числится задолженность по взносам и платежам в размере {{задолженность}} руб. "
             "(гараж № {{гараж}}).</p>"

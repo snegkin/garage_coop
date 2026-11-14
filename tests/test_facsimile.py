@@ -211,3 +211,35 @@ def test_preview_endpoint(db, client):
     db.expire_all()
     saved = Image.open(io.BytesIO(db.query(Cooperative).one().seal_png))
     assert all(p[:3] == (25, 25, 25) for p in saved.getdata() if p[3] == 255)
+
+
+def test_layout_controls(db, client):
+    chairman, own, _other = _setup(db)
+    db.query(Cooperative).one().seal_png = facsimile.prepare_image(_scan())
+    db.get(Person, chairman.id).signature_png = facsimile.prepare_image(_scan((10, 10, 10)))
+    db.commit()
+    login(client, "chair", "pass1234")
+    page = client.get("/cooperative/edit").get_data(as_text=True)
+    assert "data-fx-layout-form" in page and 'data-fx-range="sign_dy"' in page and 'data-fx-range="seal_size"' in page
+    # По умолчанию: низ подписи на 8 мм ниже линии, печать 38 мм.
+    page = client.get(f"/documents/{own.id}").get_data(as_text=True)
+    assert "bottom: -8.0mm; height: 15.0mm" in page and "width: 38.0mm" in page
+
+    client.post("/facsimile/layout", data={"sign_dx": "2", "sign_dy": "5.5", "sign_h": "99",
+                                           "seal_dx": "-10", "seal_dy": "abc", "seal_size": "30"})
+    page = client.get(f"/documents/{own.id}").get_data(as_text=True)
+    # Значения — в пределах (высота подписи ограничена 35 мм), мусор — по умолчанию.
+    assert "left: -2.0mm; right: -6.0mm; bottom: -5.5mm; height: 35.0mm" in page
+    assert "width: 30.0mm; height: 30.0mm" in page and "margin: -26.0mm 0 0 -25.0mm" in page
+    assert db.query(AuditLog).filter_by(action="facsimile.layout").count() == 1
+    assert client.get(f"/documents/{own.id}/pdf?facsimile=1").data[:4] == b"%PDF"
+
+    client.post("/facsimile/layout", data={"reset": "1"})
+    db.expire_all()
+    assert db.get(Person, chairman.id).signature_layout is None and db.query(Cooperative).one().seal_layout is None
+    client.get("/auth/logout")
+
+    login(client, "board1", "pass1234")
+    client.post("/facsimile/layout", data={"sign_dy": "1"})
+    db.expire_all()
+    assert db.get(Person, chairman.id).signature_layout is None

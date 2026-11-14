@@ -61,6 +61,9 @@ class Cooperative(Base):
     # Изображение печати (PNG с прозрачным фоном, app/facsimile.py) —
     # вставляется в документы только галочкой «Подпись и печать».
     seal_png: Mapped[bytes | None] = mapped_column(LargeBinary, deferred=True)
+    # Расположение печати на бланке — JSON {"dx","dy","size"} в мм
+    # (app/facsimile.py: SEAL_LAYOUT), регулируется ползунками.
+    seal_layout: Mapped[str | None] = mapped_column(String(200))
 
     registration_date: Mapped[dt.date | None] = mapped_column(Date)
 
@@ -1466,6 +1469,9 @@ class Person(Base):
     # Изображение подписи (PNG с прозрачным фоном, app/facsimile.py) —
     # загружает сам председатель; вставляется в документы только галочкой.
     signature_png: Mapped[bytes | None] = mapped_column(LargeBinary, deferred=True)
+    # Расположение подписи на линии — JSON {"dx","dy","h"} в мм
+    # (app/facsimile.py: SIGN_LAYOUT), регулируется ползунками.
+    signature_layout: Mapped[str | None] = mapped_column(String(200))
     max_messenger: Mapped[str | None] = mapped_column(String(120))  # мессенджер "MAX" (VK) — имя атрибута не "max", чтобы не затенять builtin
 
     # Привязка Telegram-аккаунта для уведомлений (см. app/telegram_bot.py) —

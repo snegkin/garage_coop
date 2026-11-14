@@ -191,6 +191,88 @@
     {% endfor %}
   </div>
 </div>
+{% if seal_uri or sign_uri %}
+{% import "legal_docs/_macros.html" as legal %}
+{% include "legal_docs/_print_style.html" %}
+{% set lay = facsimile_layout() %}
+<div class="bg-body p-4 rounded border mt-4" id="facsimile-layout">
+  <h5>{{ _("Расположение на бланке") }}</h5>
+  <p class="text-muted small mb-3">{{ _("Образец строки подписи и места «М.П.» в натуральную величину. Подвиньте ползунками — так подпись и печать будут стоять во всех документах.") }}</p>
+  <div class="row g-4 align-items-start">
+    <div class="col-xl-7">
+      <div class="legal-print facsimile-on" data-fx-layout-preview style="max-width: 175mm; padding: 4mm 6mm 14mm; margin: 0;">
+        {{ legal.signature_block(own_person, today, _("Председатель")) }}
+      </div>
+    </div>
+    <div class="col-xl-5">
+      <form method="post" action="{{ url_for('facsimile.save_layout') }}" data-fx-layout-form>
+        {% set groups = [] %}
+        {% if sign_uri %}{% set _x = groups.append(("sign", _("Подпись"), [("dy", _("ниже ↔ выше"), True), ("dx", _("влево ↔ вправо"), False), ("h", _("размер"), False)])) %}{% endif %}
+        {% if seal_uri %}{% set _x = groups.append(("seal", _("Печать"), [("dy", _("ниже ↔ выше"), True), ("dx", _("влево ↔ вправо"), False), ("size", _("размер"), False)])) %}{% endif %}
+        {% for kind, label, fields in groups %}
+        <div class="fw-semibold small mt-2">{{ label }}</div>
+        {% for key, caption, inverted in fields %}
+        {% set spec = lay.spec[kind][key] %}
+        <label class="form-label small mb-0 d-flex justify-content-between" for="fx-{{ kind }}-{{ key }}">
+          <span>{{ caption }}</span><span class="text-muted" data-fx-out="{{ kind }}_{{ key }}">{{ lay[kind][key] }} {{ _("мм") }}</span>
+        </label>
+        {# «ниже ↔ выше»: ползунок вправо — выше, поэтому значение dy (вниз) — с обратным знаком. #}
+        <input class="form-range" type="range" step="0.5" id="fx-{{ kind }}-{{ key }}"
+               min="{{ -spec[2] if inverted else spec[1] }}" max="{{ -spec[1] if inverted else spec[2] }}"
+               value="{{ -lay[kind][key] if inverted else lay[kind][key] }}"
+               data-fx-range="{{ kind }}_{{ key }}" data-default="{{ spec[0] }}"{% if inverted %} data-inverted{% endif %}>
+        <input type="hidden" name="{{ kind }}_{{ key }}" value="{{ lay[kind][key] }}">
+        {% endfor %}
+        {% endfor %}
+        <div class="d-flex gap-2 mt-3 flex-wrap">
+          <button class="btn btn-sm btn-primary">{{ _("Сохранить расположение") }}</button>
+          <button type="button" class="btn btn-sm btn-outline-secondary" data-fx-layout-defaults>{{ _("По умолчанию") }}</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  var form = document.querySelector("[data-fx-layout-form]");
+  var preview = document.querySelector("[data-fx-layout-preview]");
+  if (!form || !preview) return;
+  var MM = {{ _("мм")|tojson }};
+  function val(name) { return parseFloat(form.elements[name].value); }
+  function apply() {
+    form.querySelectorAll("[data-fx-range]").forEach(function (range) {
+      var name = range.dataset.fxRange, v = parseFloat(range.value);
+      if (range.hasAttribute("data-inverted")) v = -v;
+      form.elements[name].value = v;
+      form.querySelector('[data-fx-out="' + name + '"]').textContent = v + " " + MM;
+    });
+    var sign = preview.querySelector(".fx-sign");
+    if (sign && form.elements.sign_dx) {
+      sign.style.left = (-4 + val("sign_dx")) + "mm";
+      sign.style.right = (-4 - val("sign_dx")) + "mm";
+      sign.style.bottom = (-val("sign_dy")) + "mm";
+      sign.style.height = val("sign_h") + "mm";
+    }
+    var seal = preview.querySelector(".fx-seal");
+    if (seal && form.elements.seal_dx) {
+      var size = val("seal_size");
+      seal.style.width = seal.style.height = size + "mm";
+      seal.style.marginTop = (val("seal_dy") - size / 2) + "mm";
+      seal.style.marginLeft = (val("seal_dx") - size / 2) + "mm";
+    }
+  }
+  form.querySelectorAll("[data-fx-range]").forEach(function (r) { r.addEventListener("input", apply); });
+  form.querySelector("[data-fx-layout-defaults]").addEventListener("click", function () {
+    form.querySelectorAll("[data-fx-range]").forEach(function (range) {
+      var d = parseFloat(range.dataset.default);
+      range.value = range.hasAttribute("data-inverted") ? -d : d;
+    });
+    apply();
+  });
+  apply();
+})();
+</script>
+{% endif %}
 <script>
 (function () {
   var PREVIEW_URL = {{ url_for('facsimile.preview')|tojson }};

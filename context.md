@@ -466,7 +466,12 @@ PNG после `prepare_image(data, Filter)` — без numpy, только Pill
 шум бумаги раздувает PNG в разы); рамка — по альфе >96 после медианы 5.
 Предпросмотр — `/facsimile/preview` (ничего не сохраняет); браузер
 заранее уменьшает фото до 1600 px и подменяет файл в input (DataTransfer)
-— сохраняется ровно то, что было в превью. В страницу — НЕ `<img>` в каждом
+— сохраняется ровно то, что было в превью.
+Расположение — `Person.signature_layout` / `Cooperative.seal_layout` (JSON,
+мм, `SIGN_LAYOUT`/`SEAL_LAYOUT`: умолчание и пределы), подставляется в
+`_facsimile_style.html` числами (без calc() — weasyprint). Ползунки с
+живым образцом (настоящий `signature_block` с `facsimile-on`) — на странице
+загрузки; «ниже ↔ выше» — с обратным знаком dy. В страницу — НЕ `<img>` в каждом
 документе, а фоном `.fx-sign`/`.fx-seal`, заданным один раз в
 `legal_docs/_facsimile_style.html` (включается из `_print_style.html`):
 пачка уведомлений иначе тащила бы data:-URI на каждого должника; нужен

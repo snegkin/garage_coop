@@ -15,7 +15,8 @@
 }
 .fx-sign.shown, .facsimile-on .fx-sign, .fx-seal.shown, .facsimile-on .fx-seal { display: block; }
 .sig-blank { position: relative; }
-.fx-sign { position: absolute; left: -4mm; right: -4mm; bottom: -1mm; height: 15mm; }
+/* Подпись — с заходом ниже линии (bottom -11 мм: по просьбе, на 1 см ниже прежнего). */
+.fx-sign { position: absolute; left: -4mm; right: -4mm; bottom: -11mm; height: 15mm; }
 .stamp-place { position: relative; }
 /* Печать — по центру места «М.П.», чуть выше, заходит на подпись, как настоящая. */
 .fx-seal { position: absolute; width: 38mm; height: 38mm; left: 50%; top: 50%; margin: -30mm 0 0 -34mm; }

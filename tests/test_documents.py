@@ -77,6 +77,8 @@ def test_defaults_and_announcement_without_number(db, client):
 
     client.post("/documents/templates/defaults")
     names = {t.name for t in db.query(DocumentTemplate)}
+    assert {"Заявление о вступлении в кооператив", "Заявление о выходе из кооператива",
+            "Заявление на подключение к электрической сети"} <= names
     assert {"Справка о владении гаражом", "Объявление об общем собрании", "Сайт и группы в соцсетях", "Регистрационные данные и реквизиты",
             "Уведомление о задолженности"} <= names
     cert = db.query(DocumentTemplate).filter_by(name="Справка о владении гаражом").one()
@@ -182,3 +184,25 @@ def test_title_placeholders_and_date_shift(db, client, app):
     # Другая дата документа — срок пересчитан.
     page = client.get(f"/documents/new?template_id={template.id}&person_id={owner.id}&issued_at=2026-12-01")
     assert "Оплатить до 11.12.2026." in page.get_data(as_text=True)
+
+
+def test_member_application_templates(db, client):
+    owner, garage, _chairman = _setup(db)
+    login(client, "board1", "pass1234")
+    client.post("/documents/templates/defaults")
+    leave = db.query(DocumentTemplate).filter_by(name="Заявление о выходе из кооператива").one()
+    power = db.query(DocumentTemplate).filter_by(name="Заявление на подключение к электрической сети").one()
+    join = db.query(DocumentTemplate).filter_by(name="Заявление о вступлении в кооператив").one()
+    # Подписывает заявитель — без подписи председателя и М.П.
+    assert not (leave.show_signature or power.show_signature or join.show_signature)
+    assert (join.recipient, leave.recipient, power.recipient) == ("none", "person", "garage")
+
+    page = client.get(f"/documents/new?template_id={leave.id}&person_id={owner.id}").get_data(as_text=True)
+    assert "Председателю правления" in page and "Сидоров С.С." in page
+    assert "от Петрова Анна Ивановна" in page and "/Петрова А.И./" in page and "гаража № 42" in page
+
+    page = client.get(f"/documents/new?template_id={power.id}&garage_id={garage.id}").get_data(as_text=True)
+    assert "гараж (бокс) № 42 (доля в праве 1/2)" in page
+
+    page = client.get(f"/documents/new?template_id={join.id}").get_data(as_text=True)
+    assert "Прошу принять меня в члены ГК" in page and "{{" not in page.split('id="docBody"')[1].split("</div>")[0]

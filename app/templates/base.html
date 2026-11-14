@@ -80,6 +80,7 @@
            дропдаун «Сервисы» — то же самое место в шапке, но одним
            пунктом верхнего уровня вместо двух. #}
         {% if not current_user %}
+        <li class="nav-item"><a class="nav-link" href="{{ url_for('cooperative.view') }}">{{ _("О кооперативе") }}</a></li>
         <li class="nav-item"><a class="nav-link" href="{{ url_for('surveillance.view') }}">{{ _("Видеонаблюдение") }}</a></li>
         <li class="nav-item"><a class="nav-link" href="{{ url_for('bulletin.list_posts') }}">{{ _("Доска объявлений") }}</a></li>
         {% endif %}

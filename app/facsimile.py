@@ -280,8 +280,7 @@ def save_layout():
     coop = _coop()
     if coop is not None:
         coop.seal_layout = json.dumps(seal) if seal else None
-    audit.record("facsimile.layout", "Изменено расположение подписи и печати на бланках"
-                 + (" (по умолчанию)" if reset else f": подпись {sign}, печать {seal}"))
+    # Расположение — оформление, в журнал аудита не пишется.
     database.db_session.commit()
     flash(_("Расположение подписи и печати сохранено."), "success")
     return redirect(url_for("cooperative.edit", _anchor="facsimile-layout"))

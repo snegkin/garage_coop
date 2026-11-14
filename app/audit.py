@@ -157,8 +157,6 @@ def entity_url(entity_type: str | None, entity_id: int | None) -> str | None:
         return url_for("documents.index")
     if entity_type == "issued_document":
         return url_for("documents.detail", document_id=entity_id)
-    if entity_type == "document_template":
-        return url_for("documents.edit_template", template_id=entity_id)
     if entity_type == "news":
         return url_for("news.view", news_id=entity_id)
     if entity_type == "forum_topic":

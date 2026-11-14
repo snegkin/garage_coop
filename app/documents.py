@@ -738,9 +738,9 @@ def index():
 @bp.route("/templates/defaults", methods=["POST"])
 @roles_required(RoleEnum.BOARD)
 def add_defaults():
+    # Шаблоны — заготовки, не действия от имени кооператива: в журнал
+    # аудита не пишутся (там только важное — см. issued_document.*).
     added = add_default_templates()
-    if added:
-        audit.record("document_template.defaults", summary=f"Добавлены стандартные шаблоны документов: {added}")
     database.db_session.commit()
     flash(_("Добавлено стандартных шаблонов: {n}.", n=added), "success")
     return redirect(url_for("documents.index"))
@@ -799,12 +799,6 @@ def edit_template(template_id=None):
             return _render_template_form(draft, template)
         if template is None:
             database.db_session.add(draft)
-        database.db_session.flush()
-        audit.record(
-            "document_template.edit" if template else "document_template.create",
-            entity_type="document_template", entity_id=draft.id,
-            summary=f"{'Изменён' if template else 'Создан'} шаблон документа «{draft.name}»",
-        )
         database.db_session.commit()
         unknown = unknown_placeholders(draft.title, draft.addressee_html, draft.body_html)
         if unknown:
@@ -829,10 +823,6 @@ def _render_template_form(draft: DocumentTemplate, template: DocumentTemplate | 
 def archive_template(template_id):
     template = _template_or_404(template_id)
     template.is_archived = not template.is_archived
-    audit.record(
-        "document_template.archive", entity_type="document_template", entity_id=template.id,
-        summary=f"Шаблон документа «{template.name}» {'убран в архив' if template.is_archived else 'возвращён из архива'}",
-    )
     database.db_session.commit()
     return redirect(url_for("documents.index"))
 

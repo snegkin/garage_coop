@@ -231,7 +231,7 @@ def test_layout_controls(db, client):
     # Значения — в пределах (высота подписи ограничена 35 мм), мусор — по умолчанию.
     assert "left: -2.0mm; right: -6.0mm; bottom: -5.5mm; height: 35.0mm" in page
     assert "width: 30.0mm; height: 30.0mm" in page and "margin: -26.0mm 0 0 -25.0mm" in page
-    assert db.query(AuditLog).filter_by(action="facsimile.layout").count() == 1
+    assert db.query(AuditLog).filter_by(action="facsimile.layout").count() == 0  # оформление — не в аудит
     assert client.get(f"/documents/{own.id}/pdf?facsimile=1").data[:4] == b"%PDF"
 
     client.post("/facsimile/layout", data={"reset": "1"})

@@ -493,7 +493,7 @@ BOARD_EVENT_GROUPS = {
         "actions": (
             "document.*", "annual_report.*", "reconciliation_act.*", "postal_letter.*", "court_section.*",
             "cooperative.default_court_section", "news.*", "news_gallery.*", "wiki.*", "bulletin.*", "certificate.*",
-            "issued_document.*", "document_template.*", "facsimile.*",
+            "issued_document.*", "facsimile.*",
         ),
     },
     "counterparties": {

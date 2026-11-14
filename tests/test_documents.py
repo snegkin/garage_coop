@@ -116,7 +116,7 @@ def test_template_editor_and_numbered_document_for_owner(db, client):
     })
     template = db.query(DocumentTemplate).one()
     assert template.recipient == "garage" and "{{гараж}}" in template.body_html
-    assert db.query(AuditLog).filter_by(action="document_template.create").count() == 1
+    assert db.query(AuditLog).filter(AuditLog.action.like("document_template.%")).count() == 0  # заготовки — не в аудит
 
     # Без адресата — только выбор собственника.
     page = client.get(f"/documents/new?template_id={template.id}").get_data(as_text=True)

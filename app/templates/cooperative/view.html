@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Информация о кооперативе{% endblock %}
+{% block title %}{{ _("Информация о кооперативе") }}{% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h3>{{ _("Информация о кооперативе") }}</h3>
@@ -43,13 +43,14 @@
     <td>
       {% if coop.postal_address %}
         {{ coop.postal_address }}
-      {% elif chairman_address %}
+      {% elif chairman_address and not public %}
         {{ chairman_address }}
         <div class="text-muted small">{{ _("почтовый адрес не указан — показан адрес места жительства/регистрации председателя") }}</div>
       {% else %}—{% endif %}
     </td>
   </tr>
-  {% if primary_account %}
+  {% if public %}
+  {% elif primary_account %}
   <tr><th>{{ _("Расчётный счёт") }}</th><td class="text-nowrap">{{ primary_account.checking_account }}</td></tr>
   <tr><th>{{ _("Банк") }}</th><td>{{ primary_account.bank_name }}</td></tr>
   <tr><th>{{ _("БИК") }}</th><td>{{ primary_account.bik or "—" }}</td></tr>
@@ -59,6 +60,7 @@
   {% endif %}
 </table>
 
+{% if not public %}
 <h4>{{ _("Площади и налоги") }}</h4>
 <table class="table table-bordered bg-body table-labels">
   <tr><th class="table-label">{{ _("Полная площадь кооператива (по документам), м²") }}</th><td>{{ fmt2(coop.total_area) if coop.total_area else "—" }}</td></tr>
@@ -70,9 +72,12 @@
   <tr><th title="{{ _('(кадастровая стоимость / кадастровая площадь) × ставка налога') }}">{{ _("Стоимость аренды 1 м² (справочная), ₽/м²") }}</th><td>{{ fmt2(coop.rental_price_per_sqm) if coop.rental_price_per_sqm else "—" }}</td></tr>
   <tr><th>{{ _("Ставка налога, % от кадастровой стоимости") }}</th><td>{{ fmt2(coop.land_tax_rate_percent) }}%</td></tr>
 </table>
+{% endif %}
 {% else %}
 <p class="text-muted">{{ _("Реквизиты ещё не заполнены.") }}</p>
 {% endif %}
+
+{% if not public %}
 
 {% if is_board() %}
 <div class="mb-4 mt-4">
@@ -191,6 +196,7 @@
   </div>
 </div>
 {% endfor %}
+{% endif %}
 {% endif %}
 
 {% endblock %}

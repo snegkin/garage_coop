@@ -18,13 +18,14 @@ from .models import RoleEnum
 
 def is_board() -> bool:
     """Правление, бухгалтер или председатель — роль не ниже BOARD (см. auth.ROLE_LEVEL)."""
-    return ROLE_LEVEL[g.user.role] >= ROLE_LEVEL[RoleEnum.BOARD]
+    # Без входа (g.user is None — общедоступные страницы) — нет.
+    return g.user is not None and ROLE_LEVEL[g.user.role] >= ROLE_LEVEL[RoleEnum.BOARD]
 
 
 def is_chairman() -> bool:
     """Только председатель — самая узкая проверка, для действий вроде правки чужих
     ошибок (последнее показание счётчика) или назначения нового председателя."""
-    return g.user.role == RoleEnum.CHAIRMAN
+    return g.user is not None and g.user.role == RoleEnum.CHAIRMAN
 
 
 def is_privileged() -> bool:
@@ -35,7 +36,7 @@ def is_privileged() -> bool:
     набор ролей, используется там, где обычному члену правления видеть
     что-то ещё не положено (например, строки «пеня» на некоторых экранах).
     """
-    return g.user.role in (RoleEnum.CHAIRMAN, RoleEnum.ACCOUNTANT)
+    return g.user is not None and g.user.role in (RoleEnum.CHAIRMAN, RoleEnum.ACCOUNTANT)
 
 
 def is_owner_or_board(garage) -> bool:

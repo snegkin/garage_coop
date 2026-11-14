@@ -60,6 +60,12 @@
   {% endif %}
 </table>
 
+{% if public_blanks %}
+<h4 id="blanks">{{ _("Бланки") }}</h4>
+<p class="text-muted small mb-2">{{ _("Распечатайте, заполните от руки и передайте в правление.") }}</p>
+<div class="mb-4">{% include "documents/_public_links.html" %}</div>
+{% endif %}
+
 {% if not public %}
 <h4>{{ _("Площади и налоги") }}</h4>
 <table class="table table-bordered bg-body table-labels">

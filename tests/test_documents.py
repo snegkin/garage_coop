@@ -206,3 +206,42 @@ def test_member_application_templates(db, client):
 
     page = client.get(f"/documents/new?template_id={join.id}").get_data(as_text=True)
     assert "Прошу принять меня в члены ГК" in page and "{{" not in page.split('id="docBody"')[1].split("</div>")[0]
+
+
+def test_public_blanks_without_login(db, client):
+    owner, garage, _chairman = _setup(db)
+    login(client, "board1", "pass1234")
+    client.post("/documents/templates/defaults")
+    join = db.query(DocumentTemplate).filter_by(name="Заявление о вступлении в кооператив").one()
+    leave = db.query(DocumentTemplate).filter_by(name="Заявление о выходе из кооператива").one()
+    notice = db.query(DocumentTemplate).filter_by(name="Уведомление о задолженности").one()
+    assert join.is_public and leave.is_public and not notice.is_public
+    # Банковские реквизиты в публичном бланке — прочерком: проверяем на шаблоне с ними.
+    client.post(f"/documents/templates/{notice.id}/edit", data={
+        "name": notice.name, "title": notice.title, "recipient": notice.recipient, "show_number": "1",
+        "show_signature": "1", "signer_role": "Председатель", "addressee_html": notice.addressee_html,
+        "body_html": notice.body_html, "is_public": "1",
+    })
+    db.refresh(notice)
+    assert notice.is_public
+    client.get("/auth/logout")
+
+    # Без входа: список (и на странице кооператива), просмотр, PDF.
+    page = client.get("/documents/public/").get_data(as_text=True)
+    assert "Заявление о вступлении в кооператив" in page and f"/documents/public/{leave.id}" in page
+    assert f"/documents/public/{join.id}" in client.get("/cooperative/").get_data(as_text=True)
+    page = client.get(f"/documents/public/{leave.id}").get_data(as_text=True)
+    assert "Председателю правления" in page and "Сидоров С.С." in page
+    # Данные человека — прочерками, а не чьи-то.
+    assert "Петрова" not in page and documents.BLANK in page
+    page = client.get(f"/documents/public/{notice.id}").get_data(as_text=True)
+    assert "1234567890" in page and "40703810000000000001" not in page and "044525000" not in page
+    assert client.get(f"/documents/public/{leave.id}/pdf").data[:4] == b"%PDF"
+
+    # Не общедоступный или в архиве — 404; закрытые разделы — по-прежнему с входом.
+    protocol = db.query(DocumentTemplate).filter_by(name="Протокол заседания правления").one()
+    assert client.get(f"/documents/public/{protocol.id}").status_code == 404
+    leave.is_archived = True
+    db.commit()
+    assert client.get(f"/documents/public/{leave.id}/pdf").status_code == 404
+    assert client.get(f"/documents/new?template_id={join.id}").status_code in (302, 401, 403)

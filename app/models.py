@@ -1376,6 +1376,9 @@ class DocumentTemplate(Base):
     signer_role: Mapped[str] = mapped_column(String(100), default="Председатель")
     code: Mapped[str | None] = mapped_column(String(40), unique=True)
     chairman_only: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Общедоступный бланк: открывается/скачивается без входа
+    # (documents.public_*) — только с открытыми сведениями кооператива.
+    is_public: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     is_archived: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.now)

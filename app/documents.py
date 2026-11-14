@@ -167,9 +167,12 @@ class Context:
     """Данные для подстановок: кооператив, председатель, основной
     расчётный счёт, дата документа и (если есть) адресат."""
 
-    def __init__(self, today: dt.date, person: Person | None = None, garage: Garage | None = None):
+    def __init__(self, today: dt.date, person: Person | None = None, garage: Garage | None = None,
+                 public: bool = False):
         self.coop, self.chairman = _coop_and_chairman()
-        self.bank = get_primary_bank_account()
+        # Общедоступный бланк — без банковских реквизитов (как и публичная
+        # страница кооператива): в бланке прочерк.
+        self.bank = None if public else get_primary_bank_account()
         self.today = today
         self.person = person
         self.garage = garage
@@ -405,6 +408,7 @@ DEFAULT_TEMPLATES = [
     },
     {
         "name": "Заявление о вступлении в кооператив",
+        "is_public": True,
         "title": "ЗАЯВЛЕНИЕ",
         "recipient": "none",
         "show_number": False,
@@ -431,6 +435,7 @@ DEFAULT_TEMPLATES = [
     },
     {
         "name": "Заявление о выходе из кооператива",
+        "is_public": True,
         "title": "ЗАЯВЛЕНИЕ",
         "recipient": "person",
         "show_number": False,
@@ -448,6 +453,7 @@ DEFAULT_TEMPLATES = [
     },
     {
         "name": "Заявление на подключение к электрической сети",
+        "is_public": True,
         "title": "ЗАЯВЛЕНИЕ",
         "recipient": "garage",
         "show_number": False,
@@ -599,7 +605,7 @@ def add_default_templates() -> int:
 def _default_template(order: int, data: dict) -> DocumentTemplate:
     return DocumentTemplate(**{
         "show_number": True, "show_signature": True, "signer_role": "Председатель", "addressee_html": "",
-        "chairman_only": False, "sort_order": order * 10, **data,
+        "chairman_only": False, "is_public": False, "sort_order": order * 10, **data,
     })
 
 
@@ -743,12 +749,13 @@ def edit_template(template_id=None):
             name=f"{source.name} (копия)", title=source.title, addressee_html=source.addressee_html,
             body_html=source.body_html, recipient=source.recipient, show_number=source.show_number,
             show_signature=source.show_signature, signer_role=source.signer_role, sort_order=source.sort_order,
-            chairman_only=source.chairman_only,
+            chairman_only=source.chairman_only, is_public=source.is_public,
         )
     else:
         draft = template or DocumentTemplate(
             name="", title="", addressee_html="", body_html="", recipient="none",
             show_number=True, show_signature=True, signer_role="Председатель", sort_order=0, chairman_only=False,
+            is_public=False,
         )
 
     if request.method == "POST":
@@ -761,6 +768,7 @@ def edit_template(template_id=None):
         draft.show_number = bool(f.get("show_number"))
         draft.show_signature = bool(f.get("show_signature"))
         draft.chairman_only = bool(f.get("chairman_only"))
+        draft.is_public = bool(f.get("is_public"))
         draft.signer_role = (f.get("signer_role") or "").strip()[:100] or "Председатель"
         draft.sort_order = f.get("sort_order", type=int) or 0
         draft.body_html = body_html
@@ -1033,3 +1041,54 @@ def delete(document_id):
     database.db_session.commit()
     flash(_("Документ удалён из журнала (его номер не используется повторно)."), "success")
     return redirect(url_for("documents.index"))
+
+
+# ---------------------------------------------------------------------------
+# Общедоступные бланки (без входа)
+# ---------------------------------------------------------------------------
+
+def public_templates() -> list[DocumentTemplate]:
+    return (
+        database.db_session.query(DocumentTemplate)
+        .filter(DocumentTemplate.is_public.is_(True), DocumentTemplate.is_archived.is_(False))
+        .order_by(DocumentTemplate.sort_order, DocumentTemplate.name)
+        .all()
+    )
+
+
+def _public_template_or_404(template_id: int) -> DocumentTemplate:
+    template = database.db_session.get(DocumentTemplate, template_id)
+    if template is None or not template.is_public or template.is_archived:
+        abort(404)
+    return template
+
+
+def _public_context(template: DocumentTemplate) -> dict:
+    """Пустой бланк: данные человека/гаража/долга — прочерками для
+    заполнения от руки, расчётный счёт — тоже (Context(public=True))."""
+    today = dt.date.today()
+    ctx = Context(today, public=True)
+    coop, chairman = ctx.coop, ctx.chairman
+    return {
+        "template": template, "coop": coop, "chairman": chairman, "today": today,
+        "title": fill_text(template.title, ctx),
+        "addressee_html": fill(template.addressee_html, ctx),
+        "body_html": fill(template.body_html, ctx),
+    }
+
+
+@bp.route("/public/")
+def public_list():
+    return render_template("documents/public_list.html", templates=public_templates())
+
+
+@bp.route("/public/<int:template_id>")
+def public_view(template_id):
+    return render_template("documents/public_view.html", **_public_context(_public_template_or_404(template_id)))
+
+
+@bp.route("/public/<int:template_id>/pdf")
+def public_pdf(template_id):
+    template = _public_template_or_404(template_id)
+    return _render_pdf_or_fallback("documents/public_pdf.html", f"blank-{template.id}.pdf",
+                                   "documents/public_view.html", **_public_context(template))

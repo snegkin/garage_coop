@@ -26,10 +26,12 @@ def view():
     и кадастровых данных, документов и без подстановки адреса председателя
     вместо почтового (его личные данные)."""
     coop = database.db_session.query(Cooperative).first()
+    from .documents import public_templates
+    public_blanks = public_templates()
     if g.user is None:
         return render_template("cooperative/view.html", coop=coop, public=True, docs=[], chairman=None,
                                primary_account=None, coop_balance=None, doc_types=DocumentType,
-                               all_counterparties=[])
+                               all_counterparties=[], public_blanks=public_blanks)
     # Загружаем документы — рядовые участники видят только не-внутренние.
     # Документы, привязанные к контрагенту (Document.counterparty_id), сюда
     # не попадают — они показываются в карточке соответствующего контрагента
@@ -54,7 +56,7 @@ def view():
     # из этого списка); рядовым участникам эта справочная информация не показывается.
     all_counterparties = database.db_session.query(Counterparty).order_by(Counterparty.name).all() if is_board() else []
     return render_template(
-        "cooperative/view.html", coop=coop, public=False,
+        "cooperative/view.html", coop=coop, public=False, public_blanks=public_blanks,
         coop_balance=cooperative_balance() if is_board() else None,
         primary_account=get_primary_bank_account(),
         docs=docs, doc_types=DocumentType, chairman=chairman, all_counterparties=all_counterparties,

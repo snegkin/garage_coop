@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+{% include "applications/_sheet_style.html" %}
+{% import "documents/_macros.html" as m %}
+{{ m.style() }}
+</head>
+<body>
+<div class="legal-print">
+  {{ m.doc_sheet(coop, title, None, today, addressee_html, body_html, template.show_signature, chairman, template.signer_role) }}
+</div>
+</body>
+</html>

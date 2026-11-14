@@ -155,3 +155,30 @@ def test_access_board_only(db, client):
     login(client, "owner", "pass1234")
     assert client.get("/documents/").status_code in (302, 403)
     assert client.get("/documents/templates/new").status_code in (302, 403)
+
+
+def test_title_placeholders_and_date_shift(db, client, app):
+    owner, garage, _chairman = _setup(db)
+    with app.test_request_context():
+        ctx = documents.Context(dt.date(2026, 11, 14), owner, garage)
+        assert documents.fill("<p>до {{сегодня+10}}, {{ сегодня - 14 }}, {{сегодня+0}}</p>", ctx) == \
+            "<p>до 24.11.2026, 31.10.2026, 14.11.2026</p>"
+        assert documents.unknown_placeholders("{{сегодня+30}} {{сегодня*2}}") == ["сегодня*2"]
+        # Заголовок — обычный текст: без HTML-экранирования (его делает шаблон).
+        assert documents.fill_text("Правление {{кооператив_кратко}} — {{ФИО}}", ctx) == \
+            "Правление ГК «Восход» — Петрова Анна Ивановна"
+
+    login(client, "board1", "pass1234")
+    client.post("/documents/templates/new", data={
+        "name": "Уведомление", "title": "Правление {{кооператив_кратко}} уведомляет!", "recipient": "person",
+        "show_number": "1", "show_signature": "1", "signer_role": "Председатель",
+        "body_html": "<p>Оплатить до {{сегодня+10}}.</p>",
+    })
+    template = db.query(DocumentTemplate).one()
+    page = client.get(f"/documents/new?template_id={template.id}&person_id={owner.id}&issued_at=2026-11-14")
+    page = page.get_data(as_text=True)
+    assert "{{кооператив_кратко}}" not in page and "Правление ГК" in page
+    assert "Оплатить до 24.11.2026." in page
+    # Другая дата документа — срок пересчитан.
+    page = client.get(f"/documents/new?template_id={template.id}&person_id={owner.id}&issued_at=2026-12-01")
+    assert "Оплатить до 11.12.2026." in page.get_data(as_text=True)

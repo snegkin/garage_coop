@@ -636,16 +636,25 @@ FAILURE_NOTIFY_INTERVAL = dt.timedelta(days=1)
 # регистратор — раз в минуту): единичный сбой (сетевой таймаут, перезагрузка
 # роутера) — шум, уведомляем только о сбое, повторившемся столько прогонов подряд.
 FREQUENT_FAILURE_THRESHOLD = 3
+# Регистратор: единичный сбой снятия кадра (камера/регистратор на минуту
+# недоступны) — не повод писать правлению. Уведомляем, только если кадры не
+# снимаются непрерывно не меньше этого времени (и не меньше
+# FREQUENT_FAILURE_THRESHOLD прогонов подряд — см. notify_failure: min_duration).
+DVR_FAILURE_MIN_DURATION = dt.timedelta(minutes=10)
 
 
-def notify_failure(source: str, title: str, error: str, threshold: int = 1) -> bool:
+def notify_failure(source: str, title: str, error: str, threshold: int = 1,
+                   min_duration: dt.timedelta | None = None) -> bool:
     """Сообщить правлению (группа «failures») о сбое фоновой
     синхронизации (source — см. FailureNotification.source). Каждый вызов
     — ещё один неудачный прогон подряд; уведомление уходит, только когда
     их набралось threshold (удачный прогон обнуляет счёт — reset_failure),
     и не чаще раза в FAILURE_NOTIFY_INTERVAL на источник: cron опрашивает
     eWeLink и регистратор раз в минуту, и без этого о затянувшемся сбое
-    приходило бы сообщение на каждый прогон. Отправляет сразу, без
+    приходило бы сообщение на каждый прогон. min_duration — дополнительно
+    сбой должен длиться не меньше этого времени от первой неудачи серии
+    (failing_since): число прогонов само по себе зависит от расписания cron.
+    Отправляет сразу, без
     after_commit — вызывается из cron-скриптов вне запроса, после их
     собственного commit. Возвращает True, если уведомление ушло."""
     now = dt.datetime.utcnow()
@@ -653,9 +662,13 @@ def notify_failure(source: str, title: str, error: str, threshold: int = 1) -> b
     if mark is None:
         mark = FailureNotification(source=source, consecutive_failures=0)
         database.db_session.add(mark)
+    if mark.consecutive_failures == 0 or mark.failing_since is None:
+        mark.failing_since = now
     mark.consecutive_failures += 1
-    due = mark.consecutive_failures >= threshold and (
-        mark.notified_at is None or now - mark.notified_at >= FAILURE_NOTIFY_INTERVAL
+    due = (
+        mark.consecutive_failures >= threshold
+        and (min_duration is None or now - mark.failing_since >= min_duration)
+        and (mark.notified_at is None or now - mark.notified_at >= FAILURE_NOTIFY_INTERVAL)
     )
     if due:
         mark.notified_at = now
@@ -664,8 +677,11 @@ def notify_failure(source: str, title: str, error: str, threshold: int = 1) -> b
         return False
 
     body_text = error
-    if threshold > 1:
+    if threshold > 1 or min_duration is not None:
         body_text += f"\n\nНеудачных попыток подряд: {mark.consecutive_failures}."
+    if min_duration is not None:
+        minutes = int((now - mark.failing_since).total_seconds() // 60)
+        body_text += f" Сбой длится уже {minutes} мин."
     body_text += "\n\nСледующее сообщение об этом сбое — не раньше чем через сутки."
     _send_to_board("failures", f"failure:{source}", f"Сбой: {title}", body_text, url=failure_url(source))
     return True
@@ -725,6 +741,7 @@ def reset_failure(source: str) -> None:
     Отметку последнего уведомления не трогает: если сбой «мигает», новое
     сообщение всё равно не раньше чем через сутки после прошлого."""
     mark = database.db_session.query(FailureNotification).filter_by(source=source).first()
-    if mark is not None and mark.consecutive_failures:
+    if mark is not None and (mark.consecutive_failures or mark.failing_since is not None):
         mark.consecutive_failures = 0
+        mark.failing_since = None
         database.db_session.commit()

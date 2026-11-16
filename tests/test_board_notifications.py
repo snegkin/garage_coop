@@ -398,6 +398,7 @@ def test_dvr_script_notifies_after_consecutive_failures_once_per_recorder(app, d
     make_camera(db, recorder, label="Ворота", channel=1)
     make_camera(db, recorder, label="Двор", channel=2)
     db.commit()
+    source = f"dvr:{recorder.id}"
 
     class FailedResult:
         returncode = 1
@@ -409,11 +410,16 @@ def test_dvr_script_notifies_after_consecutive_failures_once_per_recorder(app, d
     monkeypatch.setattr(module.subprocess, "run", lambda *a, **kw: FailedResult())
     monkeypatch.setattr(module, "_update_combined_snapshot", lambda *a: None)
 
-    # Первые прогоны подряд с ошибкой — ещё шум, не уведомляем.
-    for _ in range(notifications.FREQUENT_FAILURE_THRESHOLD - 1):
+    from app.models import FailureNotification
+
+    # Прогоны подряд с ошибкой, но сбой длится меньше 10 минут — шум, не уведомляем.
+    for _ in range(notifications.FREQUENT_FAILURE_THRESHOLD + 1):
         assert module.main() == 1
     assert fake.sent == []
 
+    mark = db.query(FailureNotification).filter_by(source=source).one()
+    mark.failing_since -= notifications.DVR_FAILURE_MIN_DURATION
+    db.commit()
     assert module.main() == 1
     assert _recipients(fake) == ["board1@example.com"]
     body = fake.sent[0].get_content()
@@ -439,6 +445,34 @@ def test_success_resets_consecutive_failures(app, db, monkeypatch):
 
     assert notifications.notify_failure("dvr:1", "регистратор", "нет связи", threshold=threshold) is True
     assert "Неудачных попыток подряд: 3" in fake.sent[0].get_content()
+
+
+def test_single_dvr_failure_long_ago_does_not_notify(app, db, monkeypatch):
+    """Одна неудача, даже если следующий прогон через долгое время, — не
+    уведомление: нужно и время, и несколько неудач подряд; удачный прогон
+    между ними начинает серию заново."""
+    from app.models import FailureNotification
+    fake = _mock_smtp(monkeypatch)
+    _make_mailbox_settings(db)
+    _board_user(db, "board1")
+    db.commit()
+    kw = dict(threshold=notifications.FREQUENT_FAILURE_THRESHOLD,
+              min_duration=notifications.DVR_FAILURE_MIN_DURATION)
+
+    assert notifications.notify_failure("dvr:1", "регистратор", "нет связи", **kw) is False
+    mark = db.query(FailureNotification).filter_by(source="dvr:1").one()
+    mark.failing_since -= dt.timedelta(hours=1)
+    db.commit()
+    notifications.reset_failure("dvr:1")
+    assert mark.failing_since is None
+    for _ in range(notifications.FREQUENT_FAILURE_THRESHOLD):
+        assert notifications.notify_failure("dvr:1", "регистратор", "нет связи", **kw) is False
+    assert fake.sent == []
+
+    mark.failing_since -= notifications.DVR_FAILURE_MIN_DURATION
+    db.commit()
+    assert notifications.notify_failure("dvr:1", "регистратор", "нет связи", **kw) is True
+    assert "Сбой длится уже 10 мин." in fake.sent[0].get_content()
 
 
 def test_ewelink_offline_phase_notifies_per_phase(app, db, monkeypatch):

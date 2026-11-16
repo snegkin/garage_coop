@@ -246,6 +246,15 @@ def test_power_contracts(db, client):
     assert "Пользователь не является членом" in body and "экземплярах" not in body
 
     assert "мощностью 4 кВт" in body and "{{год}}" not in outside.body_html
+    # Срок оплаты — не задан в реквизитах кооператива: прочерк; пени нет, «15 дней» нет.
+    assert "Срок оплаты — до ________ года, следующего за расчётным" in body
+    assert "Пени за просрочку оплаты электроэнергии не начисляются" in body and "15 (пятнадцать)" not in body
+    coop = db.query(Cooperative).one()
+    coop.dues_due_day, coop.dues_due_month = 31, 3
+    db.commit()
+    page = client.get(f"/documents/new?template_id={outside.id}&garage_id={garage.id}").get_data(as_text=True)
+    assert "Срок оплаты — до 31 марта года, следующего за расчётным" in page
+    assert "до 31 марта каждого года" in page and "после предупреждения Пользователя" in page
     # Пустые реквизиты — прочерк до края колонки, адрес — в две строки.
     assert f"Дата рождения: {'_' * 20}<br>" in body and f"Тел.: {'_' * 29}</p>" in body
     owner.registration_address = None

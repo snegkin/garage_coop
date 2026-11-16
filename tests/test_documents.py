@@ -255,8 +255,17 @@ def test_power_contracts(db, client):
     page = client.get(f"/documents/new?template_id={outside.id}&garage_id={garage.id}").get_data(as_text=True)
     assert "Срок оплаты — до 31 марта года, следующего за расчётным" in page
     assert "до 31 марта каждого года" in page and "после предупреждения Пользователя" in page
+    # Лицевой счёт гаража — в реквизитах и в способах оплаты; записи счёта нет — по формуле номера.
+    from app.accounting import electricity_account_number
+    from app.models import PersonalAccount
+    number = electricity_account_number(garage.id)
+    assert f"Лицевой счёт № {number}</p>" in page and f"лицевого счёта № {number};" in page
+    db.add(PersonalAccount(garage_id=garage.id, account_number="E-42"))
+    db.commit()
+    page = client.get(f"/documents/new?template_id={outside.id}&garage_id={garage.id}").get_data(as_text=True)
+    assert "Лицевой счёт № E-42</p>" in page
     # Пустые реквизиты — прочерк до края колонки, адрес — в две строки.
-    assert f"Дата рождения: {'_' * 20}<br>" in body and f"Тел.: {'_' * 29}</p>" in body
+    assert f"Дата рождения: {'_' * 20}<br>" in body and f"Тел.: {'_' * 29}<br>Лицевой счёт № " in body
     owner.registration_address = None
     db.commit()
     page = client.get(f"/documents/new?template_id={outside.id}&garage_id={garage.id}").get_data(as_text=True)

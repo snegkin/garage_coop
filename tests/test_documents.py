@@ -274,3 +274,46 @@ def test_greeting_fallbacks():
     assert name_declension.greeting("Кузнецов Игорь Петрович") == "Уважаемый Игорь Петрович"
     assert name_declension.greeting("Ли Мин") == "Уважаемый(ая) Ли Мин"
     assert name_declension.greeting("Смит Джон Иванс") == "Уважаемый(ая) Джон Иванс"
+
+
+def test_header_blanks_and_phones_one_per_line(db, app):
+    from app.models import Phone
+    _owner, _garage, _chairman = _setup(db)
+    nobody = make_person(db, full_name="Иванов Иван Иванович")
+    two_phones = make_person(db, full_name="Смирнов Олег Петрович", residence_address="г. Город")
+    db.add_all([Phone(person_id=two_phones.id, number="+79001112233"),
+                Phone(person_id=two_phones.id, number="+79004445566")])
+    db.commit()
+    header = "<p>паспорт: {{паспорт}}</p><p>адрес: {{адрес}}</p><p>телефон: {{телефон}}</p>"
+    with app.test_request_context():
+        ctx = documents.Context(dt.date(2026, 11, 16), nobody)
+        html = documents.fill(header, ctx, header=True)
+        assert f"паспорт: {'_' * 22}</p>" in html
+        assert f"адрес: {'_' * 24}<br>{'_' * 24}</p>" in html
+        assert f"телефон: {'_' * 24}</p>" in html
+        assert documents.fill("<p>от {{ФИО_от_кого}}</p>", documents.Context(dt.date(2026, 1, 1)), header=True) \
+            == f"<p>от {'_' * 24}</p>"
+        # В тексте документа — обычный короткий прочерк.
+        assert documents.fill("{{адрес}}", ctx) == documents.BLANK
+
+        ctx = documents.Context(dt.date(2026, 11, 16), two_phones)
+        assert "телефон: +79001112233<br>+79004445566</p>" in documents.fill(header, ctx, header=True)
+        assert documents.fill("{{телефон}}", ctx) == "+79001112233, +79004445566"
+
+
+def test_member_application_text_from_template(db, client, app):
+    owner, garage, _chairman = _setup(db)
+    login(client, "board1", "pass1234")
+    client.post("/documents/templates/defaults")
+    members = {t.name for t in documents.member_templates()}
+    assert members == {"Заявление о выходе из кооператива", "Заявление на подключение к электрической сети",
+                       "Жалоба", "Обращение"}
+    leave = db.query(DocumentTemplate).filter_by(name="Заявление о выходе из кооператива").one()
+    complaint = db.query(DocumentTemplate).filter_by(name="Жалоба").one()
+    with app.test_request_context():
+        heading, title, body = documents.member_application_text(leave, owner, garage, dt.date(2026, 11, 16))
+        assert (heading, title) == ("Заявление", "о выходе из кооператива")
+        # Подпись заявителя — своя у заявления, строка из шаблона убрана.
+        assert "гаража № 42" in body and "«___»" not in body and "Петрова А.И." not in body
+        heading, title, _body = documents.member_application_text(complaint, owner, garage, dt.date(2026, 11, 16))
+        assert (heading, title) == ("Жалоба", "")

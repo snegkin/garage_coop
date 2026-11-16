@@ -1247,6 +1247,11 @@ class Application(Base):
     registered_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("user.id", ondelete="SET NULL"))
     new_owner_person_id: Mapped[int | None] = mapped_column(ForeignKey("person.id", ondelete="SET NULL"))
     transferred_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
+    # Подано по шаблону «Бланков и шаблонов» (DocumentTemplate.for_members,
+    # kind=OTHER): heading — заголовок документа из шаблона на момент
+    # подачи («Жалоба», «Обращение»); NULL — по виду (KIND_HEADINGS).
+    template_id: Mapped[int | None] = mapped_column(ForeignKey("document_template.id", ondelete="SET NULL"))
+    heading: Mapped[str | None] = mapped_column(String(200))
 
     person: Mapped["Person"] = relationship(foreign_keys=[person_id])
     garage: Mapped["Garage | None"] = relationship()
@@ -1382,6 +1387,10 @@ class DocumentTemplate(Base):
     # Общедоступный бланк: открывается/скачивается без входа
     # (documents.public_*) — только с открытыми сведениями кооператива.
     is_public: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    # Член кооператива может подать по этому шаблону заявление (жалобу,
+    # обращение) в правление из личного кабинета (applications.create):
+    # текст — из шаблона с его данными, шапка и подпись — заявления.
+    for_members: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     is_archived: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.now)

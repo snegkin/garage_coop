@@ -64,6 +64,22 @@ RECIPIENTS = {
 BLANK = "________"
 CERTIFICATE_CODE = "garage_certificate"
 
+# Прочерки в шапке (правая колонка — «от кого», адрес, паспорт, телефон):
+# пропуск должен вмещать то, что впишут от руки, адрес — в две строки.
+_ADDRESS_BLANK = "_" * 24
+HEADER_BLANKS = {
+    "паспорт": "_" * 22,
+    "адрес": _ADDRESS_BLANK + "<br>" + _ADDRESS_BLANK,
+    "адрес_регистрации": _ADDRESS_BLANK + "<br>" + _ADDRESS_BLANK,
+    "юр_адрес": _ADDRESS_BLANK + "<br>" + _ADDRESS_BLANK,
+    "почтовый_адрес": _ADDRESS_BLANK + "<br>" + _ADDRESS_BLANK,
+    "телефон": "_" * 24,
+    # «от ________» — ФИО от руки на восьми подчёркиваниях не уместить.
+    **{key: "_" * 24 for key in ("ФИО", "ФИО_кому", "ФИО_от_кого", "ФИО_кратко")},
+}
+# В шапке телефоны — по одному на строке (в тексте — через запятую).
+HEADER_MULTILINE = {"телефон": lambda c: c.person_attr(lambda p: "\n".join(ph.number for ph in p.phones))}
+
 
 # ---------------------------------------------------------------------------
 # Подстановки
@@ -313,21 +329,25 @@ def _is_known(raw_key: str) -> bool:
     return bool(DATE_SHIFT_RE.match(raw_key)) or raw_key.lower() in _BY_KEY
 
 
-def fill(html: str, ctx: Context, missing: set[str] | None = None) -> str:
+def fill(html: str, ctx: Context, missing: set[str] | None = None, header: bool = False) -> str:
     """Подставить значения в HTML шаблона. Неизвестные ключи остаются как
     есть (видно, что опечатка), пустые значения — прочерк для заполнения
-    от руки; их ключи складываются в missing."""
+    от руки; их ключи складываются в missing. header — шапка документа:
+    прочерки паспорта/адреса/телефона длиннее (адрес — в две строки),
+    телефоны — по одному на строке."""
     def replace(match: re.Match) -> str:
         resolved = _resolve(match.group(1), ctx)
         if resolved is None:
             return match.group(0)
         key, value = resolved
+        if header and key in HEADER_MULTILINE:
+            value = HEADER_MULTILINE[key](ctx) or ""
         if not value.strip():
             if key in OPTIONAL_KEYS:
                 return ""
             if missing is not None:
                 missing.add(key)
-            return BLANK
+            return HEADER_BLANKS.get(key, BLANK) if header else BLANK
         return str(Markup("<br>").join(escape(line) for line in value.strip("\n").splitlines()))
     # Абзац, от которого после подстановки ничего не осталось (например,
     # {{нет_задолженности}} при долге), — убирается.
@@ -448,6 +468,7 @@ DEFAULT_TEMPLATES = [
     {
         "name": "Заявление о выходе из кооператива",
         "is_public": True,
+        "for_members": True,
         "title": "ЗАЯВЛЕНИЕ",
         "recipient": "person",
         "show_number": False,
@@ -466,6 +487,7 @@ DEFAULT_TEMPLATES = [
     {
         "name": "Заявление на подключение к электрической сети",
         "is_public": True,
+        "for_members": True,
         "title": "ЗАЯВЛЕНИЕ",
         "recipient": "garage",
         "show_number": False,
@@ -480,6 +502,39 @@ DEFAULT_TEMPLATES = [
             "месте, согласованном с правлением, оплатить подключение, своевременно передавать показания "
             "и оплачивать потреблённую электроэнергию, соблюдать правила электро- и пожарной "
             "безопасности.</p>"
+            + _APPLICANT_SIGN
+        ),
+    },
+    {
+        "name": "Жалоба",
+        "is_public": True,
+        "for_members": True,
+        "title": "ЖАЛОБА",
+        "recipient": "person",
+        "show_number": False,
+        "show_signature": False,
+        "addressee_html": _TO_BOARD + _FROM_PERSON,
+        "body_html": (
+            _FILL + "Прошу рассмотреть жалобу на ______________________________ (чьи действия или "
+            "бездействие, что именно).</p>"
+            + _FILL + "Обстоятельства: ______________________________ (что произошло, когда, где).</p>"
+            + _FILL + "Прошу: ______________________________.</p>"
+            "<p>Ответ прошу дать в письменной форме.</p>"
+            + _APPLICANT_SIGN
+        ),
+    },
+    {
+        "name": "Обращение",
+        "is_public": True,
+        "for_members": True,
+        "title": "ОБРАЩЕНИЕ",
+        "recipient": "person",
+        "show_number": False,
+        "show_signature": False,
+        "addressee_html": _TO_BOARD + _FROM_PERSON,
+        "body_html": (
+            _FILL + "Обращаюсь к правлению по вопросу: ______________________________.</p>"
+            + _FILL + "Предложение (просьба): ______________________________.</p>"
             + _APPLICANT_SIGN
         ),
     },
@@ -617,7 +672,7 @@ def add_default_templates() -> int:
 def _default_template(order: int, data: dict) -> DocumentTemplate:
     return DocumentTemplate(**{
         "show_number": True, "show_signature": True, "signer_role": "Председатель", "addressee_html": "",
-        "chairman_only": False, "is_public": False, "sort_order": order * 10, **data,
+        "chairman_only": False, "is_public": False, "for_members": False, "sort_order": order * 10, **data,
     })
 
 
@@ -631,6 +686,43 @@ def certificate_template() -> DocumentTemplate:
         database.db_session.add(template)
         database.db_session.flush()
     return template
+
+
+def member_templates() -> list[DocumentTemplate]:
+    """Шаблоны, по которым член кооператива подаёт заявление в правление
+    из личного кабинета (applications.create)."""
+    return (
+        database.db_session.query(DocumentTemplate)
+        .filter(DocumentTemplate.for_members.is_(True), DocumentTemplate.is_archived.is_(False))
+        .order_by(DocumentTemplate.sort_order, DocumentTemplate.name)
+        .all()
+    )
+
+
+# Строка «дата и подпись заявителя» в конце стандартных заявлений
+# (_APPLICANT_SIGN) — у заявления из кабинета своя подпись под текстом,
+# вторая не нужна. Вместе с пустым абзацем-отступом перед ней.
+_APPLICANT_SIGN_RE = re.compile(
+    r"(?:<p>(?:<br>|\s|&nbsp;)*</p>)?<p(?:\s[^>]*)?>[^<]*«_+»[^<]*/\{\{\s*ФИО_кратко\s*\}\}/\s*</p>\s*$"
+)
+
+
+def member_application_text(template: DocumentTemplate, person: Person, garage: Garage,
+                            today: dt.date) -> tuple[str, str, str]:
+    """(заголовок, тема, текст) заявления из кабинета по шаблону: данные
+    заявителя и гаража подставлены, незаполненное — прочерком (поправит
+    сам заявитель на бланке). Тема — остаток названия шаблона после
+    заголовка («Заявление о выходе из кооператива» → «о выходе из
+    кооператива»), иначе пусто. Шапка шаблона не используется — у
+    заявления своя («В правление …», реквизиты заявителя)."""
+    ctx = Context(today, person, garage)
+    heading = fill_text(template.title, ctx) or "Заявление"
+    heading = heading[:1].upper() + heading[1:].lower()
+    title = ""
+    if template.name.lower().startswith(heading.lower() + " "):
+        title = template.name[len(heading) + 1:].strip()
+    body = fill(_APPLICANT_SIGN_RE.sub("", template.body_html or ""), ctx)
+    return heading, title, body
 
 
 def visible_documents(person_id: int | None = None, garage_id: int | None = None,
@@ -761,13 +853,13 @@ def edit_template(template_id=None):
             name=f"{source.name} (копия)", title=source.title, addressee_html=source.addressee_html,
             body_html=source.body_html, recipient=source.recipient, show_number=source.show_number,
             show_signature=source.show_signature, signer_role=source.signer_role, sort_order=source.sort_order,
-            chairman_only=source.chairman_only, is_public=source.is_public,
+            chairman_only=source.chairman_only, is_public=source.is_public, for_members=source.for_members,
         )
     else:
         draft = template or DocumentTemplate(
             name="", title="", addressee_html="", body_html="", recipient="none",
             show_number=True, show_signature=True, signer_role="Председатель", sort_order=0, chairman_only=False,
-            is_public=False,
+            is_public=False, for_members=False,
         )
 
     if request.method == "POST":
@@ -781,6 +873,7 @@ def edit_template(template_id=None):
         draft.show_signature = bool(f.get("show_signature"))
         draft.chairman_only = bool(f.get("chairman_only"))
         draft.is_public = bool(f.get("is_public"))
+        draft.for_members = bool(f.get("for_members"))
         draft.signer_role = (f.get("signer_role") or "").strip()[:100] or "Председатель"
         draft.sort_order = f.get("sort_order", type=int) or 0
         draft.body_html = body_html
@@ -977,7 +1070,7 @@ def _render_create(template, source, recipient, person, garage, coop, chairman, 
         else:
             ctx = Context(issued_at, person, garage)
             title = fill_text(template.title, ctx, missing)
-            addressee_html = fill(template.addressee_html, ctx, missing)
+            addressee_html = fill(template.addressee_html, ctx, missing, header=True)
             body_html = fill(template.body_html, ctx, missing)
     labels = {key: desc for key, desc, _g, _f in VARIABLES}
     debt = person_debt(person) if person is not None and not need_recipient else None
@@ -1074,7 +1167,7 @@ def _public_context(template: DocumentTemplate) -> dict:
     return {
         "template": template, "coop": coop, "chairman": chairman, "today": today,
         "title": fill_text(template.title, ctx),
-        "addressee_html": fill(template.addressee_html, ctx),
+        "addressee_html": fill(template.addressee_html, ctx, header=True),
         "body_html": fill(template.body_html, ctx),
     }
 

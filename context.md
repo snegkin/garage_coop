@@ -493,6 +493,21 @@ PNG после `prepare_image(data, Filter)` — без numpy, только Pill
 — не миграцией, а кнопкой (`add_default_templates`, по названию, без
 дублей). Коды аудита — `issued_document.*`/`document_template.*`:
 `document.*` уже занят документами кооператива/контрагентов.
+Шапка (`addressee_html`) — `fill(..., header=True)`: прочерки из
+`HEADER_BLANKS` (паспорт 22, адреса — 2×24 через `<br>`, ФИО/телефон 24),
+телефоны — по одному на строке (`HEADER_MULTILINE`); в тексте документа —
+по-прежнему `BLANK` и телефоны через запятую. В шапке заявления
+(`applications/_macros.html`) телефоны — `applicant_phone.split(", ")`.
+`DocumentTemplate.for_members` — шаблон в «Виде заявления» у
+`applications.create` (значение `template-<id>`, `_parse_kind`);
+заявление — `kind=OTHER` + `template_id` + `heading` (снимок заголовка;
+`doc_heading`/`accusative_heading`: первое слово, -а→-у, -я→-ю).
+`documents.member_application_text` заполняет текст по каждому гаражу
+заявителя (в форму — `templates[k].bodies`), шапку шаблона не берёт,
+строку подписи заявителя в конце вырезает `_APPLICANT_SIGN_RE` (по
+`«___»` и `/{{ФИО_кратко}}/`; если шаблон правили иначе — подпись
+останется, заявитель удалит на бланке). Миграция `f3b8c1d5a927` отмечает
+`for_members` уже добавленные заявления о выходе и на электросеть.
 
 ## Крон-скрипты пени: ставка ЦБ + начисление
 `scripts/update_key_rate.py` — standalone (сам `create_app()`+

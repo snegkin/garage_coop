@@ -19,7 +19,8 @@
       (d.applicant_passport, _("паспорт"), _("паспорт не указан в профиле")),
       (d.applicant_phone, _("тел."), _("телефон не указан в профиле")),
     ] %}
-    {% if value %}<p>{{ label }}: {{ value }}</p>
+    {# Телефоны (applicant_phone — через запятую) — по одному на строке. #}
+    {% if value %}<p>{{ label }}: {% if loop.last %}{% for phone in value.split(", ") %}{% if not loop.first %}<br>{% endif %}{{ phone }}{% endfor %}{% else %}{{ value }}{% endif %}</p>
     {% elif editing %}<p class="applicant-missing">{{ hint }}</p>{% endif %}
     {% endfor %}
     <p>{{ _("гараж") }} № {{ garage_html }}</p>
@@ -54,7 +55,7 @@
 {% macro application_doc(application, coop) %}
 <div class="legal-doc">
   {{ applicant_header(application, coop, application.garage_number or "—") }}
-  <p class="print-title">{{ application_kind_heading(application.kind)|upper }}</p>
+  <p class="print-title">{{ application_doc_heading(application)|upper }}</p>
   {% if application.title %}<p class="print-subtitle">{{ application.title }}</p>{% endif %}
   {{ legal.number_and_date(application.number, application.created_at.date()) }}
   <div class="application-body">{{ application.body_html|safe }}</div>
@@ -90,7 +91,7 @@
 {% macro response_doc(application, coop) %}
 <div class="legal-doc">
   {{ response_header(application, coop) }}
-  <p class="print-title">{{ _("Ответ на") if application.status.value == 'answered' else _("Об отклонении:") }} {{ application_kind_accusative(application.kind) }}</p>
+  <p class="print-title">{{ _("Ответ на") if application.status.value == 'answered' else _("Об отклонении:") }} {{ application_accusative(application) }}</p>
   {{ legal.number_and_date(application.number, application.created_at.date()) }}
   <div class="application-body">
     {% if application.status.value == 'rejected' %}<p>{{ _("Правление рассмотрело Ваше заявление и отклонило его.") }}</p>{% endif %}

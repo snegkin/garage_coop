@@ -15,8 +15,15 @@
       <label class="form-label small mb-1" for="appKind">{{ _("Вид заявления") }}</label>
       <select class="form-select" name="kind" id="appKind">
         {% for k in kinds %}
-        <option value="{{ k.value }}"{% if k == kind %} selected{% endif %}>{{ templates[k.value].label }}</option>
+        <option value="{{ k.value }}"{% if k.value == kind_value %} selected{% endif %}>{{ templates[k.value].label }}</option>
         {% endfor %}
+        {% if template_kinds %}
+        <optgroup label="{{ _('Бланки кооператива') }}">
+          {% for key in template_kinds %}
+          <option value="{{ key }}"{% if key == kind_value %} selected{% endif %}>{{ templates[key].label }}</option>
+          {% endfor %}
+        </optgroup>
+        {% endif %}
       </select>
     </div>
     <div class="col-sm-6">
@@ -50,7 +57,7 @@
   <div class="legal-print">
     <div class="legal-doc">
       {{ m.applicant_header(snapshot, coop, '<span id="appGarageNumber">'|safe ~ garage.number ~ '</span>'|safe, editing=True) }}
-      <p class="print-title" id="appHeading">{{ templates[kind.value].heading|upper }}</p>
+      <p class="print-title" id="appHeading">{{ templates[kind_value].heading|upper }}</p>
       <p class="print-subtitle">
         <input class="application-title-input" name="title" id="appTitle" value="{{ title }}" maxlength="255"
                placeholder="{{ _('о чём (необязательно), например: о замене счётчика') }}" aria-label="{{ _('Тема') }}">
@@ -105,7 +112,11 @@
   var draftKey = form.dataset.draftKey;
 
   function currentGarageNumber() { return garage.options[garage.selectedIndex].dataset.number; }
-  function templateBody(k, number) { return templates[k].body.split("{garage}").join(number); }
+  // Шаблон «Бланков» — текст уже заполнен по каждому гаражу на сервере.
+  function templateBody(k, number) {
+    if (templates[k].bodies) return templates[k].bodies[garage.value] || "";
+    return templates[k].body.split("{garage}").join(number);
+  }
 
   // Пока текст не трогали — смена вида/гаража подставляет стартовый текст
   // заново; после правки текста — только шапка и заголовок.
@@ -154,7 +165,7 @@
     try { return JSON.parse(localStorage.getItem(draftKey) || "null"); } catch (e) { return null; }
   }
   var draft = pristine ? loadDraft() : null;
-  if (draft && draft.body) {
+  if (draft && draft.body && templates[draft.kind]) {
     kind.value = draft.kind;
     if (garage.querySelector('option[value="' + draft.garage + '"]')) garage.value = draft.garage;
     title.value = draft.title || "";

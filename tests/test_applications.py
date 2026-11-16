@@ -472,3 +472,50 @@ def test_paper_transfer_copies_scan_to_garage_documents(db, client):
     client.post(f"/applications/{application.id}/decide", data={"decision": "answer", "response_html": "<p>Готово.</p>"})
     resp = client.get(f"/applications/{application.id}/pdf")
     assert resp.data[:4] == b"%PDF"
+
+
+def test_member_submits_application_from_template(db, client):
+    from app import documents
+    from app.models import DocumentTemplate
+    person, garage = _owner(db)
+    _board(db)
+    login(client, "board1", "pass1234")
+    client.post("/documents/templates/defaults")
+    complaint = db.query(DocumentTemplate).filter_by(name="Жалоба").one()
+    join = db.query(DocumentTemplate).filter_by(name="Заявление о вступлении в кооператив").one()
+    client.get("/auth/logout")
+
+    login(client, "owner", "pass1234")
+    form = client.get(f"/applications/new?garage_id={garage.id}&kind=template-{complaint.id}").get_data(as_text=True)
+    assert "Бланки кооператива" in form and f'value="template-{complaint.id}" selected' in form
+    assert f'value="template-{join.id}"' not in form  # вступление — не для членов
+    assert "ЖАЛОБА" in form and "Прошу рассмотреть жалобу" in form
+
+    # Не для членов — вид не принимается.
+    assert _submit(client, garage, kind=f"template-{join.id}", title="").status_code == 200
+    assert db.query(Application).count() == 0
+
+    resp = _submit(client, garage, kind=f"template-{complaint.id}", title="на шум",
+                   body="<p>Прошу рассмотреть жалобу на шум.</p>")
+    assert resp.status_code == 302
+    application = db.query(Application).one()
+    assert application.kind == ApplicationKind.OTHER and application.template_id == complaint.id
+    assert application.heading == "Жалоба"
+    page = client.get(f"/applications/{application.id}").get_data(as_text=True)
+    assert "Жалоба на шум" in page and "ЖАЛОБА" in page
+    client.get("/auth/logout")
+
+    login(client, "board1", "pass1234")
+    client.post(f"/applications/{application.id}/decide", data={"decision": "answer", "response_html": "<p>Ответ.</p>"})
+    page = client.get(f"/applications/{application.id}").get_data(as_text=True)
+    assert "Ответ на жалобу" in page
+    assert documents.member_templates()  # шаблоны на месте
+
+
+def test_applicant_header_phones_one_per_line(db, client):
+    person, garage = _owner(db)
+    db.add(Phone(person_id=person.id, number="+79007654321"))
+    db.commit()
+    login(client, "owner", "pass1234")
+    form = client.get("/applications/new").get_data(as_text=True)
+    assert "+79001234567<br>+79007654321" in form

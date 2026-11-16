@@ -15,12 +15,13 @@ def _bottom_nav(body):
     return body[start:body.index("</nav>", start)]
 
 
-def test_menu_is_offcanvas_opened_by_burger_and_bottom_menu_button(client, db):
+def test_menu_is_offcanvas_opened_only_by_bottom_menu_button(client, db):
     body = client.get("/").get_data(as_text=True)
     assert 'class="offcanvas offcanvas-end" tabindex="-1" id="nav"' in body
     assert "navbar-collapse" not in body
-    # бургер в шапке и «Меню» в нижней панели открывают одну и ту же панель
-    assert body.count('data-bs-toggle="offcanvas" data-bs-target="#nav"') == 2
+    # панель открывает только «Меню» в нижней панели — бургера в шапке нет
+    assert "navbar-toggler" not in body
+    assert body.count('data-bs-toggle="offcanvas" data-bs-target="#nav"') == 1
     assert 'data-bs-toggle="offcanvas" data-bs-target="#nav"' in _bottom_nav(body)
 
 

@@ -105,9 +105,11 @@
 // Preview calculation data
 var garageData = [
 {% for g in garages %}
-  { id: {{ g.id }}, number: "{{ g.number }}", area: {{ g.area_sqm }}, coefficient: {{ g.coefficient }}, owners: "{{ person_names.get(g.id) or '' }}", privatized: {{ g.land_privatized | lower }}, privatizedLandArea: {{ g.privatized_land_area if g.privatized_land_area is not none else 'null' }} },
+  { id: {{ g.id }}, number: "{{ g.number }}", area: {{ g.area_sqm }}, coefficient: {{ g.coefficient }}, owners: "{{ person_names.get(g.id) or '' }}", privatized: {{ g.land_privatized | lower }}, privatizedLandArea: {{ g.privatized_land_area if g.privatized_land_area is not none else 'null' }}, excluded: {{ g.excluded_fee_types | map(attribute="id") | list | tojson }} },
 {% endfor %}
 ];
+{% set land_tax_ft = fee_types | selectattr("code", "equalto", "land_tax") | first %}
+var landTaxFeeTypeId = {{ land_tax_ft.id if land_tax_ft else "null" }};
 var coopData = {
   cadastral_area: {{ coop.cadastral_area if coop and coop.cadastral_area else 'null' }},
   cadastral_value: {{ coop.cadastral_value if coop and coop.cadastral_value else 'null' }},
@@ -168,6 +170,11 @@ function updatePreview() {
   if (selectedGarages.length === 0) {
     selectedGarages = garageData;
   }
+  // Гаражи за территорией, которым выбранный взнос не начисляется
+  // (Garage.excluded_fee_types) — как на бэкенде, выпадают из расчёта.
+  var previewFeeTypeId = strategy === "land_tax" ? landTaxFeeTypeId : parseInt(document.getElementById("feeTypeSelect").value, 10);
+  function isCharged(g) { return g.excluded.indexOf(previewFeeTypeId) === -1; }
+  selectedGarages = selectedGarages.filter(isCharged);
 
   var rows = "";
   var total = 0;
@@ -223,7 +230,7 @@ function updatePreview() {
       // сужает, кому разослать начисление, а не то, между кем в принципе
       // поделена общая территория — так же, как считает бэкенд
       // (accounting.compute_land_tax).
-      var totalCoefficient = garageData.reduce(function(sum, g) { return sum + g.coefficient; }, 0);
+      var totalCoefficient = garageData.filter(isCharged).reduce(function(sum, g) { return sum + g.coefficient; }, 0);
       var commonAreaTax = pricePerSqm * (coopData.common_area / totalCoefficient);
       var standardArea = coopData.standard_garage_land_area || 30;
       // Как accounting.bank_fee_multiplier: банк берёт % с оплаченной суммы.

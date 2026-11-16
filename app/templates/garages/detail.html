@@ -58,6 +58,16 @@
         {% if is_board() %}
         <p><strong>{{ _("Коэффициент начисления") }}:</strong> {{ fmt2(garage.coefficient) }}</p>
         {% endif %}
+        {% if garage.outside_territory %}
+        <p>
+          <span class="badge text-bg-secondary">{{ _("За территорией") }}</span>
+          {% if is_board() %}
+          {% set excluded_ids = garage.excluded_fee_types | map(attribute="id") | list %}
+          {% set charged = garage_chargeable_fee_types() | rejectattr("id", "in", excluded_ids) | map(attribute="name") | list %}
+          <span class="small text-muted ms-1">{{ _("Начисляются взносы") }}: {{ charged | join(", ") if charged else _("нет") }}; {{ _("электроэнергия — с учётом потерь в линии") }}</span>
+          {% endif %}
+        </p>
+        {% endif %}
         <p><strong>{{ _("Земля приватизирована") }}:</strong> {{ _("да") if garage.land_privatized else _("нет") }}</p>
         {% if garage.land_privatized %}
         <p><strong>{{ _("Кадастровый номер участка") }}:</strong> {{ garage.land_cadastral_number or "—" }}</p>

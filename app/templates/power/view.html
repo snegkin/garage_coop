@@ -114,6 +114,15 @@
     {% else %}
     <p class="text-muted">{{ _("Тариф пока не задан.") }}</p>
     {% endif %}
+    <form method="post" action="{{ url_for('power.save_outside_line_loss') }}" class="d-flex flex-wrap align-items-center gap-2 small">
+      <label for="outsideLineLoss">{{ _("Гаражам за территорией — плюс потери в линии") }}</label>
+      <div class="input-group input-group-sm" style="width:110px">
+        <input class="form-control" id="outsideLineLoss" name="outside_line_loss_percent" inputmode="decimal" value="{{ settings.outside_line_loss_percent }}" required>
+        <span class="input-group-text">%</span>
+      </div>
+      <button class="btn btn-sm btn-outline-primary">{{ _("Сохранить") }}</button>
+      {% if member_tariff %}<span class="text-muted">= {{ "%.4f"|format(outside_rate) }} ₽/{{ _("кВт·ч") }}</span>{% endif %}
+    </form>
   </div>
   <div class="pg-t2">
     {% if member_tariffs %}

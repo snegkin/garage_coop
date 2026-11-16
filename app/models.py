@@ -2090,6 +2090,12 @@ class Garage(Base):
     area_sqm: Mapped[Decimal] = mapped_column(Numeric(8, 2))
     coefficient: Mapped[Decimal] = mapped_column(Numeric(4, 2), default=1)  # повышающий/понижающий коэффициент для начислений (напр. 2 — двойной гараж, 0.5 — маленький)
     land_privatized: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Гараж за территорией кооператива — не член кооператива, отдельный
+    # договор: электроэнергия по тарифу для членов плюс потери в линии до
+    # кооператива (ElectricitySettings.outside_line_loss_percent, см.
+    # accounting.garage_electricity_rate), а какие взносы ему начислять —
+    # решается по каждому виду отдельно (excluded_fee_types).
+    outside_territory: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     cadastral_number: Mapped[str | None] = mapped_column(String(50))       # кадастровый номер гаража
     land_cadastral_number: Mapped[str | None] = mapped_column(String(50))  # кадастровый номер участка (если приватизирован)
     privatized_land_area: Mapped[Decimal | None] = mapped_column(Numeric(8, 2))  # площадь приватизированного участка, м²
@@ -2112,6 +2118,10 @@ class Garage(Base):
     control_meter: Mapped["ControlMeter | None"] = relationship(
         foreign_keys=[control_meter_id], back_populates="garages"
     )
+    # Виды взносов, которые этому гаражу НЕ начисляются (массовое начисление,
+    # земельный налог) — задаются только у гаражей за территорией
+    # (outside_territory), у обычных список всегда пуст.
+    excluded_fee_types: Mapped[list["FeeType"]] = relationship(secondary="garage_fee_exclusion")
     # Контрольные узлы, физически запитанные через щиток ЭТОГО гаража, а не
     # через дерево ControlMeter (см. ControlMeter.parent_garage_id) — напр.
     # общее освещение, подключённое не к вводу и не к другому узлу, а прямо
@@ -2119,6 +2129,14 @@ class Garage(Base):
     supplied_control_meters: Mapped[list["ControlMeter"]] = relationship(
         foreign_keys="ControlMeter.parent_garage_id", back_populates="parent_garage"
     )
+
+
+class GarageFeeExclusion(Base):
+    """Вид взноса, который не начисляется гаражу (см. Garage.excluded_fee_types)."""
+    __tablename__ = "garage_fee_exclusion"
+
+    garage_id: Mapped[int] = mapped_column(ForeignKey("garage.id", ondelete="CASCADE"), primary_key=True)
+    fee_type_id: Mapped[int] = mapped_column(ForeignKey("fee_type.id", ondelete="CASCADE"), primary_key=True)
 
 
 class GaragePhoto(Base):
@@ -2360,6 +2378,10 @@ class ElectricitySettings(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     supplier_id: Mapped[int | None] = mapped_column(ForeignKey("counterparty.id", ondelete="SET NULL"))
+    # Потери в линии до кооператива, % — энергосбыт включает их в счёт
+    # кооперативу, поэтому гаражам за территорией (Garage.outside_territory)
+    # электроэнергия продаётся по тарифу для членов, увеличенному на этот %.
+    outside_line_loss_percent: Mapped[Decimal] = mapped_column(Numeric(5, 2), default=Decimal("2.33"), server_default="2.33")
 
     supplier: Mapped["Counterparty | None"] = relationship()
 

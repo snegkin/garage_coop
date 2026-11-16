@@ -1,5 +1,5 @@
 import datetime as dt
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from flask import Blueprint, render_template, request, redirect, url_for, flash, current_app, abort
 
@@ -9,7 +9,7 @@ from .i18n import translate as _, parse_decimal, parse_optional_decimal
 from .auth import roles_required
 from .models import Counterparty, ElectricityTariff, ElectricityTariffKind, MasterMeterReading, Document, DocumentType, RoleEnum, Expense, BankAccount
 from .accounting import (
-    get_electricity_settings, current_tariff, pay_counterparty, reallocate_counterparty_expenses, expense_paid_amount,
+    get_electricity_settings, current_tariff, outside_territory_rate, pay_counterparty, reallocate_counterparty_expenses, expense_paid_amount,
     counterparty_balance, available_statement_lines, resolve_statement_line,
 )
 from .uploads import save_upload
@@ -89,6 +89,7 @@ def view():
     settings = get_electricity_settings()
     supplier_tariffs = _tariffs_with_range(ElectricityTariffKind.SUPPLIER)
     member_tariffs = _tariffs_with_range(ElectricityTariffKind.MEMBER)
+    member_tariff = current_tariff(ElectricityTariffKind.MEMBER)
 
     readings = (
         database.db_session.query(MasterMeterReading)
@@ -112,7 +113,8 @@ def view():
         "power/view.html",
         settings=settings,
         supplier_tariff=current_tariff(ElectricityTariffKind.SUPPLIER),
-        member_tariff=current_tariff(ElectricityTariffKind.MEMBER),
+        member_tariff=member_tariff,
+        outside_rate=outside_territory_rate(member_tariff.rate) if member_tariff else None,
         supplier_tariffs=supplier_tariffs,
         member_tariffs=member_tariffs,
         readings=readings_with_amounts,
@@ -148,6 +150,27 @@ def save_supplier():
     )
     database.db_session.commit()
     flash(_("Данные поставщика сохранены."), "success")
+    return redirect(url_for("power.view"))
+
+
+@bp.route("/outside-line-loss", methods=["POST"])
+@roles_required(RoleEnum.BOARD)
+def save_outside_line_loss():
+    """Потери в линии до кооператива, % — надбавка к тарифу для членов у
+    гаражей за территорией (см. accounting.garage_electricity_rate). Уже
+    внесённые показания не пересчитываются — ставка в них сохранена."""
+    try:
+        percent = parse_decimal(request.form.get("outside_line_loss_percent", ""))
+    except (InvalidOperation, ValueError):
+        percent = None
+    if percent is None or not (Decimal("0") <= percent < Decimal("100")):
+        flash(_("Укажите процент потерь от 0 до 100."), "danger")
+        return redirect(url_for("power.view"))
+    settings = get_electricity_settings()
+    settings.outside_line_loss_percent = percent
+    audit.record("power.outside_line_loss_set", f"Потери в линии для гаражей за территорией: {percent}%")
+    database.db_session.commit()
+    flash(_("Процент потерь сохранён."), "success")
     return redirect(url_for("power.view"))
 
 

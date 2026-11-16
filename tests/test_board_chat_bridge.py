@@ -413,3 +413,134 @@ def test_widget_has_emoji_picker(db, client):
     if "chat-widget-emoji-panel" not in body:
         body = client.get("/cabinet/garages").get_data(as_text=True)
     assert "chat-widget-emoji-panel" in body and "bi-emoji-smile" in body
+
+
+
+# ---------------------------------------------------------------------------
+# Ответы и правка через мост
+# ---------------------------------------------------------------------------
+
+def _sent_copies(app, monkeypatch):
+    """Отправить очередь: Telegram отвечает message_id=777, MAX — mid m1."""
+    fake = FakeMax(monkeypatch)
+    tg_calls = []
+
+    def tg_post(url, json=None, **kw):
+        tg_calls.append((url.rsplit("/", 1)[-1], json))
+        return FakeResponse(200, {"ok": True, "result": {"message_id": 777}})
+
+    monkeypatch.setattr(telegram_bot.requests, "post", tg_post)
+    messenger_outbox.process(app.config["UPLOAD_FOLDER"])
+    return fake, tg_calls
+
+
+def test_site_reply_sent_as_reply_to_copy(app, db, client, monkeypatch):
+    _bridges(db)
+    _board_user(db)
+    login(client, "board1", "pass1234")
+    first = _post(client, "вопрос")
+    _sent_copies(app, monkeypatch)
+
+    client.post("/board-chat/messages", data={"body": "ответ", "reply_to_id": first})
+    fake, tg_calls = _sent_copies(app, monkeypatch)
+
+    assert tg_calls == [("sendMessage", {
+        "chat_id": TG_GROUP, "text": "board1: ответ",
+        "reply_parameters": {"message_id": 777, "allow_sending_without_reply": True}})]
+    assert fake.messages[0]["body"]["link"] == {"type": "reply", "mid": "m1"}
+
+
+def test_reply_to_message_without_copy_quotes_it(app, db, client, monkeypatch):
+    """Сообщение, на которое отвечают, в группу не ушло — цитата в тексте."""
+    _board_user(db)
+    login(client, "board1", "pass1234")
+    first = _post(client, "старое")  # до моста
+    _bridges(db, max_=False)
+    client.post("/board-chat/messages", data={"body": "ответ", "reply_to_id": first})
+    _fake, tg_calls = _sent_copies(app, monkeypatch)
+    assert tg_calls == [("sendMessage", {"chat_id": TG_GROUP, "text": "↩ board1: «старое»\nboard1: ответ"})]
+
+
+def test_site_edit_edits_copies(app, db, client, monkeypatch):
+    _bridges(db)
+    _board_user(db)
+    login(client, "board1", "pass1234")
+    message_id = _post(client, "было")
+    _sent_copies(app, monkeypatch)
+
+    client.post(f"/board-chat/messages/{message_id}/edit", data={"body": "стало"})
+    fake, tg_calls = _sent_copies(app, monkeypatch)
+
+    assert tg_calls == [("editMessageText", {"chat_id": TG_GROUP, "message_id": 777, "text": "board1: стало"})]
+    assert [(m, p, prm, js) for m, p, prm, js, _h in fake.calls] == [
+        ("PUT", "/messages", {"message_id": "m1"}, {"text": "board1: стало"})]
+
+
+def test_edit_before_copy_sent_updates_pending_copy(db, client):
+    _bridges(db, max_=False)
+    _board_user(db)
+    login(client, "board1", "pass1234")
+    message_id = _post(client, "было")
+    client.post(f"/board-chat/messages/{message_id}/edit", data={"body": "стало"})
+    assert _outbox(db) == [("telegram", "group", TG_GROUP, "board1: стало")]
+
+
+def test_telegram_reply_and_edit_reach_site(app, db, monkeypatch):
+    _bridges(db)
+    _board_user(db, telegram_chat_id=5001)
+    _tg_updates(monkeypatch, [_tg_message("вопрос", message_id=10)])
+    telegram_bot.poll_and_link_accounts()
+    question = db.query(BoardChatMessage).one()
+
+    # Ответ на сообщение из группы и правка вопроса.
+    reply = _tg_message("ответ", message_id=11, reply_to_message={"message_id": 10})
+    edited = _tg_message("вопрос (уточнил)", message_id=10)
+    result = [{"update_id": 5, "message": reply}, {"update_id": 6, "edited_message": edited}]
+    monkeypatch.setattr(telegram_bot.requests, "get",
+                        lambda *a, **kw: FakeResponse(200, {"ok": True, "result": result}))
+    telegram_bot.poll_and_link_accounts()
+
+    answer = db.query(BoardChatMessage).filter_by(body="ответ").one()
+    assert answer.reply_to_id == question.id
+    db.refresh(question)
+    assert question.body == "вопрос (уточнил)" and question.edited_at is not None
+    # Копия в MAX ещё ждала отправки — уйдёт уже с новым текстом; обратно
+    # в Telegram ничего.
+    assert _outbox(db) == [("max", "group", MAX_GROUP, "board1: вопрос (уточнил)"),
+                           ("max", "group", MAX_GROUP, "board1: ответ")]
+
+
+def test_telegram_reply_to_bot_copy_links_site_message(app, db, client, monkeypatch):
+    _bridges(db, max_=False)
+    _board_user(db, telegram_chat_id=5001)
+    login(client, "board1", "pass1234")
+    first = _post(client, "с сайта")
+    _sent_copies(app, monkeypatch)  # копия в Telegram — message_id 777
+
+    _tg_updates(monkeypatch, [_tg_message("ответ из TG", message_id=12, reply_to_message={"message_id": 777})])
+    telegram_bot.poll_and_link_accounts()
+    assert db.query(BoardChatMessage).filter_by(body="ответ из TG").one().reply_to_id == first
+
+
+def test_max_reply_and_edit_reach_site(app, db, monkeypatch):
+    _bridges(db)
+    _board_user(db, max_user_id=42)
+    fake = FakeMax(monkeypatch)
+
+    def msg(mid, text, **extra):
+        return {"sender": {"user_id": 42, "name": "Иван"},
+                "recipient": {"chat_id": int(MAX_GROUP), "chat_type": "chat"},
+                "body": {"mid": mid, "text": text}, **extra}
+
+    _max_updates(monkeypatch, fake, {"updates": [
+        {"update_type": "message_created", "message": msg("mid.1", "вопрос")},
+        {"update_type": "message_created", "message": msg("mid.2", "ответ",
+                                                          link={"type": "reply", "message": {"mid": "mid.1"}})},
+        {"update_type": "message_edited", "message": msg("mid.1", "вопрос!")},
+    ], "marker": 4})
+    max_bot.poll_updates()
+
+    question = db.query(BoardChatMessage).filter_by(external_message_id="mid.1").one()
+    answer = db.query(BoardChatMessage).filter_by(external_message_id="mid.2").one()
+    assert answer.reply_to_id == question.id
+    assert question.body == "вопрос!"

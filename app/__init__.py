@@ -148,6 +148,7 @@ def create_app(config_class=Config):
         )
         from . import attention
         from .accounting import balance as _balance
+        from . import board_chat as _board_chat
         from .permissions import is_board, is_chairman, is_privileged
         coop = database.db_session.query(Cooperative).first()
         coop_name = (coop.short_name or coop.full_name) if coop and (coop.short_name or coop.full_name) else "ГСК"
@@ -223,6 +224,7 @@ def create_app(config_class=Config):
             "pending_pd_count": attention_counts["pd"],
             "pending_votes_count": attention_counts["votes"],
             "board_chat_unread_count": board_chat_unread,
+            "board_chat_reactions": _board_chat.REACTIONS,
             "is_revision_commission_member": is_revision_member,
             "revision_chat_unread_count": revision_chat_unread,
             "pending_proposals_count": attention_counts["proposals"],

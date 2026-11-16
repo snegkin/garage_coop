@@ -353,3 +353,116 @@ def test_stale_last_seen_is_offline_even_if_open_flag_stuck_true(db, client):
     data = {p["username"]: p for p in resp.get_json()["participants"]}
     assert data["stale2"]["online"] is False
     assert data["stale2"]["chat_open"] is False
+
+
+# ---------------------------------------------------------------------------
+# Реакции
+# ---------------------------------------------------------------------------
+
+def _post_message(client, body="сообщение"):
+    return client.post("/board-chat/messages", data={"body": body}).get_json()["message"]["id"]
+
+
+def test_react_toggles_own_reaction(db, client):
+    _board_user(db)
+    login(client, "board1", "pass1234")
+    message_id = _post_message(client)
+
+    data = client.post(f"/board-chat/messages/{message_id}/react", data={"emoji": "👍"}).get_json()
+    assert data["reactions"] == [{"emoji": "👍", "count": 1, "mine": True, "users": ["board1"]}]
+
+    data = client.post(f"/board-chat/messages/{message_id}/react", data={"emoji": "👍"}).get_json()
+    assert data["reactions"] == []
+
+
+def test_react_rejects_unknown_emoji(db, client):
+    _board_user(db)
+    login(client, "board1", "pass1234")
+    message_id = _post_message(client)
+
+    resp = client.post(f"/board-chat/messages/{message_id}/react", data={"emoji": "💩"})
+    assert resp.status_code == 400
+
+
+def test_reactions_counted_per_user_and_polled(db, client):
+    _board_user(db)
+    person = make_person(db, full_name="Board Two")
+    make_user(db, "board2", "pass1234", role=RoleEnum.BOARD, person=person)
+    db.commit()
+
+    login(client, "board1", "pass1234")
+    message_id = _post_message(client)
+    client.post(f"/board-chat/messages/{message_id}/react", data={"emoji": "❤️"})
+    client.get("/auth/logout")
+
+    login(client, "board2", "pass1234")
+    # Опрос «после» этого сообщения — реакция приходит отдельным полем.
+    data = client.get(f"/board-chat/messages?after_id={message_id}").get_json()
+    assert data["messages"] == []
+    [changed] = data["changed"]
+    assert changed["id"] == message_id
+    assert changed["reactions"] == [{"emoji": "❤️", "count": 1, "mine": False, "users": ["board1"]}]
+
+    client.post(f"/board-chat/messages/{message_id}/react", data={"emoji": "❤️"})
+    data = client.get("/board-chat/messages").get_json()
+    reaction = data["messages"][0]["reactions"][0]
+    assert reaction["count"] == 2 and reaction["mine"] is True
+
+
+def test_plain_member_cannot_react(db, client):
+    _board_user(db)
+    person = make_person(db, full_name="Member Three")
+    make_user(db, "member3", "pass1234", role=RoleEnum.MEMBER, person=person)
+    db.commit()
+    login(client, "board1", "pass1234")
+    message_id = _post_message(client)
+    client.get("/auth/logout")
+
+    login(client, "member3", "pass1234")
+    resp = client.post(f"/board-chat/messages/{message_id}/react", data={"emoji": "👍"})
+    assert resp.status_code == 302
+
+
+# ---------------------------------------------------------------------------
+# Ответы и правка
+# ---------------------------------------------------------------------------
+
+def test_reply_shows_quote(db, client):
+    _board_user(db)
+    login(client, "board1", "pass1234")
+    first = _post_message(client, "вопрос")
+
+    data = client.post("/board-chat/messages", data={"body": "ответ", "reply_to_id": first}).get_json()
+    assert data["message"]["reply_to"] == {"id": first, "author_name": "board1", "body": "вопрос"}
+
+    client.post(f"/board-chat/messages/{first}/delete")
+    [shown] = client.get("/board-chat/messages").get_json()["messages"]
+    assert shown["reply_to"] == {"id": first, "deleted": True}
+
+
+def test_edit_own_message_and_poll_changed(db, client):
+    _board_user(db)
+    login(client, "board1", "pass1234")
+    message_id = _post_message(client, "черновик")
+
+    data = client.post(f"/board-chat/messages/{message_id}/edit", data={"body": "итог"}).get_json()
+    assert data["message"]["body"] == "итог" and data["message"]["edited"] is True
+
+    data = client.get(f"/board-chat/messages?after_id={message_id}").get_json()
+    assert [m["body"] for m in data["changed"]] == ["итог"]
+    assert client.post(f"/board-chat/messages/{message_id}/edit", data={"body": " "}).status_code == 400
+
+
+def test_cannot_edit_foreign_message(db, client):
+    _board_user(db)
+    person = make_person(db, full_name="Board Two")
+    make_user(db, "board2", "pass1234", role=RoleEnum.BOARD, person=person)
+    db.commit()
+    login(client, "board1", "pass1234")
+    message_id = _post_message(client, "моё")
+    client.get("/auth/logout")
+
+    login(client, "board2", "pass1234")
+    assert client.get("/board-chat/messages").get_json()["messages"][0]["can_edit"] is False
+    assert client.post(f"/board-chat/messages/{message_id}/edit", data={"body": "чужое"}).status_code == 403
+    assert db.get(BoardChatMessage, message_id).body == "моё"

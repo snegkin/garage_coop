@@ -95,7 +95,7 @@ def is_configured(settings: TelegramSettings | None) -> bool:
 
 def send_message(settings: TelegramSettings, chat_id: int | str, text: str,
                  parse_mode: str | None = None, disable_preview: bool = False,
-                 silent: bool = False) -> None:
+                 silent: bool = False, reply_to: int | None = None) -> None:
     """Поднимает TelegramError при сбое — вызывающий код (notifications.notify)
     сам решает, что с этим делать (обычно — залогировать и не ронять
     остальную обработку). chat_id — число (личный чат, группа -100…) или
@@ -108,6 +108,9 @@ def send_message(settings: TelegramSettings, chat_id: int | str, text: str,
         payload["link_preview_options"] = {"is_disabled": True}
     if silent:
         payload["disable_notification"] = True
+    if reply_to is not None:
+        # Сообщение успели удалить в группе — уйдёт просто сообщением.
+        payload["reply_parameters"] = {"message_id": reply_to, "allow_sending_without_reply": True}
     try:
         resp = requests.post(
             _api(settings, token, "sendMessage"),
@@ -163,11 +166,24 @@ def send_notification(settings: TelegramSettings, chat_id: int | str, text: str)
     send_message(settings, chat_id, text)
 
 
-def send_group_message(settings: TelegramSettings, chat_id: int | str, text: str) -> str | None:
-    """Сообщение в группу (мост чата правления, очередь kind="group").
-    -> id отправленного сообщения (для удаления/закрепа потом)."""
-    message_id = send_message(settings, chat_id, text)
+def send_group_message(settings: TelegramSettings, chat_id: int | str, text: str,
+                       reply_to: str | None = None) -> str | None:
+    """Сообщение в группу (мост чата правления, очередь kind="group");
+    reply_to — id сообщения в группе, на которое это ответ.
+    -> id отправленного сообщения (для удаления/закрепа/правки потом)."""
+    message_id = send_message(settings, chat_id, text,
+                              reply_to=_message_id(reply_to) if reply_to is not None else None)
     return str(message_id) if message_id is not None else None
+
+
+def edit_group_message(settings: TelegramSettings, chat_id, external_id: str, text: str) -> None:
+    """Правка копии (очередь kind="group_edit"). Текст тот же — Telegram
+    отвечает 400 «message is not modified», это не ошибка."""
+    try:
+        _call(settings, "editMessageText", {"chat_id": chat_id, "message_id": _message_id(external_id), "text": text})
+    except TelegramError as exc:
+        if "not modified" not in str(exc):
+            raise
 
 
 def get_updates(settings: TelegramSettings, offset: int | None, timeout: int = 0) -> list[dict]:
@@ -238,11 +254,12 @@ def _display_name(user: dict) -> str:
 _ATTACHMENT_KEYS = ("photo", "document", "video", "voice", "audio", "sticker", "animation", "video_note")
 
 
-def _ingest_board_chat(message: dict, text: str) -> bool:
+def _ingest_board_chat(message: dict, text: str, edited: bool = False) -> bool:
     """Сообщение из группы правления (TelegramSettings.board_chat_id) -> чат
-    правления на сайте (app/board_chat.py: ingest_external). True — это была
-    группа правления (сообщение обработано, дальше не разбирать). Команды
-    боту и сообщения других ботов в чат не попадают."""
+    правления на сайте (app/board_chat.py: ingest_external; edited — правка,
+    ingest_external_edit). True — это была группа правления (сообщение
+    обработано, дальше не разбирать). Команды боту и сообщения других ботов
+    в чат не попадают."""
     from . import board_chat
     if not board_chat.is_board_chat(board_chat.SOURCE_TELEGRAM, message["chat"]["id"]):
         return False
@@ -260,9 +277,19 @@ def _ingest_board_chat(message: dict, text: str) -> bool:
         body = f"[вложение в Telegram] {body}".strip()
     if not body:
         return True  # сервисное сообщение (вступил/вышел, закреп и т. п.)
+    chat_id = message["chat"]["id"]
+    if edited:
+        board_chat.ingest_external_edit(board_chat.SOURCE_TELEGRAM, f"{chat_id}:{message['message_id']}", body)
+        return True
+    reply_to = None
+    replied = message.get("reply_to_message")
+    if replied:
+        reply_to = board_chat.find_external(
+            board_chat.SOURCE_TELEGRAM, original_id=f"{chat_id}:{replied['message_id']}",
+            copy_id=replied["message_id"])
     board_chat.ingest_external(
-        board_chat.SOURCE_TELEGRAM, f"{message['chat']['id']}:{message['message_id']}",
-        sender.get("id"), _display_name(sender), body,
+        board_chat.SOURCE_TELEGRAM, f"{chat_id}:{message['message_id']}",
+        sender.get("id"), _display_name(sender), body, reply_to=reply_to,
     )
     return True
 
@@ -309,6 +336,11 @@ def poll_and_link_accounts() -> tuple[int, int]:
         settings.last_update_id = update["update_id"]
         message = update.get("message") or update.get("channel_post")
         _log_update(update, message)
+        if update.get("edited_message"):
+            # Правка в группе правления; в остальных чатах правки не нужны.
+            _ingest_board_chat(update["edited_message"], (update["edited_message"].get("text") or "").strip(),
+                               edited=True)
+            continue
         if not message:
             continue
         text = (message.get("text") or "").strip()

@@ -3441,12 +3441,12 @@ class SmsLog(Base):
 # ---------------------------------------------------------------------------
 
 class BoardChatMessage(Base):
-    """Общий чат правления — хронологический лог без редактирования, без
-    вложений и разметки (обычный текст). Удаление — мягкое (deleted_at,
+    """Общий чат правления — хронологический лог без вложений и разметки
+    (обычный текст); автор может поправить своё сообщение (edited_at). Удаление — мягкое (deleted_at,
     строка остаётся для истории, в чате не показывается): своё сообщение —
     автор, любое — председатель. Закреплено не больше одного сообщения
-    (pinned_at). Удаление и закреп повторяются в группах правления в
-    мессенджерах (app/board_chat.py, MessengerOutbox.board_message_id)."""
+    (pinned_at). Удаление, закреп, ответы и правка повторяются в группах
+    правления в мессенджерах (app/board_chat.py, MessengerOutbox.board_message_id)."""
     __tablename__ = "board_chat_message"
     __table_args__ = (
         UniqueConstraint("source", "external_message_id", name="uq_board_chat_message_source_external"),
@@ -3471,8 +3471,35 @@ class BoardChatMessage(Base):
     deleted_by_id: Mapped[int | None] = mapped_column(ForeignKey("user.id", ondelete="SET NULL"))
     pinned_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
     pinned_by_id: Mapped[int | None] = mapped_column(ForeignKey("user.id", ondelete="SET NULL"))
+    # Ответ на сообщение (с сайта или из группы — по reply в мессенджере).
+    reply_to_id: Mapped[int | None] = mapped_column(ForeignKey("board_chat_message.id", ondelete="SET NULL"))
+    # Последняя правка текста (автором на сайте или в группе мессенджера).
+    edited_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
+    # Последнее изменение уже отправленного сообщения — правка или реакции
+    # (BoardChatReaction): опрос виджета по нему отдаёт обновлённые
+    # сообщения, которые виджет уже показывает.
+    changed_at: Mapped[dt.datetime | None] = mapped_column(DateTime, index=True)
 
     author: Mapped["User | None"] = relationship(foreign_keys=[author_id])
+    reply_to: Mapped["BoardChatMessage | None"] = relationship(remote_side=[id], foreign_keys=[reply_to_id])
+
+
+class BoardChatReaction(Base):
+    """Реакция члена правления на сообщение чата правления — эмодзи из
+    короткого набора (app/board_chat.py: REACTIONS), повторный клик снимает.
+    Только на сайте: в группы мессенджеров не пересылаются."""
+    __tablename__ = "board_chat_reaction"
+    __table_args__ = (
+        UniqueConstraint("message_id", "user_id", "emoji", name="uq_board_chat_reaction"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    message_id: Mapped[int] = mapped_column(ForeignKey("board_chat_message.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("user.id", ondelete="CASCADE"))
+    emoji: Mapped[str] = mapped_column(String(16))
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.utcnow)
+
+    user: Mapped["User"] = relationship()
 
 
 # ---------------------------------------------------------------------------

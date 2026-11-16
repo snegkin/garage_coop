@@ -67,6 +67,8 @@ KIND_GROUP = "group"
 KIND_GROUP_DELETE = "group_delete"
 KIND_GROUP_PIN = "group_pin"
 KIND_GROUP_UNPIN = "group_unpin"
+# Правка копии: новый текст — в item.text (см. enqueue_group_edit).
+KIND_GROUP_EDIT = "group_edit"
 GROUP_ACTIONS = {
     KIND_GROUP_DELETE: "delete_group_message",
     KIND_GROUP_PIN: "pin_group_message",
@@ -109,22 +111,64 @@ def enqueue_group_action(kind: str, chat_id: int | str, board_message, channel: 
     return item
 
 
+def enqueue_group_edit(chat_id: int | str, board_message, channel: str, text: str) -> MessengerOutbox:
+    """Новый текст копии board_message в группе. Копия ещё ждёт отправки —
+    просто уйдёт с новым текстом, отдельной правки не нужно. Без commit."""
+    pending = (
+        database.db_session.query(MessengerOutbox)
+        .filter_by(kind=KIND_GROUP, channel=channel, board_message_id=board_message.id,
+                   status=MessengerOutboxStatus.PENDING)
+        .order_by(MessengerOutbox.id.desc())
+        .first()
+    )
+    if pending is not None:
+        pending.text = text
+        return pending
+    item = MessengerOutbox(kind=KIND_GROUP_EDIT, channel=channel, chat_id=str(chat_id),
+                           board_message=board_message, text=text)
+    database.db_session.add(item)
+    return item
+
+
+def _last_copy(message, channel: str) -> MessengerOutbox | None:
+    return (
+        database.db_session.query(MessengerOutbox)
+        .filter_by(kind=KIND_GROUP, channel=channel, board_message_id=message.id)
+        .order_by(MessengerOutbox.id.desc())
+        .first()
+    )
+
+
+def _reply_target(message, channel: str) -> str | None:
+    """id сообщения в группе channel, на которое ответить: оригинал, если
+    оно оттуда, иначе уже отправленная копия. None — ответить не на что."""
+    if message.deleted_at is not None:
+        return None
+    if message.source == channel:
+        return message.external_message_id
+    copy = _last_copy(message, channel)
+    return copy.external_id if copy is not None else None
+
+
+def _quote(message) -> str:
+    """Цитата вместо ответа, когда сообщения, на которое отвечают, в группе
+    нет (написано до моста, не дошло)."""
+    from .board_chat import author_name
+    body = message.body if len(message.body) <= 60 else message.body[:60] + "…"
+    return f"↩ {author_name(message)}: «{body}»\n"
+
+
 def _board_target(item: MessengerOutbox) -> str | None:
     """id копии board_message в группе item.channel, к которой применить
     действие. None — копии нет (сообщение туда не ушло) — делать нечего.
-    Копия ещё в очереди: удаление просто отменяет её отправку, закрепу —
-    подождать (повторяемая ошибка)."""
+    Копия ещё в очереди: удаление просто отменяет её отправку, закрепу и
+    правке — подождать (повторяемая ошибка)."""
     message = item.board_message
     if message is None:
         return None
     if message.source == item.channel:
         return message.external_message_id
-    copy = (
-        database.db_session.query(MessengerOutbox)
-        .filter_by(kind=KIND_GROUP, channel=item.channel, board_message_id=message.id)
-        .order_by(MessengerOutbox.id.desc())
-        .first()
-    )
+    copy = _last_copy(message, item.channel)
     if copy is None:
         return None
     if copy.external_id:
@@ -160,7 +204,18 @@ def _send(bot, settings, item: MessengerOutbox, upload_folder: str) -> None:
         bot.send_notification(settings, item.chat_id, item.text)
         return
     if item.kind == KIND_GROUP:
-        item.external_id = bot.send_group_message(settings, item.chat_id, item.text)
+        text, reply_to = item.text, None
+        replied = item.board_message.reply_to if item.board_message is not None else None
+        if replied is not None and replied.deleted_at is None:
+            reply_to = _reply_target(replied, item.channel)
+            if reply_to is None:
+                text = _quote(replied) + text
+        item.external_id = bot.send_group_message(settings, item.chat_id, text, reply_to=reply_to)
+        return
+    if item.kind == KIND_GROUP_EDIT:
+        target = _board_target(item)
+        if target is not None:
+            bot.edit_group_message(settings, item.chat_id, target, item.text)
         return
     if item.kind in GROUP_ACTIONS:
         target = _board_target(item)

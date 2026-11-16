@@ -2348,6 +2348,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Потяните, чтобы изменить высоту поля ввода; двойной клик — по умолчанию": "Drag to change the input height; double-click to reset",
         "Открепить": "Unpin",
         "Закреплённое сообщение": "Pinned message",
+        "Реакция": "Reaction",
+        "Действия с сообщением": "Message actions",
+        "Ответ пользователю": "Reply to",
+        "Сообщение удалено": "Message deleted",
         "Удалить сообщение? Оно удалится и в группах Telegram и MAX.": "Delete the message? It will also be deleted in the Telegram and MAX groups.",
         "ID группы из списка «Чаты бота»": "Group ID from the «Bot chats» list",
         "Группа правления указывается числовым ID, не ссылкой-приглашением. Добавьте бота в группу участником и сделайте администратором, нажмите «Обновить список» — группа появится в «Чатах бота», там нажмите «Группа правления».":

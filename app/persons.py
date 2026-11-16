@@ -303,6 +303,11 @@ def detail(person_id):
         key=lambda o: o.garage.number,
     )
     owned_ids = {o.garage_id for o in ownerships}
+    # Счёт гаража за электричество (PersonalAccount) — общий у всех
+    # собственников гаража, но показывается и в лицевых счетах каждого из
+    # них, чтобы долг/переплату по электричеству было видно, не переходя
+    # на карточку гаража.
+    electricity_garages = [o.garage for o in ownerships if o.garage.account is not None]
     contact_links = sorted(
         (c for c in database.db_session.query(GarageContact).filter_by(person_id=person.id).all()
          if c.garage_id not in owned_ids),
@@ -314,6 +319,7 @@ def detail(person_id):
     return render_template(
         "persons/detail.html", person=person, account=account, member_accounts=member_accounts,
         has_unpaid_penalty=has_unpaid_penalty, ownerships=ownerships, contact_links=contact_links,
+        electricity_garages=electricity_garages,
         revision_rows=revision_rows, court_sections=court_sections, today=dt.date.today(),
         applications=visible_applications(person_id=person.id),
         documents=visible_documents(person_id=person.id),

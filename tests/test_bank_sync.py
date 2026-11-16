@@ -1094,6 +1094,7 @@ def test_charge_registry_items_tolerates_accounts_without_garage(app, db):
     import sqlite3
 
     person = make_person(db)
+    make_ownership(db, make_garage(db, number="11"), person)  # личный счёт в реестре — только у собственника
     fee_type = FeeType(code="20", name="Вступительный взнос", per_garage=False)
     db.add(fee_type)
     db.flush()
@@ -1163,6 +1164,49 @@ def test_charge_registry_items_include_zero_and_skip_archived(app, db):
     # пеня и прочие не основные виды — только при долге, вперёд по ним не платят
     assert "40051" not in by_number
     assert by_number["40050"][0].amount == Decimal("12.34")
+
+
+def test_charge_registry_items_only_current_owners(app, db):
+    """В реестре начислений — только собственники гаражей: у лица для связи
+    своих счетов нет, а неархивный счёт выбывшего совладельца (обнулён, но
+    не архивирован — _remove_owner_and_redistribute) и личный счёт
+    (per_garage=False) бывшего собственника, оставленного лицом для связи,
+    в файл не попадают. Счёт выбывшего ЕДИНСТВЕННОГО собственника гаража
+    без собственников остаётся — долг по нему ещё взыскивается."""
+    owner = make_person(db, full_name="Текущий Собственник")
+    former = make_person(db, full_name="Выбывший Совладелец")
+    contact = make_person(db, full_name="Лицо Связи")
+    sole_former = make_person(db, full_name="Умерший Собственник")
+    garage = make_garage(db, number="7")
+    orphan_garage = make_garage(db, number="8")
+    make_ownership(db, garage, owner)
+    db.add(GarageContact(garage_id=garage.id, person_id=former.id))
+    db.add(GarageContact(garage_id=garage.id, person_id=contact.id))
+    fee_type = FeeType(code="membership", name="Членский взнос")
+    telecom = FeeType(code="personal_test", name="Личный взнос", per_garage=False)
+    db.add_all([fee_type, telecom])
+    db.flush()
+    db.add_all([
+        MemberAccount(person_id=owner.id, garage_id=garage.id, fee_type_id=fee_type.id, account_number="10070"),
+        MemberAccount(person_id=former.id, garage_id=garage.id, fee_type_id=fee_type.id, account_number="10071"),
+        MemberAccount(person_id=sole_former.id, garage_id=orphan_garage.id, fee_type_id=fee_type.id, account_number="10080"),
+    ])
+    former_telecom = MemberAccount(person_id=former.id, garage_id=None, fee_type_id=telecom.id, account_number="30071")
+    db.add(former_telecom)
+    db.flush()
+    db.add(Charge(account_id=former_telecom.id, year=2026, amount=Decimal("50.00")))
+    db.commit()
+
+    with app.app_context():
+        items = bank_sync._charge_registry_items(make_bank_account(db))
+    numbers = {i.account_number for i in items}
+    payers = {i.payer_name for i in items}
+
+    assert "10070" in numbers
+    assert "10080" in numbers
+    assert "10071" not in numbers
+    assert "30071" not in numbers
+    assert not payers & {"Выбывший С.", "Лицо С."}
 
 
 # ---------------------------------------------------------------------------

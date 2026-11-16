@@ -867,9 +867,33 @@ def _charge_registry_items(account: BankAccount) -> list[ChargeRegistryItem]:
             amount=amount_with_bank_fee(debt, account),
             purpose=f"Электричество, гараж №{garage.number}{fee_note}",
         ))
+    # Реестр — только собственникам: лицевые счета есть у людей с гаражом,
+    # а лицо для связи (GarageContact) — не плательщик. Неархивный счёт
+    # бывает и у того, кто уже не собственник: выбывший совладелец
+    # (_remove_owner_and_redistribute обнуляет, но не архивирует), смена
+    # собственника без переноса остатка, личный счёт (per_garage=False)
+    # бывшего собственника — часто этого же человека оставляют лицом для
+    # связи. Такие строки не берём. Исключение — гараж вовсе без
+    # собственников: счета выбывшего единственного собственника намеренно
+    # остаются активными до появления нового (наследство и т.п., см.
+    # garages._archive_owner_accounts_and_reuse), долг по ним ещё взыскивается.
+    owned = {
+        (garage_id, person_id)
+        for garage_id, person_id in database.db_session.query(GarageOwnership.garage_id, GarageOwnership.person_id)
+    }
+    owner_ids = {person_id for _garage_id, person_id in owned}
+    garages_with_owners = {garage_id for garage_id, _person_id in owned}
     for member_account in member_accounts:
         # garage — None у счетов видов взноса без привязки к гаражу
         # (FeeType.per_garage=False, см. MemberAccount.garage_id)
+        if member_account.garage_id is None:
+            if member_account.person_id not in owner_ids:
+                continue
+        elif (
+            member_account.garage_id in garages_with_owners
+            and (member_account.garage_id, member_account.person_id) not in owned
+        ):
+            continue
         amount = max(-_balance(member_account), Decimal("0"))
         if not amount and member_account.fee_type.code not in CORE_FEE_TYPE_CODES:
             continue

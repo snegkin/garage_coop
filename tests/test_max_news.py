@@ -4,6 +4,8 @@ app/messenger_outbox.py, настройки app/max_settings.py).
 """
 import json as _json
 
+import os
+
 import pytest
 import requests as _rq
 
@@ -356,6 +358,26 @@ def test_verify_adds_russian_root_to_certifi(app, tmp_path):
     app.config["MAX_API_CA_BUNDLE"] = str(tmp_path / "missing.pem")
     with app.app_context():
         assert max_bot._verify() is True
+
+
+def test_verify_reuses_bundle_across_processes(app, tmp_path, monkeypatch):
+    """Каждый запуск cron — новый процесс с пустым кешем: файл в /tmp
+    должен переиспользоваться, а не создаваться заново (иначе tmpfs
+    забивается за пару суток)."""
+    import tempfile
+    tmpdir = tmp_path / "tmp"
+    tmpdir.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(tmpdir))
+    root = tmp_path / "root.pem"
+    root.write_bytes(b"-----RUSSIAN ROOT-----\n")
+    app.config["MAX_API_CA_BUNDLE"] = str(root)
+    paths = set()
+    for _ in range(3):
+        max_bot._bundle_cache.clear()
+        with app.app_context():
+            paths.add(max_bot._verify())
+    assert len(paths) == 1
+    assert [p.name for p in tmpdir.iterdir()] == [os.path.basename(paths.pop())]
 
 
 @pytest.mark.parametrize("chat, member, expected", [

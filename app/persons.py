@@ -72,7 +72,7 @@ def list_persons():
 
     archived_count = database.db_session.query(Person).filter(Person.is_archived.is_(True)).count()
     active_count = database.db_session.query(Person).filter(Person.is_archived.is_(False)).count()
-    stats = _person_stats(active_count)
+    stats, person_groups = _person_stats(active_count)
 
     return render_template(
         "persons/list.html",
@@ -85,16 +85,22 @@ def list_persons():
         archived_count=archived_count,
         active_count=active_count,
         stats=stats,
+        person_groups=person_groups,
+        # Фильтр плашками — только во вкладке «Все» (плашки считают людей
+        # не из архива); в архиве/«ожидают» плашки ведут туда.
+        group=request.args.get("group", "") if not show_archived and not show_pending_only else "",
         q=q,
     )
 
 
-def _person_stats(total: int) -> dict:
+def _person_stats(total: int) -> tuple[dict, dict[int, list[str]]]:
     """Сводка над реестром — по людям не из архива. Человек попадает во все
     группы, к которым относится (собственник одного гаража может быть лицом
     для связи по другому), поэтому группы в сумме не обязаны давать total.
     «Для связи» — лица для связи, которые гараж не снимают; снимающие —
-    отдельно (GarageContact.is_tenant)."""
+    отдельно (GarageContact.is_tenant).
+    -> (числа по группам, {person_id: группы человека} — для фильтра
+    плашками: "owner", "contact", "tenant")."""
     active =database.db_session.query(Person.id).filter(Person.is_archived.is_(False))
     owners = {pid for (pid,) in database.db_session.query(GarageOwnership.person_id).filter(
         GarageOwnership.person_id.in_(active)).distinct()}
@@ -102,7 +108,12 @@ def _person_stats(total: int) -> dict:
     for person_id, is_tenant in database.db_session.query(GarageContact.person_id, GarageContact.is_tenant).filter(
             GarageContact.person_id.in_(active)):
         (tenants if is_tenant else contacts).add(person_id)
-    return {"total": total, "owners": len(owners), "contacts": len(contacts), "tenants": len(tenants)}
+    groups: dict[int, list[str]] = {}
+    for name, ids in (("owner", owners), ("contact", contacts), ("tenant", tenants)):
+        for person_id in ids:
+            groups.setdefault(person_id, []).append(name)
+    stats = {"total": total, "owners": len(owners), "contacts": len(contacts), "tenants": len(tenants)}
+    return stats, groups
 
 
 def _notify_channels_by_person(persons) -> dict[int, list[dict] | None]:

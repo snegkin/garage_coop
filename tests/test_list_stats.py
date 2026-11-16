@@ -69,3 +69,24 @@ def test_contact_tenant_flag_add_and_edit(db, client):
     client.post(f"/garages/{garage.id}/contacts/{contact.id}/edit", data={"person_id": person.id, "relation": "друг"})
     db.refresh(contact)
     assert contact.is_tenant is False and contact.relation == "друг"
+
+
+def test_stat_tiles_filter_rows(db, client):
+    """Плашки — ссылки ?group=…; строки размечены группами для фильтра на месте."""
+    _board(db, client)
+    g1 = make_garage(db, "1", land_privatized=True)
+    make_garage(db, "2")
+    db.add(ElectricityMeter(garage_id=g1.id, meter_number="A-1", installed_date=dt.date(2025, 1, 1)))
+    tenant = make_person(db, full_name="Арендатор")
+    db.add(GarageContact(garage_id=g1.id, person_id=tenant.id, is_tenant=True))
+    db.commit()
+
+    html = client.get("/garages/?group=power").get_data(as_text=True)
+    assert 'data-groups="power privatized"' in html and 'data-groups=""' in html
+    assert re.search(r'class="list-stat[^"]*is-active"\s+href="\?group=power"', html)
+
+    html = client.get("/persons/").get_data(as_text=True)
+    assert 'data-groups="tenant"' in html and 'href="?group=tenant"' in html
+    # В архиве плашки ведут на «Все» с фильтром.
+    html = client.get("/persons/?archived=1").get_data(as_text=True)
+    assert 'href="/persons/?group=tenant"' in html

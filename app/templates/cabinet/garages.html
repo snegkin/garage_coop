@@ -74,8 +74,12 @@
    гаражу (см. accounting.ensure_personal_member_accounts), поэтому не
    попадают в карточки гаражей ниже: отдельная секция, иначе член
    кооператива не увидел бы этот долг и не смог бы его оплатить. #}
-<h5 class="mb-3">{{ _("Личные счета") }}</h5>
-<table class="table table-sm bg-body mb-4" style="max-width:600px">
+<div class="row g-3 mb-4">
+<div class="col-md-6">
+  <div class="card">
+    <div class="card-body">
+      <h5 class="card-title">{{ _("Личные счета") }}</h5>
+<table class="table table-sm mt-3 mb-0">
   <thead><tr><th>{{ _("Вид взноса") }}</th><th class="text-end">{{ _("Счёт") }}</th><th class="text-end">{{ _("Баланс") }}</th><th class="no-sort"></th></tr></thead>
   <tbody>
     {% for acc, acc_balance in personal_accounts %}
@@ -94,6 +98,10 @@
     {% endfor %}
   </tbody>
 </table>
+    </div>
+  </div>
+</div>
+</div>
 {% endif %}
 {% if ownerships %}
 <div class="row g-3">

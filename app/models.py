@@ -2974,6 +2974,11 @@ class PowerPhaseDevice(Base):
     ewelink_device_id: Mapped[str] = mapped_column(String(32), unique=True)  # deviceid в eWeLink
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)  # временно исключить из опроса, не удаляя историю
+    # Порог «есть потребление» для индикатора на карточке фазы (см.
+    # electricity_monitor.load_threshold): фиксированный — заменяет авто-порог
+    # целиком; поправка — прибавляется к авто-порогу (может быть отрицательной).
+    load_threshold_w: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    load_threshold_offset_w: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
 
     readings: Mapped[list["PowerPhaseReading"]] = relationship(back_populates="device")
 

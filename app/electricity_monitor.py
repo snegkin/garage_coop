@@ -49,6 +49,25 @@ RAW_READINGS_KEEP_DAYS = 90  # поминутные показания хран�
 STALE_AFTER = dt.timedelta(minutes=10)  # поллер пишет отметку каждую минуту; дольше нет ни одной — опрос не проходит (токен, сеть), и «онлайн» в карточке уже ничего не значит
 COMPACT_BATCH_GROUPS = 200  # (~2 с на пачку) устройство-часов за один прогон поллера — первый запуск разбирает накопившееся порциями
 
+# Индикатор «на фазе есть потребление» (кружок у бейджей карточки, см.
+# load_threshold): мощность выше фона — счётчики, потери в проводах и
+# изоляции, а также регулярная нагрузка по расписанию (фонари на фазе B
+# горят от заката до рассвета). Фон — суточный профиль: сутки делятся на
+# слоты по LOAD_SLOT_MINUTES, в каждом слоте за каждый из LOAD_PROFILE_DAYS
+# последних дней берётся минимум мощности (то, что потреблялось весь слот
+# без перерыва), по дням — медиана (разовая нагрузка на всю ночь в фон не
+# попадает, постоянная — новые счётчики, снятая на ремонт половина ряда —
+# через ~половину окна попадает). Для текущего момента фон — максимум
+# профиля в ±LOAD_SLOT_TOLERANCE слотах: фонари по фотореле каждый день
+# включаются чуть в другое время, без допуска на эти минуты индикатор
+# загорался бы на каждом закате.
+LOAD_PROFILE_DAYS = 5
+LOAD_SLOT_MINUTES = 10
+LOAD_SLOT_TOLERANCE = 3  # слотов в каждую сторону — ±30 минут
+LOAD_MIN_DAYS = 2  # меньше дней с данными в слоте — фон по нему не считаем
+LOAD_MARGIN_MIN_W = Decimal("15")  # запас над фоном на шум измерения: не меньше 15 Вт…
+LOAD_MARGIN_RATIO = Decimal("0.10")  # …и не меньше 10 % фона
+
 
 def _parse_iso_utc(value: str | None) -> dt.datetime | None:
     """Разбирает ISO-таймстамп от JS (Date#toISOString(), всегда UTC с суффиксом
@@ -159,6 +178,86 @@ def compact_old_readings(now: dt.datetime, max_groups: int = COMPACT_BATCH_GROUP
         database.db_session.add(summary)
     database.db_session.commit()
     return len(groups)
+
+
+def _slot_of(ts: dt.datetime) -> int:
+    return (ts.hour * 60 + ts.minute) // LOAD_SLOT_MINUTES
+
+
+def load_profile(device_id: int, now: dt.datetime) -> dict[int, Decimal]:
+    """Суточный профиль фона устройства: {номер слота: фон, Вт} — см.
+    комментарий у LOAD_PROFILE_DAYS. Слоты, где данных меньше чем за
+    LOAD_MIN_DAYS дней, в профиль не входят."""
+    # «YYYY-MM-DD HH:M» — день + час + десятки минут, т.е. ключ 10-минутного слота дня.
+    bucket = func.substr(func.strftime("%Y-%m-%d %H:%M", PowerPhaseReading.ts), 1, 15)
+    rows = (
+        database.db_session.query(bucket, func.min(PowerPhaseReading.power_w))
+        .filter(
+            PowerPhaseReading.device_id == device_id,
+            PowerPhaseReading.ts >= now - dt.timedelta(days=LOAD_PROFILE_DAYS),
+            PowerPhaseReading.ts <= now,
+            PowerPhaseReading.is_online.is_(True),
+            # 0 Вт — фаза обесточена (авария, работы на вводе), не фон.
+            PowerPhaseReading.power_w > 0,
+        )
+        .group_by(bucket)
+        .all()
+    )
+    floors: dict[int, list[Decimal]] = {}
+    for key, floor in rows:
+        hour, tens = int(key[11:13]), int(key[14])
+        slot = (hour * 60 + tens * 10) // LOAD_SLOT_MINUTES
+        floors.setdefault(slot, []).append(Decimal(str(floor)))
+    profile = {}
+    for slot, values in floors.items():
+        if len(values) < LOAD_MIN_DAYS:
+            continue
+        values.sort()
+        n = len(values)
+        median = values[n // 2] if n % 2 else (values[n // 2 - 1] + values[n // 2]) / 2
+        profile[slot] = median.quantize(Decimal("0.01"))
+    return profile
+
+
+def baseline_at(profile: dict[int, Decimal], ts: dt.datetime) -> Decimal | None:
+    """Фон на момент ts по профилю — максимум в ±LOAD_SLOT_TOLERANCE слотах
+    (через полночь — по кругу). None — по этому времени суток данных нет."""
+    slots_per_day = 24 * 60 // LOAD_SLOT_MINUTES
+    center = _slot_of(ts)
+    values = [
+        profile[(center + d) % slots_per_day]
+        for d in range(-LOAD_SLOT_TOLERANCE, LOAD_SLOT_TOLERANCE + 1)
+        if (center + d) % slots_per_day in profile
+    ]
+    return max(values) if values else None
+
+
+def auto_threshold(baseline: Decimal) -> Decimal:
+    return baseline + max(LOAD_MARGIN_MIN_W, (baseline * LOAD_MARGIN_RATIO).quantize(Decimal("0.01")))
+
+
+def load_threshold(device: PowerPhaseDevice, now: dt.datetime) -> dict:
+    """Порог «есть потребление» для фазы на момент now:
+    {"threshold": Вт | None, "baseline": авто-фон | None, "fixed": bool,
+     "profile_min"/"profile_max": разброс фона за сутки (для подсказки
+    председателю в окне «Устройства»)}. Фиксированный порог
+    (device.load_threshold_w) заменяет авто целиком; поправка
+    (load_threshold_offset_w) прибавляется к авто-порогу."""
+    profile = load_profile(device.id, now)
+    baseline = baseline_at(profile, now)
+    info = {
+        "baseline": baseline,
+        "profile_min": min(profile.values()) if profile else None,
+        "profile_max": max(profile.values()) if profile else None,
+        "fixed": device.load_threshold_w is not None,
+    }
+    if device.load_threshold_w is not None:
+        info["threshold"] = Decimal(device.load_threshold_w)
+    elif baseline is not None:
+        info["threshold"] = auto_threshold(baseline) + Decimal(device.load_threshold_offset_w or 0)
+    else:
+        info["threshold"] = None
+    return info
 
 
 def _get_or_create_account() -> EWeLinkAccount:
@@ -273,6 +372,20 @@ def view():
 
     # Итоги — только по фазам на связи: устаревшие показания офлайн-фазы в сумме
     # выглядели бы как текущие.
+    # Индикатор потребления — только для фаз на связи со свежими показаниями.
+    now = dt.datetime.utcnow()
+    load_by_device = {}
+    for device in devices:
+        info = load_threshold(device, now)
+        reading = latest_by_device.get(device.id)
+        fresh = device.id not in offline_since_by_device and device.id not in stale_since_by_device
+        info["active"] = (
+            reading.power_w > info["threshold"]
+            if fresh and reading and reading.power_w is not None and info["threshold"] is not None
+            else None
+        )
+        load_by_device[device.id] = info
+
     online_readings = [
         r for device_id, r in latest_by_device.items()
         if r and device_id not in offline_since_by_device and device_id not in stale_since_by_device
@@ -325,6 +438,7 @@ def view():
         latest_by_device=latest_by_device,
         offline_since_by_device=offline_since_by_device,
         stale_since_by_device=stale_since_by_device,
+        load_by_device=load_by_device,
         total_power=total_power,
         total_day_kwh=total_day_kwh,
         total_month_kwh=total_month_kwh,
@@ -530,6 +644,20 @@ def unbind():
     return redirect(url_for("electricity_monitor.view"))
 
 
+def _parse_watts(value: str | None, allow_negative: bool) -> Decimal | None:
+    """Поле «Вт» из формы: пусто/мусор — None (порог авто / без поправки)."""
+    value = (value or "").strip().replace(",", ".").replace(" ", "")
+    if not value:
+        return None
+    try:
+        watts = Decimal(value).quantize(Decimal("0.01"))
+    except ArithmeticError:
+        return None
+    if not watts.is_finite() or (watts < 0 and not allow_negative):
+        return None
+    return watts
+
+
 @bp.route("/devices", methods=["POST"])
 @roles_required(RoleEnum.CHAIRMAN)
 def save_devices():
@@ -557,6 +685,8 @@ def save_devices():
         existing.label = f.get(f"label_{phase}", "").strip() or labels[phase]
         existing.ewelink_device_id = device_id
         existing.is_active = True
+        existing.load_threshold_w = _parse_watts(f.get(f"load_threshold_{phase}"), allow_negative=False)
+        existing.load_threshold_offset_w = _parse_watts(f.get(f"load_offset_{phase}"), allow_negative=True)
 
     database.db_session.commit()
     flash(_("Устройства сохранены."), "success")

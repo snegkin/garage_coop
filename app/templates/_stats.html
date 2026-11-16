@@ -6,7 +6,7 @@
   (атрибут data-stat-group, см. garages/list.html, persons/list.html);
   base_url — куда вести ссылки, если страница фильтровать на месте не
   может (архив людей — плашки считают людей не из архива).
-  На телефоне плашки по две в ряд.
+  На телефоне «всего» на всю ширину, остальные по две в ряд.
 #}
 {% macro stats_row(items, active="", base_url="") %}
 <div class="list-stats d-flex flex-wrap gap-2 mb-3">
@@ -23,7 +23,8 @@
   .list-stat { min-width: 7.5rem; transition: border-color .15s, background-color .15s; }
   .list-stat:hover { border-color: var(--bs-primary) !important; }
   .list-stat.is-active { border-color: var(--bs-primary) !important; background-color: var(--bs-primary-bg-subtle) !important; }
-  @media (max-width: 575.98px) { .list-stat { flex: 1 1 calc(50% - .5rem); min-width: 0; } }
+  /* «Всего» — на всю ширину, ниже пары (с/без, на/вне) встают рядом. */
+  @media (max-width: 575.98px) { .list-stat { flex: 1 1 calc(50% - .5rem); min-width: 0; } .list-stat:first-child { flex-basis: 100%; } }
 </style>
 {% endmacro %}
 

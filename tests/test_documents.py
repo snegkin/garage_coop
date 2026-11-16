@@ -9,8 +9,8 @@ from decimal import Decimal
 
 from app import documents
 from app.models import (
-    AuditLog, BankAccount, Charge, Cooperative, DocumentTemplate, FeeType, IssuedDocument,
-    MemberAccount, RoleEnum,
+    AuditLog, BankAccount, Charge, Cooperative, DocumentTemplate, ElectricityMeter, ElectricityReading,
+    ElectricitySettings, FeeType, IssuedDocument, MemberAccount, RoleEnum,
 )
 
 from tests.conftest import make_person, make_garage, make_ownership, make_user, login
@@ -207,6 +207,37 @@ def test_member_application_templates(db, client):
 
     page = client.get(f"/documents/new?template_id={join.id}").get_data(as_text=True)
     assert "Прошу принять меня в члены ГК" in page and "{{" not in page.split('id="docBody"')[1].split("</div>")[0]
+
+
+def test_power_contracts(db, client):
+    owner, garage, _chairman = _setup(db)
+    meter = ElectricityMeter(garage_id=garage.id, meter_number="СЕ101-777", meter_seal_number="П-15",
+                             installed_date=dt.date(2025, 5, 1), initial_reading=Decimal("100.00"))
+    db.add(meter)
+    db.add(ElectricitySettings(outside_line_loss_percent=Decimal("2.50")))
+    db.flush()
+    db.add(ElectricityReading(meter_id=meter.id, reading=Decimal("1234.50"), reading_date=dt.date(2026, 10, 25)))
+    db.commit()
+    login(client, "board1", "pass1234")
+    client.post("/documents/templates/defaults")
+    outside = db.query(DocumentTemplate).filter_by(name="Договор на электроэнергию (не член кооператива)").one()
+    member = db.query(DocumentTemplate).filter_by(name="Договор на электроэнергию (член кооператива)").one()
+    # Подписи обеих Сторон — в тексте, подпись председателя бланка выключена; номер — у документа.
+    assert not (outside.show_signature or member.show_signature) and outside.show_number and member.show_number
+    assert not (outside.for_members or member.for_members or outside.is_public)
+
+    page = client.get(f"/documents/new?template_id={outside.id}&garage_id={garage.id}").get_data(as_text=True)
+    body = page.split('id="docBody"')[1].split("</div>")[0]
+    assert "{{" not in body
+    assert "Петрова Анна Ивановна, владелец гаража (бокса) № 42" in body and "именуемая в дальнейшем" in body
+    assert "ИПУ) № СЕ101-777" in body and "1234,5 кВт·ч" in body and "— 2,5% от объёма" in body
+    assert "1,46 кВт·ч в месяц" in body and "/Петрова А.И./" in body and "/Сидоров С.С./" in body
+    assert "Пользователь не является членом" in body and "экземплярах" not in body
+
+    page = client.get(f"/documents/new?template_id={member.id}&garage_id={garage.id}").get_data(as_text=True)
+    body = page.split('id="docBody"')[1].split("</div>")[0]
+    assert "{{" not in body and "доля в праве 1/2" in body and "пломба № П-15" in body
+    assert "<b>Член кооператива</b>" in body and "3.3.2. не превышать" in body
 
 
 def test_public_blanks_without_login(db, client):

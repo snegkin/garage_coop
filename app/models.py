@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import enum
+import re
 import os
 import datetime as dt
 import json
@@ -1422,6 +1423,21 @@ class ApplicationCounter(Base):
 # ---------------------------------------------------------------------------
 # Люди
 # ---------------------------------------------------------------------------
+
+def garage_number_key(number: str | None) -> tuple:
+    """Ключ сортировки номеров гаражей «по-человечески»: номер — строка
+    («2», «10», «61а», «1н»), и как строки «10» шёл бы раньше «2». Сначала
+    по числу в начале номера, при равном — по всей строке (61, 61а, 62);
+    номер без цифр — в конец."""
+    number = number or ""
+    match = re.match(r"\d+", number)
+    return (int(match.group()) if match else float("inf"), number.lower())
+
+
+def garage_sort_key(garage) -> tuple:
+    """garage_number_key для объекта Garage — sorted(garages, key=garage_sort_key)."""
+    return garage_number_key(garage.number)
+
 
 def short_name_of(full_name: str) -> str:
     """«Иванов И.И.» из полного ФИО — см. Person.short_name; отдельной

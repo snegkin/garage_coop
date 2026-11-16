@@ -9,7 +9,7 @@ from . import database
 from .i18n import translate as _
 from .auth import login_required
 from .permissions import is_board, is_privileged
-from .models import MemberAccount, Person, PD4Document, Cooperative, Garage, GarageOwnership, PersonalAccount, FeeType
+from .models import MemberAccount, Person, PD4Document, Cooperative, Garage, GarageOwnership, PersonalAccount, FeeType, garage_number_key
 from .accounting import (
     balance, penalty_sibling_account, get_primary_bank_account, pd4_qr_payload, pd4_qr_payload_electricity,
     amount_with_bank_fee,
@@ -59,7 +59,7 @@ def select():
         debt = balance(account)
         if debt < 0:
             rows.append((account, debt))
-    rows.sort(key=lambda r: (r[0].person.full_name, r[0].garage.number if r[0].garage else ""))
+    rows.sort(key=lambda r: (r[0].person.full_name, garage_number_key(r[0].garage.number if r[0].garage else "")))
 
     return render_template("pd4/select.html", rows=rows, all_persons=all_persons, q=q)
 

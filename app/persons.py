@@ -12,6 +12,7 @@ from . import notifications
 from .i18n import translate as _
 from .auth import login_required, roles_required, is_safe_next_url, login_taken
 from .permissions import is_board, is_chairman, sync_user_role
+from .models import garage_number_key, garage_sort_key
 from .models import (
     Person, Phone, User, RoleEnum, MemberAccount, PersonDataRevision, PersonDataRevisionStatus,
     GarageOwnership, GarageContact, PersonalAccount, Cooperative, Charge, FeeType, KeyRate, CourtSection,
@@ -300,7 +301,7 @@ def detail(person_id):
     # лицо для связи), обратная сторона ссылок на людей в карточке гаража.
     ownerships = sorted(
         database.db_session.query(GarageOwnership).filter_by(person_id=person.id).all(),
-        key=lambda o: o.garage.number,
+        key=lambda o: garage_sort_key(o.garage),
     )
     owned_ids = {o.garage_id for o in ownerships}
     # Счёт гаража за электричество (PersonalAccount) — общий у всех
@@ -311,7 +312,7 @@ def detail(person_id):
     contact_links = sorted(
         (c for c in database.db_session.query(GarageContact).filter_by(person_id=person.id).all()
          if c.garage_id not in owned_ids),
-        key=lambda c: c.garage.number,
+        key=lambda c: garage_sort_key(c.garage),
     )
     # Локальный импорт: applications тянет legal_docs, а тот — persons.
     from .applications import visible_applications
@@ -382,7 +383,7 @@ def build_statement(person, categories: set[str] | None = None) -> dict:
     # насовсем — в отличие от detail(), тут нет чекбокса «Актуальные»,
     # который мог бы раскрыть счёт обратно.
     member_accounts = [ma for ma in member_accounts if not ma.fee_type.is_penalty or ma.charges]
-    member_accounts.sort(key=lambda ma: (ma.garage.number if ma.garage else "", ma.fee_type.name))
+    member_accounts.sort(key=lambda ma: (garage_number_key(ma.garage.number if ma.garage else ""), ma.fee_type.name))
 
     owned_garage_ids = [
         o.garage_id for o in
@@ -396,7 +397,7 @@ def build_statement(person, categories: set[str] | None = None) -> dict:
             .options(joinedload(PersonalAccount.garage))
             .all()
         )
-        personal_accounts.sort(key=lambda pa: pa.garage.number)
+        personal_accounts.sort(key=lambda pa: garage_sort_key(pa.garage))
 
     rows, penalty_rows = [], []
     for ma in member_accounts:

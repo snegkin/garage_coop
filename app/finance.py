@@ -12,6 +12,7 @@ from . import notifications
 from .i18n import translate as _, fmt2, parse_decimal, format_date
 from .auth import login_required, roles_required
 from .permissions import can_view_member_account, is_board, is_privileged
+from .models import garage_sort_key
 from .models import (
     GarageOwnership, Charge, Payment, ChargeAllocation, Garage, PersonalAccount,
     FeeType, MemberAccount, Person, RoleEnum,
@@ -264,7 +265,7 @@ def member_accounts():
     # удалять/списывать, см. write_off_all_penalties/delete_all_penalties.
     has_unpaid_penalty = any(a.fee_type.is_penalty and bal < 0 for a, bal in rows)
     all_persons = database.db_session.query(Person).order_by(Person.full_name).all()
-    all_garages = database.db_session.query(Garage).order_by(Garage.number).all()
+    all_garages = sorted(database.db_session.query(Garage).all(), key=garage_sort_key)
     # per_garage=False (напр. "telecom_disputes") сюда не попадают — у них
     # ровно один счёт на человека, заводится автоматически (см.
     # accounting.ensure_personal_member_accounts), эта форма всегда просит
@@ -324,12 +325,6 @@ def collection_progress_data():
         abort(404)
     coop = database.db_session.query(Cooperative).first()
     return jsonify(_collection_progress(coop, year))
-
-
-def _garage_number_key(number: str) -> tuple:
-    """«2», «10», «10а» — по числу, а не как строки (иначе «10» раньше «2»)."""
-    match = re.match(r"\d+", number)
-    return (int(match.group()) if match else float("inf"), number)
 
 
 def _dues_years() -> list[int]:
@@ -396,7 +391,7 @@ def _dues_by_garage(year: int) -> dict:
         .options(selectinload(Garage.ownerships).selectinload(GarageOwnership.person).selectinload(Person.phones))
         .all()
     )
-    garages.sort(key=lambda gr: _garage_number_key(gr.number))
+    garages.sort(key=garage_sort_key)
     rows = []
     for garage in garages:
         by_type = raw.get(garage.id, {})
@@ -1772,7 +1767,7 @@ def mass_charge():
     # % банка для предпросмотра земельного налога — как в compute_land_tax:
     # основного счёта, на который выставляются ПД-4.
     primary_bank_account = get_primary_bank_account()
-    all_garages = database.db_session.query(Garage).order_by(Garage.number).all()
+    all_garages = sorted(database.db_session.query(Garage).all(), key=garage_sort_key)
     person_names = {
         garage.id: ", ".join(o.person.full_name for o in garage.ownerships)
         for garage in all_garages

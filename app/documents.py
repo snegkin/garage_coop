@@ -47,7 +47,7 @@ from .applications import sanitize_html, has_text, MAX_HTML_LENGTH
 from .auth import login_required, roles_required
 from .i18n import translate as _
 from .legal_docs import _render_pdf_or_fallback, _coop_and_chairman
-from .models import short_name_of
+from .models import garage_sort_key, short_name_of
 from .models import (
     Application, ApplicationKind, ApplicationStatus, DocumentCounter, DocumentTemplate, Garage,
     GarageOwnership, IssuedDocument, MemberAccount, Person, RoleEnum,
@@ -132,7 +132,7 @@ def person_debt(person: Person) -> Decimal:
 def person_ownerships(person: Person) -> list[GarageOwnership]:
     return sorted(
         database.db_session.query(GarageOwnership).filter_by(person_id=person.id).all(),
-        key=lambda o: o.garage.number,
+        key=lambda o: garage_sort_key(o.garage),
     )
 
 
@@ -782,7 +782,7 @@ def _clean(raw: str | None) -> tuple[str, bool]:
 def _ownership_choices() -> list[GarageOwnership]:
     return sorted(
         database.db_session.query(GarageOwnership).all(),
-        key=lambda o: (o.person.full_name.lower(), o.garage.number),
+        key=lambda o: (o.person.full_name.lower(), garage_sort_key(o.garage)),
     )
 
 

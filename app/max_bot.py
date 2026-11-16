@@ -245,7 +245,8 @@ def upload(settings: MaxSettings, kind: str, filename: str, path: str) -> str:
 
 def send_message(settings: MaxSettings, chat_id: int | str | None, text: str | None,
                  attachments: list | None = None, html: bool = False, notify: bool = True,
-                 disable_link_preview: bool = False, user_id: int | str | None = None) -> dict:
+                 disable_link_preview: bool = False, user_id: int | str | None = None,
+                 reply_to: str | None = None) -> dict:
     """POST /messages. Пока MAX обрабатывает загруженные вложения
     (attachment.not.ready), ждём и повторяем — сообщение при этом ещё не
     создано, повтор не задвоит. Не дождались — повторяемая ошибка, очередь
@@ -257,6 +258,8 @@ def send_message(settings: MaxSettings, chat_id: int | str | None, text: str | N
         body["format"] = "html"
     if attachments:
         body["attachments"] = attachments
+    if reply_to is not None:
+        body["link"] = {"type": "reply", "mid": reply_to}
     params = {"user_id": user_id} if user_id is not None else {"chat_id": chat_id}
     if disable_link_preview:
         params["disable_link_preview"] = "true"
@@ -276,11 +279,19 @@ def send_notification(settings: MaxSettings, user_id: int | str, text: str) -> N
     send_message(settings, None, text, user_id=user_id)
 
 
-def send_group_message(settings: MaxSettings, chat_id: int | str, text: str) -> str | None:
-    """Сообщение в группу (мост чата правления, очередь kind="group").
-    -> mid отправленного сообщения (для удаления/закрепа потом)."""
-    result = send_message(settings, chat_id, text) or {}
+def send_group_message(settings: MaxSettings, chat_id: int | str, text: str,
+                       reply_to: str | None = None) -> str | None:
+    """Сообщение в группу (мост чата правления, очередь kind="group");
+    reply_to — mid сообщения, на которое это ответ.
+    -> mid отправленного сообщения (для удаления/закрепа/правки потом)."""
+    result = send_message(settings, chat_id, text, reply_to=reply_to) or {}
     return ((result.get("message") or {}).get("body") or {}).get("mid")
+
+
+def edit_group_message(settings: MaxSettings, chat_id, external_id: str, text: str) -> None:
+    """Правка копии (очередь kind="group_edit"): PUT /messages."""
+    _request(settings, "PUT", "/messages", idempotent=True, params={"message_id": external_id},
+             payload={"text": text})
 
 
 def delete_group_message(settings: MaxSettings, chat_id, external_id: str) -> None:
@@ -355,10 +366,11 @@ def _forget_chat(settings: MaxSettings, chat_id) -> None:
     settings.known_chats = json.dumps(chats, ensure_ascii=False)
 
 
-def _ingest_board_chat(message: dict) -> None:
+def _ingest_board_chat(message: dict, edited: bool = False) -> None:
     """Сообщение из группы правления (MaxSettings.board_chat_id) -> чат
-    правления на сайте (app/board_chat.py: ingest_external). Свои сообщения
-    бота (и других ботов) и команды пропускаем."""
+    правления на сайте (app/board_chat.py: ingest_external; edited — правка,
+    ingest_external_edit). Свои сообщения бота (и других ботов) и команды
+    пропускаем."""
     from . import board_chat
     recipient = message.get("recipient") or {}
     if not board_chat.is_board_chat(board_chat.SOURCE_MAX, recipient.get("chat_id")):
@@ -379,7 +391,17 @@ def _ingest_board_chat(message: dict) -> None:
         return
     name = sender.get("name") or " ".join(
         p for p in (sender.get("first_name"), sender.get("last_name")) if p) or sender.get("username")
-    board_chat.ingest_external(board_chat.SOURCE_MAX, body.get("mid"), sender.get("user_id"), name, text)
+    if edited:
+        board_chat.ingest_external_edit(board_chat.SOURCE_MAX, body.get("mid"), text)
+        return
+    reply_to = None
+    link = message.get("link") or {}
+    if link.get("type") == "reply":
+        mid = (link.get("message") or {}).get("mid")
+        if mid:
+            reply_to = board_chat.find_external(board_chat.SOURCE_MAX, original_id=mid, copy_id=mid)
+    board_chat.ingest_external(board_chat.SOURCE_MAX, body.get("mid"), sender.get("user_id"), name, text,
+                               reply_to=reply_to)
 
 
 def poll_updates() -> tuple[int, int]:
@@ -420,6 +442,8 @@ def poll_updates() -> tuple[int, int]:
                 seen.add(str(chat_id))
             if chat_type == "chat":
                 _ingest_board_chat(update["message"])
+        elif kind == "message_edited" and update.get("message"):
+            _ingest_board_chat(update["message"], edited=True)
     if data.get("marker") is not None:
         settings.last_marker = data["marker"]
     settings.last_error = None

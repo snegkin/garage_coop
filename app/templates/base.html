@@ -523,7 +523,7 @@ function initChatWidget(cfg) {
       .catch(function () {});
   }
 
-  function renderMessage(msg) {
+  function buildMessage(msg) {
     var el = document.createElement("div");
     el.className = "chat-widget-message" + (msg.is_mine ? " is-mine" : "");
 
@@ -540,6 +540,27 @@ function initChatWidget(cfg) {
     }
     el.appendChild(author);
 
+    // Ответ на сообщение — цитата; клик прокручивает к нему.
+    if (msg.reply_to) {
+      var quote = document.createElement("div");
+      quote.className = "chat-widget-quote";
+      if (msg.reply_to.deleted) {
+        quote.classList.add("is-deleted");
+        quote.textContent = cfg.replyDeletedLabel;
+      } else {
+        var qa = document.createElement("span");
+        qa.className = "chat-widget-quote-author";
+        qa.textContent = msg.reply_to.author_name;
+        var qb = document.createElement("span");
+        qb.className = "chat-widget-quote-text";
+        qb.textContent = msg.reply_to.body;
+        quote.appendChild(qa);
+        quote.appendChild(qb);
+        quote.addEventListener("click", function () { scrollToMessage(msg.reply_to.id); });
+      }
+      el.appendChild(quote);
+    }
+
     var body = document.createElement("div");
     body.textContent = msg.body;
     el.appendChild(body);
@@ -547,25 +568,55 @@ function initChatWidget(cfg) {
     var time = document.createElement("span");
     time.className = "chat-widget-time";
     time.textContent = new Date(msg.created_at).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"});
+    if (msg.edited) time.textContent = cfg.editedLabel + " " + time.textContent;
     el.appendChild(time);
 
     el.dataset.id = msg.id;
-    if (cfg.messageUrl) el.appendChild(messageActions(msg));
-
-    messagesEl.appendChild(el);
+    if (cfg.messageUrl) {
+      var reactionsEl = document.createElement("div");
+      reactionsEl.className = "chat-widget-reactions";
+      el.appendChild(reactionsEl);
+      renderReactions(msg.id, msg.reactions || [], reactionsEl);
+      el.appendChild(messageActions(msg));
+    }
+    return el;
+  }
+  function renderMessage(msg) {
+    messagesEl.appendChild(buildMessage(msg));
     if (msg.id > lastId) lastId = msg.id;
   }
+  // Изменённое сообщение (правка, реакции) — перерисовать на месте, если
+  // оно сейчас показано.
+  function replaceMessage(msg) {
+    var old = messagesEl.querySelector('.chat-widget-message[data-id="' + msg.id + '"]');
+    if (!old) return;
+    if (menuEl && menuEl.parentNode === old) closeMessageMenu();
+    old.replaceWith(buildMessage(msg));
+  }
+  function scrollToMessage(id) {
+    var el = messagesEl.querySelector('.chat-widget-message[data-id="' + id + '"]');
+    if (!el) return;
+    el.scrollIntoView({ block: "center", behavior: "smooth" });
+    el.classList.add("is-highlighted");
+    setTimeout(function () { el.classList.remove("is-highlighted"); }, 1500);
+  }
 
-  // Удаление и закреп (только чат правления — cfg.messageUrl; см.
-  // app/board_chat.py). Кнопки видны при наведении на сообщение, на
-  // сенсорных экранах — всегда (CSS .chat-widget-actions).
+  // Действия с сообщением (только чат правления — cfg.messageUrl; см.
+  // app/board_chat.py): реакции, ответ, правка, закреп, удаление — в меню
+  // «⋮» (openMessageMenu).
   function messageUrl(id, action) {
     return cfg.messageUrl.replace("/0/", "/" + id + "/").replace(/[^/]+$/, action);
   }
-  function postAction(id, action) {
+  function postAction(id, action, data) {
+    var body = null;
+    if (data) {
+      body = new FormData();
+      Object.keys(data).forEach(function (k) { body.append(k, data[k]); });
+    }
     return fetch(messageUrl(id, action), {
       method: "POST",
       headers: csrfMeta ? { "X-CSRFToken": csrfMeta.getAttribute("content") } : {},
+      body: body,
     }).then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); });
   }
   function actionButton(icon, title, onClick) {
@@ -578,21 +629,123 @@ function initChatWidget(cfg) {
     btn.addEventListener("click", onClick);
     return btn;
   }
-  function messageActions(msg) {
-    var box = document.createElement("span");
-    box.className = "chat-widget-actions";
-    box.appendChild(actionButton("bi-pin-angle", cfg.pinLabel, function () {
-      postAction(msg.id, "pin").then(function (data) { renderPinned(data.pinned); }).catch(function () {});
-    }));
+
+  // Реакции (только чат правления, см. app/board_chat.py: REACTIONS) —
+  // чипы «эмодзи + число» под сообщением; клик по чипу или по эмодзи в
+  // выборе ставит/снимает свою реакцию. Кто поставил — в подсказке.
+  function toggleReaction(id, emoji) {
+    postAction(id, "react", { emoji: emoji }).then(function (data) {
+      renderReactions(id, data.reactions || []);
+    }).catch(function () {});
+  }
+  function renderReactions(id, reactions, box) {
+    if (!box) {
+      var msgEl = messagesEl.querySelector('.chat-widget-message[data-id="' + id + '"]');
+      box = msgEl && msgEl.querySelector(".chat-widget-reactions");
+      if (!box) return;
+    }
+    box.innerHTML = "";
+    box.classList.toggle("d-none", !reactions.length);
+    reactions.forEach(function (r) {
+      var chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "chat-widget-reaction" + (r.mine ? " is-mine" : "");
+      chip.textContent = r.emoji + " " + r.count;
+      chip.title = r.users.join(", ");
+      chip.setAttribute("aria-pressed", r.mine ? "true" : "false");
+      chip.addEventListener("click", function () { toggleReaction(id, r.emoji); });
+      box.appendChild(chip);
+    });
+  }
+  // Меню сообщения — кнопка «⋮» (на десктопе видна при наведении, на
+  // сенсорных экранах всегда): строка реакций и пункты «Ответить»,
+  // «Изменить», «Закрепить», «Удалить» с подписями — крупные, под палец.
+  // Открыто одно меню за раз.
+  var menuEl = null;
+  function closeMessageMenu() {
+    if (menuEl) {
+      if (menuEl.parentNode) menuEl.parentNode.classList.remove("menu-open");
+      menuEl.remove();
+      menuEl = null;
+    }
+  }
+  function menuItem(icon, label, onClick, extraClass) {
+    var item = document.createElement("button");
+    item.type = "button";
+    item.className = "chat-widget-menu-item" + (extraClass ? " " + extraClass : "");
+    item.innerHTML = '<i class="bi ' + icon + '" aria-hidden="true"></i>';
+    item.appendChild(document.createTextNode(label));
+    item.addEventListener("click", function () { closeMessageMenu(); onClick(); });
+    return item;
+  }
+  function openMessageMenu(msg, msgEl) {
+    closeMessageMenu();
+    var menu = document.createElement("div");
+    menu.className = "chat-widget-menu";
+    menu.setAttribute("role", "menu");
+    var row = document.createElement("div");
+    row.className = "chat-widget-menu-reactions";
+    (cfg.reactions || []).forEach(function (emoji) {
+      var b = document.createElement("button");
+      b.type = "button";
+      b.textContent = emoji;
+      b.title = cfg.reactLabel + " " + emoji;
+      b.setAttribute("aria-label", b.title);
+      b.addEventListener("click", function () { closeMessageMenu(); toggleReaction(msg.id, emoji); });
+      row.appendChild(b);
+    });
+    menu.appendChild(row);
+    menu.appendChild(menuItem("bi-reply", cfg.replyLabel, function () { startCompose("reply", msg); }));
+    if (msg.can_edit) {
+      menu.appendChild(menuItem("bi-pencil", cfg.editLabel, function () { startCompose("edit", msg); }));
+    }
+    if (pinnedId === msg.id) {
+      menu.appendChild(menuItem("bi-pin-angle-fill", cfg.unpinLabel, function () {
+        postAction(msg.id, "unpin").then(function () { renderPinned(null); }).catch(function () {});
+      }));
+    } else {
+      menu.appendChild(menuItem("bi-pin-angle", cfg.pinLabel, function () {
+        postAction(msg.id, "pin").then(function (data) { renderPinned(data.pinned); }).catch(function () {});
+      }));
+    }
     if (msg.can_delete) {
-      box.appendChild(actionButton("bi-trash", cfg.deleteLabel, function () {
+      menu.appendChild(menuItem("bi-trash", cfg.deleteLabel, function () {
         if (!window.confirm(cfg.deleteConfirm)) return;
         postAction(msg.id, "delete").then(function () {
           removeMessages([msg.id]);
           if (pinnedId === msg.id) renderPinned(null);
         }).catch(function () {});
-      }));
+      }, "text-danger"));
     }
+    msgEl.appendChild(menu);
+    msgEl.classList.add("menu-open");
+    menuEl = menu;
+    // Меню у нижнего края переписки — открываем вверх, чтобы не обрезалось.
+    var box = messagesEl.getBoundingClientRect(), r = menu.getBoundingClientRect();
+    if (r.bottom > box.bottom && r.height < msgEl.getBoundingClientRect().top - box.top) {
+      menu.classList.add("is-up");
+    }
+  }
+  if (cfg.messageUrl) {
+    document.addEventListener("click", function (e) {
+      if (menuEl && !menuEl.contains(e.target) && !e.target.closest(".chat-widget-menu-btn")) closeMessageMenu();
+    });
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape") closeMessageMenu();
+    });
+    messagesEl.addEventListener("scroll", closeMessageMenu);
+  }
+  function messageActions(msg) {
+    var box = document.createElement("span");
+    box.className = "chat-widget-actions";
+    var btn = actionButton("bi-three-dots-vertical", cfg.menuLabel, function () {
+      var msgEl = btn.closest(".chat-widget-message");
+      if (menuEl && menuEl.parentNode === msgEl) closeMessageMenu();
+      else openMessageMenu(msg, msgEl);
+    });
+    btn.classList.add("chat-widget-menu-btn");
+    btn.setAttribute("aria-haspopup", "menu");
+    box.appendChild(btn);
     return box;
   }
   function removeMessages(ids) {
@@ -622,10 +775,7 @@ function initChatWidget(cfg) {
     text.className = "chat-widget-pinned-text";
     text.textContent = msg.author_name + ": " + msg.body;
     text.title = cfg.pinnedLabel;
-    text.addEventListener("click", function () {
-      var el = messagesEl.querySelector('.chat-widget-message[data-id="' + msg.id + '"]');
-      if (el) el.scrollIntoView({ block: "center", behavior: "smooth" });
-    });
+    text.addEventListener("click", function () { scrollToMessage(msg.id); });
     var unpin = actionButton("bi-x-lg", cfg.unpinLabel, function () {
       postAction(msg.id, "unpin").then(function () { renderPinned(null); }).catch(function () {});
     });
@@ -636,6 +786,7 @@ function initChatWidget(cfg) {
   function applyState(data) {
     removeMessages(data.deleted_ids);
     if ("pinned" in data) renderPinned(data.pinned);
+    (data.changed || []).forEach(replaceMessage);
   }
 
   function scrollToBottom() {
@@ -695,8 +846,11 @@ function initChatWidget(cfg) {
     if (!panel.classList.contains("d-none")) close();
   });
 
+  // Пока панель открыта, плавающая кнопка не нужна — закрывается крестиком
+  // или «Назад»; кнопку другого чата (ревизионной комиссии) не трогаем.
   function open() {
     panel.classList.remove("d-none");
+    toggleBtn.classList.add("d-none");
     if (isMobile()) {
       fitToVisualViewport();
       document.documentElement.classList.add("chat-widget-fullscreen");
@@ -721,6 +875,7 @@ function initChatWidget(cfg) {
       return;
     }
     panel.classList.add("d-none");
+    toggleBtn.classList.remove("d-none");
     document.documentElement.classList.remove("chat-widget-fullscreen");
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
     sendHeartbeat(false);
@@ -784,24 +939,79 @@ function initChatWidget(cfg) {
   form.insertBefore(emojiBtn, form.querySelector('button[type="submit"]'));
   form.appendChild(emojiPanel);
 
+  // Ответ/правка (только чат правления): плашка над полем ввода — на что
+  // отвечаем или что правим, крестик (и Escape в поле) — отмена.
+  var compose = null;  // {mode: "reply"|"edit", msg}
+  var composeBar = null;
+  if (cfg.messageUrl) {
+    composeBar = document.createElement("div");
+    composeBar.className = "chat-widget-compose d-none";
+    form.parentNode.insertBefore(composeBar, form);
+    input.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && compose) { e.stopPropagation(); cancelCompose(); }
+    });
+  }
+  function startCompose(mode, msg) {
+    if (compose && compose.mode === "edit" && mode !== "edit") input.value = "";
+    compose = { mode: mode, msg: msg };
+    composeBar.innerHTML = "";
+    var icon = document.createElement("i");
+    icon.className = "bi " + (mode === "edit" ? "bi-pencil" : "bi-reply") + " chat-widget-compose-icon";
+    icon.setAttribute("aria-hidden", "true");
+    var text = document.createElement("div");
+    text.className = "chat-widget-compose-text";
+    var title = document.createElement("span");
+    title.className = "chat-widget-quote-author";
+    title.textContent = mode === "edit" ? cfg.editingLabel : cfg.replyToLabel + " " + msg.author_name;
+    var excerpt = document.createElement("span");
+    excerpt.className = "chat-widget-quote-text";
+    excerpt.textContent = msg.body;
+    text.appendChild(title);
+    text.appendChild(excerpt);
+    text.addEventListener("click", function () { scrollToMessage(msg.id); });
+    var cancel = actionButton("bi-x-lg", cfg.cancelLabel, cancelCompose);
+    composeBar.appendChild(icon);
+    composeBar.appendChild(text);
+    composeBar.appendChild(cancel);
+    composeBar.classList.remove("d-none");
+    if (mode === "edit") input.value = msg.body;
+    autoGrow();
+    input.focus();
+    if (mode === "edit") input.setSelectionRange(input.value.length, input.value.length);
+  }
+  function cancelCompose() {
+    if (!compose) return;
+    if (compose.mode === "edit") { input.value = ""; autoGrow(); }
+    compose = null;
+    composeBar.classList.add("d-none");
+    composeBar.innerHTML = "";
+  }
+
   form.addEventListener("submit", function (e) {
     e.preventDefault();
     var body = input.value.trim();
     if (!body) return;
     var formData = new FormData();
     formData.append("body", body);
-    fetch(cfg.sendUrl, {
+    var url = cfg.sendUrl, editing = compose && compose.mode === "edit";
+    if (editing) url = messageUrl(compose.msg.id, "edit");
+    else if (compose) formData.append("reply_to_id", compose.msg.id);
+    fetch(url, {
       method: "POST",
       headers: csrfMeta ? { "X-CSRFToken": csrfMeta.getAttribute("content") } : {},
       body: formData,
     })
       .then(function (r) { return r.json(); })
       .then(function (data) {
-        if (data.message) {
+        if (!data.message) return;
+        if (editing) {
+          replaceMessage(data.message);
+        } else {
           renderMessage(data.message);
           scrollToBottom();
         }
       });
+    if (compose) { compose = null; composeBar.classList.add("d-none"); composeBar.innerHTML = ""; }
     input.value = "";
     setExpanded(false);
     autoGrow();
@@ -918,6 +1128,16 @@ function initChatWidget(cfg) {
     heartbeatUrl: "{{ url_for('board_chat.heartbeat') }}",
     participantsUrl: "{{ url_for('board_chat.participants') }}",
     messageUrl: "{{ url_for('board_chat.pin_message', message_id=0) }}",
+    reactLabel: "{{ _('Реакция') }}",
+    menuLabel: "{{ _('Действия с сообщением') }}",
+    replyLabel: "{{ _('Ответить') }}",
+    editLabel: "{{ _('Изменить') }}",
+    editingLabel: "{{ _('Редактирование') }}",
+    editedLabel: "{{ _('изменено') }}",
+    replyToLabel: "{{ _('Ответ пользователю') }}",
+    replyDeletedLabel: "{{ _('Сообщение удалено') }}",
+    cancelLabel: "{{ _('Отмена') }}",
+    reactions: {{ board_chat_reactions | tojson }},
     pinLabel: "{{ _('Закрепить') }}",
     unpinLabel: "{{ _('Открепить') }}",
     pinnedLabel: "{{ _('Закреплённое сообщение') }}",
@@ -1300,11 +1520,36 @@ tr.table-info-subtle { --bs-table-bg: var(--bs-info-bg-subtle); --bs-table-borde
 /* Действия с сообщением (чат правления): при наведении; на сенсорных
    экранах наведения нет — показываем всегда, приглушённо. */
 .chat-widget-message { position: relative; }
-.chat-widget-actions { position: absolute; top: .15rem; right: .25rem; display: none; gap: .1rem; }
-.chat-widget-message:hover .chat-widget-actions { display: inline-flex; }
-@media (hover: none) { .chat-widget-actions { display: inline-flex; position: static; opacity: .6; } }
+.chat-widget-actions { position: absolute; top: .15rem; right: .25rem; display: none; }
+.chat-widget-message:hover .chat-widget-actions, .chat-widget-message.menu-open .chat-widget-actions { display: inline-flex; }
+@media (hover: none) {
+  .chat-widget-actions { display: inline-flex; top: 0; right: 0; }
+  .chat-widget-menu-btn.chat-widget-action { border: none; background: none; font-size: 1rem; padding: .45rem .4rem; opacity: .6; }
+  .chat-widget-message { padding-right: 1.9rem; }
+}
 .chat-widget-action { background: var(--bs-body-bg); border: 1px solid var(--bs-border-color); border-radius: .3rem; color: var(--bs-secondary-color); font-size: .75rem; line-height: 1; padding: .2rem .3rem; }
 .chat-widget-action:hover { color: var(--bs-body-color); }
+.chat-widget-reactions { display: flex; flex-wrap: wrap; gap: .25rem; margin-top: .25rem; }
+.chat-widget-reaction { border: 1px solid var(--bs-border-color); background: var(--bs-body-bg); border-radius: 1rem; font-size: .75rem; line-height: 1.2; padding: .1rem .45rem; color: var(--bs-body-color); }
+.chat-widget-reaction.is-mine { border-color: var(--bs-primary); background: var(--bs-primary-bg-subtle); }
+.chat-widget-menu { position: absolute; top: 1.9rem; right: .25rem; z-index: 5; width: max-content; max-width: min(20rem, 80vw); white-space: normal; padding: .3rem; background: var(--bs-body-bg); border: 1px solid var(--bs-border-color); border-radius: .6rem; box-shadow: 0 .25rem .9rem rgba(0,0,0,.18); }
+.chat-widget-menu.is-up { top: auto; bottom: 100%; }
+.chat-widget-message:not(.is-mine) .chat-widget-menu { right: auto; left: 0; }
+.chat-widget-menu-reactions { display: flex; flex-wrap: wrap; gap: .1rem; padding-bottom: .3rem; margin-bottom: .2rem; border-bottom: 1px solid var(--bs-border-color); }
+.chat-widget-menu-reactions button { border: none; background: none; font-size: 1.3rem; line-height: 1; padding: .35rem .25rem; border-radius: .4rem; }
+.chat-widget-menu-reactions button:hover { background: var(--bs-tertiary-bg); }
+.chat-widget-menu-item { display: flex; align-items: center; gap: .6rem; width: 100%; border: none; background: none; text-align: left; padding: .55rem .6rem; border-radius: .4rem; font-size: .9rem; color: var(--bs-body-color); }
+.chat-widget-menu-item.text-danger { color: var(--bs-danger); }
+.chat-widget-quote { display: flex; flex-direction: column; border-left: 3px solid var(--bs-primary); padding: .1rem .45rem; margin: .15rem 0 .25rem; border-radius: .2rem; background: rgba(var(--bs-primary-rgb), .08); font-size: .78rem; white-space: normal; cursor: pointer; min-width: 0; }
+.chat-widget-quote.is-deleted { cursor: default; font-style: italic; opacity: .7; border-left-color: var(--bs-secondary-color); }
+.chat-widget-quote-author { font-weight: 600; color: var(--bs-primary); }
+.chat-widget-quote-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: .85; }
+.chat-widget-message.is-highlighted { box-shadow: 0 0 0 2px var(--bs-primary); transition: box-shadow .2s; }
+.chat-widget-compose { display: flex; align-items: center; gap: .5rem; padding: .35rem .5rem .35rem .75rem; font-size: .8rem; flex: none; }
+.chat-widget-compose-icon { color: var(--bs-primary); font-size: 1.1rem; }
+.chat-widget-compose-text { flex: 1; min-width: 0; display: flex; flex-direction: column; border-left: 3px solid var(--bs-primary); padding-left: .45rem; cursor: pointer; }
+.chat-widget-compose .chat-widget-action { border: none; background: none; font-size: .95rem; padding: .4rem; }
+.chat-widget-menu-item:hover { background: var(--bs-tertiary-bg); }
 .chat-widget-pinned { display: flex; align-items: center; gap: .4rem; padding: .35rem .75rem; border-bottom: 1px solid var(--bs-border-color); font-size: .8rem; background: var(--bs-tertiary-bg); flex: none; }
 .chat-widget-pinned .bi-pin-angle-fill { color: var(--bs-primary); }
 .chat-widget-pinned-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }

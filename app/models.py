@@ -3501,21 +3501,30 @@ class BoardChatMessage(Base):
 
 
 class BoardChatReaction(Base):
-    """Реакция члена правления на сообщение чата правления — эмодзи из
-    короткого набора (app/board_chat.py: REACTIONS), повторный клик снимает.
-    Только на сайте: в группы мессенджеров не пересылаются."""
+    """Реакция на сообщение чата правления. С сайта — эмодзи из короткого
+    набора (app/board_chat.py: REACTIONS), повторный клик снимает. Из группы
+    правления в Telegram (source="telegram", апдейт message_reaction) — любой
+    эмодзи: от члена правления с привязанным Telegram — от его имени
+    (user_id), иначе от имени в мессенджере (external_*). В группы
+    мессенджеров реакции с сайта не пересылаются."""
     __tablename__ = "board_chat_reaction"
     __table_args__ = (
         UniqueConstraint("message_id", "user_id", "emoji", name="uq_board_chat_reaction"),
+        UniqueConstraint("message_id", "source", "external_user_id", "emoji", name="uq_board_chat_reaction_external"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     message_id: Mapped[int] = mapped_column(ForeignKey("board_chat_message.id", ondelete="CASCADE"), index=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("user.id", ondelete="CASCADE"))
+    # NULL — реакция из мессенджера от человека без привязки к члену правления.
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("user.id", ondelete="CASCADE"))
     emoji: Mapped[str] = mapped_column(String(16))
     created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.utcnow)
+    # Откуда реакция: "site" или мессенджер (как BoardChatMessage.source).
+    source: Mapped[str] = mapped_column(String(16), default="site", server_default="site")
+    external_user_id: Mapped[str | None] = mapped_column(String(64))
+    external_name: Mapped[str | None] = mapped_column(String(128))
 
-    user: Mapped["User"] = relationship()
+    user: Mapped["User | None"] = relationship()
 
 
 # ---------------------------------------------------------------------------

@@ -544,3 +544,79 @@ def test_max_reply_and_edit_reach_site(app, db, monkeypatch):
     answer = db.query(BoardChatMessage).filter_by(external_message_id="mid.2").one()
     assert answer.reply_to_id == question.id
     assert question.body == "вопрос!"
+
+
+# ---------------------------------------------------------------------------
+# Реакции из Telegram
+# ---------------------------------------------------------------------------
+
+def _tg_raw_updates(monkeypatch, updates):
+    result = [{"update_id": 100 + n, **u} for n, u in enumerate(updates)]
+    calls = []
+
+    def fake_get(url, params=None, timeout=None, **kw):
+        calls.append(params)
+        return FakeResponse(200, {"ok": True, "result": result})
+
+    monkeypatch.setattr(telegram_bot.requests, "get", fake_get)
+    monkeypatch.setattr(telegram_bot.requests, "post", lambda *a, **kw: FakeResponse(200))
+    return calls
+
+
+def _reaction(message_id, emojis, user=None, chat_id=TG_GROUP):
+    return {"message_reaction": {
+        "chat": {"id": int(chat_id), "type": "supergroup"}, "message_id": message_id,
+        "user": user or {"id": 5001, "first_name": "Пётр", "last_name": "Иванов"},
+        "old_reaction": [], "new_reaction": [{"type": "emoji", "emoji": e} for e in emojis]}}
+
+
+def test_telegram_reactions_requested_and_reach_site(app, db, client, monkeypatch):
+    """Реакция на копию сообщения с сайта: от привязанного — его логином,
+    от непривязанного — именем из Telegram; ❤ приводится к ❤️ сайта."""
+    _bridges(db, max_=False)
+    _board_user(db, telegram_chat_id=5001)
+    login(client, "board1", "pass1234")
+    message_id = _post(client, "с сайта")
+    _sent_copies(app, monkeypatch)  # копия в Telegram — 777
+
+    calls = _tg_raw_updates(monkeypatch, [
+        _reaction(777, ["❤"]),
+        _reaction(777, ["❤", "🤝"], user={"id": 9, "first_name": "Гость"}),
+    ])
+    telegram_bot.poll_and_link_accounts()
+    assert "message_reaction" in calls[0]["allowed_updates"]
+
+    [shown] = client.get("/board-chat/messages").get_json()["messages"]
+    assert shown["reactions"] == [
+        {"emoji": "❤️", "count": 2, "mine": True, "users": ["board1", "Гость (TG)"]},
+        {"emoji": "🤝", "count": 1, "mine": False, "users": ["Гость (TG)"]},
+    ]
+    # К реакции из Telegram можно присоединиться с сайта, хоть её нет в наборе.
+    assert client.post(f"/board-chat/messages/{message_id}/react", data={"emoji": "🤝"}).status_code == 200
+
+
+def test_telegram_reaction_replaced_by_new_set_keeps_site_reaction(app, db, client, monkeypatch):
+    _bridges(db, max_=False)
+    _board_user(db, telegram_chat_id=5001)
+    _tg_updates(monkeypatch, [_tg_message("вопрос", message_id=10)])
+    telegram_bot.poll_and_link_accounts()
+    message = db.query(BoardChatMessage).one()
+    login(client, "board1", "pass1234")
+    client.post(f"/board-chat/messages/{message.id}/react", data={"emoji": "🔥"})
+
+    _tg_raw_updates(monkeypatch, [_reaction(10, ["👍"]), _reaction(10, [])])  # поставил и снял
+    telegram_bot.poll_and_link_accounts()
+
+    [shown] = client.get("/board-chat/messages").get_json()["messages"]
+    assert [r["emoji"] for r in shown["reactions"]] == ["🔥"]
+
+
+def test_reaction_in_other_chat_ignored(app, db, monkeypatch):
+    _bridges(db, max_=False)
+    _board_user(db)
+    _tg_updates(monkeypatch, [_tg_message("вопрос", message_id=10)])
+    telegram_bot.poll_and_link_accounts()
+    _tg_raw_updates(monkeypatch, [_reaction(10, ["👍"], chat_id="-100555")])
+    telegram_bot.poll_and_link_accounts()
+    from app.models import BoardChatReaction
+    assert db.query(BoardChatReaction).count() == 0

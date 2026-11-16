@@ -1,12 +1,19 @@
 {% extends "base.html" %}
 {% block title %}{{ _("Гаражи") }}{% endblock %}
 {% block content %}
+{% from "_stats.html" import stats_row %}
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h3>{{ _("Гаражи") }}</h3>
   {% if is_board() %}
   <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#createGarageModal">{{ _("+ Добавить гараж") }}</button>
   {% endif %}
 </div>
+
+{{ stats_row([
+  (stats.total, _("всего гаражей")),
+  (stats.with_power, _("с электричеством")),
+  (stats.land_privatized, _("с приватизированным участком")),
+]) }}
 
 <div class="row g-2 mb-3">
   <div class="col">

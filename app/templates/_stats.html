@@ -1,0 +1,15 @@
+{#
+  Сводка над реестром (гаражи, люди): ряд плашек «число + подпись».
+  items — список пар (число, подпись); на телефоне плашки переносятся.
+#}
+{% macro stats_row(items) %}
+<div class="list-stats d-flex flex-wrap gap-2 mb-3">
+  {% for value, label in items %}
+  <div class="list-stat border rounded bg-body px-3 py-2">
+    <div class="fs-5 fw-semibold lh-1">{{ value }}</div>
+    <div class="small text-muted">{{ label }}</div>
+  </div>
+  {% endfor %}
+</div>
+<style>.list-stat { min-width: 7.5rem; } @media (max-width: 575.98px) { .list-stat { flex: 1 1 calc(50% - .5rem); min-width: 0; } }</style>
+{% endmacro %}

@@ -222,7 +222,7 @@
         {% for c in garage.contacts %}
         <tr>
           <td>{% if is_board() or c.person.id == g.user.person_id %}<a href="{{ url_for('persons.detail', person_id=c.person.id) }}">{{ c.person.full_name }}</a>{% else %}{{ c.person.full_name }}{% endif %}</td>
-          <td>{{ c.relation or "—" }}</td>
+          <td>{{ c.relation or "—" }}{% if c.is_tenant %} <span class="badge text-bg-info">{{ _("снимает") }}</span>{% endif %}</td>
           {% if is_board() %}
           <td>
             <div class="d-flex gap-1">
@@ -262,6 +262,10 @@
                 <label class="form-label">{{ _("Отношение") }}</label>
                 <input class="form-control" name="relation" value="{{ c.relation or '' }}" placeholder="{{ _('напр. супруга') }}">
               </div>
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" name="is_tenant" value="1" id="contactTenant{{ c.id }}" {{ "checked" if c.is_tenant }}>
+                <label class="form-check-label" for="contactTenant{{ c.id }}">{{ _("Снимает гараж") }}</label>
+              </div>
             </div>
             <div class="modal-footer d-flex justify-content-end">
               <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
@@ -282,6 +286,10 @@
         {% endfor %}
       </select>
       <input class="form-control form-control-sm" name="relation" placeholder="{{ _('напр. супруга') }}">
+      <div class="form-check text-nowrap align-self-center mb-0">
+        <input class="form-check-input" type="checkbox" name="is_tenant" value="1" id="newContactTenant">
+        <label class="form-check-label small" for="newContactTenant">{{ _("снимает") }}</label>
+      </div>
       <button class="btn btn-sm btn-primary">{{ _("Добавить") }}</button>
       {% if is_board() %}
       <button type="button" class="btn btn-sm btn-primary text-nowrap" data-bs-toggle="modal" data-bs-target="#createPersonModal">+ {{ _("Новый человек") }}</button>

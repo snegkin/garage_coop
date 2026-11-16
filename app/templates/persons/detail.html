@@ -91,7 +91,7 @@
         {% endfor %}
         {% for c in contact_links %}
         <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('garages.detail', garage_id=c.garage.id) }}"
-           title="{{ _('Лицо для связи') }}">{{ _("Гараж №{n}", n=c.garage.number) }} <span class="small">· {{ c.relation or _("лицо для связи") }}</span></a>
+           title="{{ _('Снимает гараж') if c.is_tenant else _('Лицо для связи') }}">{{ _("Гараж №{n}", n=c.garage.number) }} <span class="small">· {{ _("снимает") if c.is_tenant else (c.relation or _("лицо для связи")) }}</span></a>
         {% endfor %}
       </div>
       {% else %}

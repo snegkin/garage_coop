@@ -178,10 +178,17 @@ def list_garages():
     # Подсветка строки в списке (см. garages/list.html) — не отдельная
     # колонка, чтобы не занимать место под то, что нужно только иногда.
     has_meter = {garage.id: (_current_meter(garage) is not None) for garage in garages}
+    # Сводка над списком — по всем гаражам, независимо от фильтра на странице.
+    # «С электричеством» — есть действующий счётчик (как и подсветка строк).
+    stats = {
+        "total": len(garages),
+        "with_power": sum(has_meter.values()),
+        "land_privatized": sum(1 for garage in garages if garage.land_privatized),
+    }
     return render_template(
         "garages/list.html", garages=garages, all_persons=all_persons,
         preselect_person_id=preselect_person_id, balances=balances,
-        has_meter=has_meter, any_no_meter=(False in has_meter.values()),
+        has_meter=has_meter, any_no_meter=(False in has_meter.values()), stats=stats,
     )
 
 
@@ -800,11 +807,14 @@ def add_contact(garage_id):
         abort(403)
     person_id = int(request.form["person_id"])
     relation = request.form.get("relation") or None
-    database.db_session.add(GarageContact(garage_id=garage_id, person_id=person_id, relation=relation))
+    is_tenant = request.form.get("is_tenant") == "1"
+    database.db_session.add(GarageContact(garage_id=garage_id, person_id=person_id, relation=relation,
+                                          is_tenant=is_tenant))
     person = database.db_session.get(Person, person_id)
     audit.record(
         "garage_contact.add", entity_type="garage", entity_id=garage.id,
-        summary=f"Гараж №{garage.number}: добавлено лицо для связи {person.full_name if person else person_id}",
+        summary=f"Гараж №{garage.number}: добавлено лицо для связи {person.full_name if person else person_id}"
+                + (" (снимает гараж)" if is_tenant else ""),
     )
     database.db_session.commit()
     flash(_("Контактное лицо добавлено."), "success")
@@ -826,9 +836,11 @@ def edit_contact(garage_id, contact_id):
         abort(404)
     contact.person_id = int(request.form["person_id"])
     contact.relation = request.form.get("relation") or None
+    contact.is_tenant = request.form.get("is_tenant") == "1"
     audit.record(
         "garage_contact.edit", entity_type="garage", entity_id=garage.id,
-        summary=f"Гараж №{garage.number}: изменено лицо для связи",
+        summary=f"Гараж №{garage.number}: изменено лицо для связи"
+                + (" (снимает гараж)" if contact.is_tenant else ""),
     )
     database.db_session.commit()
     flash(_("Контактное лицо изменено."), "success")

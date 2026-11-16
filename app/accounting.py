@@ -883,6 +883,32 @@ def current_tariff(kind: ElectricityTariffKind, as_of: dt.date | None = None) ->
     )
 
 
+def garage_electricity_rate(garage: Garage, tariff: ElectricityTariff | None) -> Decimal | None:
+    """Ставка, по которой гаражу начисляется электроэнергия: тариф для
+    членов (tariff — ElectricityTariffKind.MEMBER), а гаражу за территорией
+    (Garage.outside_territory) — плюс потери в линии до кооператива
+    (ElectricitySettings.outside_line_loss_percent): энергосбыт выставляет
+    их кооперативу, а такие гаражи платят за них сами. Округляется до
+    4 знаков, как хранится ставка (ElectricityReading.tariff)."""
+    if tariff is None:
+        return None
+    if not garage.outside_territory:
+        return tariff.rate
+    return outside_territory_rate(tariff.rate)
+
+
+def outside_territory_rate(member_rate: Decimal) -> Decimal:
+    """Тариф для членов + потери в линии до кооператива, % (см. garage_electricity_rate)."""
+    percent = get_electricity_settings().outside_line_loss_percent or Decimal("0")
+    return (member_rate * (Decimal("100") + percent) / Decimal("100")).quantize(Decimal("0.0001"), ROUND_HALF_UP)
+
+
+def garage_fee_excluded(garage: Garage, fee_type: FeeType | None) -> bool:
+    """Вид взноса не начисляется этому гаражу (Garage.excluded_fee_types —
+    у гаражей за территорией)."""
+    return fee_type is not None and any(ft.id == fee_type.id for ft in garage.excluded_fee_types)
+
+
 def bank_fee_multiplier(bank_account) -> Decimal:
     """Множитель «надбавки на комиссию банка» (BankAccount.bank_fee_percent
     счёта, на который придёт платёж; у каждого банка свой процент):
@@ -966,7 +992,10 @@ def compute_land_tax(year: int) -> dict[int, Decimal] | None:
     if coop.common_area is None:
         return None
 
-    garages = database.db_session.query(Garage).all()
+    # Гаражи, которым земельный налог не начисляется (за территорией, см.
+    # Garage.excluded_fee_types), не участвуют и в делении общей территории.
+    land_tax_type = database.db_session.query(FeeType).filter_by(code="land_tax").first()
+    garages = [g for g in database.db_session.query(Garage).all() if not garage_fee_excluded(g, land_tax_type)]
     if len(garages) == 0:
         return {}
 

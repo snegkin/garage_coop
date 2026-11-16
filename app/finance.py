@@ -22,7 +22,7 @@ from .accounting import (
     bank_accounts_with_history,
     get_settings, electricity_account_number, member_account_number, person_member_account_number,
     owner_index_for, balance as _balance,
-    compute_land_tax, reallocate_member_charges, dues_due_date, get_primary_bank_account,
+    compute_land_tax, garage_fee_excluded, reallocate_member_charges, dues_due_date, get_primary_bank_account,
 )
 
 bp = Blueprint("finance", __name__, url_prefix="/finance")
@@ -1829,6 +1829,11 @@ def mass_charge():
             fee_type_id = int(f["fee_type_id"])
             fee_type = database.db_session.get(FeeType, fee_type_id)
             total_amount = parse_decimal(f["total_amount"])
+            # Гаражи, которым этот взнос не начисляется (за территорией),
+            # не участвуют и в делении общей суммы.
+            total_area = sum(
+                (garage.area_sqm for garage in garages if not garage_fee_excluded(garage, fee_type)), Decimal("0"),
+            )
             if total_area > 0:
                 garage_amounts = {garage.id: total_amount * (garage.area_sqm / total_area) for garage in garages}
             else:
@@ -1843,8 +1848,12 @@ def mass_charge():
                 return Decimal(int_value).quantize(Decimal("0.01"))
             return Decimal(int_value + step - remainder).quantize(Decimal("0.01"))
 
+        excluded_numbers = [g.number for g in garages if garage_fee_excluded(g, fee_type)]
+        garages = [g for g in garages if not garage_fee_excluded(g, fee_type)]
         for garage in garages:
-            garage_amount = garage_amounts[garage.id]
+            garage_amount = garage_amounts.get(garage.id)
+            if garage_amount is None:
+                continue
             for ownership in garage.ownerships:
                 account = database.db_session.query(MemberAccount).filter_by(
                     person_id=ownership.person_id, garage_id=garage.id, fee_type_id=fee_type.id,
@@ -1909,6 +1918,11 @@ def mass_charge():
         }
         if charged_rows:
             flash(_("Начислено счетов: {n}.", n=len(charged_rows)), "success")
+        if excluded_numbers:
+            flash(_(
+                "Не начислялось гаражам за территорией, которым этот взнос не начисляется: {list}.",
+                list=", ".join(f"№{n}" for n in excluded_numbers),
+            ), "info")
         if skipped_rows:
             flash(_(
                 "Пропущено (нет лицевого счёта на этот вид взноса): {n}. Счета заводятся автоматически при добавлении собственника — проверьте вид взноса и код счёта.",

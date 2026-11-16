@@ -21,7 +21,7 @@ from .models import (
 )
 from sqlalchemy.orm import joinedload
 from .accounting import (
-    electricity_account_number, member_account_number, balance, current_tariff, reallocate_garage_charges,
+    electricity_account_number, member_account_number, balance, current_tariff, garage_electricity_rate, reallocate_garage_charges,
     charge_paid_amount, split_amount_by_shares, redistribute_member_account_balance, next_owner_index,
     transfer_member_account_balance, ensure_personal_member_accounts,
 )
@@ -68,6 +68,33 @@ def _ensure_member_accounts(garage: Garage, person_id: int, owner_index: int):
         database.db_session.add(MemberAccount(
             person_id=person_id, garage_id=garage.id, fee_type_id=fee_type.id, account_number=number,
         ))
+
+
+def chargeable_fee_types() -> list[FeeType]:
+    """Виды взносов, которые можно включить/исключить гаражу за территорией
+    (форма гаража): гаражные, с лицевым счётом, кроме пени — она идёт за
+    своим основным взносом сама, а электричество считается по показаниям."""
+    return (
+        database.db_session.query(FeeType)
+        .filter(FeeType.type_code.isnot(None), FeeType.per_garage.is_(True), FeeType.is_penalty.is_(False))
+        .order_by(FeeType.name)
+        .all()
+    )
+
+
+bp.add_app_template_global(chargeable_fee_types, "garage_chargeable_fee_types")
+
+
+def _apply_territory_fields(garage: Garage, f) -> None:
+    """outside_territory и начисляемые взносы из формы гаража: у гаража за
+    территорией исключаются все неотмеченные виды взносов, у обычного
+    исключений нет."""
+    garage.outside_territory = bool(f.get("outside_territory"))
+    if garage.outside_territory:
+        charged = {int(x) for x in f.getlist("charged_fee_type_id") if x.isdigit()}
+        garage.excluded_fee_types = [ft for ft in chargeable_fee_types() if ft.id not in charged]
+    else:
+        garage.excluded_fee_types = []
 
 
 def _archive_owner_accounts_and_reuse(garage: Garage, new_person_id: int) -> None:
@@ -175,6 +202,7 @@ def create():
             land_privatization_date=dt.date.fromisoformat(f["land_privatization_date"]) if f.get("land_privatization_date") else None,
             comment=f.get("comment") or None,
         )
+        _apply_territory_fields(garage, f)
         database.db_session.add(garage)
         database.db_session.flush()  # чтобы получить garage.id
 
@@ -464,6 +492,7 @@ def edit(garage_id):
         garage.privatized_land_area = parse_decimal(f["privatized_land_area"]) if f.get("privatized_land_area") else None
         garage.land_privatization_date = dt.date.fromisoformat(f["land_privatization_date"]) if f.get("land_privatization_date") else None
         garage.comment = f.get("comment") or None
+        _apply_territory_fields(garage, f)
         audit.record("garage.edit", f"Изменены данные гаража №{garage.number}", entity_type="garage", entity_id=garage.id)
         database.db_session.commit()
         flash(_("Изменения сохранены."), "success")
@@ -1159,7 +1188,7 @@ def add_electricity_reading(garage_id):
     amount = None
     deduction = None
     tariff = current_tariff(ElectricityTariffKind.MEMBER, reading_date)
-    tariff_rate = tariff.rate if tariff is not None else None
+    tariff_rate = garage_electricity_rate(garage, tariff)
     comment = f.get("comment") or None
     if baseline is not None:
         delta = reading_value - baseline
@@ -1169,8 +1198,8 @@ def add_electricity_reading(garage_id):
             if date_from is not None else (Decimal("0"), False)
         )
         net_delta = delta - deduction
-        if tariff is not None and net_delta > 0:
-            amount = (net_delta * tariff.rate).quantize(Decimal("0.01"))
+        if tariff_rate is not None and net_delta > 0:
+            amount = (net_delta * tariff_rate).quantize(Decimal("0.01"))
         if deduction or is_partial:
             deduction_note = _(
                 "За вычетом {deduction} кВт·ч по узлу(ам), запитанным через этот гараж.",
@@ -1272,7 +1301,7 @@ def edit_last_reading(garage_id):
     tariff_rate = last_reading.tariff
     if tariff_rate is None:
         tariff = current_tariff(ElectricityTariffKind.MEMBER, last_reading.reading_date)
-        tariff_rate = tariff.rate if tariff is not None else None
+        tariff_rate = garage_electricity_rate(garage, tariff)
 
     # Локальный импорт — избегаем цикла garages<->control_meters (control_meters
     # сам импортирует _current_meter из garages, см. app/control_meters.py).

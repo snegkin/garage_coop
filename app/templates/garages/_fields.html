@@ -12,6 +12,33 @@
   <input class="form-control" type="text" inputmode="decimal" name="coefficient" value="{{ garage.coefficient if garage else '1' }}">
   <div class="form-text">{{ _("Множитель для начислений на этот гараж — напр. 2 для двойного, 0.5 для маленького. По умолчанию 1.") }}</div>
 </div>
+<div class="form-check mb-2">
+  <input class="form-check-input" type="checkbox" name="outside_territory" id="outsideTerritory" {{ "checked" if garage and garage.outside_territory }}>
+  <label class="form-check-label" for="outsideTerritory">{{ _("Гараж за территорией кооператива (отдельный договор)") }}</label>
+</div>
+<div id="outsideTerritoryFields" class="border rounded p-2 mb-3">
+  <div class="form-text mt-0 mb-2">{{ _("Электроэнергия — по тарифу для членов кооператива плюс потери в линии (процент задаётся в разделе «Электроэнергия»).") }}</div>
+  <div class="small fw-semibold mb-1">{{ _("Начислять взносы") }}:</div>
+  {% set excluded_ids = garage.excluded_fee_types | map(attribute="id") | list if garage else [] %}
+  {% for ft in garage_chargeable_fee_types() %}
+  <div class="form-check">
+    <input class="form-check-input" type="checkbox" name="charged_fee_type_id" value="{{ ft.id }}" id="chargedFee{{ ft.id }}"
+           {{ "checked" if garage and garage.outside_territory and ft.id not in excluded_ids }}>
+    <label class="form-check-label" for="chargedFee{{ ft.id }}">{{ ft.name }}</label>
+  </div>
+  {% endfor %}
+  <div class="form-text">{{ _("Неотмеченные взносы этому гаражу не начисляются (массовое начисление, земельный налог). Отмеченные — с учётом коэффициента начисления.") }}</div>
+</div>
+<script>
+(function () {
+  var checkbox = document.getElementById("outsideTerritory");
+  var wrapper = document.getElementById("outsideTerritoryFields");
+  if (!checkbox || !wrapper) return;
+  function sync() { wrapper.classList.toggle("d-none", !checkbox.checked); }
+  checkbox.addEventListener("change", sync);
+  sync();
+})();
+</script>
 <div class="mb-3">
   <label class="form-label">{{ _("Кадастровый номер гаража") }}</label>
   <input class="form-control" name="cadastral_number" value="{{ (garage.cadastral_number or '') if garage else '' }}">

@@ -61,12 +61,19 @@
   {% set reading = latest_by_device.get(device.id) %}
   {% set stale_since = stale_since_by_device.get(device.id) %}
   {% set offline_since = None if stale_since else offline_since_by_device.get(device.id) %}
+  {% set load = load_by_device.get(device.id) %}
   <div class="col-md-4">
     <div class="card">
       <div class="card-body">
         <div class="d-flex justify-content-between align-items-start">
           <div class="text-muted">{{ device.label }}</div>
           <div class="text-end">
+            {% if load.active is not none %}
+            {% set threshold_text = fmt2(load.threshold) ~ " " ~ _("Вт") ~ (" (" ~ _("задан вручную") ~ ")" if load.fixed else "") %}
+            <i class="bi bi-circle-fill align-middle me-1 {{ 'text-success' if load.active else 'text-secondary' }}"
+               title="{{ _('Есть потребление: мощность выше фона') if load.active else _('Потребления нет: только фон (счётчики, потери, фонари по расписанию)') }} — {{ _('порог') }} {{ threshold_text }}"
+               aria-label="{{ _('есть потребление') if load.active else _('нет потребления') }}"></i>
+            {% endif %}
             {% if stale_since %}
               <span class="badge bg-warning text-dark">{{ _("нет свежих данных") }}</span>
             {% elif offline_since %}
@@ -216,7 +223,8 @@
           <p class="text-muted small">{{ _("Device ID устройства смотрите в приложении eWeLink: Настройки устройства → Информация об устройстве → Device ID.") }}</p>
           {% for phase, default_label in (("a", _("Фаза A")), ("b", _("Фаза B")), ("c", _("Фаза C"))) %}
           {% set existing = devices[loop.index0] if devices|length > loop.index0 else None %}
-          <div class="row g-2 mb-2 align-items-end">
+          {% set load = load_by_device.get(existing.id) if existing else None %}
+          <div class="row g-2 mb-1 align-items-end">
             <div class="col-md-4">
               <label class="form-label">{{ _("Название") }}</label>
               <input class="form-control" name="label_{{ phase }}" value="{{ existing.label if existing else default_label }}">
@@ -226,7 +234,29 @@
               <input class="form-control" name="device_id_{{ phase }}" value="{{ existing.ewelink_device_id if existing else '' }}" placeholder="1002334597">
             </div>
           </div>
+          <div class="row g-2 mb-1 align-items-end">
+            <div class="col-md-4">
+              <label class="form-label small">{{ _("Поправка к авто-порогу, Вт") }}</label>
+              <input class="form-control form-control-sm" name="load_offset_{{ phase }}" inputmode="decimal" placeholder="0"
+                     value="{{ fmt2(existing.load_threshold_offset_w) if existing and existing.load_threshold_offset_w is not none else '' }}">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small">{{ _("Фиксированный порог, Вт") }}</label>
+              <input class="form-control form-control-sm" name="load_threshold_{{ phase }}" inputmode="decimal" placeholder="{{ _('авто') }}"
+                     value="{{ fmt2(existing.load_threshold_w) if existing and existing.load_threshold_w is not none else '' }}">
+            </div>
+            <div class="col-md-4 small text-muted">
+              {% if load and load.baseline is not none %}
+              {{ _("Фон сейчас") }} {{ fmt2(load.baseline) }} {{ _("Вт") }}{% if load.profile_min is not none %}, {{ _("за сутки") }} {{ fmt2(load.profile_min) }}–{{ fmt2(load.profile_max) }} {{ _("Вт") }}{% endif %}.
+              {% if load.threshold is not none %}{{ _("Порог сейчас") }} {{ fmt2(load.threshold) }} {{ _("Вт") }}.{% endif %}
+              {% elif existing %}
+              {{ _("Фон ещё не определён — мало данных.") }}
+              {% endif %}
+            </div>
+          </div>
+          <hr class="my-2">
           {% endfor %}
+          <p class="text-muted small mb-0">{{ _("Кружок на карточке фазы зелёный, когда мощность выше порога. Авто-порог — фон за последние 5 дней в это же время суток (±30 минут) плюс запас на шум: счётчики, потери, фонари. Это не жёсткое расписание: профиль пересчитывается непрерывно, поэтому сезонный сдвиг заката и рассвета он отслеживает сам, а новые счётчики или фонари учитывает примерно за 3 дня. Поправка (можно отрицательную) прибавляется к авто-порогу; фиксированный порог заменяет его целиком, без учёта времени суток.") }}</p>
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>

@@ -133,7 +133,7 @@
   </div>
 </div>
 
-{% if is_board() and member_accounts %}
+{% if is_board() and (member_accounts or electricity_garages) %}
 <div class="d-flex justify-content-between align-items-center mt-4">
   <h5 class="mb-0">{{ _("Лицевые счета") }}</h5>
   {% if is_privileged() and has_unpaid_penalty %}
@@ -165,6 +165,18 @@
 <table class="table table-sm bg-body sortable" id="personAccountsTable">
   <thead><tr><th>{{ _("Гараж") }}</th><th>{{ _("Вид взноса") }}</th><th class="text-end">{{ _("Счёт") }}</th><th class="text-end">{{ _("Баланс") }}</th><th class="no-sort"></th></tr></thead>
   <tbody>
+    {% for garage in electricity_garages %}
+    {% set bal = balance(garage) %}
+    {% set garage_url = url_for('garages.detail', garage_id=garage.id) %}
+    <tr data-electricity-row="{{ garage.id }}" onclick="window.location='{{ garage_url }}'" style="cursor:pointer"
+        title="{{ _('Общий счёт гаража — один на всех собственников') }}">
+      <td data-sort-value="{{ garage.number }}">№{{ garage.number }}</td>
+      <td>{{ _("Электроэнергия") }} <span class="text-muted small">({{ _("общий счёт гаража") }})</span></td>
+      <td class="text-end">{{ garage.account.account_number }}</td>
+      <td class="text-end {{ 'text-danger' if bal < 0 else 'text-success' }}" data-sort-value="{{ bal if bal else '0' }}">{{ fmt2(bal) }} ₽</td>
+      <td></td>
+    </tr>
+    {% endfor %}
     {% for acc in member_accounts %}
     {% set bal = balance(acc) %}
     <tr data-account-row="{{ acc.id }}" data-archived="{{ 1 if acc.is_archived else 0 }}" data-zero-noncore="{{ 1 if acc.fee_type.code not in CORE_FEE_TYPE_CODES and bal == 0 else 0 }}">

@@ -2979,6 +2979,7 @@ class PowerPhaseDevice(Base):
     # целиком; поправка — прибавляется к авто-порогу (может быть отрицательной).
     load_threshold_w: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
     load_threshold_offset_w: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    lights_w: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))  # фонари на фазе, Вт — их включение не считается потреблением
 
     readings: Mapped[list["PowerPhaseReading"]] = relationship(back_populates="device")
 

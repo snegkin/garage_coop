@@ -51,22 +51,32 @@ COMPACT_BATCH_GROUPS = 200  # (~2 с на пачку) устройство-ча�
 
 # Индикатор «на фазе есть потребление» (кружок у бейджей карточки, см.
 # load_threshold): мощность выше фона — счётчики, потери в проводах и
-# изоляции, а также регулярная нагрузка по расписанию (фонари на фазе B
-# горят от заката до рассвета). Фон — суточный профиль: сутки делятся на
-# слоты по LOAD_SLOT_MINUTES, в каждом слоте за каждый из LOAD_PROFILE_DAYS
-# последних дней берётся минимум мощности (то, что потреблялось весь слот
-# без перерыва), по дням — медиана (разовая нагрузка на всю ночь в фон не
-# попадает, постоянная — новые счётчики, снятая на ремонт половина ряда —
-# через ~половину окна попадает). Для текущего момента фон — максимум
-# профиля в ±LOAD_SLOT_TOLERANCE слотах: фонари по фотореле каждый день
-# включаются чуть в другое время, без допуска на эти минуты индикатор
-# загорался бы на каждом закате.
+# изоляции, плюс уличные фонари, если они на этой фазе.
+#
+# Фон — самый низкий устойчивый уровень фазы, без привязки ко времени
+# суток: регулярная нагрузка (зарядка электромобиля каждую ночь, свет в
+# гараже по вечерам) — это потребление, в фон она попадать не должна.
+# Считается по суточному профилю: сутки делятся на слоты по
+# LOAD_SLOT_MINUTES, в каждом слоте за каждый из LOAD_PROFILE_DAYS последних
+# дней берётся минимум мощности (то, что потреблялось весь слот без
+# перерыва), по дням — медиана; фон — минимум профиля. Новые счётчики,
+# снятая на ремонт половина ряда — подстраивается за ~половину окна.
+#
+# Фонари (lights_w у фазы — их мощность, задаёт председатель) по мощности
+# не отличить от света в гараже (~130–260 Вт), поэтому их узнаём по времени
+# — тоже из профиля, без расписания: горят там, где профиль выше фона на
+# половину их мощности (сезонный сдвиг заката профиль отслеживает сам).
+# В ±LOAD_SLOT_TOLERANCE от таких слотов фонари — часть фона (фотореле
+# каждый день срабатывает чуть в другое время); в ±LIGHTS_EARLY_SLOTS
+# (пасмурно, метель — включились на час-два раньше обычного, утром
+# выключились позже) фоном считается только уровень «фон + фонари ± запас».
 LOAD_PROFILE_DAYS = 5
 LOAD_SLOT_MINUTES = 10
 LOAD_SLOT_TOLERANCE = 3  # слотов в каждую сторону — ±30 минут
 LOAD_MIN_DAYS = 2  # меньше дней с данными в слоте — фон по нему не считаем
 LOAD_MARGIN_MIN_W = Decimal("15")  # запас над фоном на шум измерения: не меньше 15 Вт…
 LOAD_MARGIN_RATIO = Decimal("0.10")  # …и не меньше 10 % фона
+LIGHTS_EARLY_SLOTS = 12  # ±2 часа от обычного горения фонарей
 
 
 def _parse_iso_utc(value: str | None) -> dt.datetime | None:
@@ -219,17 +229,11 @@ def load_profile(device_id: int, now: dt.datetime) -> dict[int, Decimal]:
     return profile
 
 
-def baseline_at(profile: dict[int, Decimal], ts: dt.datetime) -> Decimal | None:
-    """Фон на момент ts по профилю — максимум в ±LOAD_SLOT_TOLERANCE слотах
-    (через полночь — по кругу). None — по этому времени суток данных нет."""
+def _near(slots: set[int], ts: dt.datetime, tolerance: int) -> bool:
+    """Есть ли среди slots слот в ±tolerance от времени суток ts (через полночь — по кругу)."""
     slots_per_day = 24 * 60 // LOAD_SLOT_MINUTES
     center = _slot_of(ts)
-    values = [
-        profile[(center + d) % slots_per_day]
-        for d in range(-LOAD_SLOT_TOLERANCE, LOAD_SLOT_TOLERANCE + 1)
-        if (center + d) % slots_per_day in profile
-    ]
-    return max(values) if values else None
+    return any((center + d) % slots_per_day in slots for d in range(-tolerance, tolerance + 1))
 
 
 def auto_threshold(baseline: Decimal) -> Decimal:
@@ -237,27 +241,53 @@ def auto_threshold(baseline: Decimal) -> Decimal:
 
 
 def load_threshold(device: PowerPhaseDevice, now: dt.datetime) -> dict:
-    """Порог «есть потребление» для фазы на момент now:
-    {"threshold": Вт | None, "baseline": авто-фон | None, "fixed": bool,
-     "profile_min"/"profile_max": разброс фона за сутки (для подсказки
+    """Порог «есть потребление» для фазы на момент now — см. комментарий у
+    LOAD_PROFILE_DAYS: {"threshold": Вт | None, "baseline": фон сейчас
+    (с фонарями, если горят) | None, "lights_on": bool, "step_band": (от, до)
+    | None — уровень «фонари включились не в обычное время», "fixed": bool,
+    "profile_min"/"profile_max": разброс профиля за сутки (подсказка
     председателю в окне «Устройства»)}. Фиксированный порог
     (device.load_threshold_w) заменяет авто целиком; поправка
     (load_threshold_offset_w) прибавляется к авто-порогу."""
     profile = load_profile(device.id, now)
-    baseline = baseline_at(profile, now)
     info = {
-        "baseline": baseline,
+        "baseline": None,
+        "lights_on": False,
+        "step_band": None,
         "profile_min": min(profile.values()) if profile else None,
         "profile_max": max(profile.values()) if profile else None,
         "fixed": device.load_threshold_w is not None,
+        "threshold": None,
     }
     if device.load_threshold_w is not None:
         info["threshold"] = Decimal(device.load_threshold_w)
-    elif baseline is not None:
-        info["threshold"] = auto_threshold(baseline) + Decimal(device.load_threshold_offset_w or 0)
-    else:
-        info["threshold"] = None
+        return info
+    if not profile:
+        return info
+
+    floor = info["profile_min"]
+    lights = Decimal(device.lights_w or 0)
+    baseline = floor
+    if lights > 0:
+        lit_slots = {slot for slot, value in profile.items() if value >= floor + lights / 2}
+        if _near(lit_slots, now, LOAD_SLOT_TOLERANCE):
+            info["lights_on"] = True
+            baseline = floor + lights
+        elif _near(lit_slots, now, LIGHTS_EARLY_SLOTS):
+            center = floor + lights
+            margin = auto_threshold(center) - center
+            info["step_band"] = (center - margin, center + margin)
+    info["baseline"] = baseline
+    info["threshold"] = auto_threshold(baseline) + Decimal(device.load_threshold_offset_w or 0)
     return info
+
+
+def is_load(power_w: Decimal, info: dict) -> bool:
+    """Есть ли потребление сверх фона — см. load_threshold()."""
+    if power_w <= info["threshold"]:
+        return False
+    band = info.get("step_band")
+    return not (band and band[0] <= power_w <= band[1])
 
 
 def _get_or_create_account() -> EWeLinkAccount:
@@ -380,7 +410,7 @@ def view():
         reading = latest_by_device.get(device.id)
         fresh = device.id not in offline_since_by_device and device.id not in stale_since_by_device
         info["active"] = (
-            reading.power_w > info["threshold"]
+            is_load(reading.power_w, info)
             if fresh and reading and reading.power_w is not None and info["threshold"] is not None
             else None
         )
@@ -687,6 +717,7 @@ def save_devices():
         existing.is_active = True
         existing.load_threshold_w = _parse_watts(f.get(f"load_threshold_{phase}"), allow_negative=False)
         existing.load_threshold_offset_w = _parse_watts(f.get(f"load_offset_{phase}"), allow_negative=True)
+        existing.lights_w = _parse_watts(f.get(f"lights_{phase}"), allow_negative=False)
 
     database.db_session.commit()
     flash(_("Устройства сохранены."), "success")

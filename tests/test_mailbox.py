@@ -1675,3 +1675,19 @@ def test_compose_send_renders_markdown_as_html_alternative(db, client, monkeypat
     assert html_part is not None
     assert "<strong>жирный</strong>" in html_part.get_content()
     assert "**жирный** текст" in plain_part.get_content()
+
+
+def test_inbox_second_page_renders(db, client, monkeypatch):
+    """Регрессия: «Вперёд» во «Входящих» давала 500 — шаблон считал номер
+    страницы через request.args.get(..., type=int), а int в Jinja не
+    определён (на первой странице параметра нет, type не вызывался)."""
+    _make_board(db)
+    _make_settings(db)
+    _mock_imap(monkeypatch, {i: _test_email(subject=f"Письмо {i}", with_attachment=False).as_bytes() for i in range(1, 31)})
+    login(client, "board1", "pass1234")
+
+    resp = client.get("/mailbox/?page=2&page_size=25")
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+    assert "page=1&amp;" in html or "page=1&" in html  # «Назад» ведёт на первую
+    assert "page=3" in html  # ссылка «Вперёд» (disabled — писем 30, страниц 2)

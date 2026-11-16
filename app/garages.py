@@ -13,6 +13,7 @@ from .i18n import translate as _, parse_decimal
 from .auth import login_required, roles_required
 from .permissions import is_board, is_owner_or_board, is_chairman, is_privileged, can_view_member_account
 from .uploads import save_upload
+from .models import garage_number_key, garage_sort_key
 from .models import (
     Garage, Person, GarageOwnership, GarageOwnershipEvent, GarageOwnershipEventType, GarageContact, GaragePhoto,
     GarageDocumentPhoto, GarageDocumentType,
@@ -167,11 +168,9 @@ def _archive_owner_accounts_and_reuse(garage: Garage, new_person_id: int) -> Non
 @bp.route("/")
 @roles_required(RoleEnum.BOARD)
 def list_garages():
-    garages = (
-        database.db_session.query(Garage)
-        .options(joinedload(Garage.meters))
-        .order_by(Garage.number)
-        .all()
+    garages = sorted(
+        database.db_session.query(Garage).options(joinedload(Garage.meters)).all(),
+        key=garage_sort_key,
     )
     all_persons = database.db_session.query(Person).order_by(Person.full_name).all()
     preselect_person_id = request.args.get("new_person_id", type=int)
@@ -282,19 +281,12 @@ def detail(garage_id):
     if not is_owner_or_board(garage):
         abort(403)
 
-    # предыдущий / следующий гараж (по ID)
-    prev_garage = (
-        database.db_session.query(Garage)
-        .filter(Garage.id < garage.id)
-        .order_by(Garage.id.desc())
-        .first()
-    )
-    next_garage = (
-        database.db_session.query(Garage)
-        .filter(Garage.id > garage.id)
-        .order_by(Garage.id)
-        .first()
-    )
+    # предыдущий / следующий гараж — по номеру, как в списке гаражей
+    ordered = sorted(database.db_session.query(Garage.id, Garage.number).all(),
+                     key=lambda row: garage_number_key(row.number))
+    index = next(i for i, row in enumerate(ordered) if row.id == garage.id)
+    prev_garage = database.db_session.get(Garage, ordered[index - 1].id) if index > 0 else None
+    next_garage = database.db_session.get(Garage, ordered[index + 1].id) if index + 1 < len(ordered) else None
 
     all_persons = database.db_session.query(Person).order_by(Person.full_name).all()
     total_share = sum((o.share for o in garage.ownerships), Decimal("0"))

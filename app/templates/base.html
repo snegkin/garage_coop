@@ -1737,6 +1737,8 @@ document.addEventListener("click", function (e) {
 // Заголовки с классом "no-sort" (например, колонка с кнопками действий) не сортируются.
 // Если у ячейки указан атрибут data-sort-value — сортировка идёт по нему (число или
 // сравнимая строка), иначе — по видимому тексту ячейки (с учётом чисел внутри текста).
+// <th data-sort-default="asc"> — столбец, по которому таблица отсортирована
+// при открытии, если посетитель ещё не выбирал сортировку сам.
 // Выбранный столбец/направление запоминаются в localStorage браузера (см.
 // sortStorageKey/saveSortState/loadSortState) и применяются заново при
 // следующем открытии той же таблицы — сервер об этом ничего не знает,
@@ -1832,6 +1834,13 @@ function initSortableTables(root) {
     const saved = loadSortState(table);
     if (saved && headers[saved.col] && !headers[saved.col].classList.contains("no-sort")) {
       applySort(table, saved.col, saved.dir);
+    } else {
+      // <th data-sort-default="asc|desc"> — сортировка по умолчанию, пока
+      // посетитель сам не выбрал столбец (тогда — его выбор из localStorage).
+      const defIndex = headers.findIndex(function (h) { return h.hasAttribute("data-sort-default"); });
+      if (defIndex >= 0) {
+        applySort(table, defIndex, headers[defIndex].getAttribute("data-sort-default") === "desc" ? "desc" : "asc");
+      }
     }
   });
 }

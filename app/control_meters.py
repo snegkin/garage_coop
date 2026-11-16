@@ -42,7 +42,7 @@ from . import database
 from . import audit
 from .i18n import translate as _, parse_decimal
 from .auth import roles_required
-from .models import ControlMeter, ControlMeterReading, ElectricityReading, Garage, MasterMeterReading, RoleEnum
+from .models import ControlMeter, ControlMeterReading, ElectricityReading, Garage, MasterMeterReading, RoleEnum, garage_sort_key
 from .garages import _current_meter
 
 bp = Blueprint("control_meters", __name__, url_prefix="/control-meters")
@@ -101,12 +101,12 @@ def _gateway_garages():
     """Гаражи, через щиток которых физически запитан хотя бы один
     контрольный узел (ControlMeter.parent_garage_id) — обычно единицы на
     весь кооператив (см. _build_tree)."""
-    return (
+    return sorted(
         database.db_session.query(Garage)
         .join(ControlMeter, ControlMeter.parent_garage_id == Garage.id)
         .distinct()
-        .order_by(Garage.number)
-        .all()
+        .all(),
+        key=garage_sort_key,
     )
 
 
@@ -258,9 +258,9 @@ def reconcile_node(node: ControlMeter | None, date_from: dt.date, date_to: dt.da
             .filter(ControlMeter.parent_id.is_(None), ControlMeter.parent_garage_id.is_(None))
             .order_by(ControlMeter.name).all()
         )
-        child_garages = (
-            database.db_session.query(Garage)
-            .filter(Garage.control_meter_id.is_(None)).order_by(Garage.number).all()
+        child_garages = sorted(
+            database.db_session.query(Garage).filter(Garage.control_meter_id.is_(None)).all(),
+            key=garage_sort_key,
         )
     else:
         node_delta = _delta(_node_reading_as_of(node, date_from), _node_reading_as_of(node, date_to))
@@ -559,7 +559,7 @@ def create():
         return redirect(url_for("control_meters.detail", node_id=node.id))
 
     all_nodes = database.db_session.query(ControlMeter).all()
-    all_garages = database.db_session.query(Garage).order_by(Garage.number).all()
+    all_garages = sorted(database.db_session.query(Garage).all(), key=garage_sort_key)
     preselected_parent_id = request.args.get("parent_id", type=int)
     preselected_parent_garage_id = request.args.get("parent_garage_id", type=int)
     return render_template(
@@ -581,7 +581,7 @@ def edit(node_id):
         if parent_id is not None and parent_id in _descendant_ids(node):
             flash(_("Нельзя сделать родителем сам узел или его же потомка."), "danger")
             all_nodes = database.db_session.query(ControlMeter).all()
-            all_garages = database.db_session.query(Garage).order_by(Garage.number).all()
+            all_garages = sorted(database.db_session.query(Garage).all(), key=garage_sort_key)
             return render_template(
                 "control_meters/form.html", node=node,
                 parent_options=_parent_options(all_nodes, exclude_ids=_descendant_ids(node)), all_garages=all_garages,
@@ -601,7 +601,7 @@ def edit(node_id):
         return redirect(url_for("control_meters.detail", node_id=node.id))
 
     all_nodes = database.db_session.query(ControlMeter).all()
-    all_garages = database.db_session.query(Garage).order_by(Garage.number).all()
+    all_garages = sorted(database.db_session.query(Garage).all(), key=garage_sort_key)
     return render_template(
         "control_meters/form.html", node=node,
         parent_options=_parent_options(all_nodes, exclude_ids=_descendant_ids(node)), all_garages=all_garages,
@@ -657,11 +657,11 @@ def detail(node_id):
     if reconciliation is None:
         reconciliation = reconcile_node_default(node)
 
-    attachable_garages = (
+    attachable_garages = sorted(
         database.db_session.query(Garage)
         .filter(or_(Garage.control_meter_id.is_(None), Garage.control_meter_id != node.id))
-        .order_by(Garage.number)
-        .all()
+        .all(),
+        key=garage_sort_key,
     )
 
     # ("node", ControlMeter) | ("garage", Garage) — цепочка предков обычно

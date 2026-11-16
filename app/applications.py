@@ -58,7 +58,7 @@ from .permissions import is_board, is_chairman
 from .uploads import save_upload
 from .models import (
     Application, ApplicationAttachment, ApplicationRead, ApplicationCounter, ApplicationKind, ApplicationStatus,
-    Garage, GarageDocumentPhoto, GarageDocumentType, GarageOwnership, Person, Phone, RoleEnum, short_name_of,
+    Garage, GarageDocumentPhoto, GarageDocumentType, GarageOwnership, Person, Phone, RoleEnum, garage_sort_key, short_name_of,
 )
 
 bp = Blueprint("applications", __name__, url_prefix="/applications")
@@ -305,7 +305,7 @@ def _own_garages(person: Person | None) -> list[Garage]:
     if person is None:
         return []
     ownerships = database.db_session.query(GarageOwnership).filter_by(person_id=person.id).all()
-    return sorted((o.garage for o in ownerships), key=lambda gar: gar.number)
+    return sorted((o.garage for o in ownerships), key=garage_sort_key)
 
 
 def can_view(application: Application) -> bool:
@@ -493,7 +493,7 @@ def register_paper():
     заявлением (ознакомление, ответ/отклонение, смена собственника)."""
     ownerships = sorted(
         database.db_session.query(GarageOwnership).all(),
-        key=lambda o: (o.person.full_name.lower(), o.garage.number),
+        key=lambda o: (o.person.full_name.lower(), garage_sort_key(o.garage)),
     )
     form = request.form if request.method == "POST" else request.args
     if request.method == "POST":

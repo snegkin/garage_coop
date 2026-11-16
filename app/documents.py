@@ -42,7 +42,7 @@ from markupsafe import Markup, escape
 from . import audit
 from . import database
 from . import name_declension
-from .accounting import balance, get_primary_bank_account
+from .accounting import balance, electricity_account_number, get_primary_bank_account
 from .applications import sanitize_html, has_text, MAX_HTML_LENGTH
 from .auth import login_required, roles_required
 from .i18n import translate as _
@@ -357,7 +357,9 @@ VARIABLES = [
     ("кадастровый_номер_участка", "кадастровый номер земельного участка", "Гараж",
      lambda c: c.garage_attr(lambda gr: gr.land_cadastral_number or "")),
     ("лицевой_счёт_гаража", "лицевой счёт гаража (электроэнергия) — указывают при оплате", "Гараж",
-     lambda c: c.garage_attr(lambda gr: gr.account.account_number if gr.account else "")),
+     # Счёта ещё нет (заводится с гаражом) — номер по той же формуле.
+     lambda c: c.garage_attr(lambda gr: gr.account.account_number if gr.account
+                             else electricity_account_number(gr.id))),
     ("доля", "доля адресата в праве на гараж («1/2»)", "Гараж",
      lambda c: _share(c.ownership.share) if c.ownership is not None else ""),
     ("самопотребление_счётчика", "собственное потребление счётчика: «2 Вт — 1,46 кВт·ч в месяц (…в год)»",
@@ -552,7 +554,8 @@ _CONTRACT_PARTIES = (
     "<p>{{ФИО|" + _COL + "}}<br>Дата рождения: {{дата_рождения|" + _COL_AFTER["Дата рождения:"] + "}}<br>"
     "Паспорт: {{паспорт|" + _COL_AFTER["Паспорт:"] + "|" + _COL + "}}<br>"
     "Адрес регистрации: {{адрес_регистрации|" + _COL_AFTER["Адрес регистрации:"] + "|" + _COL + "}}<br>"
-    "Тел.: {{телефон|" + _COL_AFTER["Тел.:"] + "}}</p></td>"
+    "Тел.: {{телефон|" + _COL_AFTER["Тел.:"] + "}}<br>"
+    "Лицевой счёт № {{лицевой_счёт_гаража}}</p></td>"
     "</tr><tr>"
     + _TD + "<p><br>Председатель правления<br><br>______________ /{{председатель_кратко}}/<br>М.П.</p></td>"
     + _TD + "<p><br><br><br>______________ /{{ФИО_кратко}}/</p></td>"

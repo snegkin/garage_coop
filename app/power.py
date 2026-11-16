@@ -66,30 +66,42 @@ def _attach_reading_document(reading, file_storage, title=None):
     return doc
 
 
-def _tariffs_with_range(kind):
-    """Список тарифов заданного вида, каждый — с датой окончания действия
-    (день перед началом следующего ПО ЭТОМУ ЖЕ ВИДУ, не по обоим сразу —
-    у поставщика и у кооператива теперь независимые истории)."""
+def _tariff_pairs():
+    """История тарифов парами по дате начала: тариф поставщика и тариф для
+    членов кооператива всегда меняются вместе (одна форма, две ставки —
+    см. add_tariff), но в БД это по-прежнему две записи ElectricityTariff
+    разного kind с одной effective_date: показания общего счётчика
+    ссылаются на запись поставщика (MasterMeterReading.tariff_id), а
+    current_tariff ищет каждую по своему kind. Старые записи с разными
+    датами у двух видов показываются отдельными строками с «—» во второй
+    ставке. Каждая пара — с датой окончания (день перед следующей)."""
     tariffs = (
         database.db_session.query(ElectricityTariff)
-        .filter(ElectricityTariff.kind == kind)
-        .order_by(ElectricityTariff.effective_date.desc())
+        .order_by(ElectricityTariff.effective_date.desc(), ElectricityTariff.id.desc())
         .all()
     )
-    result = []
-    for i, t in enumerate(tariffs):
-        end_date = tariffs[i - 1].effective_date - dt.timedelta(days=1) if i > 0 else None
-        result.append((t, end_date))
-    return result
+    by_date: dict = {}
+    for t in tariffs:
+        pair = by_date.setdefault(t.effective_date, {"date": t.effective_date, "supplier": None, "member": None})
+        key = "supplier" if t.kind == ElectricityTariffKind.SUPPLIER else "member"
+        if pair[key] is None:
+            pair[key] = t
+    pairs = sorted(by_date.values(), key=lambda p: p["date"], reverse=True)
+    for i, pair in enumerate(pairs):
+        pair["end_date"] = pairs[i - 1]["date"] - dt.timedelta(days=1) if i > 0 else None
+        pair["comment"] = (pair["supplier"] and pair["supplier"].comment) or (pair["member"] and pair["member"].comment)
+    return pairs
 
 
 @bp.route("/")
 @roles_required(RoleEnum.BOARD)
 def view():
     settings = get_electricity_settings()
-    supplier_tariffs = _tariffs_with_range(ElectricityTariffKind.SUPPLIER)
-    member_tariffs = _tariffs_with_range(ElectricityTariffKind.MEMBER)
+    tariff_pairs = _tariff_pairs()
+    supplier_tariff = current_tariff(ElectricityTariffKind.SUPPLIER)
     member_tariff = current_tariff(ElectricityTariffKind.MEMBER)
+    # Действующая сейчас пара — последняя по дате, не позже сегодня.
+    current_pair = next((p for p in tariff_pairs if p["date"] <= dt.date.today()), None)
 
     readings = (
         database.db_session.query(MasterMeterReading)
@@ -112,11 +124,11 @@ def view():
     return render_template(
         "power/view.html",
         settings=settings,
-        supplier_tariff=current_tariff(ElectricityTariffKind.SUPPLIER),
+        supplier_tariff=supplier_tariff,
         member_tariff=member_tariff,
         outside_rate=outside_territory_rate(member_tariff.rate) if member_tariff else None,
-        supplier_tariffs=supplier_tariffs,
-        member_tariffs=member_tariffs,
+        tariff_pairs=tariff_pairs,
+        current_pair=current_pair,
         readings=readings_with_amounts,
         expense_paid=expense_paid,
         default_reading_year=default_reading_month_date.year,
@@ -174,100 +186,144 @@ def save_outside_line_loss():
     return redirect(url_for("power.view"))
 
 
+def _parse_tariff_form(f):
+    """Дата и обе ставки из формы тарифа; ошибка — текстом."""
+    try:
+        effective_date = dt.date.fromisoformat(f.get("effective_date", ""))
+        supplier_rate = parse_decimal(f.get("supplier_rate", ""))
+        member_rate = parse_decimal(f.get("member_rate", ""))
+    except (ValueError, InvalidOperation):
+        return None, _("Укажите дату и обе ставки — поставщика и для членов кооператива.")
+    if supplier_rate is None or member_rate is None or supplier_rate <= 0 or member_rate <= 0:
+        return None, _("Укажите дату и обе ставки — поставщика и для членов кооператива.")
+    return (effective_date, supplier_rate, member_rate, f.get("comment") or None), None
+
+
+def _pair_on(date: dt.date) -> dict:
+    rows = database.db_session.query(ElectricityTariff).filter_by(effective_date=date).all()
+    return {
+        "supplier": next((t for t in rows if t.kind == ElectricityTariffKind.SUPPLIER), None),
+        "member": next((t for t in rows if t.kind == ElectricityTariffKind.MEMBER), None),
+    }
+
+
+def _supplier_tariff_used(tariff) -> bool:
+    """На тариф поставщика ссылается показание общего счётчика
+    (MasterMeterReading.tariff_id — прямая ссылка на запись, сумма в таблице
+    считается на лету по r.tariff.rate): менять его ставку/дату или удалять
+    нельзя — разошлось бы с уже созданным Expense.amount. Тариф для членов
+    показания гаражей копируют числом (ElectricityReading.tariff), его
+    правка уже посчитанное не трогает."""
+    return tariff is not None and database.db_session.query(MasterMeterReading).filter_by(tariff_id=tariff.id).first() is not None
+
+
+def _latest_tariff_date() -> dt.date | None:
+    latest = database.db_session.query(ElectricityTariff).order_by(ElectricityTariff.effective_date.desc()).first()
+    return latest.effective_date if latest else None
+
+
 @bp.route("/tariff", methods=["POST"])
 @roles_required(RoleEnum.BOARD)
 def add_tariff():
-    """Один роут на оба вида тарифа (kind из формы) — см. ElectricityTariffKind:
-    два разных модальных окна на power/view.html (тариф поставщика / тариф
-    для членов) шлют сюда одно и то же с разным скрытым полем kind."""
-    f = request.form
-    kind = ElectricityTariffKind(f["kind"])
-    database.db_session.add(ElectricityTariff(
-        kind=kind,
-        rate=parse_decimal(f["rate"]),
-        effective_date=dt.date.fromisoformat(f["effective_date"]),
-        comment=f.get("comment") or None,
-    ))
-    kind_label = _("поставщика") if kind == ElectricityTariffKind.SUPPLIER else _("для членов кооператива")
-    audit.record("power.tariff_add", f"Добавлен тариф на электроэнергию ({kind_label}) {parse_decimal(f['rate'])} ₽/кВт·ч с {audit.format_date(dt.date.fromisoformat(f['effective_date']))}")
+    """Новый тариф — сразу обе ставки (поставщика и для членов) с одной
+    датой начала: отдельно они не меняются."""
+    parsed, error = _parse_tariff_form(request.form)
+    if error:
+        flash(error, "danger")
+        return redirect(url_for("power.view"))
+    effective_date, supplier_rate, member_rate, comment = parsed
+    existing = _pair_on(effective_date)
+    if existing["supplier"] or existing["member"]:
+        flash(_("Тариф с этой даты уже есть — измените его."), "danger")
+        return redirect(url_for("power.view"))
+    database.db_session.add_all([
+        ElectricityTariff(kind=ElectricityTariffKind.SUPPLIER, rate=supplier_rate, effective_date=effective_date, comment=comment),
+        ElectricityTariff(kind=ElectricityTariffKind.MEMBER, rate=member_rate, effective_date=effective_date, comment=comment),
+    ])
+    audit.record(
+        "power.tariff_add",
+        f"Добавлен тариф на электроэнергию с {audit.format_date(effective_date)}: "
+        f"поставщика {supplier_rate} ₽/кВт·ч, для членов кооператива {member_rate} ₽/кВт·ч",
+    )
     database.db_session.commit()
     flash(_("Тариф добавлен."), "success")
     return redirect(url_for("power.view"))
 
 
-def _tariff_edit_guard_error(tariff) -> str | None:
-    """Общая проверка для edit_tariff/delete_tariff: править/удалять можно
-    только последний (по effective_date) тариф своего вида — более ранние
-    уже могли использоваться для расчётов, и правка/удаление задним числом
-    исказили бы уже сохранённые суммы. Для тарифа поставщика дополнительно
-    проверяем, что на него ещё не ссылается ни одно показание общего
-    счётчика (MasterMeterReading.tariff_id — прямая ссылка на запись, в
-    отличие от тарифа для членов, который читатели показаний копируют
-    числом, см. garages.add_meter_reading): иначе показанная в таблице
-    сумма (считается на лету по r.tariff.rate) разошлась бы с уже
-    созданным Expense.amount, зафиксированным при создании показания.
-    Возвращает текст ошибки или None, если можно продолжать."""
-    latest = (
-        database.db_session.query(ElectricityTariff)
-        .filter_by(kind=tariff.kind)
-        .order_by(ElectricityTariff.effective_date.desc(), ElectricityTariff.id.desc())
-        .first()
-    )
-    if latest is None or latest.id != tariff.id:
-        return _("Можно изменять только последний добавленный тариф этого вида.")
-
-    if tariff.kind == ElectricityTariffKind.SUPPLIER:
-        used = (
-            database.db_session.query(MasterMeterReading)
-            .filter_by(tariff_id=tariff.id)
-            .first()
-        )
-        if used is not None:
-            return _(
-                "Этот тариф уже использован в показаниях общего счётчика — "
-                "изменение заблокировано, чтобы не исказить уже посчитанные суммы."
-            )
-    return None
-
-
-@bp.route("/tariff/<int:tariff_id>/edit", methods=["POST"])
-@roles_required(RoleEnum.BOARD)
-def edit_tariff(tariff_id):
-    tariff = database.db_session.get(ElectricityTariff, tariff_id)
-    if tariff is None:
+def _tariff_date_or_404(effective):
+    try:
+        date = dt.date.fromisoformat(effective)
+    except ValueError:
         abort(404)
+    pair = _pair_on(date)
+    if not pair["supplier"] and not pair["member"]:
+        abort(404)
+    return date, pair
 
-    error = _tariff_edit_guard_error(tariff)
+
+@bp.route("/tariff/<effective>/edit", methods=["POST"])
+@roles_required(RoleEnum.BOARD)
+def edit_tariff(effective):
+    """Правка последнего тарифа (обеих ставок). Более ранние уже могли
+    использоваться для расчётов. Если тариф поставщика уже попал в
+    показания общего счётчика — его ставку и дату не менять (см.
+    _supplier_tariff_used), ставку для членов и комментарий — можно."""
+    date, pair = _tariff_date_or_404(effective)
+    if date != _latest_tariff_date():
+        flash(_("Можно изменять только последний добавленный тариф."), "danger")
+        return redirect(url_for("power.view"))
+    parsed, error = _parse_tariff_form(request.form)
     if error:
         flash(error, "danger")
         return redirect(url_for("power.view"))
-
-    f = request.form
-    tariff.rate = parse_decimal(f["rate"])
-    tariff.effective_date = dt.date.fromisoformat(f["effective_date"])
-    tariff.comment = f.get("comment") or None
-    kind_label = _("поставщика") if tariff.kind == ElectricityTariffKind.SUPPLIER else _("для членов кооператива")
-    audit.record("power.tariff_edit", f"Изменён тариф на электроэнергию ({kind_label}): {tariff.rate} ₽/кВт·ч с {audit.format_date(tariff.effective_date)}")
+    new_date, supplier_rate, member_rate, comment = parsed
+    supplier = pair["supplier"]
+    if _supplier_tariff_used(supplier) and (supplier.rate != supplier_rate or new_date != date):
+        flash(_(
+            "Тариф поставщика уже использован в показаниях общего счётчика — его ставку и дату изменить нельзя, "
+            "чтобы не исказить уже посчитанные суммы. Ставку для членов кооператива и комментарий изменить можно."
+        ), "danger")
+        return redirect(url_for("power.view"))
+    if new_date != date:
+        clash = _pair_on(new_date)
+        if clash["supplier"] or clash["member"]:
+            flash(_("Тариф с этой даты уже есть — измените его."), "danger")
+            return redirect(url_for("power.view"))
+    for kind, rate in ((ElectricityTariffKind.SUPPLIER, supplier_rate), (ElectricityTariffKind.MEMBER, member_rate)):
+        tariff = pair["supplier" if kind == ElectricityTariffKind.SUPPLIER else "member"]
+        if tariff is None:
+            tariff = ElectricityTariff(kind=kind)
+            database.db_session.add(tariff)
+        tariff.rate = rate
+        tariff.effective_date = new_date
+        tariff.comment = comment
+    audit.record(
+        "power.tariff_edit",
+        f"Изменён тариф на электроэнергию с {audit.format_date(new_date)}: "
+        f"поставщика {supplier_rate} ₽/кВт·ч, для членов кооператива {member_rate} ₽/кВт·ч",
+    )
     database.db_session.commit()
     flash(_("Тариф изменён."), "success")
     return redirect(url_for("power.view"))
 
 
-@bp.route("/tariff/<int:tariff_id>/delete", methods=["POST"])
+@bp.route("/tariff/<effective>/delete", methods=["POST"])
 @roles_required(RoleEnum.BOARD)
-def delete_tariff(tariff_id):
-    tariff = database.db_session.get(ElectricityTariff, tariff_id)
-    if tariff is None:
-        abort(404)
-
-    error = _tariff_edit_guard_error(tariff)
-    if error:
-        flash(error, "danger")
+def delete_tariff(effective):
+    date, pair = _tariff_date_or_404(effective)
+    if date != _latest_tariff_date():
+        flash(_("Можно удалить только последний добавленный тариф."), "danger")
         return redirect(url_for("power.view"))
-
-    kind_label = _("поставщика") if tariff.kind == ElectricityTariffKind.SUPPLIER else _("для членов кооператива")
-    audit.record("power.tariff_delete", f"Удалён тариф на электроэнергию ({kind_label}) {tariff.rate} ₽/кВт·ч с {audit.format_date(tariff.effective_date)}")
-    database.db_session.delete(tariff)
+    if _supplier_tariff_used(pair["supplier"]):
+        flash(_(
+            "Этот тариф уже использован в показаниях общего счётчика — "
+            "удаление заблокировано, чтобы не исказить уже посчитанные суммы."
+        ), "danger")
+        return redirect(url_for("power.view"))
+    audit.record("power.tariff_delete", f"Удалён тариф на электроэнергию с {audit.format_date(date)}")
+    for tariff in (pair["supplier"], pair["member"]):
+        if tariff is not None:
+            database.db_session.delete(tariff)
     database.db_session.commit()
     flash(_("Тариф удалён."), "success")
     return redirect(url_for("power.view"))

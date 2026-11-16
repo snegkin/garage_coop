@@ -32,7 +32,9 @@ def test_garage_stats(db, client):
     db.commit()
 
     stats = _stats(client.get("/garages/").get_data(as_text=True))
-    assert stats == {"всего гаражей": 3, "с электричеством": 1, "с приватизированным участком": 2}
+    assert stats == {"всего гаражей": 3, "с электричеством": 1, "без электричества": 2,
+                     "участок приватизирован": 2, "участок не приватизирован": 1,
+                     "на территории": 3, "вне территории": 0}
 
 
 def test_person_stats(db, client):
@@ -82,7 +84,7 @@ def test_stat_tiles_filter_rows(db, client):
     db.commit()
 
     html = client.get("/garages/?group=power").get_data(as_text=True)
-    assert 'data-groups="power privatized"' in html and 'data-groups=""' in html
+    assert 'data-groups="inside power privatized"' in html and 'data-groups="inside nopower notprivatized"' in html
     assert re.search(r'class="list-stat[^"]*is-active"\s+href="\?group=power"', html)
 
     html = client.get("/persons/").get_data(as_text=True)

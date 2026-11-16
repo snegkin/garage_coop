@@ -27,8 +27,9 @@ def test_list_and_navigation_by_number(app, db, client):
     body = client.get("/garages/").get_data(as_text=True)
     positions = [body.index(f"/garages/{g.id}'") for g in (g1, g2, g10, g11)]
     assert positions == sorted(positions)
-    assert 'data-sort-default="asc"' in body and 'id="garageTerritoryFilter"' in body
-    assert 'data-territory="outside"' in body and 'data-territory="inside"' in body
+    assert 'data-sort-default="asc"' in body
+    # Фильтр на/вне территории — плашками сводки (data-groups, см. _stats.html).
+    assert 'data-groups="outside' in body and 'data-groups="inside' in body
 
     page = client.get(f"/garages/{g10.id}").get_data(as_text=True)
     assert f"/garages/{g2.id}?" in page and f"/garages/{g11.id}?" in page

@@ -184,7 +184,11 @@ def list_garages():
         "total": len(garages),
         "with_power": sum(has_meter.values()),
         "land_privatized": sum(1 for garage in garages if garage.land_privatized),
+        "outside": sum(1 for garage in garages if garage.outside_territory),
     }
+    stats["inside"] = stats["total"] - stats["outside"]
+    stats["without_power"] = stats["total"] - stats["with_power"]
+    stats["land_not_privatized"] = stats["total"] - stats["land_privatized"]
     return render_template(
         "garages/list.html", garages=garages, all_persons=all_persons,
         preselect_person_id=preselect_person_id, balances=balances,

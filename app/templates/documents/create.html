@@ -13,8 +13,13 @@
 
 {% if cert_application %}
 <div class="alert alert-info no-print" style="max-width: 210mm; margin: 0 auto 1rem;">
+  {% if cert_application.kind.value == 'certificate' %}
   {{ _("Справка по заявлению") }} <a href="{{ url_for('applications.detail', application_id=cert_application.id) }}">№ {{ cert_application.number }}</a> {{ _("от") }} {{ cert_application.created_at.strftime('%d.%m.%Y') }}.
   {{ _("После выдачи собственнику придёт уведомление, что справку можно забрать у председателя.") }}
+  {% else %}
+  {{ _("Договор по заявлению на подключение") }} <a href="{{ url_for('applications.detail', application_id=cert_application.id) }}">№ {{ cert_application.number }}</a> {{ _("от") }} {{ cert_application.created_at.strftime('%d.%m.%Y') }}.
+  {{ _("После сохранения заявление закроется, заявителю придёт уведомление, что договор можно подписать у председателя.") }}
+  {% endif %}
 </div>
 {% endif %}
 {% if recipient != "none" and not cert_application %}

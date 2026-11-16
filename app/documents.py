@@ -64,6 +64,10 @@ RECIPIENTS = {
 
 BLANK = "________"
 CERTIFICATE_CODE = "garage_certificate"
+# Заявление на подключение к электросети (подаётся из кабинета) и договор,
+# который по нему оформляет правление (documents.create?application_id=…).
+POWER_APPLICATION_CODE = "power_application"
+POWER_CONTRACT_CODE = "power_contract"
 
 # Прочерки в шапке (правая колонка — «от кого», адрес, паспорт, телефон):
 # пропуск должен вмещать то, что впишут от руки, адрес — в две строки.
@@ -214,6 +218,16 @@ def _meter_reading(ctx) -> str:
     return "" if value is None else _number(value)
 
 
+def _self_consumption(ctx) -> str:
+    """«2 Вт — 1,46 кВт·ч в месяц (17,52 кВт·ч в год)» — как начисляется
+    (accounting.meter_self_consumption_kwh)."""
+    settings = database.db_session.query(ElectricitySettings).first()
+    watts = settings.meter_self_consumption_w if settings else Decimal("2")
+    year = watts * 24 * 365 / 1000
+    return (f"{_number(watts)} Вт — {_number((year / 12).quantize(Decimal('0.01')))} кВт·ч в месяц "
+            f"({_number(year.quantize(Decimal('0.01')))} кВт·ч в год)")
+
+
 def _outside_loss(ctx) -> str:
     # Только чтение: get_electricity_settings() создала бы запись при
     # предпросмотре шаблона.
@@ -327,8 +341,12 @@ VARIABLES = [
      lambda c: c.garage_attr(lambda gr: gr.cadastral_number or "")),
     ("кадастровый_номер_участка", "кадастровый номер земельного участка", "Гараж",
      lambda c: c.garage_attr(lambda gr: gr.land_cadastral_number or "")),
+    ("лицевой_счёт_гаража", "лицевой счёт гаража (электроэнергия) — указывают при оплате", "Гараж",
+     lambda c: c.garage_attr(lambda gr: gr.account.account_number if gr.account else "")),
     ("доля", "доля адресата в праве на гараж («1/2»)", "Гараж",
      lambda c: _share(c.ownership.share) if c.ownership is not None else ""),
+    ("самопотребление_счётчика", "собственное потребление счётчика: «2 Вт — 1,46 кВт·ч в месяц (…в год)»",
+     "Электроэнергия", _self_consumption),
     ("именуемый", "«именуемый» / «именуемая» по отчеству адресата — для договоров", "Адресат", _named),
     ("счётчик", "заводской номер актуального счётчика гаража", "Электроэнергия",
      lambda c: (m.meter_number if (m := _current_meter(c)) else "")),
@@ -531,6 +549,14 @@ _POWER_RULES = (
               "принадлежности и соблюдать правила электро- и пожарной безопасности.")
 )
 
+# Оплата: наличными в руки, переводом на расчётный счёт с лицевым счётом
+# гаража (по нему зачисляется оплата электроэнергии) или на сайте.
+_PAYMENT_WAYS = (
+    "{n}. Оплата производится одним из способов: наличными лично в руки председателю правления под "
+    "расписку; банковским переводом на расчётный счёт Кооператива (раздел 6) с указанием своего "
+    "лицевого счёта № {{{{лицевой_счёт_гаража}}}}; на сайте Кооператива {{{{сайт}}}} в личном кабинете."
+)
+
 _PAY_TERMS = (
     "<ul><li>ежегодно, единовременно за прошедший календарный год — до 31 марта следующего года, если "
     "годовое потребление не превышает 100 кВт·ч;</li>"
@@ -605,6 +631,7 @@ DEFAULT_TEMPLATES = [
     },
     {
         "name": "Заявление на подключение к электрической сети",
+        "code": POWER_APPLICATION_CODE,
         "is_public": True,
         "for_members": True,
         "title": "ЗАЯВЛЕНИЕ",
@@ -704,8 +731,8 @@ DEFAULT_TEMPLATES = [
             "<li>в сетях до Кооператива, выставляемые гарантирующим поставщиком, — {{потери_в_сети}}% "
             "от объёма по ИПУ Пользователя (при изменении норматива поставщиком процент меняется "
             "соответственно);</li>"
-            "<li>собственное потребление ИПУ Пользователя (до 2 Вт), которое сам прибор не учитывает, — "
-            "1,46 кВт·ч в месяц (17,52 кВт·ч в год) по действующему тарифу; при учёте по КПУ это "
+            "<li>собственное потребление ИПУ Пользователя, которое сам прибор не учитывает, — "
+            "{{самопотребление_счётчика}} по действующему тарифу; при учёте по КПУ это "
             "потребление уже входит в разницу показаний и отдельно не начисляется.</li></ul>"
             + _section("4. Платежи и порядок расчётов")
             + _clause("4.1. Электроэнергия и потери (п. 3.2) оплачиваются по тарифам, установленным для "
@@ -723,8 +750,7 @@ DEFAULT_TEMPLATES = [
                            "последние 3 года (Приложение № 1) — ______ (__________________) руб., срок "
                            "оплаты — до «___» ____________ {{год}} г.")
             + _clause("4.5. Пени за просрочку оплаты электроэнергии не начисляются.")
-            + _clause("4.6. Оплата — на расчётный счёт Кооператива (раздел 6) или в кассу Кооператива "
-                      "с выдачей приходного кассового ордера.")
+            + _clause(_PAYMENT_WAYS.format(n="4.6"))
             + _section("5. Заключительные положения")
             + _clause("5.1. Договор вступает в силу с момента подписания и действует бессрочно. Договор "
                       "может быть расторгнут по соглашению Сторон или в одностороннем порядке с "
@@ -740,6 +766,7 @@ DEFAULT_TEMPLATES = [
     },
     {
         "name": "Договор на электроэнергию (член кооператива)",
+        "code": POWER_CONTRACT_CODE,
         "title": "ДОГОВОР о подключении гаража к электрической сети кооператива",
         "recipient": "garage",
         "show_signature": False,
@@ -783,8 +810,7 @@ DEFAULT_TEMPLATES = [
             + _clause("4.3. Расходы на содержание и ремонт электросетевого хозяйства покрываются членскими "
                       "и целевыми взносами, установленными общим собранием; отдельной платы по Договору "
                       "за них нет.")
-            + _clause("4.4. Оплата — на расчётный счёт Кооператива (раздел 6) с указанием номера "
-                      "лицевого счёта ({{лицевые_счета}}) и гаража или в кассу Кооператива.")
+            + _clause(_PAYMENT_WAYS.format(n="4.4"))
             + _section("5. Заключительные положения")
             + _clause("5.1. Договор вступает в силу с момента подписания и действует, пока Член "
                       "кооператива остаётся членом Кооператива и владельцем Объекта. При выходе из "
@@ -933,16 +959,34 @@ def _default_template(order: int, data: dict) -> DocumentTemplate:
     })
 
 
-def certificate_template() -> DocumentTemplate:
-    """Шаблон справки о владении гаражом (по нему оформляются запросы из
-    кабинета) — создаётся из стандартного, если его ещё нет."""
-    template = database.db_session.query(DocumentTemplate).filter_by(code=CERTIFICATE_CODE).first()
+def coded_template(code: str) -> DocumentTemplate:
+    """Стандартный шаблон с меткой code (справка, договор) — создаётся из
+    стандартного, если его ещё нет."""
+    template = database.db_session.query(DocumentTemplate).filter_by(code=code).first()
     if template is None:
-        order, data = next((i, d) for i, d in enumerate(DEFAULT_TEMPLATES) if d.get("code") == CERTIFICATE_CODE)
+        order, data = next((i, d) for i, d in enumerate(DEFAULT_TEMPLATES) if d.get("code") == code)
         template = _default_template(order, data)
         database.db_session.add(template)
         database.db_session.flush()
     return template
+
+
+def certificate_template() -> DocumentTemplate:
+    """Шаблон справки о владении гаражом (по нему оформляются запросы из
+    кабинета)."""
+    return coded_template(CERTIFICATE_CODE)
+
+
+def application_document_code(application: Application) -> str | None:
+    """Какой документ правление оформляет по заявлению: справку о владении
+    (CERTIFICATE_CODE) или договор о подключении к электросети
+    (POWER_CONTRACT_CODE — заявление подано по шаблону-заявлению на
+    подключение); None — по такому заявлению документ не оформляется."""
+    if application.kind == ApplicationKind.CERTIFICATE:
+        return CERTIFICATE_CODE
+    if application.template is not None and application.template.code == POWER_APPLICATION_CODE:
+        return POWER_CONTRACT_CODE
+    return None
 
 
 def member_templates() -> list[DocumentTemplate]:
@@ -1214,11 +1258,11 @@ def create():
     source = cert_application = None
     if form.get("application_id"):
         cert_application = database.db_session.get(Application, form.get("application_id", type=int))
-        if (cert_application is None or cert_application.kind != ApplicationKind.CERTIFICATE
-                or cert_application.status != ApplicationStatus.SUBMITTED):
+        code = application_document_code(cert_application) if cert_application is not None else None
+        if code is None or cert_application.status != ApplicationStatus.SUBMITTED:
             flash(_("Заявление не найдено или по нему уже принято решение."), "warning")
             return redirect(url_for("applications.list_applications", status="submitted"))
-        template = certificate_template()
+        template = coded_template(code)
         recipient = template.recipient
     elif form.get("copy_of"):
         source = _document_or_404(form.get("copy_of", type=int))
@@ -1288,8 +1332,8 @@ def create():
                     + (f", гараж № {garage.number}" if garage else ""),
         )
         if cert_application is not None:
-            from .applications import certificate_issued
-            certificate_issued(cert_application, document)
+            from .applications import application_document_issued
+            application_document_issued(cert_application, document)
         database.db_session.commit()
         flash(_("Документ сохранён в журнале."), "success")
         return redirect(url_for("documents.detail", document_id=document.id))

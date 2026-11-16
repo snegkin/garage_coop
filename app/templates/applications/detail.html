@@ -51,15 +51,16 @@
       {% if is_board() %}<a href="{{ url_for('persons.detail', person_id=application.new_owner_person_id) }}">{{ application.new_owner.full_name }}</a>{% else %}{{ application.new_owner.full_name }}{% endif %}{% endif %}
     </div>
     {% endif %}
-    {% if application.kind.value == 'certificate' %}
+    {% if issue_code %}
+    {% set is_certificate = issue_code == 'garage_certificate' %}
     <div class="mt-1">
-      <strong>{{ _("Справка о владении гаражом") }}:</strong>
+      <strong>{{ _("Справка о владении гаражом") if is_certificate else _("Договор о подключении к электросети") }}:</strong>
       {% if application.document %}
-      <a href="{{ url_for('documents.detail', document_id=application.document_id) }}"><i class="bi bi-file-earmark-check" aria-hidden="true"></i>{{ _("справка") }}{% if application.document.number %} № {{ application.document.number }}{% endif %} {{ _("от") }} {{ application.document.issued_at.strftime('%d.%m.%Y') }}</a>
-      {% elif can_issue_certificate %}
-      <a class="btn btn-sm btn-primary ms-1" href="{{ url_for('documents.create', application_id=application.id) }}"><i class="bi bi-file-earmark-check" aria-hidden="true"></i> {{ _("Оформить справку") }}</a>
+      <a href="{{ url_for('documents.detail', document_id=application.document_id) }}"><i class="bi bi-file-earmark-check" aria-hidden="true"></i>{{ _("справка") if is_certificate else _("договор") }}{% if application.document.number %} № {{ application.document.number }}{% endif %} {{ _("от") }} {{ application.document.issued_at.strftime('%d.%m.%Y') }}</a>
+      {% elif can_issue_document %}
+      <a class="btn btn-sm btn-primary ms-1" href="{{ url_for('documents.create', application_id=application.id) }}"><i class="bi bi-file-earmark-check" aria-hidden="true"></i> {{ _("Оформить справку") if is_certificate else _("Оформить договор") }}</a>
       {% elif application.status.value == 'submitted' %}
-      <span class="text-muted">{{ _("оформляет председатель") }}</span>
+      <span class="text-muted">{{ _("оформляет председатель") if is_certificate else _("оформляет правление") }}</span>
       {% else %}
       <span class="text-muted">—</span>
       {% endif %}

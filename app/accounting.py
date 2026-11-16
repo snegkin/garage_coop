@@ -903,6 +903,19 @@ def outside_territory_rate(member_rate: Decimal) -> Decimal:
     return (member_rate * (Decimal("100") + percent) / Decimal("100")).quantize(Decimal("0.0001"), ROUND_HALF_UP)
 
 
+def meter_self_consumption_kwh(garage: Garage, date_from: dt.date | None, date_to: dt.date) -> Decimal:
+    """Собственное потребление счётчика гаража за территорией между
+    показаниями, кВт·ч: Вт (ElectricitySettings.meter_self_consumption_w)
+    × часы. Счётчик его не учитывает, кооператив за него платит — по
+    договору с не членом кооператива возмещает владелец. Гаражам на
+    территории — 0 (покрывается взносами)."""
+    if not garage.outside_territory or date_from is None or date_to <= date_from:
+        return Decimal("0")
+    watts = get_electricity_settings().meter_self_consumption_w or Decimal("0")
+    hours = Decimal((date_to - date_from).days * 24)
+    return (watts * hours / Decimal("1000")).quantize(Decimal("0.001"), ROUND_HALF_UP)
+
+
 def garage_fee_excluded(garage: Garage, fee_type: FeeType | None) -> bool:
     """Вид взноса не начисляется этому гаражу (Garage.excluded_fee_types —
     у гаражей за территорией)."""

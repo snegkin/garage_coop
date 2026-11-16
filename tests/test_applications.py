@@ -512,6 +512,60 @@ def test_member_submits_application_from_template(db, client):
     assert documents.member_templates()  # шаблоны на месте
 
 
+def test_power_application_gets_contract(db, client, monkeypatch):
+    from app.models import DocumentTemplate, IssuedDocument
+    sent = []
+    monkeypatch.setattr(notifications, "notify", lambda user, event, subject, body, **kw: sent.append((user.person_id, subject)))
+    person, garage = _owner(db)
+    _board(db)
+    login(client, "board1", "pass1234")
+    client.post("/documents/templates/defaults")
+    power = db.query(DocumentTemplate).filter_by(name="Заявление на подключение к электрической сети").one()
+    assert power.code == "power_application"
+    client.get("/auth/logout")
+
+    login(client, "owner", "pass1234")
+    assert _submit(client, garage, kind=f"template-{power.id}", title="",
+                   body="<p>Прошу подключить гараж.</p>").status_code == 302
+    application = db.query(Application).one()
+    page = client.get(f"/applications/{application.id}").get_data(as_text=True)
+    assert "Договор о подключении к электросети" in page and "оформляет правление" in page
+    assert "/documents/new?application_id=" not in page
+    client.get("/auth/logout")
+
+    # Договор оформляет любой член правления — по заявлению, с заявителем и гаражом.
+    login(client, "board1", "pass1234")
+    page = client.get(f"/applications/{application.id}").get_data(as_text=True)
+    assert f"/documents/new?application_id={application.id}" in page and "Оформить договор" in page
+    page = client.get(f"/documents/new?application_id={application.id}").get_data(as_text=True)
+    assert "Договор по заявлению на подключение" in page and "ДОГОВОР о подключении гаража" in page
+    assert "член Кооператива Петров Пётр Петрович, собственник гаража (бокса) № 42" in page
+    client.post("/documents/new", data={
+        "application_id": str(application.id), "issued_at": "2026-11-16",
+        "title": "ДОГОВОР", "body_html": "<p>Договор.</p>",
+    })
+    db.refresh(application)
+    contract = db.query(IssuedDocument).one()
+    assert contract.template.code == "power_contract" and contract.person_id == person.id
+    assert application.status == ApplicationStatus.ANSWERED and application.document_id == contract.id
+    assert "подпишите его у председателя" in application.response_html
+    assert (person.id, "Договор о подключении гаража № 42 готов") in sent
+    page = client.get(f"/applications/{application.id}").get_data(as_text=True)
+    assert f"/documents/{contract.id}" in page
+
+    # Удалили договор — заявление снова ждёт решения.
+    client.post(f"/documents/{contract.id}/delete")
+    db.refresh(application)
+    assert application.status == ApplicationStatus.SUBMITTED and application.document_id is None
+
+    # По обычному заявлению документ не оформляется.
+    other = Application(number="2026-99", kind=ApplicationKind.OTHER, title="", body_html="<p>x</p>",
+                        person_id=person.id, garage_id=garage.id, applicant_name=person.full_name)
+    db.add(other)
+    db.commit()
+    assert client.get(f"/documents/new?application_id={other.id}").status_code == 302
+
+
 def test_applicant_header_phones_one_per_line(db, client):
     person, garage = _owner(db)
     db.add(Phone(person_id=person.id, number="+79007654321"))

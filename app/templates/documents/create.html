@@ -11,13 +11,13 @@
   <a data-back-link data-back-label="&larr; {{ _('Назад') }}" class="btn btn-outline-secondary btn-sm" href="{{ url_for('documents.index') }}">{{ _("← к бланкам и шаблонам") }}</a>
 </div>
 
-{% if cert_request %}
+{% if cert_application %}
 <div class="alert alert-info no-print" style="max-width: 210mm; margin: 0 auto 1rem;">
-  {{ _("Справка по запросу от {date}", date=cert_request.created_at.strftime('%d.%m.%Y')) }}{% if cert_request.comment %}: «{{ cert_request.comment }}»{% endif %}.
+  {{ _("Справка по заявлению") }} <a href="{{ url_for('applications.detail', application_id=cert_application.id) }}">№ {{ cert_application.number }}</a> {{ _("от") }} {{ cert_application.created_at.strftime('%d.%m.%Y') }}.
   {{ _("После выдачи собственнику придёт уведомление, что справку можно забрать у председателя.") }}
 </div>
 {% endif %}
-{% if recipient != "none" and not cert_request %}
+{% if recipient != "none" and not cert_application %}
 <form method="get" action="{{ url_for('documents.create') }}" class="no-print mb-3" style="max-width: 210mm; margin: 0 auto;">
   {% for k, v in keep.items() %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
   {% if recipient == "garage" %}
@@ -51,11 +51,11 @@
   {% endif %}
 </div>
 {% set reset_args = dict(keep) %}
-{% if recipient == "garage" and not cert_request %}{% set _x = reset_args.update({"owner": person.id ~ ":" ~ garage.id}) %}{% endif %}
+{% if recipient == "garage" and not cert_application %}{% set _x = reset_args.update({"owner": person.id ~ ":" ~ garage.id}) %}{% endif %}
 {% if recipient == "person" %}{% set _x = reset_args.update({"person_id": person.id}) %}{% endif %}
 <form method="post" action="{{ url_for('documents.create') }}">
   {% for k, v in keep.items() %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
-  {% if recipient == "garage" and not cert_request %}<input type="hidden" name="owner" value="{{ person.id }}:{{ garage.id }}">{% endif %}
+  {% if recipient == "garage" and not cert_application %}<input type="hidden" name="owner" value="{{ person.id }}:{{ garage.id }}">{% endif %}
   {% if recipient == "person" %}<input type="hidden" name="person_id" value="{{ person.id }}">{% endif %}
   <div class="no-print d-flex align-items-end gap-3 mb-2" style="max-width: 210mm; margin: 0 auto;">
     <div>

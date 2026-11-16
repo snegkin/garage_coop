@@ -11,8 +11,9 @@ textarea; на сервере HTML чистится bleach'ем (sanitize_html) 
 Организационная модель:
 - Подать может собственник гаража (член кооператива), по одному из своих
   гаражей — заявление подшивается и к заявителю, и к гаражу.
-- Вид: смена собственника гаража / официальная претензия / иное — от вида
-  зависит заголовок («Заявление»/«Претензия») и стартовый текст.
+- Вид: смена собственника гаража / справка о владении гаражом /
+  официальная претензия / иное — от вида зависит заголовок
+  («Заявление»/«Претензия») и стартовый текст.
 - После подачи — уведомление правлению (журнал аудита, группа «Ждёт
   решения правления»). Видят заявление любой член правления и сам
   заявитель; открытие карточки членом правления отмечает его как
@@ -29,6 +30,12 @@ textarea; на сервере HTML чистится bleach'ем (sanitize_html) 
   (transfer): новая карточка человека или уже существующий человек, доля
   заявителя целиком переходит к нему (garages.transfer_owner), приложения
   копируются в документы гаража.
+- Заявление о выдаче справки о владении гаражом (отдельного запроса справки
+  нет): председатель оформляет по нему справку — документ «Бланков и
+  шаблонов» (documents.create?application_id=…, Application.document_id),
+  заявление получает ответ «справка готова, заберите у председателя»
+  (certificate_issued). Удалили справку из журнала — заявление снова ждёт
+  решения (certificate_withdrawn).
 """
 import datetime as dt
 import json
@@ -47,7 +54,7 @@ from . import notifications
 from .i18n import translate as _
 from .auth import login_required, roles_required
 from .legal_docs import _render_pdf_or_fallback, _coop_and_chairman
-from .permissions import is_board
+from .permissions import is_board, is_chairman
 from .uploads import save_upload
 from .models import (
     Application, ApplicationAttachment, ApplicationRead, ApplicationCounter, ApplicationKind, ApplicationStatus,
@@ -65,6 +72,7 @@ bp = Blueprint("applications", __name__, url_prefix="/applications")
 
 KIND_HEADINGS = {
     ApplicationKind.OWNERSHIP_CHANGE: "Заявление",
+    ApplicationKind.CERTIFICATE: "Заявление",
     ApplicationKind.CLAIM: "Претензия",
     ApplicationKind.OTHER: "Заявление",
 }
@@ -72,12 +80,14 @@ KIND_HEADINGS = {
 # «Ответ на претензию», «Ответ на заявление» — заголовок ответа правления.
 KIND_ACCUSATIVE = {
     ApplicationKind.OWNERSHIP_CHANGE: "заявление",
+    ApplicationKind.CERTIFICATE: "заявление",
     ApplicationKind.CLAIM: "претензию",
     ApplicationKind.OTHER: "заявление",
 }
 
 DEFAULT_TITLES = {
     ApplicationKind.OWNERSHIP_CHANGE: "о смене собственника гаража",
+    ApplicationKind.CERTIFICATE: "о выдаче справки о владении гаражом",
     ApplicationKind.CLAIM: "",
     ApplicationKind.OTHER: "",
 }
@@ -89,6 +99,10 @@ DEFAULT_BODIES = {
         "<p>Прошу в связи с переходом права собственности на гараж № {garage} исключить меня из "
         "собственников гаража и внести в реестр нового собственника, сведения о котором приведены ниже.</p>"
         "<p>Копии документов, подтверждающих переход права собственности, прилагаю.</p>"
+    ),
+    ApplicationKind.CERTIFICATE: (
+        "<p>Прошу выдать справку о том, что я являюсь членом кооператива и владею гаражом № {garage}, "
+        "для предъявления по месту требования.</p>"
     ),
     ApplicationKind.CLAIM: (
         "<p>Настоящим заявляю претензию по следующему вопросу: ____________________.</p>"
@@ -171,6 +185,7 @@ def matching_persons(full_name: str) -> list[Person]:
 def kind_label(kind: ApplicationKind) -> str:
     return {
         ApplicationKind.OWNERSHIP_CHANGE: _("Смена собственника гаража"),
+        ApplicationKind.CERTIFICATE: _("Справка о владении гаражом"),
         ApplicationKind.CLAIM: _("Официальная претензия"),
         ApplicationKind.OTHER: _("Иное заявление"),
     }[kind]
@@ -613,8 +628,10 @@ def detail(application_id):
             database.db_session.refresh(application)
     coop, _chairman = _coop_and_chairman()
     can_decide = is_board() and application.status == ApplicationStatus.SUBMITTED
+    can_issue_certificate = can_decide and application.kind == ApplicationKind.CERTIFICATE and is_chairman()
     return render_template(
         "applications/detail.html", application=application, coop=coop, can_decide=can_decide,
+        can_issue_certificate=can_issue_certificate,
         today=dt.date.today(), transfer=_transfer_context(application) if can_decide else None,
         response_prefill=_response_prefill(application),
     )
@@ -647,6 +664,41 @@ def _transfer_context(application: Application) -> dict | None:
         "comment": f"По заявлению № {application.number} от {application.created_at.strftime('%d.%m.%Y')}"
                    + (f"; основание: {data['basis']}" if data.get("basis") else ""),
     }
+
+
+def certificate_issued(application: Application, document) -> None:
+    """Справка по заявлению оформлена (documents.create) — заявление
+    получает ответ и закрывается, заявителю уведомление «заберите»."""
+    application.document_id = document.id
+    application.status = ApplicationStatus.ANSWERED
+    application.response_html = (
+        f"<p>Правление рассмотрело Ваше заявление. Справка"
+        + (f" № {escape(document.number)}" if document.number else "")
+        + f" о владении гаражом № {escape(application.garage_number)} подготовлена — "
+        "заберите подписанный экземпляр у председателя.</p>"
+    )
+    application.decided_at = dt.datetime.now()
+    application.decided_by_person_id = g.user.person_id
+    applicant = notifications.user_for_person(application.person_id)
+    if applicant is not None:
+        link = request.host_url.rstrip("/") + url_for("applications.detail", application_id=application.id)
+        notifications.after_commit(
+            notifications.notify_user_id, applicant.id, "my_requests",
+            f"Справка по гаражу № {application.garage_number} готова",
+            f"Справка о владении гаражом № {application.garage_number} по вашему заявлению № {application.number} "
+            f"готова — заберите подписанный экземпляр у председателя.\n\n{link}",
+        )
+
+
+def certificate_withdrawn(document) -> None:
+    """Справку удалили из журнала — заявление, по которому она выдана,
+    снова ждёт решения."""
+    for application in database.db_session.query(Application).filter_by(document_id=document.id):
+        application.document_id = None
+        application.status = ApplicationStatus.SUBMITTED
+        application.response_html = None
+        application.decided_at = None
+        application.decided_by_person_id = None
 
 
 def _response_prefill(application: Application) -> str:

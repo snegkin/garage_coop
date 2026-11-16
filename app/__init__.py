@@ -227,7 +227,6 @@ def create_app(config_class=Config):
             "revision_chat_unread_count": revision_chat_unread,
             "pending_proposals_count": attention_counts["proposals"],
             "pending_applications_count": attention_counts["applications"],
-            "pending_certificate_requests_count": attention_counts["certificates"],
             "mailbox_unread_count": attention_counts["mail"],
             "attention_items": attention.items(user, attention_counts),
             "attention_total": attention.total(attention_counts),

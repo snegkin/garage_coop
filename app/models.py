@@ -3606,4 +3606,7 @@ class FailureNotification(Base):
     # Неудачных прогонов подряд — уведомляем, только когда их набралось
     # достаточно (см. notifications.FREQUENT_FAILURE_THRESHOLD).
     consecutive_failures: Mapped[int] = mapped_column(Integer, default=0)
+    # Когда началась текущая серия неудач (первая неудача после удачного
+    # прогона) — для порога по длительности (notify_failure: min_duration).
+    failing_since: Mapped[dt.datetime | None] = mapped_column(DateTime)
     notified_at: Mapped[dt.datetime | None] = mapped_column(DateTime)

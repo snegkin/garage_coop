@@ -1,15 +1,63 @@
 {#
   Сводка над реестром (гаражи, люди): ряд плашек «число + подпись».
-  items — список пар (число, подпись); на телефоне плашки переносятся.
+  items — тройки (число, подпись, группа); плашка — ссылка «?group=<группа>»
+  (пустая группа — «все», сброс), active — выбранная сейчас группа.
+  Страница с JS-фильтром перехватывает нажатие и фильтрует строки на месте
+  (атрибут data-stat-group, см. garages/list.html, persons/list.html);
+  base_url — куда вести ссылки, если страница фильтровать на месте не
+  может (архив людей — плашки считают людей не из архива).
+  На телефоне плашки по две в ряд.
 #}
-{% macro stats_row(items) %}
+{% macro stats_row(items, active="", base_url="") %}
 <div class="list-stats d-flex flex-wrap gap-2 mb-3">
-  {% for value, label in items %}
-  <div class="list-stat border rounded bg-body px-3 py-2">
+  {% for value, label, group in items %}
+  <a class="list-stat border rounded bg-body px-3 py-2 text-reset text-decoration-none{{ ' is-active' if group == active }}"
+     href="{{ base_url }}{{ '?group=' ~ group if group else ('' if base_url else '?') }}" data-stat-group="{{ group }}"
+     aria-pressed="{{ 'true' if group == active else 'false' }}">
     <div class="fs-5 fw-semibold lh-1">{{ value }}</div>
     <div class="small text-muted">{{ label }}</div>
-  </div>
+  </a>
   {% endfor %}
 </div>
-<style>.list-stat { min-width: 7.5rem; } @media (max-width: 575.98px) { .list-stat { flex: 1 1 calc(50% - .5rem); min-width: 0; } }</style>
+<style>
+  .list-stat { min-width: 7.5rem; transition: border-color .15s, background-color .15s; }
+  .list-stat:hover { border-color: var(--bs-primary) !important; }
+  .list-stat.is-active { border-color: var(--bs-primary) !important; background-color: var(--bs-primary-bg-subtle) !important; }
+  @media (max-width: 575.98px) { .list-stat { flex: 1 1 calc(50% - .5rem); min-width: 0; } }
+</style>
+{% endmacro %}
+
+{#
+  Общий JS плашек: нажатие выбирает группу (повторное или «все» —
+  сброс), подсвечивает плашку, пишет ?group= в адрес и вызывает
+  onChange(group). -> текущая группа при загрузке (из адреса).
+#}
+{% macro stats_script() %}
+<script>
+function initStatFilter(onChange) {
+  var tiles = Array.prototype.slice.call(document.querySelectorAll("[data-stat-group]"));
+  var group = new URLSearchParams(location.search).get("group") || "";
+  function select(next) {
+    group = next;
+    tiles.forEach(function (t) {
+      var on = t.getAttribute("data-stat-group") === group;
+      t.classList.toggle("is-active", on);
+      t.setAttribute("aria-pressed", on ? "true" : "false");
+    });
+    var params = new URLSearchParams(location.search);
+    if (group) params.set("group", group); else params.delete("group");
+    var qs = params.toString();
+    history.replaceState(null, "", location.pathname + (qs ? "?" + qs : ""));
+    onChange(group);
+  }
+  tiles.forEach(function (t) {
+    t.addEventListener("click", function (e) {
+      e.preventDefault();
+      var g = t.getAttribute("data-stat-group");
+      select(g === group ? "" : g);
+    });
+  });
+  return group;
+}
+</script>
 {% endmacro %}

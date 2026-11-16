@@ -189,6 +189,7 @@ def list_garages():
         "garages/list.html", garages=garages, all_persons=all_persons,
         preselect_person_id=preselect_person_id, balances=balances,
         has_meter=has_meter, any_no_meter=(False in has_meter.values()), stats=stats,
+        group=request.args.get("group", ""),
     )
 
 

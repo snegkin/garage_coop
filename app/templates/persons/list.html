@@ -38,13 +38,13 @@
   {% endif %}
 </div>
 
-{% from "_stats.html" import stats_row %}
+{% from "_stats.html" import stats_row, stats_script %}
 {{ stats_row([
-  (stats.total, _("всего людей")),
-  (stats.owners, _("собственники")),
-  (stats.contacts, _("для связи")),
-  (stats.tenants, _("снимают гараж")),
-]) }}
+  (stats.total, _("всего людей"), ""),
+  (stats.owners, _("собственники"), "owner"),
+  (stats.contacts, _("для связи"), "contact"),
+  (stats.tenants, _("снимают гараж"), "tenant"),
+], active=group, base_url=(url_for('persons.list_persons') if show_archived or show_pending_only else "")) }}
 
 <div class="mb-3">
   <input class="form-control" id="personFilterInput" placeholder="{{ _('Поиск по ФИО, телефону, email...') }}">
@@ -75,6 +75,7 @@
     {% if p.comment %}{% set _x = row_classes.append("table-info") %}{% endif %}
     {% if p.id in pending_by_person %}{% set _x = row_classes.append("table-warning") %}{% endif %}
     <tr onclick="window.location='{{ url_for('persons.detail', person_id=p.id) }}'" style="cursor:pointer"
+        data-groups="{{ (person_groups.get(p.id) or [])|join(' ') }}"
         data-filter-text="{{ (p.full_name ~ ' ' ~ p.phones|map(attribute='number')|join(' ') ~ ' ' ~ (p.email or '') ~ ' ' ~ (balances[p.id]|string))|lower }}"
         class="{{ row_classes|join(' ') }}">
       <td>
@@ -107,6 +108,7 @@
 </table>
 <p id="personNoResults" class="text-muted d-none">{{ _("Ничего не найдено.") }}</p>
 
+{% if not show_archived and not show_pending_only %}{{ stats_script() }}{% endif %}
 <script>
 (function () {
   const input = document.getElementById("personFilterInput");
@@ -114,17 +116,24 @@
   const noResults = document.getElementById("personNoResults");
   if (!input || !table) return;
   const rows = Array.from(table.querySelectorAll("tbody tr[data-filter-text]"));
+  // Плашки сводки (_stats.html) фильтруют на месте только во вкладке «Все»;
+  // в архиве и «ожидают изменения» это обычные ссылки на «Все».
+  let group = "";
+  if (window.initStatFilter) group = initStatFilter(function (g) { group = g; applyFilter(); });
 
-  input.addEventListener("input", function () {
+  function applyFilter() {
     const q = input.value.trim().toLowerCase();
     let visibleCount = 0;
     rows.forEach(function (row) {
-      const match = !q || row.getAttribute("data-filter-text").includes(q);
+      const match = (!q || row.getAttribute("data-filter-text").includes(q))
+        && (!group || row.getAttribute("data-groups").split(" ").includes(group));
       row.classList.toggle("d-none", !match);
       if (match) visibleCount++;
     });
-    noResults.classList.toggle("d-none", !(q && visibleCount === 0));
-  });
+    noResults.classList.toggle("d-none", !((q || group) && visibleCount === 0));
+  }
+  input.addEventListener("input", applyFilter);
+  applyFilter();
 })();
 </script>
 

@@ -34,11 +34,11 @@
     </a>
     {# Колокольчик «Требует внимания» — ВНЕ выдвижного меню #nav: на телефоне
        меню свёрнуто, и уведомления внутри него никто не видел. Здесь он
-       между логотипом и бургером; на десктопе order-lg-last уводит его в
+       справа от логотипа; на десктопе order-lg-last уводит его в
        конец строки, за профиль. Список — _attention_menu.html, счётчики —
        app/attention.py; обновляется без перезагрузки (скрипт внизу). #}
     {% if current_user %}
-    <div class="dropdown ms-auto me-2 order-lg-last ms-lg-2 me-lg-0" id="attentionBell">
+    <div class="dropdown ms-auto order-lg-last ms-lg-2" id="attentionBell">
       <button type="button" class="btn attention-bell" data-bs-toggle="dropdown" aria-expanded="false"
               title="{{ _('Уведомления') }}" aria-label="{{ _('Уведомления') }}">
         <i class="bi bi-bell{{ '-fill' if attention_total }}" aria-hidden="true"></i>
@@ -55,12 +55,9 @@
        листается внутри неё), закрывается она только крестиком, тапом
        мимо или переходом по ссылке. На lg и шире Bootstrap
        (.navbar-expand-lg .offcanvas) рисует то же содержимое обычной
-       строкой навбара — на компьютере всё как раньше. Ту же панель
-       открывает кнопка «Меню» в нижней панели (см. .bottom-nav ниже). #}
-    <button class="navbar-toggler" type="button" data-bs-toggle="offcanvas" data-bs-target="#nav"
-            aria-controls="nav" aria-label="{{ _('Меню') }}">
-      <span class="navbar-toggler-icon"></span>
-    </button>
+       строкой навбара — на компьютере всё как раньше. Открывает панель
+       кнопка «Меню» в нижней панели вкладок (см. .bottom-nav ниже) — как в
+       мобильном приложении; бургера в шапке нет, чтобы не дублировать её. #}
     <div class="offcanvas offcanvas-end" tabindex="-1" id="nav" aria-labelledby="navLabel">
       <div class="offcanvas-header">
         <h5 class="offcanvas-title" id="navLabel">{{ coop_name }}</h5>
@@ -253,7 +250,7 @@
 
 {# Нижняя панель вкладок — только на телефоне/планшете (< lg, тот же
    порог, что у выдвижного меню): самые частые разделы всегда под
-   пальцем, «Меню» открывает ту же панель #nav, что и бургер в шапке.
+   пальцем, «Меню» открывает выдвижную панель #nav (бургера в шапке нет).
    Остальная навигация — в ней же. Подсветка текущего раздела — по
    request.endpoint. Место под панель внизу страницы и подъём пузырей
    чатов — см. .bottom-nav в <style>. #}

@@ -25,7 +25,9 @@ Bot API (dev.max.ru/docs-api, ноябрь 2026):
     poll_updates) и показываем на странице настроек (app/max_settings.py).
 Бот должен быть администратором канала/группы.
 """
+import contextlib
 import datetime as dt
+import hashlib
 import json
 import os
 import tempfile
@@ -101,17 +103,31 @@ _bundle_cache: dict[str, str] = {}
 def _verify():
     """Набор корней для проверки TLS: certifi + корень Минцифры
     (Config.MAX_API_CA_BUNDLE). requests принимает один файл, поэтому
-    склеиваем их один раз во временный файл. Файла корня нет — certifi
-    (тогда platform-api2.max.ru не откроется: SSLError в журнале очереди)."""
+    склеиваем их во временный файл. Имя — по хешу содержимого: cron
+    (poll_messengers раз в минуту) запускает новый процесс, и каждый
+    находит готовый файл, а не плодит свой в /tmp. Файла корня нет —
+    certifi (тогда platform-api2.max.ru не откроется: SSLError в журнале
+    очереди)."""
     path = current_app.config.get("MAX_API_CA_BUNDLE") if has_app_context() else None
     if not path or not os.path.isfile(path):
         return True
     if path not in _bundle_cache or not os.path.isfile(_bundle_cache[path]):
         with open(certifi.where(), "rb") as base, open(path, "rb") as extra:
             data = base.read() + b"\n" + extra.read()
-        fd, combined = tempfile.mkstemp(prefix="max-ca-", suffix=".pem")
-        with os.fdopen(fd, "wb") as fh:
-            fh.write(data)
+        digest = hashlib.sha256(data).hexdigest()[:16]
+        combined = os.path.join(tempfile.gettempdir(), f"max-ca-{os.getuid()}-{digest}.pem")
+        if not (os.path.isfile(combined) and os.path.getsize(combined) == len(data)):
+            # Пишем рядом и переименовываем: недописанный файл (нет места)
+            # не должен оказаться под итоговым именем.
+            fd, tmp = tempfile.mkstemp(prefix="max-ca-", suffix=".part")
+            try:
+                with os.fdopen(fd, "wb") as fh:
+                    fh.write(data)
+                os.replace(tmp, combined)
+            except BaseException:
+                with contextlib.suppress(OSError):
+                    os.unlink(tmp)
+                raise
         _bundle_cache[path] = combined
     return _bundle_cache[path]
 

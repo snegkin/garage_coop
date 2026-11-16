@@ -38,6 +38,14 @@
   {% endif %}
 </div>
 
+{% from "_stats.html" import stats_row %}
+{{ stats_row([
+  (stats.total, _("всего людей")),
+  (stats.owners, _("собственники")),
+  (stats.contacts, _("для связи")),
+  (stats.tenants, _("снимают гараж")),
+]) }}
+
 <div class="mb-3">
   <input class="form-control" id="personFilterInput" placeholder="{{ _('Поиск по ФИО, телефону, email...') }}">
 </div>

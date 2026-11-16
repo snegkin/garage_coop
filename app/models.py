@@ -2243,6 +2243,9 @@ class GarageContact(Base):
     garage_id: Mapped[int] = mapped_column(ForeignKey("garage.id", ondelete="CASCADE"), index=True)
     person_id: Mapped[int] = mapped_column(ForeignKey("person.id"), index=True)
     relation: Mapped[str | None] = mapped_column(String(100))  # "супруга", "доверенное лицо"...
+    # Снимает этот гараж (арендатор) — для связи по гаражу, но не
+    # собственник; считается отдельно в статистике реестра людей.
+    is_tenant: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
 
     garage: Mapped["Garage"] = relationship(back_populates="contacts")
     person: Mapped["Person"] = relationship()

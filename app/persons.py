@@ -72,6 +72,7 @@ def list_persons():
 
     archived_count = database.db_session.query(Person).filter(Person.is_archived.is_(True)).count()
     active_count = database.db_session.query(Person).filter(Person.is_archived.is_(False)).count()
+    stats = _person_stats(active_count)
 
     return render_template(
         "persons/list.html",
@@ -83,8 +84,25 @@ def list_persons():
         show_archived=show_archived,
         archived_count=archived_count,
         active_count=active_count,
+        stats=stats,
         q=q,
     )
+
+
+def _person_stats(total: int) -> dict:
+    """Сводка над реестром — по людям не из архива. Человек попадает во все
+    группы, к которым относится (собственник одного гаража может быть лицом
+    для связи по другому), поэтому группы в сумме не обязаны давать total.
+    «Для связи» — лица для связи, которые гараж не снимают; снимающие —
+    отдельно (GarageContact.is_tenant)."""
+    active =database.db_session.query(Person.id).filter(Person.is_archived.is_(False))
+    owners = {pid for (pid,) in database.db_session.query(GarageOwnership.person_id).filter(
+        GarageOwnership.person_id.in_(active)).distinct()}
+    contacts, tenants = set(), set()
+    for person_id, is_tenant in database.db_session.query(GarageContact.person_id, GarageContact.is_tenant).filter(
+            GarageContact.person_id.in_(active)):
+        (tenants if is_tenant else contacts).add(person_id)
+    return {"total": total, "owners": len(owners), "contacts": len(contacts), "tenants": len(tenants)}
 
 
 def _notify_channels_by_person(persons) -> dict[int, list[dict] | None]:

@@ -1254,10 +1254,12 @@ class Application(Base):
     # подачи («Жалоба», «Обращение»); NULL — по виду (KIND_HEADINGS).
     template_id: Mapped[int | None] = mapped_column(ForeignKey("document_template.id", ondelete="SET NULL"))
     heading: Mapped[str | None] = mapped_column(String(200))
-    # Только для CERTIFICATE: справка о владении гаражом, оформленная
-    # председателем по заявлению (documents.create?application_id=…) —
-    # заявление при этом получает ответ «готова, заберите». Удаление
-    # справки из журнала возвращает заявление на рассмотрение.
+    # Документ, оформленный по заявлению (documents.create?application_id=…,
+    # documents.application_document_code): справка о владении гаражом
+    # (CERTIFICATE) или договор о подключении к электросети (заявление по
+    # шаблону с кодом power_application) — заявление при этом получает
+    # ответ «готов». Удаление документа из журнала возвращает заявление на
+    # рассмотрение.
     document_id: Mapped[int | None] = mapped_column(ForeignKey("issued_document.id", ondelete="SET NULL"))
 
     person: Mapped["Person"] = relationship(foreign_keys=[person_id])
@@ -1266,6 +1268,7 @@ class Application(Base):
     new_owner: Mapped["Person | None"] = relationship(foreign_keys=[new_owner_person_id])
     registered_by: Mapped["User | None"] = relationship(foreign_keys=[registered_by_user_id])
     document: Mapped["IssuedDocument | None"] = relationship()
+    template: Mapped["DocumentTemplate | None"] = relationship()
     reads: Mapped[list["ApplicationRead"]] = relationship(
         back_populates="application", cascade="all, delete-orphan", order_by="ApplicationRead.read_at",
     )
@@ -2293,6 +2296,10 @@ class ElectricityReading(Base):
     # ControlMeter.parent_garage_id, control_meters.garage_supplied_nodes_delta)
     # — сохраняется как есть на момент начисления, не пересчитывается позже.
     control_meter_deduction: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    # Сколько кВт·ч собственного потребления счётчика прибавлено к дельте
+    # (гаражи за территорией, ElectricitySettings.meter_self_consumption_w)
+    # — тоже фиксируется на момент начисления.
+    meter_self_consumption: Mapped[Decimal | None] = mapped_column(Numeric(12, 3))
     comment: Mapped[str | None] = mapped_column(Text)
 
     meter: Mapped["ElectricityMeter"] = relationship(back_populates="readings")
@@ -2375,6 +2382,11 @@ class ElectricitySettings(Base):
     # кооперативу, поэтому гаражам за территорией (Garage.outside_territory)
     # электроэнергия продаётся по тарифу для членов, увеличенному на этот %.
     outside_line_loss_percent: Mapped[Decimal] = mapped_column(Numeric(5, 2), default=Decimal("2.33"), server_default="2.33")
+    # Собственное потребление прибора учёта, Вт: сам счётчик его не
+    # учитывает, а кооператив за него платит. Гаражам за территорией
+    # прибавляется к объёму по показаниям — Вт × часы с прошлых показаний
+    # (accounting.meter_self_consumption_kwh); 0 — не начислять.
+    meter_self_consumption_w: Mapped[Decimal] = mapped_column(Numeric(5, 2), default=Decimal("2"), server_default="2")
 
     supplier: Mapped["Counterparty | None"] = relationship()
 

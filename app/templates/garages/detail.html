@@ -797,6 +797,9 @@
             {% if row.deduction %}
             <br><span class="text-muted small" title="{{ _('Вычтено при начислении — потребление узлов, запитанных через этот гараж') }}">&minus;{{ fmt2(row.deduction) }} {{ _("кВт·ч (общий узел)") }}</span>
             {% endif %}
+            {% if row.self_consumption %}
+            <br><span class="text-muted small" title="{{ _('Прибавлено при начислении — собственное потребление счётчика, которое он сам не учитывает') }}">+{{ fmt2(row.self_consumption) }} {{ _("кВт·ч (сам счётчик)") }}</span>
+            {% endif %}
           </td>
           <td data-sort-value="{{ row.tariff if row.tariff is not none else '' }}">{{ fmt2(row.tariff) if row.tariff is not none else "—" }}</td>
           <td data-sort-value="{{ row.charge_amount if row.charge_amount is not none else '' }}">

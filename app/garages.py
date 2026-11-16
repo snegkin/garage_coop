@@ -23,6 +23,7 @@ from .models import (
 from sqlalchemy.orm import joinedload
 from .accounting import (
     electricity_account_number, member_account_number, balance, current_tariff, garage_electricity_rate, reallocate_garage_charges,
+    meter_self_consumption_kwh,
     charge_paid_amount, split_amount_by_shares, redistribute_member_account_balance, next_owner_index,
     transfer_member_account_balance, ensure_personal_member_accounts,
 )
@@ -384,6 +385,7 @@ def detail(garage_id):
             "payments": _charge_payments(charge_obj) if charge_obj else [],
             "meter_number": r.meter.meter_number,
             "deduction": r.control_meter_deduction,
+            "self_consumption": r.meter_self_consumption,
         })
     for c in charges:
         if c.reading_id is not None:
@@ -1213,6 +1215,7 @@ def add_electricity_reading(garage_id):
 
     amount = None
     deduction = None
+    self_kwh = Decimal("0")
     tariff = current_tariff(ElectricityTariffKind.MEMBER, reading_date)
     tariff_rate = garage_electricity_rate(garage, tariff)
     comment = f.get("comment") or None
@@ -1224,8 +1227,9 @@ def add_electricity_reading(garage_id):
             if date_from is not None else (Decimal("0"), False)
         )
         net_delta = delta - deduction
+        self_kwh = meter_self_consumption_kwh(garage, date_from, reading_date)
         if tariff_rate is not None and net_delta > 0:
-            amount = (net_delta * tariff_rate).quantize(Decimal("0.01"))
+            amount = ((net_delta + self_kwh) * tariff_rate).quantize(Decimal("0.01"))
         if deduction or is_partial:
             deduction_note = _(
                 "За вычетом {deduction} кВт·ч по узлу(ам), запитанным через этот гараж.",
@@ -1244,6 +1248,7 @@ def add_electricity_reading(garage_id):
         amount=amount,
         tariff=tariff_rate,
         control_meter_deduction=deduction if deduction else None,
+        meter_self_consumption=self_kwh if self_kwh else None,
         comment=comment,
     )
     database.db_session.add(reading)
@@ -1343,7 +1348,9 @@ def edit_last_reading(garage_id):
         delta = new_value - baseline
         net_delta = delta - deduction
         if net_delta > 0:
-            amount = (net_delta * tariff_rate).quantize(Decimal("0.01"))
+            # Самопотребление счётчика — как при внесении (дата не меняется).
+            amount = ((net_delta + (last_reading.meter_self_consumption or Decimal("0"))) * tariff_rate
+                      ).quantize(Decimal("0.01"))
 
     last_reading.reading = new_value
     last_reading.tariff = tariff_rate

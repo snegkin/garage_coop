@@ -115,11 +115,41 @@ def test_outside_garage_electricity_with_line_loss(db, client):
     db.commit()
     login(client, "board_out2", "pass12345")
 
-    resp = client.post(f"/garages/{garage.id}/electricity/reading/add", data={"reading": "100"})
+    # С 01.01 по 31.01 — 30 суток: самопотребление счётчика 2 Вт × 720 ч = 1,44 кВт·ч.
+    resp = client.post(f"/garages/{garage.id}/electricity/reading/add",
+                       data={"reading": "100", "reading_date": "2026-01-31"})
     assert resp.status_code == 302
     reading = db.query(ElectricityReading).filter_by(meter_id=meter.id).one()
     assert reading.tariff == Decimal("6.1398")  # 6 × 1,0233
-    assert db.query(Charge).filter_by(reading_id=reading.id).one().amount == Decimal("613.98")
+    assert reading.meter_self_consumption == Decimal("1.440")
+    charge = db.query(Charge).filter_by(reading_id=reading.id).one()
+    assert charge.amount == Decimal("622.82")  # 101,44 × 6,1398
+    page = client.get(f"/garages/{garage.id}?tab=account").get_data(as_text=True)
+    assert "кВт·ч (сам счётчик)" in page
+
+    # Правка последних показаний — самопотребление то же (дата не меняется).
+    make_user(db, "chair_out9", "pass12345", role=RoleEnum.CHAIRMAN)
+    db.commit()
+    client.get("/auth/logout")
+    login(client, "chair_out9", "pass12345")
+    client.post(f"/garages/{garage.id}/electricity/readings/last/edit", data={"reading": "50"})
+    db.refresh(charge)
+    assert charge.amount == Decimal("315.83")  # 51,44 × 6,1398
+
+
+def test_meter_self_consumption_only_outside(db, client):
+    inside = make_garage(db, number="71")
+    meter = ElectricityMeter(garage_id=inside.id, meter_number="m-71", initial_reading=Decimal("0"),
+                             installed_date=dt.date(2026, 1, 1))
+    db.add(meter)
+    db.add(FeeType(code="electricity", name="Электричество"))
+    db.add(ElectricityTariff(kind=ElectricityTariffKind.MEMBER, rate=Decimal("6"), effective_date=dt.date(2020, 1, 1)))
+    make_user(db, "board_out4", "pass12345", role=RoleEnum.BOARD)
+    db.commit()
+    login(client, "board_out4", "pass12345")
+    client.post(f"/garages/{inside.id}/electricity/reading/add", data={"reading": "100", "reading_date": "2026-01-31"})
+    reading = db.query(ElectricityReading).filter_by(meter_id=meter.id).one()
+    assert reading.meter_self_consumption is None and reading.charge.amount == Decimal("600.00")
 
 
 def test_board_sets_line_loss_percent(db, client):
@@ -130,6 +160,15 @@ def test_board_sets_line_loss_percent(db, client):
     assert resp.status_code == 302
     db.expire_all()
     assert get_electricity_settings().outside_line_loss_percent == Decimal("3.10")
+    assert get_electricity_settings().meter_self_consumption_w == Decimal("2")
+    assert 'name="meter_self_consumption_w"' in client.get("/power/").get_data(as_text=True)
+
+    client.post("/power/outside-line-loss", data={"outside_line_loss_percent": "3,1", "meter_self_consumption_w": "1,5"})
+    db.expire_all()
+    assert get_electricity_settings().meter_self_consumption_w == Decimal("1.50")
+    client.post("/power/outside-line-loss", data={"outside_line_loss_percent": "3,1", "meter_self_consumption_w": "500"})
+    db.expire_all()
+    assert get_electricity_settings().meter_self_consumption_w == Decimal("1.50")
 
 
 def test_pages_render_with_outside_garage(db, client):

@@ -169,8 +169,10 @@ def save_supplier():
 @roles_required(RoleEnum.BOARD)
 def save_outside_line_loss():
     """Потери в линии до кооператива, % — надбавка к тарифу для членов у
-    гаражей за территорией (см. accounting.garage_electricity_rate). Уже
-    внесённые показания не пересчитываются — ставка в них сохранена."""
+    гаражей за территорией (см. accounting.garage_electricity_rate), и
+    самопотребление их счётчиков, Вт (accounting.meter_self_consumption_kwh).
+    Уже внесённые показания не пересчитываются — ставка и кВт·ч в них
+    сохранены."""
     try:
         percent = parse_decimal(request.form.get("outside_line_loss_percent", ""))
     except (InvalidOperation, ValueError):
@@ -178,9 +180,24 @@ def save_outside_line_loss():
     if percent is None or not (Decimal("0") <= percent < Decimal("100")):
         flash(_("Укажите процент потерь от 0 до 100."), "danger")
         return redirect(url_for("power.view"))
+    # Самопотребление счётчика, Вт (accounting.meter_self_consumption_kwh);
+    # поля нет в форме — не меняется.
+    watts = None
+    if request.form.get("meter_self_consumption_w") is not None:
+        try:
+            watts = parse_decimal(request.form.get("meter_self_consumption_w", ""))
+        except (InvalidOperation, ValueError):
+            watts = None
+        if watts is None or not (Decimal("0") <= watts <= Decimal("50")):
+            flash(_("Укажите самопотребление счётчика от 0 до 50 Вт."), "danger")
+            return redirect(url_for("power.view"))
     settings = get_electricity_settings()
     settings.outside_line_loss_percent = percent
-    audit.record("power.outside_line_loss_set", f"Потери в линии для гаражей за территорией: {percent}%")
+    summary = f"Потери в линии для гаражей за территорией: {percent}%"
+    if watts is not None:
+        settings.meter_self_consumption_w = watts
+        summary += f", самопотребление счётчика: {watts} Вт"
+    audit.record("power.outside_line_loss_set", summary)
     database.db_session.commit()
     flash(_("Процент потерь сохранён."), "success")
     return redirect(url_for("power.view"))

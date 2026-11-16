@@ -34,8 +34,10 @@ textarea; на сервере HTML чистится bleach'ем (sanitize_html) 
   нет): председатель оформляет по нему справку — документ «Бланков и
   шаблонов» (documents.create?application_id=…, Application.document_id),
   заявление получает ответ «справка готова, заберите у председателя»
-  (certificate_issued). Удалили справку из журнала — заявление снова ждёт
-  решения (certificate_withdrawn).
+  (application_document_issued). Так же по заявлению на подключение к
+  электросети (шаблон с кодом power_application) правление оформляет
+  договор о подключении (documents.application_document_code). Удалили
+  документ из журнала — заявление снова ждёт решения (certificate_withdrawn).
 """
 import datetime as dt
 import json
@@ -628,10 +630,15 @@ def detail(application_id):
             database.db_session.refresh(application)
     coop, _chairman = _coop_and_chairman()
     can_decide = is_board() and application.status == ApplicationStatus.SUBMITTED
-    can_issue_certificate = can_decide and application.kind == ApplicationKind.CERTIFICATE and is_chairman()
+    from .documents import application_document_code, CERTIFICATE_CODE
+    issue_code = application_document_code(application)
+    # Справку оформляет председатель (шаблон «только председатель»),
+    # договор о подключении — любой член правления.
+    can_issue_document = can_decide and issue_code is not None and (
+        issue_code != CERTIFICATE_CODE or is_chairman())
     return render_template(
         "applications/detail.html", application=application, coop=coop, can_decide=can_decide,
-        can_issue_certificate=can_issue_certificate,
+        issue_code=issue_code, can_issue_document=can_issue_document,
         today=dt.date.today(), transfer=_transfer_context(application) if can_decide else None,
         response_prefill=_response_prefill(application),
     )
@@ -666,27 +673,35 @@ def _transfer_context(application: Application) -> dict | None:
     }
 
 
-def certificate_issued(application: Application, document) -> None:
-    """Справка по заявлению оформлена (documents.create) — заявление
-    получает ответ и закрывается, заявителю уведомление «заберите»."""
+def application_document_issued(application: Application, document) -> None:
+    """Документ по заявлению оформлен (documents.create): справка о
+    владении или договор о подключении к электросети — заявление получает
+    ответ и закрывается, заявителю уведомление."""
+    is_contract = application.kind != ApplicationKind.CERTIFICATE
+    number = f" № {document.number}" if document.number else ""
+    garage = application.garage_number
     application.document_id = document.id
     application.status = ApplicationStatus.ANSWERED
-    application.response_html = (
-        f"<p>Правление рассмотрело Ваше заявление. Справка"
-        + (f" № {escape(document.number)}" if document.number else "")
-        + f" о владении гаражом № {escape(application.garage_number)} подготовлена — "
-        "заберите подписанный экземпляр у председателя.</p>"
-    )
+    if is_contract:
+        response = (f"Правление рассмотрело Ваше заявление. Договор{number} о подключении гаража № {garage} "
+                    "к электрической сети подготовлен — подпишите его у председателя правления.")
+        subject = f"Договор о подключении гаража № {garage} готов"
+        text = (f"Договор о подключении гаража № {garage} к электросети по вашему заявлению № "
+                f"{application.number} подготовлен — подпишите его у председателя правления.")
+    else:
+        response = (f"Правление рассмотрело Ваше заявление. Справка{number} о владении гаражом № {garage} "
+                    "подготовлена — заберите подписанный экземпляр у председателя.")
+        subject = f"Справка по гаражу № {garage} готова"
+        text = (f"Справка о владении гаражом № {garage} по вашему заявлению № {application.number} "
+                "готова — заберите подписанный экземпляр у председателя.")
+    application.response_html = f"<p>{escape(response)}</p>"
     application.decided_at = dt.datetime.now()
     application.decided_by_person_id = g.user.person_id
     applicant = notifications.user_for_person(application.person_id)
     if applicant is not None:
         link = request.host_url.rstrip("/") + url_for("applications.detail", application_id=application.id)
         notifications.after_commit(
-            notifications.notify_user_id, applicant.id, "my_requests",
-            f"Справка по гаражу № {application.garage_number} готова",
-            f"Справка о владении гаражом № {application.garage_number} по вашему заявлению № {application.number} "
-            f"готова — заберите подписанный экземпляр у председателя.\n\n{link}",
+            notifications.notify_user_id, applicant.id, "my_requests", subject, f"{text}\n\n{link}",
         )
 
 

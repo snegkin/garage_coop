@@ -55,6 +55,11 @@
       <input class="form-control" id="outsideLineLoss" name="outside_line_loss_percent" inputmode="decimal" value="{{ settings.outside_line_loss_percent }}" required>
       <span class="input-group-text">%</span>
     </div>
+    <label for="meterSelfConsumption" title="{{ _('Счётчик сам себя не учитывает; прибавляется к объёму по показаниям: Вт × часы с прошлых показаний (2 Вт ≈ 1,46 кВт·ч в месяц). 0 — не начислять.') }}">{{ _("и самопотребление счётчика") }}</label>
+    <div class="input-group input-group-sm" style="width:110px">
+      <input class="form-control" id="meterSelfConsumption" name="meter_self_consumption_w" inputmode="decimal" value="{{ settings.meter_self_consumption_w }}" required>
+      <span class="input-group-text">{{ _("Вт") }}</span>
+    </div>
     <button class="btn btn-sm btn-outline-primary">{{ _("Сохранить") }}</button>
   </form>
   {% if tariff_pairs %}

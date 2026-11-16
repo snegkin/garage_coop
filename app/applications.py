@@ -176,9 +176,27 @@ def kind_label(kind: ApplicationKind) -> str:
     }[kind]
 
 
+def doc_heading(application: Application) -> str:
+    """Заголовок документа: «Заявление», «Претензия», у поданного по
+    шаблону — из шаблона («Жалоба», «Обращение»)."""
+    return application.heading or KIND_HEADINGS[application.kind]
+
+
+def accusative_heading(application: Application) -> str:
+    """«Ответ на заявление / претензию / жалобу / обращение»."""
+    if not application.heading:
+        return KIND_ACCUSATIVE[application.kind]
+    first, _sep, rest = application.heading.lower().partition(" ")
+    if first.endswith("а"):
+        first = first[:-1] + "у"
+    elif first.endswith("я"):
+        first = first[:-1] + "ю"
+    return f"{first} {rest}".strip()
+
+
 def application_heading(application: Application) -> str:
     """«Заявление о смене собственника гаража», «Претензия» — для списков и уведомлений."""
-    heading = KIND_HEADINGS[application.kind]
+    heading = doc_heading(application)
     return f"{heading} {application.title}" if application.title else heading
 
 
@@ -253,6 +271,8 @@ def applicant_snapshot(person: Person) -> dict:
         passport = f"серия {person.passport_series or '—'} № {person.passport_number or '—'}"
         if person.passport_issue_date:
             passport += f", выдан {person.passport_issue_date.strftime('%d.%m.%Y')}"
+    # Через запятую — в шапке бланка разбиваются по одному на строке
+    # (applications/_macros.html: applicant_header).
     phones = ", ".join(p.number for p in person.phones)
     return {
         "applicant_name": person.full_name,
@@ -306,8 +326,8 @@ def visible_applications(person_id: int | None = None, garage_id: int | None = N
 bp.add_app_template_global(application_heading)
 bp.add_app_template_global(status_badge, "application_status_badge")
 bp.add_app_template_global(kind_label, "application_kind_label")
-bp.add_app_template_global(lambda kind: KIND_HEADINGS[kind], "application_kind_heading")
-bp.add_app_template_global(lambda kind: KIND_ACCUSATIVE[kind], "application_kind_accusative")
+bp.add_app_template_global(doc_heading, "application_doc_heading")
+bp.add_app_template_global(accusative_heading, "application_accusative")
 bp.add_app_template_global(short_name_of, "short_name")
 bp.add_app_template_global(new_owner_rows, "application_new_owner_rows")
 
@@ -349,10 +369,7 @@ def create():
 
     if request.method == "POST":
         f = request.form
-        try:
-            kind = ApplicationKind(f.get("kind"))
-        except ValueError:
-            kind = None
+        kind, template = _parse_kind(f.get("kind"))
         garage = next((gar for gar in garages if str(gar.id) == f.get("garage_id")), None)
         title = (f.get("title") or "").strip()[:255]
         raw_body = f.get("body_html") or ""
@@ -376,11 +393,16 @@ def create():
         if error:
             flash(error, "danger")
             return _render_editor(person, garages, kind=kind, garage=garage, title=title, body_html=body_html,
-                                  new_owner=parse_new_owner(f)[0])
+                                  new_owner=parse_new_owner(f)[0], template=template)
 
         today = dt.date.today()
+        heading = None
+        if template is not None:
+            from .documents import member_application_text
+            heading = member_application_text(template, person, garage, today)[0]
         application = Application(
             number=next_number(today), kind=kind, title=title, body_html=body_html,
+            template_id=template.id if template else None, heading=heading,
             person_id=person.id, garage_id=garage.id, garage_number=garage.number,
             created_at=dt.datetime.now(), **applicant_snapshot(person),
             new_owner_data=json.dumps(new_owner, ensure_ascii=False) if new_owner else None,
@@ -400,7 +422,28 @@ def create():
 
     preselect = request.args.get("garage_id", type=int)
     garage = next((gar for gar in garages if gar.id == preselect), garages[0])
-    return _render_editor(person, garages, kind=ApplicationKind.OWNERSHIP_CHANGE, garage=garage)
+    kind, template = _parse_kind(request.args.get("kind"))
+    return _render_editor(person, garages, kind=kind or ApplicationKind.OWNERSHIP_CHANGE, garage=garage,
+                          template=template)
+
+
+TEMPLATE_KIND_PREFIX = "template-"
+
+
+def _parse_kind(value: str | None):
+    """Вид из формы: «ownership_change»/«claim»/«other» или
+    «template-<id>» — шаблон «Бланков и шаблонов», доступный членам
+    (documents.member_templates); такое заявление — вида OTHER.
+    → (kind или None, шаблон или None)."""
+    value = value or ""
+    if value.startswith(TEMPLATE_KIND_PREFIX):
+        from .documents import member_templates
+        template = next((t for t in member_templates() if f"{TEMPLATE_KIND_PREFIX}{t.id}" == value), None)
+        return (ApplicationKind.OTHER, template) if template else (None, None)
+    try:
+        return ApplicationKind(value), None
+    except ValueError:
+        return None, None
 
 
 def _save_uploads(field: str) -> tuple[list[tuple[str, str]], str | None]:
@@ -515,22 +558,43 @@ def _render_register(ownerships, form):
     )
 
 
-def _render_editor(person, garages, kind, garage, title=None, body_html=None, new_owner=None):
+def _render_editor(person, garages, kind, garage, title=None, body_html=None, new_owner=None, template=None):
+    from .documents import member_templates, member_application_text
+
     coop, _chairman = _coop_and_chairman()
+    today = dt.date.today()
+    # Стартовый текст: у встроенных видов — с {garage} (подставляет
+    # редактор), у шаблонов — уже заполненный по каждому гаражу заявителя
+    # (подстановки {{гараж}}, {{доля}} …).
     templates = {
         k.value: {"heading": KIND_HEADINGS[k], "title": DEFAULT_TITLES[k], "body": DEFAULT_BODIES[k],
                   "label": kind_label(k)}
         for k in ApplicationKind
     }
+    for tpl in member_templates():
+        filled = {gar.id: member_application_text(tpl, person, gar, today) for gar in garages}
+        heading, tpl_title, _body = next(iter(filled.values()))
+        templates[f"{TEMPLATE_KIND_PREFIX}{tpl.id}"] = {
+            "heading": heading, "title": tpl_title, "label": tpl.name,
+            "bodies": {str(gid): body for gid, (_h, _t, body) in filled.items()},
+        }
     kind = kind or ApplicationKind.OWNERSHIP_CHANGE
     garage = garage or garages[0]
+    kind_value = f"{TEMPLATE_KIND_PREFIX}{template.id}" if template is not None else kind.value
+    if kind_value not in templates:
+        kind_value = kind.value
     if body_html is None:
-        title = DEFAULT_TITLES[kind]
-        body_html = DEFAULT_BODIES[kind].format(garage=garage.number)
+        if "bodies" in templates[kind_value]:
+            title = templates[kind_value]["title"]
+            body_html = templates[kind_value]["bodies"][str(garage.id)]
+        else:
+            title = DEFAULT_TITLES[kind]
+            body_html = DEFAULT_BODIES[kind].format(garage=garage.number)
     return render_template(
         "applications/form.html", person=person, snapshot=applicant_snapshot(person), garages=garages,
-        kind=kind, garage=garage, title=title or "", body_html=body_html, templates=templates,
-        coop=coop, today=dt.date.today(), kinds=list(ApplicationKind),
+        kind=kind, kind_value=kind_value, template_kinds=[k for k, t in templates.items() if "bodies" in t],
+        garage=garage, title=title or "", body_html=body_html, templates=templates,
+        coop=coop, today=today, kinds=list(ApplicationKind),
         new_owner=new_owner or {}, new_owner_fields=NEW_OWNER_FIELDS, date_fields=NEW_OWNER_DATE_FIELDS,
     )
 

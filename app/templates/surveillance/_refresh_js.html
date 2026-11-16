@@ -1,0 +1,47 @@
+<script>
+// Общий для главной (home.html) и раздела видеонаблюдения (view.html):
+// обновляет все <img class="js-dvr-frame"> на странице.
+// Кадр на диске обновляет cron (scripts/dvr_snapshot.py, раз в 5 минут; у
+// дополнительных кооперативов минуты cron сдвинуты — cron_shift_minute),
+// поэтому точный момент браузеру неизвестен. Раз в минуту делаем УСЛОВНЫЙ
+// запрос (cache: "no-cache" → If-None-Match/If-Modified-Since): пока кадр
+// тот же, сервер отвечает 304 без тела, а картинку меняем только когда
+// ETag действительно сменился — blob-URL, чтобы не качать кадр второй раз.
+// window.__dvrRefreshScheduled — защита от повторного запуска: скрипт может
+// быть повторно выполнен через runContentScripts() после AJAX-подмены
+// страницы (см. base.html), без пометки накапливались бы параллельные
+// setInterval, дублирующие одни и те же запросы.
+if (!window.__dvrRefreshScheduled) {
+  window.__dvrRefreshScheduled = true;
+  setInterval(function () {
+    if (document.hidden) return;  // вкладка в фоне — не тратим трафик
+    document.querySelectorAll(".js-dvr-frame").forEach(function (img) {
+      if (!img.dataset.baseSrc) {
+        var url = new URL(img.src, window.location.href);
+        url.searchParams.delete("t");
+        img.dataset.baseSrc = url.toString();
+      }
+      fetch(img.dataset.baseSrc, { cache: "no-cache" })
+        .then(function (r) {
+          if (!r.ok) throw new Error(r.status);
+          var tag = r.headers.get("ETag") || r.headers.get("Last-Modified") || "";
+          if (img.dataset.frameTag === undefined) {
+            // Первый опрос: <img> уже показывает текущий кадр из src
+            // страницы — просто запоминаем его версию.
+            img.dataset.frameTag = tag;
+            return;
+          }
+          if (tag && tag === img.dataset.frameTag) return;
+          img.dataset.frameTag = tag;
+          return r.blob().then(function (blob) {
+            var old = img.dataset.blobUrl;
+            img.dataset.blobUrl = URL.createObjectURL(blob);
+            img.src = img.dataset.blobUrl;
+            if (old) URL.revokeObjectURL(old);
+          });
+        })
+        .catch(function () {});  // сеть/404 — оставляем прежний кадр, попробуем через минуту
+    });
+  }, 60000);
+}
+</script>

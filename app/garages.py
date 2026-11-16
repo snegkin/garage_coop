@@ -186,13 +186,26 @@ def list_garages():
     )
 
 
+def _garage_number_taken(number: str, exclude_id: int | None = None) -> bool:
+    """Номер гаража уникален (UNIQUE на garage.number) — проверяем заранее,
+    чтобы вместо 500 на commit показать понятное сообщение."""
+    query = database.db_session.query(Garage.id).filter(Garage.number == number)
+    if exclude_id is not None:
+        query = query.filter(Garage.id != exclude_id)
+    return query.first() is not None
+
+
 @bp.route("/new", methods=["GET", "POST"])
 @roles_required(RoleEnum.BOARD)
 def create():
     if request.method == "POST":
         f = request.form
+        number = f["number"].strip()
+        if _garage_number_taken(number):
+            flash(_("Гараж №{number} уже есть.", number=number), "danger")
+            return redirect(url_for("garages.list_garages"))
         garage = Garage(
-            number=f["number"],
+            number=number,
             area_sqm=parse_decimal(f["area_sqm"]),
             coefficient=parse_decimal(f["coefficient"]) if f.get("coefficient") else Decimal("1"),
             land_privatized=bool(f.get("land_privatized")),
@@ -483,7 +496,11 @@ def edit(garage_id):
 
     if request.method == "POST":
         f = request.form
-        garage.number = f["number"]
+        number = f["number"].strip()
+        if _garage_number_taken(number, exclude_id=garage.id):
+            flash(_("Гараж №{number} уже есть — номер не изменён, изменения не сохранены.", number=number), "danger")
+            return redirect(url_for("garages.edit", garage_id=garage.id))
+        garage.number = number
         garage.area_sqm = parse_decimal(f["area_sqm"])
         garage.coefficient = parse_decimal(f["coefficient"]) if f.get("coefficient") else Decimal("1")
         garage.land_privatized = bool(f.get("land_privatized"))

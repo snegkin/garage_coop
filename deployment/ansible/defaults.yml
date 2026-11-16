@@ -111,7 +111,7 @@ cron_jobs:
   # сервера при деплое. Убрать, когда все серверы обновлены.
   - {name: poll_telegram,              minute: "*",   retired: true}
   - {name: poll_ewelink,               minute: "*",   enabled: false}
-  - {name: dvr_snapshot,               minute: "*",   enabled: false}
+  - {name: dvr_snapshot,               minute: "*/5", enabled: false}
 
 # Включить/выключить задачи из списка выше по имени, не копируя его целиком:
 #   cron_enable: [dvr_snapshot, poll_messengers]

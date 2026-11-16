@@ -1,7 +1,7 @@
 """
 Видеонаблюдение (`/surveillance/`) — периодически обновляемый общий
 смонтированный кадр (сетка из последних кадров всех камер) на каждый
-DVR/NVR-регистратор кооператива. Кадр раз в минуту, см.
+DVR/NVR-регистратор кооператива. Кадр раз в 5 минут, см.
 scripts/dvr_snapshot.py. По одной камере отдельно не смотрим — это
 неудобно, вся ценность в едином обзоре регистратора сразу; просмотр
 живого видео по клику не реализован, это отдельная задача на будущее.
@@ -144,9 +144,9 @@ def snapshot(camera_id):
     path = snapshot_path(camera.recorder_id, camera.id)
     if not os.path.exists(path):
         abort(404)
-    # Кадр обновляется раз в минуту поверх того же файла — без max_age=0
+    # Кадр обновляется раз в 5 минут поверх того же файла — без max_age=0
     # браузер мог бы закэшировать старый и не увидеть новый даже после
-    # смены cache-busting параметра в src (см. surveillance/view.html) при
+    # смены cache-busting параметра в src (см. surveillance/_refresh_js.html) при
     # повторном показе того же <img>.
     return send_file(path, mimetype="image/jpeg", max_age=0)
 
@@ -187,9 +187,9 @@ def combined_snapshot(recorder_id):
     path = combined_snapshot_path(recorder_id)
     if not os.path.exists(path):
         abort(404)
-    # Кадр обновляется раз в минуту поверх того же файла — без max_age=0
+    # Кадр обновляется раз в 5 минут поверх того же файла — без max_age=0
     # браузер мог бы закэшировать старый и не увидеть новый даже после
-    # смены cache-busting параметра в src (см. surveillance/view.html).
+    # смены cache-busting параметра в src (см. surveillance/_refresh_js.html).
     return send_file(path, mimetype="image/jpeg", max_age=0)
 
 
@@ -285,7 +285,7 @@ def edit_recorder(recorder_id):
     каждой строки формы, см. surveillance/_camera_row.html), а не
     удаляются все разом с созданием заново: иначе неизменившаяся камера
     теряла бы связь со уже снятым на диске кадром (snapshot_path — по id
-    камеры) до следующего кадра раз в минуту (см. scripts/dvr_snapshot.py).
+    камеры) до следующего кадра раз в 5 минут (см. scripts/dvr_snapshot.py).
     Убранную из формы камеру удаляем вместе с её файлом кадра на диске,
     если он есть — иначе такие файлы копились бы бесхозными.
     """

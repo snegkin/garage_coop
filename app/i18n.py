@@ -680,6 +680,16 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Показания, кВт·ч": "Reading, kWh",
         "Документ": "Document",
         "Документ от энергосбыта": "Document from the utility company",
+        "Документ прикреплён.": "Document attached.",
+        "Выберите файл.": "Choose a file.",
+        "Заменить документ": "Replace document",
+        "Прикрепить документ": "Attach document",
+        "Выберите файл, чтобы заменить документ; без файла останется текущий.":
+            "Choose a file to replace the document; without a file the current one is kept.",
+        "Документ к показанию за": "Document for the reading of",
+        "У показания уже есть документ — новый файл заменит его в этой строке (прежний останется в разделе «Документы»).":
+            "This reading already has a document — the new file will replace it in this row (the previous one stays in the Documents section).",
+        "Счёт за электроэнергию": "Electricity bill",
         "Показания общего счётчика внесены.": "Master meter reading added.",
         "Счёт за электроэнергию {month}.{year}": "Electricity bill {month}.{year}",
         "Сумма рассчитывается автоматически: (новые показания − предыдущие) × тариф, действующий на дату снятия показаний, и начисляется на счёт за электричество этого гаража.":

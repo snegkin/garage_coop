@@ -3,33 +3,10 @@
 {% block content %}
 <h3 class="mb-3">{{ _("Электроэнергия") }}</h3>
 
-{% set top_supplier_tariff = supplier_tariffs[0][0] if supplier_tariffs else None %}
-{% set top_member_tariff = member_tariffs[0][0] if member_tariffs else None %}
+{% set top_pair = tariff_pairs[0] if tariff_pairs else None %}
+{% set none_pair = None %}
 {% set latest_reading = readings[0][0] if readings else None %}
 
-<style>
-/* Тариф поставщика и тариф для членов — карточки одного вида с текстом
-   разной длины над таблицами, из-за этого без общей сетки таблицы
-   съезжают на разную высоту и строка смотрится неаккуратно. CSS grid с
-   одинаковыми "строками" (заголовок / текст / таблица) решает это:
-   высота каждой строки равна высоте самой высокой ячейки в ней, и обе
-   таблицы всегда начинаются на одной линии. */
-.power-top-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  grid-template-areas: "h1" "b1" "t1" "h2" "b2" "t2";
-  column-gap: 1.5rem;
-  row-gap: .75rem;
-}
-@media (min-width: 768px) {
-  .power-top-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    grid-template-areas: "h1 h2" "b1 b2" "t1 t2";
-  }
-}
-.pg-h1 { grid-area: h1; } .pg-b1 { grid-area: b1; } .pg-t1 { grid-area: t1; }
-.pg-h2 { grid-area: h2; } .pg-b2 { grid-area: b2; } .pg-t2 { grid-area: t2; }
-</style>
 
 <div class="mb-4">
   <div class="d-flex justify-content-between align-items-center mb-2">
@@ -56,105 +33,60 @@
   {% endif %}
 </div>
 
-<div class="power-top-grid mb-4">
-  <div class="pg-h1 d-flex justify-content-between align-items-center mb-2">
-    <h5 class="mb-0">{{ _("Тариф поставщика") }}</h5>
-    <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#supplierTariffModal">+ {{ _("Добавить") }}</button>
+<div class="mb-4">
+  <div class="d-flex justify-content-between align-items-center mb-2">
+    <h5 class="mb-0">{{ _("Тарифы") }}</h5>
+    <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#tariffModal">+ {{ _("Добавить") }}</button>
   </div>
-  <div class="pg-b1">
-    <p class="text-muted small">{{ _("По этому тарифу считается сумма долга кооператива перед поставщиком (показания общего счётчика ниже).") }}</p>
-    {% if supplier_tariff %}
-    <p class="fs-4 mb-1">{{ fmt2(supplier_tariff.rate) }} ₽/{{ _("кВт·ч") }}</p>
-    <p class="text-muted small">{{ _("действует с") }} {{ fmt_date(supplier_tariff.effective_date) }}</p>
-    {% else %}
-    <p class="text-muted">{{ _("Тариф пока не задан.") }}</p>
-    {% endif %}
+  <p class="text-muted small mb-2">{{ _("Тариф поставщика и тариф для членов кооператива меняются вместе, с одной даты. По тарифу поставщика считается долг кооператива перед поставщиком (показания общего счётчика ниже), по тарифу для членов — начисления по показаниям в гаражах.") }}</p>
+  {% if supplier_tariff or member_tariff %}
+  <div class="d-flex flex-wrap gap-4 mb-2">
+    <div><div class="small text-muted">{{ _("Поставщика") }}</div><div class="fs-4">{{ fmt2(supplier_tariff.rate) if supplier_tariff else "—" }} ₽/{{ _("кВт·ч") }}</div></div>
+    <div><div class="small text-muted">{{ _("Для членов кооператива") }}</div><div class="fs-4">{{ fmt2(member_tariff.rate) if member_tariff else "—" }} ₽/{{ _("кВт·ч") }}</div></div>
+    {% if outside_rate %}<div><div class="small text-muted">{{ _("Гаражам за территорией") }}</div><div class="fs-4">{{ "%.4f"|format(outside_rate) }} ₽/{{ _("кВт·ч") }}</div></div>{% endif %}
   </div>
-  <div class="pg-t1">
-    {% if supplier_tariffs %}
-    <table class="table table-sm bg-body sortable">
-      <thead><tr><th>{{ _("Действует с") }}</th><th>{{ _("По") }}</th><th>{{ _("Тариф") }}</th><th>{{ _("Комментарий") }}</th><th class="no-sort"></th></tr></thead>
-      <tbody>
-        {% for t, end_date in supplier_tariffs %}
-        <tr>
-          <td data-sort-value="{{ t.effective_date }}">{{ fmt_date(t.effective_date) }}</td>
-          <td>
-            {{ fmt_date(end_date) if end_date else "—" }}
-            {% if supplier_tariff and t.id == supplier_tariff.id %}<span class="badge text-bg-success ms-1">{{ _("действует сейчас") }}</span>
-            {% elif t.effective_date > today %}<span class="badge text-bg-info ms-1">{{ _("ещё не вступил в силу") }}</span>{% endif %}
-          </td>
-          <td data-sort-value="{{ t.rate }}">{{ fmt2(t.rate) }} ₽</td>
-          <td>{{ t.comment or "—" }}</td>
-          <td class="no-sort">
-            {% if loop.first %}
-            <div class="d-flex gap-1 justify-content-end">
-              <button type="button" class="btn btn-sm btn-outline-secondary btn-icon-square" data-bs-toggle="modal" data-bs-target="#editSupplierTariffModal" title="{{ _('Изменить') }}"><i class="bi bi-pencil" aria-hidden="true"></i></button>
-              <form method="post" action="{{ url_for('power.delete_tariff', tariff_id=t.id) }}" onsubmit="return confirm('{{ _('Удалить тариф?') }}')">
-                <button class="btn btn-sm btn-outline-danger btn-icon-square" title="{{ _('Удалить') }}"><i class="bi bi-trash" aria-hidden="true"></i></button>
-              </form>
-            </div>
-            {% endif %}
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    {% endif %}
-  </div>
-
-  <div class="pg-h2 d-flex justify-content-between align-items-center mb-2">
-    <h5 class="mb-0">{{ _("Тариф для членов кооператива") }}</h5>
-    <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#memberTariffModal">+ {{ _("Добавить") }}</button>
-  </div>
-  <div class="pg-b2">
-    <p class="text-muted small">{{ _("По этому тарифу считаются начисления за электричество на лицевые счета — показания в гаражах (раздел «Гаражи»).") }}</p>
-    {% if member_tariff %}
-    <p class="fs-4 mb-1">{{ fmt2(member_tariff.rate) }} ₽/{{ _("кВт·ч") }}</p>
-    <p class="text-muted small">{{ _("действует с") }} {{ fmt_date(member_tariff.effective_date) }}</p>
-    {% else %}
-    <p class="text-muted">{{ _("Тариф пока не задан.") }}</p>
-    {% endif %}
-    <form method="post" action="{{ url_for('power.save_outside_line_loss') }}" class="d-flex flex-wrap align-items-center gap-2 small">
-      <label for="outsideLineLoss">{{ _("Гаражам за территорией — плюс потери в линии") }}</label>
-      <div class="input-group input-group-sm" style="width:110px">
-        <input class="form-control" id="outsideLineLoss" name="outside_line_loss_percent" inputmode="decimal" value="{{ settings.outside_line_loss_percent }}" required>
-        <span class="input-group-text">%</span>
-      </div>
-      <button class="btn btn-sm btn-outline-primary">{{ _("Сохранить") }}</button>
-      {% if member_tariff %}<span class="text-muted">= {{ "%.4f"|format(outside_rate) }} ₽/{{ _("кВт·ч") }}</span>{% endif %}
-    </form>
-  </div>
-  <div class="pg-t2">
-    {% if member_tariffs %}
-    <table class="table table-sm bg-body sortable">
-      <thead><tr><th>{{ _("Действует с") }}</th><th>{{ _("По") }}</th><th>{{ _("Тариф") }}</th><th>{{ _("Комментарий") }}</th><th class="no-sort"></th></tr></thead>
-      <tbody>
-        {% for t, end_date in member_tariffs %}
-        <tr>
-          <td data-sort-value="{{ t.effective_date }}">{{ fmt_date(t.effective_date) }}</td>
-          <td>
-            {{ fmt_date(end_date) if end_date else "—" }}
-            {% if member_tariff and t.id == member_tariff.id %}<span class="badge text-bg-success ms-1">{{ _("действует сейчас") }}</span>
-            {% elif t.effective_date > today %}<span class="badge text-bg-info ms-1">{{ _("ещё не вступил в силу") }}</span>{% endif %}
-          </td>
-          <td data-sort-value="{{ t.rate }}">{{ fmt2(t.rate) }} ₽</td>
-          <td>{{ t.comment or "—" }}</td>
-          <td class="no-sort">
-            {% if loop.first %}
-            <div class="d-flex gap-1 justify-content-end">
-              <button type="button" class="btn btn-sm btn-outline-secondary btn-icon-square" data-bs-toggle="modal" data-bs-target="#editMemberTariffModal" title="{{ _('Изменить') }}"><i class="bi bi-pencil" aria-hidden="true"></i></button>
-              <form method="post" action="{{ url_for('power.delete_tariff', tariff_id=t.id) }}" onsubmit="return confirm('{{ _('Удалить тариф?') }}')">
-                <button class="btn btn-sm btn-outline-danger btn-icon-square" title="{{ _('Удалить') }}"><i class="bi bi-trash" aria-hidden="true"></i></button>
-              </form>
-            </div>
-            {% endif %}
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    {% endif %}
-  </div>
+  {% if current_pair %}<p class="text-muted small">{{ _("действует с") }} {{ fmt_date(current_pair.date) }}</p>{% endif %}
+  {% else %}
+  <p class="text-muted">{{ _("Тариф пока не задан.") }}</p>
+  {% endif %}
+  <form method="post" action="{{ url_for('power.save_outside_line_loss') }}" class="d-flex flex-wrap align-items-center gap-2 small mb-3">
+    <label for="outsideLineLoss">{{ _("Гаражам за территорией — тариф для членов плюс потери в линии") }}</label>
+    <div class="input-group input-group-sm" style="width:110px">
+      <input class="form-control" id="outsideLineLoss" name="outside_line_loss_percent" inputmode="decimal" value="{{ settings.outside_line_loss_percent }}" required>
+      <span class="input-group-text">%</span>
+    </div>
+    <button class="btn btn-sm btn-outline-primary">{{ _("Сохранить") }}</button>
+  </form>
+  {% if tariff_pairs %}
+  <table class="table table-sm bg-body sortable">
+    <thead><tr><th>{{ _("Действует с") }}</th><th>{{ _("По") }}</th><th>{{ _("Поставщика") }}</th><th>{{ _("Для членов") }}</th><th>{{ _("Комментарий") }}</th><th class="no-sort"></th></tr></thead>
+    <tbody>
+      {% for p in tariff_pairs %}
+      <tr>
+        <td data-sort-value="{{ p.date }}">{{ fmt_date(p.date) }}</td>
+        <td>
+          {{ fmt_date(p.end_date) if p.end_date else "—" }}
+          {% if current_pair and p.date == current_pair.date %}<span class="badge text-bg-success ms-1">{{ _("действует сейчас") }}</span>
+          {% elif p.date > today %}<span class="badge text-bg-info ms-1">{{ _("ещё не вступил в силу") }}</span>{% endif %}
+        </td>
+        <td data-sort-value="{{ p.supplier.rate if p.supplier else '' }}">{{ (fmt2(p.supplier.rate) ~ " ₽") if p.supplier else "—" }}</td>
+        <td data-sort-value="{{ p.member.rate if p.member else '' }}">{{ (fmt2(p.member.rate) ~ " ₽") if p.member else "—" }}</td>
+        <td>{{ p.comment or "—" }}</td>
+        <td class="no-sort">
+          {% if loop.first %}
+          <div class="d-flex gap-1 justify-content-end">
+            <button type="button" class="btn btn-sm btn-outline-secondary btn-icon-square" data-bs-toggle="modal" data-bs-target="#editTariffModal" title="{{ _('Изменить') }}"><i class="bi bi-pencil" aria-hidden="true"></i></button>
+            <form method="post" action="{{ url_for('power.delete_tariff', effective=p.date.isoformat()) }}" onsubmit="return confirm('{{ _('Удалить тариф?') }}')">
+              <button class="btn btn-sm btn-outline-danger btn-icon-square" title="{{ _('Удалить') }}"><i class="bi bi-trash" aria-hidden="true"></i></button>
+            </form>
+          </div>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
 </div>
 
 <div class="d-flex justify-content-between align-items-center mb-2">
@@ -243,28 +175,33 @@
   </div>
 </div>
 
-<!-- Модалка: новый тариф поставщика -->
-<div class="modal fade" id="supplierTariffModal" tabindex="-1" aria-hidden="true">
+<!-- Модалка: новый тариф (обе ставки) -->
+<div class="modal fade" id="tariffModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg">
     <div class="modal-content">
       <form method="post" action="{{ url_for('power.add_tariff') }}">
-        <input type="hidden" name="kind" value="supplier">
         <div class="modal-header">
-          <h5 class="modal-title">{{ _("Новый тариф поставщика") }}</h5>
+          <h5 class="modal-title">{{ _("Новый тариф") }}</h5>
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body">
-          <div class="mb-3">
-            <label class="form-label">{{ _("Тариф, ₽/кВт·ч") }}</label>
-            <input class="form-control" name="rate" required>
+          <div class="row g-3 mb-3">
+            <div class="col-sm-6">
+              <label class="form-label">{{ _("Тариф поставщика, ₽/кВт·ч") }}</label>
+              <input class="form-control" name="supplier_rate" inputmode="decimal" value="{{ none_pair.supplier.rate if none_pair and none_pair.supplier else '' }}" required>
+            </div>
+            <div class="col-sm-6">
+              <label class="form-label">{{ _("Тариф для членов кооператива, ₽/кВт·ч") }}</label>
+              <input class="form-control" name="member_rate" inputmode="decimal" value="{{ none_pair.member.rate if none_pair and none_pair.member else '' }}" required>
+            </div>
           </div>
           <div class="mb-3">
             <label class="form-label">{{ _("Действует с") }}</label>
-            <input class="form-control" type="date" name="effective_date" required>
+            <input class="form-control" type="date" name="effective_date" value="{{ none_pair.date.isoformat() if none_pair else '' }}" required>
           </div>
           <div class="mb-3">
             <label class="form-label">{{ _("Комментарий") }}</label>
-            <textarea class="form-control" name="comment"></textarea>
+            <textarea class="form-control" name="comment">{{ (none_pair.comment or "") if none_pair else "" }}</textarea>
           </div>
         </div>
         <div class="modal-footer">
@@ -276,97 +213,35 @@
   </div>
 </div>
 
-{% if top_supplier_tariff %}
-<!-- Модалка: редактирование последнего тарифа поставщика -->
-<div class="modal fade" id="editSupplierTariffModal" tabindex="-1" aria-hidden="true">
+{% if top_pair %}
+<!-- Модалка: редактирование последнего тарифа -->
+<div class="modal fade" id="editTariffModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg">
     <div class="modal-content">
-      <form method="post" action="{{ url_for('power.edit_tariff', tariff_id=top_supplier_tariff.id) }}">
+      <form method="post" action="{{ url_for('power.edit_tariff', effective=top_pair.date.isoformat()) }}">
         <div class="modal-header">
-          <h5 class="modal-title">{{ _("Изменить тариф поставщика") }}</h5>
+          <h5 class="modal-title">{{ _("Изменить тариф") }}</h5>
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body">
           <p class="text-muted small">{{ _("Редактировать можно только последний добавленный тариф — более ранние уже могли использоваться для расчётов.") }}</p>
-          <div class="mb-3">
-            <label class="form-label">{{ _("Тариф, ₽/кВт·ч") }}</label>
-            <input class="form-control" name="rate" value="{{ top_supplier_tariff.rate }}" required>
+          <div class="row g-3 mb-3">
+            <div class="col-sm-6">
+              <label class="form-label">{{ _("Тариф поставщика, ₽/кВт·ч") }}</label>
+              <input class="form-control" name="supplier_rate" inputmode="decimal" value="{{ top_pair.supplier.rate if top_pair and top_pair.supplier else '' }}" required>
+            </div>
+            <div class="col-sm-6">
+              <label class="form-label">{{ _("Тариф для членов кооператива, ₽/кВт·ч") }}</label>
+              <input class="form-control" name="member_rate" inputmode="decimal" value="{{ top_pair.member.rate if top_pair and top_pair.member else '' }}" required>
+            </div>
           </div>
           <div class="mb-3">
             <label class="form-label">{{ _("Действует с") }}</label>
-            <input class="form-control" type="date" name="effective_date" value="{{ top_supplier_tariff.effective_date.isoformat() }}" required>
+            <input class="form-control" type="date" name="effective_date" value="{{ top_pair.date.isoformat() if top_pair else '' }}" required>
           </div>
           <div class="mb-3">
             <label class="form-label">{{ _("Комментарий") }}</label>
-            <textarea class="form-control" name="comment">{{ top_supplier_tariff.comment or "" }}</textarea>
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
-          <button class="btn btn-primary">{{ _("Сохранить") }}</button>
-        </div>
-      </form>
-    </div>
-  </div>
-</div>
-{% endif %}
-
-<!-- Модалка: новый тариф для членов кооператива -->
-<div class="modal fade" id="memberTariffModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-lg">
-    <div class="modal-content">
-      <form method="post" action="{{ url_for('power.add_tariff') }}">
-        <input type="hidden" name="kind" value="member">
-        <div class="modal-header">
-          <h5 class="modal-title">{{ _("Новый тариф для членов кооператива") }}</h5>
-          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-        </div>
-        <div class="modal-body">
-          <div class="mb-3">
-            <label class="form-label">{{ _("Тариф, ₽/кВт·ч") }}</label>
-            <input class="form-control" name="rate" required>
-          </div>
-          <div class="mb-3">
-            <label class="form-label">{{ _("Действует с") }}</label>
-            <input class="form-control" type="date" name="effective_date" required>
-          </div>
-          <div class="mb-3">
-            <label class="form-label">{{ _("Комментарий") }}</label>
-            <textarea class="form-control" name="comment"></textarea>
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
-          <button class="btn btn-primary">{{ _("Сохранить") }}</button>
-        </div>
-      </form>
-    </div>
-  </div>
-</div>
-
-{% if top_member_tariff %}
-<!-- Модалка: редактирование последнего тарифа для членов кооператива -->
-<div class="modal fade" id="editMemberTariffModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-lg">
-    <div class="modal-content">
-      <form method="post" action="{{ url_for('power.edit_tariff', tariff_id=top_member_tariff.id) }}">
-        <div class="modal-header">
-          <h5 class="modal-title">{{ _("Изменить тариф для членов кооператива") }}</h5>
-          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-        </div>
-        <div class="modal-body">
-          <p class="text-muted small">{{ _("Редактировать можно только последний добавленный тариф — более ранние уже могли использоваться для расчётов.") }}</p>
-          <div class="mb-3">
-            <label class="form-label">{{ _("Тариф, ₽/кВт·ч") }}</label>
-            <input class="form-control" name="rate" value="{{ top_member_tariff.rate }}" required>
-          </div>
-          <div class="mb-3">
-            <label class="form-label">{{ _("Действует с") }}</label>
-            <input class="form-control" type="date" name="effective_date" value="{{ top_member_tariff.effective_date.isoformat() }}" required>
-          </div>
-          <div class="mb-3">
-            <label class="form-label">{{ _("Комментарий") }}</label>
-            <textarea class="form-control" name="comment">{{ top_member_tariff.comment or "" }}</textarea>
+            <textarea class="form-control" name="comment">{{ (top_pair.comment or "") if top_pair else "" }}</textarea>
           </div>
         </div>
         <div class="modal-footer">

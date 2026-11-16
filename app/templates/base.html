@@ -936,7 +936,13 @@ function initChatWidget(cfg) {
   emojiPanel.addEventListener("keydown", function (e) {
     if (e.key === "Escape") { toggleEmoji(false); emojiBtn.focus(); }
   });
-  form.insertBefore(emojiBtn, form.querySelector('button[type="submit"]'));
+  // Смайлики — над кнопкой «Отправить» (столбик справа от поля ввода).
+  var sendBtn = form.querySelector('button[type="submit"]');
+  var formButtons = document.createElement("div");
+  formButtons.className = "chat-widget-form-buttons";
+  form.insertBefore(formButtons, sendBtn);
+  formButtons.appendChild(emojiBtn);
+  formButtons.appendChild(sendBtn);
   form.appendChild(emojiPanel);
 
   // Ответ/правка (только чат правления): плашка над полем ввода — на что
@@ -1577,6 +1583,7 @@ tr.table-info-subtle { --bs-table-bg: var(--bs-info-bg-subtle); --bs-table-borde
 .chat-widget-form .chat-widget-send .bi, .chat-widget-form .chat-widget-emoji-btn .bi { line-height: 1; }
 .chat-widget-form .chat-widget-send .bi::before, .chat-widget-form .chat-widget-emoji-btn .bi::before { vertical-align: 0; }
 .chat-widget-form { position: relative; }
+.chat-widget-form-buttons { flex: none; display: flex; flex-direction: column; gap: .3rem; }
 .chat-widget-emoji-panel {
   position: absolute; left: .5rem; right: .5rem; bottom: 100%; margin-bottom: .25rem; z-index: 3;
   display: grid; grid-template-columns: repeat(auto-fill, minmax(2rem, 1fr)); gap: .1rem;
@@ -1606,6 +1613,7 @@ tr.table-info-subtle { --bs-table-bg: var(--bs-info-bg-subtle); --bs-table-borde
 .chat-widget-form.is-expanded .chat-widget-input-wrap textarea { height: auto !important; max-height: none; }
 .chat-widget-form.is-expanded .chat-widget-emoji-btn,
 .chat-widget-form.is-expanded .chat-widget-send { align-self: flex-end; }
+.chat-widget-form.is-expanded .chat-widget-form-buttons { align-self: flex-end; }
 .wiki-tree-toggle { display: inline-block; width: 1.1rem; text-align: center; }
 .wiki-tree-toggle .chevron { display: inline-block; transition: transform .15s; }
 .wiki-tree-toggle.collapsed .chevron { transform: rotate(-90deg); }

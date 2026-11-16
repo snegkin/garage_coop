@@ -186,12 +186,19 @@ def edit_group_message(settings: TelegramSettings, chat_id, external_id: str, te
             raise
 
 
+# Реакции (message_reaction) Telegram по умолчанию ботам не присылает —
+# только если явно попросить; список запоминается Telegram для бота, поэтому
+# в нём всё, что нам нужно (остальные типы и так не разбираются). Реакции
+# приходят, только если бот — администратор группы.
+ALLOWED_UPDATES = ["message", "edited_message", "channel_post", "my_chat_member", "message_reaction"]
+
+
 def get_updates(settings: TelegramSettings, offset: int | None, timeout: int = 0) -> list[dict]:
     """timeout=0 — обычный short-poll (используется из cron раз в минуту,
     держать HTTP-соединение открытым долгим long-poll'ом внутри cron-скрипта
     смысла не имеет — следующий запуск всё равно через минуту)."""
     token = _token(settings)
-    params = {"timeout": timeout}
+    params = {"timeout": timeout, "allowed_updates": json.dumps(ALLOWED_UPDATES)}
     if offset is not None:
         params["offset"] = offset
     try:
@@ -294,6 +301,31 @@ def _ingest_board_chat(message: dict, text: str, edited: bool = False) -> bool:
     return True
 
 
+def _ingest_board_reaction(reaction: dict) -> None:
+    """Реакция в группе правления -> чат правления на сайте
+    (board_chat.ingest_external_reaction). new_reaction — полный текущий
+    набор человека; учитываются только обычные эмодзи (не свои/платные).
+    Анонимный администратор группы — от имени группы (actor_chat)."""
+    from . import board_chat
+    chat_id = (reaction.get("chat") or {}).get("id")
+    if not board_chat.is_board_chat(board_chat.SOURCE_TELEGRAM, chat_id):
+        return
+    user = reaction.get("user")
+    if user:
+        if user.get("is_bot"):
+            return
+        author_id, name = user.get("id"), _display_name(user)
+    else:
+        actor = reaction.get("actor_chat") or {}
+        author_id, name = actor.get("id"), actor.get("title")
+    emojis = [r.get("emoji") for r in reaction.get("new_reaction") or [] if r.get("type") == "emoji"]
+    message_id = reaction.get("message_id")
+    board_chat.ingest_external_reaction(
+        board_chat.SOURCE_TELEGRAM, original_id=f"{chat_id}:{message_id}", copy_id=message_id,
+        external_user_id=author_id, display_name=name, emojis=emojis,
+    )
+
+
 def _log_update(update: dict, message: dict | None) -> None:
     """Строка в лог cron на каждый апдейт — тип, чат и (для команд) сама
     команда; обычный текст не пишем (переписка правления в логе ни к чему).
@@ -336,6 +368,9 @@ def poll_and_link_accounts() -> tuple[int, int]:
         settings.last_update_id = update["update_id"]
         message = update.get("message") or update.get("channel_post")
         _log_update(update, message)
+        if update.get("message_reaction"):
+            _ingest_board_reaction(update["message_reaction"])
+            continue
         if update.get("edited_message"):
             # Правка в группе правления; в остальных чатах правки не нужны.
             _ingest_board_chat(update["edited_message"], (update["edited_message"].get("text") or "").strip(),

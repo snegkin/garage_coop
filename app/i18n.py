@@ -2092,8 +2092,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Проверка подключения к Telegram": "Checking the Telegram connection",
         "Группа для новостей": "News group",
         "Группа правления": "Board group",
-        "Мост с чатом правления на сайте: сообщения ходят в обе стороны с задержкой до минуты. Только закрытая группа, где состоят одни члены правления. Сделайте бота администратором группы, иначе он не видит обычные сообщения, и отправьте там /chatid. Автор показывается логином на сайте, если его Telegram привязан в профиле. Пусто — моста нет.":
-            "Bridge with the board chat on the site: messages go both ways with up to a minute's delay. Only a private group with board members alone. Make the bot an administrator of the group, otherwise it can't see regular messages, and send /chatid there. The author is shown by their site login if their Telegram is linked in the profile. Leave empty to disable.",
+        "Мост с чатом правления на сайте: сообщения ходят в обе стороны с задержкой до минуты. Только закрытая группа, где состоят одни члены правления. Сделайте бота администратором группы, иначе он не видит обычные сообщения и реакции, и отправьте там /chatid. Автор показывается логином на сайте, если его Telegram привязан в профиле. Пусто — моста нет.":
+            "Bridge with the board chat on the site: messages go both ways with up to a minute's delay. Only a private group with board members alone. Make the bot an administrator of the group, otherwise it can't see regular messages and reactions, and send /chatid there. The author is shown by their site login if their Telegram is linked in the profile. Leave empty to disable.",
         "ID группы правления — отрицательное число (-100…), его присылает бот по команде /chatid в группе.":
             "The board group ID is a negative number (-100…); the bot sends it in reply to /chatid in the group.",
         "или": "or",

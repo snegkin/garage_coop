@@ -38,8 +38,13 @@ Telegram об удалениях ботам не сообщает.
 сайте и копию в другой группе. Чужие сообщения в группе бот править не
 может, поэтому на сайте правится только сообщение, написанное на сайте.
 
-Реакции (BoardChatReaction) — только на сайте: эмодзи из REACTIONS,
-повторный клик снимает свою. В группы мессенджеров не пересылаются.
+Реакции (BoardChatReaction): на сайте — эмодзи из REACTIONS (или уже
+стоящий на сообщении), повторный клик снимает свою. В группы мессенджеров
+с сайта не пересылаются: бот может поставить от себя лишь одну реакцию, без
+авторов и количества. Из группы в Telegram — приходят (апдейт
+message_reaction, ingest_external_reaction; бот должен быть администратором
+группы): от привязанного члена правления — от его имени, иначе — от имени в
+Telegram с пометкой.
 
 Опрос отдаёт уже показанные сообщения, изменённые недавно (правка или
 реакции, BoardChatMessage.changed_at, то же окно, что и для удалённых), —
@@ -232,6 +237,62 @@ def ingest_external(source: str, external_message_id, external_user_id, display_
     return message
 
 
+def _normalize_emoji(emoji: str) -> str:
+    """Telegram присылает ❤ без вариационного селектора (U+FE0F), на сайте
+    ❤️ с ним — иначе одна и та же реакция легла бы двумя чипами."""
+    emoji = (emoji or "").strip()
+    if emoji and emoji + "\ufe0f" in REACTIONS:
+        return emoji + "\ufe0f"
+    return emoji
+
+
+def ingest_external_reaction(source: str, original_id, copy_id, external_user_id, display_name: str | None,
+                             emojis) -> BoardChatMessage | None:
+    """Реакции человека из группы правления на сообщение — это его полный
+    текущий набор (Telegram присылает new_reaction целиком), поэтому прежние
+    реакции из этого мессенджера заменяются им. Реакции, поставленные тем же
+    человеком на сайте, не трогаются. Сообщение не из чата (или удалено) —
+    пропуск. Без commit. -> сообщение или None."""
+    message = find_external(source, original_id=original_id, copy_id=copy_id)
+    if message is None or message.deleted_at is not None or external_user_id is None:
+        return None
+    user = _find_board_user(source, external_user_id)
+    wanted = []
+    for emoji in emojis:
+        emoji = _normalize_emoji(emoji)
+        if emoji and len(emoji) <= 16 and emoji not in wanted:
+            wanted.append(emoji)
+    query = database.db_session.query(BoardChatReaction).filter_by(message_id=message.id, source=source)
+    query = query.filter_by(user_id=user.id) if user else query.filter_by(user_id=None, external_user_id=str(external_user_id))
+    existing = {row.emoji: row for row in query}
+    for emoji, row in existing.items():
+        if emoji not in wanted:
+            database.db_session.delete(row)
+    on_site = set()
+    if user:
+        on_site = {e for (e,) in database.db_session.query(BoardChatReaction.emoji).filter_by(
+            message_id=message.id, user_id=user.id, source=SOURCE_SITE)}
+    for emoji in wanted:
+        if emoji in existing or emoji in on_site:
+            continue
+        database.db_session.add(BoardChatReaction(
+            message_id=message.id, user_id=user.id if user else None, emoji=emoji, source=source,
+            external_user_id=None if user else str(external_user_id),
+            external_name=None if user else ((display_name or "").strip()[:128] or None),
+        ))
+    _mark_changed(message)
+    # В одном опросе может прийти и «поставил», и «снял» — следующий апдейт
+    # должен видеть уже записанное.
+    database.db_session.flush()
+    return message
+
+
+def _reaction_author(row: BoardChatReaction) -> str:
+    if row.user is not None:
+        return row.user.username
+    return f"{row.external_name or '?'} ({SOURCE_LABELS.get(row.source, row.source)})"
+
+
 def _reactions_by_message(message_ids) -> dict[int, list[dict]]:
     """{message_id: [{emoji, count, mine, users}]} — одним запросом на всю
     пачку сообщений; порядок эмодзи — по первой поставленной реакции."""
@@ -249,8 +310,8 @@ def _reactions_by_message(message_ids) -> dict[int, list[dict]]:
         item = result.setdefault(row.message_id, {}).setdefault(
             row.emoji, {"emoji": row.emoji, "count": 0, "mine": False, "users": []})
         item["count"] += 1
-        item["users"].append(row.user.username)
-        if row.user_id == g.user.id:
+        item["users"].append(_reaction_author(row))
+        if row.user_id is not None and row.user_id == g.user.id:
             item["mine"] = True
     return {message_id: list(items.values()) for message_id, items in result.items()}
 
@@ -414,10 +475,13 @@ def unpin_message(message_id):
 @bp.route("/messages/<int:message_id>/react", methods=["POST"])
 @roles_required(RoleEnum.BOARD)
 def react_message(message_id):
-    """Ставит реакцию или снимает свою такую же (переключатель)."""
+    """Ставит реакцию или снимает свою такую же (переключатель). Кроме
+    набора REACTIONS — эмодзи, уже стоящий на сообщении (пришёл из Telegram):
+    к нему можно присоединиться, нажав на чип."""
     message = _get_message(message_id)
     emoji = request.form.get("emoji", "")
-    if emoji not in REACTIONS:
+    if emoji not in REACTIONS and not database.db_session.query(BoardChatReaction.id).filter_by(
+            message_id=message.id, emoji=emoji).first():
         return jsonify(error="emoji"), 400
     existing = database.db_session.query(BoardChatReaction).filter_by(
         message_id=message.id, user_id=g.user.id, emoji=emoji).first()

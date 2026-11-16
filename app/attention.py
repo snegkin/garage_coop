@@ -22,7 +22,7 @@ from .i18n import translate as _
 from .models import (
     PersonDataRevision, PersonDataRevisionStatus, Vote, VoteQuestion, VoteBallot, VoteStatus, RoleEnum,
     VoteProposal, VoteProposalBoardBallot, ProposalStatus, MailboxSettings, MailProtocol,
-    Application, ApplicationStatus, CertificateRequest, CertificateRequestStatus,
+    Application, ApplicationStatus,
 )
 from .permissions import is_board
 
@@ -30,7 +30,7 @@ from .permissions import is_board
 def counts(user) -> dict[str, int]:
     """Счётчики по видам; ключи есть всегда (0, если пользователю вид не
     положен) — контекст-процессор отдаёт их шаблонам как pending_*_count."""
-    result = {"pd": 0, "votes": 0, "proposals": 0, "certificates": 0, "applications": 0, "mail": 0}
+    result = {"pd": 0, "votes": 0, "proposals": 0, "applications": 0, "mail": 0}
     if not user:
         return result
     session = database.db_session
@@ -66,12 +66,6 @@ def counts(user) -> dict[str, int]:
                 ).exists(),
             ).count()
 
-    # председателю — запросы справок о владении гаражом
-    if user.role == RoleEnum.CHAIRMAN:
-        result["certificates"] = session.query(CertificateRequest).filter(
-            CertificateRequest.status == CertificateRequestStatus.REQUESTED,
-        ).count()
-
     if is_board():
         # заявления членов кооператива без решения (app/applications.py) —
         # ответить может любой член правления, поэтому счёт общий
@@ -105,7 +99,6 @@ def items(user, by_key: dict[str, int] | None = None) -> list[dict]:
         ("pd", "exclamation-triangle", _("Ожидает одобрения"), url_for("persons.list_persons")),
         ("votes", "check2-square", _("Не проголосовано"), url_for("voting.list_votes")),
         ("proposals", "lightbulb", _("Предложения ждут решения"), url_for("proposals.list_proposals")),
-        ("certificates", "file-earmark-check", _("Запрошены справки"), url_for("documents.index", _anchor="certificate-requests")),
         ("applications", "file-earmark-text", _("Заявления ждут решения"),
          url_for("applications.list_applications", status="submitted")),
     ]

@@ -3,7 +3,8 @@
 шаблоны» (code="garage_certificate"): составляет только председатель,
 текст по реестру (дательный падеж, доля, «задолженности не имеет» —
 только если долга нет), номер в общем журнале документов, печать/PDF,
-видимость (правление — все, член — свои), запросы из личного кабинета.
+видимость (правление — все, член — свои), заявление о выдаче справки из
+личного кабинета.
 """
 import datetime as dt
 from decimal import Decimal
@@ -100,7 +101,6 @@ def test_chairman_issues_certificate(db, client):
     client.get("/auth/logout")
     login(client, "owner", "pass1234")
     assert client.get(f"/documents/{certificate.id}").status_code == 200
-    assert f"/documents/{certificate.id}" in client.get("/certificates/my").get_data(as_text=True)
     client.post("/documents/new", data={"template_id": template.id, "owner": f"{owner.id}:{garage.id}",
                                         "issued_at": "2026-10-20", "body_html": "<p>x</p>"})
     assert db.query(IssuedDocument).count() == 1
@@ -139,75 +139,104 @@ def test_board_member_cannot_issue_and_stranger_cannot_view(db, client, app):
 
 
 # ---------------------------------------------------------------------------
-# Запрос справки из личного кабинета
+# Заявление о выдаче справки из личного кабинета
 # ---------------------------------------------------------------------------
 
 from app import notifications
-from app.models import CertificateRequest, CertificateRequestStatus
+from app.models import Application, ApplicationKind, ApplicationStatus
 
 
-def test_member_requests_and_chairman_issues(db, client, monkeypatch):
+def _submit_certificate_application(client, garage):
+    return client.post("/applications/new", data={
+        "kind": "certificate", "garage_id": str(garage.id), "title": "о выдаче справки о владении гаражом",
+        "body_html": "<p>Прошу выдать справку о владении гаражом № 42. Нужно 2 экземпляра.</p>",
+    })
+
+
+def test_member_applies_and_chairman_issues(db, client, monkeypatch):
     owner, garage, _chairman = _setup(db)
     sent = []
     monkeypatch.setattr(notifications, "notify", lambda user, event, subject, body, **kw: sent.append((user.person_id, subject)))
 
     login(client, "owner", "pass1234")
-    resp = client.post("/certificates/my", data={"garage_id": str(garage.id), "comment": "2 экземпляра"})
-    assert resp.status_code == 302
-    req = db.query(CertificateRequest).one()
-    assert req.status == CertificateRequestStatus.REQUESTED and req.comment == "2 экземпляра"
-    assert db.query(AuditLog).filter_by(action="certificate.request").count() == 1
+    # В кабинете одна кнопка «Заявление в правление», справка — вид заявления.
+    page = client.get("/cabinet/garages").get_data(as_text=True)
+    assert f"/applications/new?garage_id={garage.id}&amp;kind=certificate" in page
+    assert "/certificates/my" not in page and "/certificates/my" not in client.get("/").get_data(as_text=True)
+    # Старая ссылка ведёт в редактор заявления этого вида.
+    resp = client.get(f"/certificates/my?garage_id={garage.id}")
+    assert resp.status_code == 302 and "kind=certificate" in resp.headers["Location"]
+    editor = client.get(resp.headers["Location"]).get_data(as_text=True)
+    assert "Справка о владении гаражом" in editor and "являюсь членом кооператива" in editor
 
-    # Повторный запрос по тому же гаражу, пока первый не закрыт, — не создаётся.
-    client.post("/certificates/my", data={"garage_id": str(garage.id)})
-    assert db.query(CertificateRequest).count() == 1
+    assert _submit_certificate_application(client, garage).status_code == 302
+    application = db.query(Application).one()
+    assert application.kind == ApplicationKind.CERTIFICATE and application.garage_id == garage.id
+    # Заявление подшито к гаражу.
+    assert f"/applications/{application.id}" in client.get(f"/garages/{garage.id}").get_data(as_text=True)
+    assert "/documents/new?application_id=" not in client.get(f"/applications/{application.id}").get_data(as_text=True)
     client.get("/auth/logout")
 
     login(client, "chair", "pass1234")
-    assert "Запрошены справки" in client.get("/").get_data(as_text=True)
-    page = client.get(f"/documents/new?request_id={req.id}").get_data(as_text=True)
-    assert "2 экземпляра" in page and "Выдана Петровой Анне Ивановне" in page
+    assert "Заявления ждут решения" in client.get("/").get_data(as_text=True)
+    page = client.get(f"/applications/{application.id}").get_data(as_text=True)
+    assert f"/documents/new?application_id={application.id}" in page
+    page = client.get(f"/documents/new?application_id={application.id}").get_data(as_text=True)
+    assert f"№ {application.number}" in page and "Выдана Петровой Анне Ивановне" in page
     client.post("/documents/new", data={
-        "request_id": str(req.id), "issued_at": "2026-10-20", "title": "СПРАВКА", "body_html": "<p>Справка.</p>",
+        "application_id": str(application.id), "issued_at": "2026-10-20", "title": "СПРАВКА", "body_html": "<p>Справка.</p>",
     })
-    db.refresh(req)
-    assert req.status == CertificateRequestStatus.READY and req.document.person_id == owner.id
-    assert req.document.garage_id == garage.id and req.document.number == "2026-1"
+    db.refresh(application)
+    certificate = db.query(IssuedDocument).one()
+    assert application.status == ApplicationStatus.ANSWERED and application.document_id == certificate.id
+    assert certificate.person_id == owner.id and certificate.garage_id == garage.id and certificate.number == "2026-1"
+    assert "заберите подписанный экземпляр у председателя" in application.response_html
     assert (owner.id, "Справка по гаражу № 42 готова") in sent
+    # Повторно по закрытому заявлению справка не оформляется.
+    assert client.get(f"/documents/new?application_id={application.id}").status_code == 302
 
-    client.post(f"/certificates/requests/{req.id}/handed-over")
-    db.refresh(req)
-    assert req.status == CertificateRequestStatus.HANDED_OVER and req.handed_over_at
+    # Удалили справку из журнала — заявление снова ждёт решения.
+    client.post(f"/documents/{certificate.id}/delete")
+    db.refresh(application)
+    assert application.status == ApplicationStatus.SUBMITTED and application.document_id is None
+    assert application.response_html is None
     client.get("/auth/logout")
 
     login(client, "owner", "pass1234")
-    page = client.get("/certificates/my").get_data(as_text=True)
-    assert "выдана на руки" in page and f"/documents/{req.document_id}" in page
+    page = client.get(f"/applications/{application.id}").get_data(as_text=True)
+    assert "оформляет председатель" in page
 
 
-def test_request_only_own_garage_and_reject(db, client, monkeypatch):
+def test_certificate_only_by_chairman_and_reject(db, client, monkeypatch):
     owner, garage, _chairman = _setup(db)
-    other_garage = make_garage(db, number="77")
+    board = make_person(db, full_name="Член Правления")
+    make_user(db, "board1", "pass1234", role=RoleEnum.BOARD, person=board)
     db.commit()
     sent = []
     monkeypatch.setattr(notifications, "notify", lambda user, event, subject, body, **kw: sent.append((user.person_id, body)))
 
     login(client, "owner", "pass1234")
-    client.post("/certificates/my", data={"garage_id": str(other_garage.id)})
-    assert db.query(CertificateRequest).count() == 0
-    client.post("/certificates/my", data={"garage_id": str(garage.id)})
-    req = db.query(CertificateRequest).one()
-    # Сам себе не отказывает и справку по запросу не оформляет.
-    client.post(f"/certificates/requests/{req.id}/reject", data={"reason": "x"})
-    db.refresh(req)
-    assert req.status == CertificateRequestStatus.REQUESTED
+    _submit_certificate_application(client, garage)
+    application = db.query(Application).one()
+    # Сам заявитель справку по своему заявлению не оформляет.
+    client.post("/documents/new", data={"application_id": str(application.id), "issued_at": "2026-10-20",
+                                        "body_html": "<p>x</p>"})
+    assert db.query(IssuedDocument).count() == 0
+    client.get("/auth/logout")
+
+    # Член правления видит заявление, но справку оформляет только председатель.
+    login(client, "board1", "pass1234")
+    page = client.get(f"/applications/{application.id}").get_data(as_text=True)
+    assert "/documents/new?application_id=" not in page and "оформляет председатель" in page
+    client.post("/documents/new", data={"application_id": str(application.id), "issued_at": "2026-10-20",
+                                        "body_html": "<p>x</p>"})
+    assert db.query(IssuedDocument).count() == 0
+    # Отклонить может любой член правления — как обычное заявление.
+    client.post(f"/applications/{application.id}/decide", data={"decision": "reject", "response_html": "<p>гараж в споре</p>"})
+    db.refresh(application)
+    assert application.status == ApplicationStatus.REJECTED and "гараж в споре" in application.response_html
+    assert any(pid == owner.id and "отклонило" in body for pid, body in sent)
     client.get("/auth/logout")
 
     login(client, "chair", "pass1234")
-    client.post(f"/certificates/requests/{req.id}/reject", data={"reason": "гараж в споре"})
-    db.refresh(req)
-    assert req.status == CertificateRequestStatus.REJECTED and req.reject_reason == "гараж в споре"
-    assert any(pid == owner.id and "гараж в споре" in body for pid, body in sent)
-    # Обработанный запрос не оформляется повторно.
-    resp = client.get(f"/documents/new?request_id={req.id}")
-    assert resp.status_code == 302
+    assert client.get(f"/documents/new?application_id={application.id}").status_code == 302

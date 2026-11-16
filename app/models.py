@@ -1181,6 +1181,7 @@ class VoteProposalBoardBallot(Base):
 
 class ApplicationKind(str, enum.Enum):
     OWNERSHIP_CHANGE = "ownership_change"  # о смене собственника гаража
+    CERTIFICATE = "certificate"            # о выдаче справки о владении гаражом
     CLAIM = "claim"                        # официальная претензия
     OTHER = "other"                        # иное заявление
 
@@ -1252,12 +1253,18 @@ class Application(Base):
     # подачи («Жалоба», «Обращение»); NULL — по виду (KIND_HEADINGS).
     template_id: Mapped[int | None] = mapped_column(ForeignKey("document_template.id", ondelete="SET NULL"))
     heading: Mapped[str | None] = mapped_column(String(200))
+    # Только для CERTIFICATE: справка о владении гаражом, оформленная
+    # председателем по заявлению (documents.create?application_id=…) —
+    # заявление при этом получает ответ «готова, заберите». Удаление
+    # справки из журнала возвращает заявление на рассмотрение.
+    document_id: Mapped[int | None] = mapped_column(ForeignKey("issued_document.id", ondelete="SET NULL"))
 
     person: Mapped["Person"] = relationship(foreign_keys=[person_id])
     garage: Mapped["Garage | None"] = relationship()
     decided_by: Mapped["Person | None"] = relationship(foreign_keys=[decided_by_person_id])
     new_owner: Mapped["Person | None"] = relationship(foreign_keys=[new_owner_person_id])
     registered_by: Mapped["User | None"] = relationship(foreign_keys=[registered_by_user_id])
+    document: Mapped["IssuedDocument | None"] = relationship()
     reads: Mapped[list["ApplicationRead"]] = relationship(
         back_populates="application", cascade="all, delete-orphan", order_by="ApplicationRead.read_at",
     )
@@ -1324,40 +1331,6 @@ class ApplicationRead(Base):
     __table_args__ = (
         UniqueConstraint("application_id", "person_id", name="uq_application_read_application_person"),
     )
-
-
-class CertificateRequestStatus(str, enum.Enum):
-    REQUESTED = "requested"        # член кооператива запросил, ждёт председателя
-    READY = "ready"                # справка выдана в журнале, распечатана — забрать у председателя
-    HANDED_OVER = "handed_over"    # отдана на руки
-    REJECTED = "rejected"          # председатель отказал (причина — reject_reason)
-
-
-class CertificateRequest(Base):
-    """Запрос справки о владении гаражом из личного кабинета собственника
-    (certificates.my_certificates). Председатель оформляет по нему справку
-    — документ по шаблону с code="garage_certificate" (IssuedDocument,
-    document_id, см. app/documents.py) → READY, собственнику
-    уведомление «заберите»; потом отмечает выдачу на руки → HANDED_OVER."""
-    __tablename__ = "certificate_request"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    person_id: Mapped[int] = mapped_column(ForeignKey("person.id", ondelete="CASCADE"), index=True)
-    garage_id: Mapped[int | None] = mapped_column(ForeignKey("garage.id", ondelete="SET NULL"), index=True)
-    garage_number: Mapped[str] = mapped_column(String(20))
-    comment: Mapped[str | None] = mapped_column(Text)
-    status: Mapped[CertificateRequestStatus] = mapped_column(
-        Enum(CertificateRequestStatus), default=CertificateRequestStatus.REQUESTED, index=True
-    )
-    created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.now)
-    document_id: Mapped[int | None] = mapped_column(ForeignKey("issued_document.id", ondelete="SET NULL"))
-    ready_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
-    handed_over_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
-    reject_reason: Mapped[str | None] = mapped_column(Text)
-
-    person: Mapped["Person"] = relationship()
-    garage: Mapped["Garage | None"] = relationship()
-    document: Mapped["IssuedDocument | None"] = relationship()
 
 
 class DocumentTemplate(Base):

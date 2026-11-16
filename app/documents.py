@@ -23,9 +23,10 @@ legal_docs/_letterhead.html): объявления (в т. ч. об общем �
 то, что раньше собиралось кодом, — подстановки {{он_она}}, {{членство}},
 {{владение}} (целиком / доля в праве), {{сведения_о_гараже}},
 {{нет_задолженности}} (фраза — только если долга действительно нет).
-Запросы справок из личного кабинета (app/certificates.py,
-CertificateRequest) оформляются здесь же: create?request_id=…, документ
-привязывается к запросу. Документы, адресованные человеку, он видит сам
+Справку из личного кабинета запрашивают заявлением в правление вида
+«справка о владении гаражом» (app/applications.py): председатель
+оформляет её здесь же — create?application_id=…, документ привязывается
+к заявлению (Application.document_id), заявление закрывается ответом. Документы, адресованные человеку, он видит сам
 (кабинет, карточки), остальное — только правление.
 
 Уведомления о задолженности с выпиской по годам и иски — в «Должниках»
@@ -48,7 +49,7 @@ from .i18n import translate as _
 from .legal_docs import _render_pdf_or_fallback, _coop_and_chairman
 from .models import short_name_of
 from .models import (
-    CertificateRequest, CertificateRequestStatus, DocumentCounter, DocumentTemplate, Garage,
+    Application, ApplicationKind, ApplicationStatus, DocumentCounter, DocumentTemplate, Garage,
     GarageOwnership, IssuedDocument, MemberAccount, Person, RoleEnum,
 )
 from .permissions import is_board, is_chairman
@@ -809,12 +810,6 @@ def index():
     missing_defaults = [d["name"] for d in DEFAULT_TEMPLATES
                         if d["name"] not in {t.name for t in templates}
                         and d.get("code") not in {t.code for t in templates if t.code}]
-    open_requests = (
-        database.db_session.query(CertificateRequest)
-        .filter(CertificateRequest.status.in_([CertificateRequestStatus.REQUESTED, CertificateRequestStatus.READY]))
-        .order_by(CertificateRequest.created_at)
-        .all()
-    )
     documents = (
         database.db_session.query(IssuedDocument)
         .order_by(IssuedDocument.issued_at.desc(), IssuedDocument.id.desc())
@@ -823,7 +818,6 @@ def index():
     )
     return render_template(
         "documents/index.html", templates=templates, documents=documents, missing_defaults=missing_defaults,
-        open_requests=open_requests,
     )
 
 
@@ -959,14 +953,15 @@ def _needs_recipient(recipient: str, person, garage) -> bool:
 @roles_required(RoleEnum.BOARD)
 def create():
     """Составить документ: по шаблону (template_id), копией другого
-    документа (copy_of) или справку по запросу из кабинета (request_id)."""
+    документа (copy_of) или справку по заявлению о её выдаче (application_id)."""
     form = request.form if request.method == "POST" else request.args
-    source = cert_request = None
-    if form.get("request_id"):
-        cert_request = database.db_session.get(CertificateRequest, form.get("request_id", type=int))
-        if cert_request is None or cert_request.status != CertificateRequestStatus.REQUESTED:
-            flash(_("Запрос не найден или уже обработан."), "warning")
-            return redirect(url_for("documents.index", _anchor="certificate-requests"))
+    source = cert_application = None
+    if form.get("application_id"):
+        cert_application = database.db_session.get(Application, form.get("application_id", type=int))
+        if (cert_application is None or cert_application.kind != ApplicationKind.CERTIFICATE
+                or cert_application.status != ApplicationStatus.SUBMITTED):
+            flash(_("Заявление не найдено или по нему уже принято решение."), "warning")
+            return redirect(url_for("applications.list_applications", status="submitted"))
         template = certificate_template()
         recipient = template.recipient
     elif form.get("copy_of"):
@@ -981,8 +976,8 @@ def create():
         flash(_("Документы по шаблону «{name}» составляет только председатель.", name=template.name), "warning")
         return redirect(url_for("documents.index"))
 
-    if cert_request is not None:
-        person, garage = _recipient_from({"owner": f"{cert_request.person_id}:{cert_request.garage_id or 0}"}, recipient)
+    if cert_application is not None:
+        person, garage = _recipient_from({"owner": f"{cert_application.person_id}:{cert_application.garage_id or 0}"}, recipient)
         if person is None and request.method == "GET":
             flash(_("Заявитель уже не числится собственником этого гаража."), "warning")
     elif source is not None and "owner" not in form and "person_id" not in form:
@@ -1011,7 +1006,7 @@ def create():
             error = _("Текст документа пуст.")
         if error:
             flash(error, "danger")
-            return _render_create(template, source, recipient, person, garage, coop, chairman, cert_request,
+            return _render_create(template, source, recipient, person, garage, coop, chairman, cert_application,
                                   title=title, addressee_html=addressee_html, body_html=body_html,
                                   issued_at=issued_at or dt.date.today())
         show_number = template.show_number if template else bool(source and source.number)
@@ -1036,16 +1031,9 @@ def create():
                     + (f": {person.full_name}" if person else "")
                     + (f", гараж № {garage.number}" if garage else ""),
         )
-        if cert_request is not None:
-            from .certificates import notify_requester
-            cert_request.status = CertificateRequestStatus.READY
-            cert_request.document_id = document.id
-            cert_request.ready_at = dt.datetime.now()
-            notify_requester(
-                cert_request, f"Справка по гаражу № {cert_request.garage_number} готова",
-                f"Справка № {document.number or ''} о владении гаражом № {cert_request.garage_number} готова — "
-                "заберите подписанный экземпляр у председателя.",
-            )
+        if cert_application is not None:
+            from .applications import certificate_issued
+            certificate_issued(cert_application, document)
         database.db_session.commit()
         flash(_("Документ сохранён в журнале."), "success")
         return redirect(url_for("documents.detail", document_id=document.id))
@@ -1055,11 +1043,11 @@ def create():
         issued_at = dt.date.fromisoformat(request.args.get("issued_at") or "")
     except ValueError:
         issued_at = None
-    return _render_create(template, source, recipient, person, garage, coop, chairman, cert_request,
+    return _render_create(template, source, recipient, person, garage, coop, chairman, cert_application,
                           issued_at=issued_at)
 
 
-def _render_create(template, source, recipient, person, garage, coop, chairman, cert_request=None,
+def _render_create(template, source, recipient, person, garage, coop, chairman, cert_application=None,
                    title=None, addressee_html=None, body_html=None, issued_at=None):
     issued_at = issued_at or dt.date.today()
     missing: set[str] = set()
@@ -1074,22 +1062,22 @@ def _render_create(template, source, recipient, person, garage, coop, chairman, 
             body_html = fill(template.body_html, ctx, missing)
     labels = {key: desc for key, desc, _g, _f in VARIABLES}
     debt = person_debt(person) if person is not None and not need_recipient else None
-    if cert_request is not None:
-        keep = {"request_id": cert_request.id}
+    if cert_application is not None:
+        keep = {"application_id": cert_application.id}
     elif source is not None:
         keep = {"copy_of": source.id}
     else:
         keep = {"template_id": template.id}
     return render_template(
         "documents/create.html", template=template, source=source, recipient=recipient, keep=keep,
-        cert_request=cert_request, person=person, garage=garage, coop=coop, chairman=chairman,
+        cert_application=cert_application, person=person, garage=garage, coop=coop, chairman=chairman,
         need_recipient=need_recipient, title=title or "", addressee_html=addressee_html or "",
         body_html=body_html or "", issued_at=issued_at,
         missing=sorted(labels.get(k, k) for k in missing), debt=debt,
         show_number=template.show_number if template else bool(source and source.number),
         show_signature=template.show_signature if template else source.show_signature,
         signer_role=template.signer_role if template else source.signer_role,
-        ownerships=_ownership_choices() if recipient == "garage" and cert_request is None else [],
+        ownerships=_ownership_choices() if recipient == "garage" and cert_application is None else [],
         persons=_person_choices() if recipient == "person" else [],
     )
 
@@ -1126,12 +1114,9 @@ def delete(document_id):
                 + (f" № {document.number}" if document.number else "")
                 + (f" от {_date(document.issued_at)}"),
     )
-    # Справка по запросу удалена — запрос снова ждёт оформления.
-    for req in database.db_session.query(CertificateRequest).filter_by(document_id=document.id):
-        req.document_id = None
-        if req.status == CertificateRequestStatus.READY:
-            req.status = CertificateRequestStatus.REQUESTED
-            req.ready_at = None
+    # Справка по заявлению удалена — заявление снова ждёт решения.
+    from .applications import certificate_withdrawn
+    certificate_withdrawn(document)
     database.db_session.delete(document)
     database.db_session.commit()
     flash(_("Документ удалён из журнала (его номер не используется повторно)."), "success")

@@ -15,8 +15,16 @@
       <p class="card-text mb-3"><strong>{{ _("Кадастровый номер гаража") }}:</strong> {{ garage.cadastral_number or "—" }}</p>
       <a class="btn btn-sm btn-primary" href="{{ url_for('garages.detail', garage_id=garage.id) }}">{{ _("Открыть и обновить данные") }}</a>
       {% if share is not none %}
-      <a class="btn btn-sm btn-outline-primary" href="{{ url_for('applications.create', garage_id=garage.id) }}"><i class="bi bi-pencil-square" aria-hidden="true"></i> {{ _("Заявление в правление") }}</a>
-      <a class="btn btn-sm btn-outline-primary" href="{{ url_for('certificates.my_certificates', garage_id=garage.id) }}"><i class="bi bi-file-earmark-check" aria-hidden="true"></i> {{ _("Справка о владении") }}</a>
+      {# Справку о владении тоже просят заявлением в правление — вид
+         «справка о владении гаражом» (app/applications.py). #}
+      <div class="btn-group">
+        <button type="button" class="btn btn-sm btn-outline-primary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false"><i class="bi bi-pencil-square" aria-hidden="true"></i> {{ _("Заявление в правление") }}</button>
+        <ul class="dropdown-menu">
+          {% for kind in ("certificate", "ownership_change", "claim", "other") %}
+          <li><a class="dropdown-item" href="{{ url_for('applications.create', garage_id=garage.id, kind=kind) }}">{{ application_kind_label(kind) }}</a></li>
+          {% endfor %}
+        </ul>
+      </div>
       {% endif %}
 
       {% set my_accounts = member_accounts_by_garage.get(garage.id, []) %}

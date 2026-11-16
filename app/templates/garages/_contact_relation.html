@@ -1,0 +1,13 @@
+{#
+  Отношение лица для связи к гаражу. Арендатор (GarageContact.is_tenant) —
+  это и есть отношение: «арендатор», а введённый текст дописывается, только
+  если он о другом (не повторяет «арендатор»). empty — что показать, если
+  отношения нет вовсе.
+#}
+{% macro contact_relation(c, empty="—") -%}
+{%- if c.is_tenant -%}
+{{ _("арендатор") }}{% if c.relation and c.relation|trim|lower not in ("арендатор", "арендатор гаража", "аренда", "арендует") %} · {{ c.relation }}{% endif %}
+{%- else -%}
+{{ c.relation or empty }}
+{%- endif -%}
+{%- endmacro %}

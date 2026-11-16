@@ -1,6 +1,6 @@
 """
 Сводка над реестрами гаражей и людей (garages.list_garages,
-persons._person_stats) и флаг «снимает гараж» у лица для связи
+persons._person_stats) и флаг «арендатор» у лица для связи
 (GarageContact.is_tenant).
 """
 import datetime as dt
@@ -54,7 +54,7 @@ def test_person_stats(db, client):
     db.commit()
 
     stats = _stats(client.get("/persons/").get_data(as_text=True))
-    assert stats == {"всего людей": 4, "собственники": 2, "для связи": 1, "снимают гараж": 1}
+    assert stats == {"всего людей": 4, "собственники": 2, "для связи": 1, "арендаторы": 1}
 
 
 def test_contact_tenant_flag_add_and_edit(db, client):
@@ -63,10 +63,15 @@ def test_contact_tenant_flag_add_and_edit(db, client):
     person = make_person(db, full_name="Арендатор")
     db.commit()
 
-    client.post(f"/garages/{garage.id}/contacts/add", data={"person_id": person.id, "is_tenant": "1"})
+    client.post(f"/garages/{garage.id}/contacts/add",
+                data={"person_id": person.id, "is_tenant": "1", "relation": "Арендатор"})
     contact = db.query(GarageContact).one()
     assert contact.is_tenant is True
-    assert "снимает" in client.get(f"/garages/{garage.id}").get_data(as_text=True)
+    # Отношение — «арендатор», без повтора введённого и без прочерка.
+    assert "<td>арендатор</td>" in client.get(f"/garages/{garage.id}").get_data(as_text=True)
+    contact.relation = "до 2027 года"
+    db.commit()
+    assert "<td>арендатор · до 2027 года</td>" in client.get(f"/garages/{garage.id}").get_data(as_text=True)
 
     client.post(f"/garages/{garage.id}/contacts/{contact.id}/edit", data={"person_id": person.id, "relation": "друг"})
     db.refresh(contact)

@@ -819,7 +819,7 @@ def add_contact(garage_id):
     audit.record(
         "garage_contact.add", entity_type="garage", entity_id=garage.id,
         summary=f"Гараж №{garage.number}: добавлено лицо для связи {person.full_name if person else person_id}"
-                + (" (снимает гараж)" if is_tenant else ""),
+                + (" (арендатор)" if is_tenant else ""),
     )
     database.db_session.commit()
     flash(_("Контактное лицо добавлено."), "success")
@@ -845,7 +845,7 @@ def edit_contact(garage_id, contact_id):
     audit.record(
         "garage_contact.edit", entity_type="garage", entity_id=garage.id,
         summary=f"Гараж №{garage.number}: изменено лицо для связи"
-                + (" (снимает гараж)" if contact.is_tenant else ""),
+                + (" (арендатор)" if contact.is_tenant else ""),
     )
     database.db_session.commit()
     flash(_("Контактное лицо изменено."), "success")

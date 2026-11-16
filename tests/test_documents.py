@@ -209,6 +209,17 @@ def test_member_application_templates(db, client):
     assert "Прошу принять меня в члены ГК" in page and "{{" not in page.split('id="docBody"')[1].split("</div>")[0]
 
 
+def test_blank_after_pipe(db, app):
+    owner, garage, _chairman = _setup(db)
+    with app.test_request_context():
+        ctx = documents.Context(dt.date(2026, 11, 16), owner, garage)
+        missing = set()
+        html = documents.fill("<p>{{паспорт|____|______}} {{ФИО|___}} {{ опечатка|__ }}</p>", ctx, missing)
+        assert html == "<p>____<br>______ Петрова Анна Ивановна {{ опечатка|__ }}</p>" and missing == {"паспорт"}
+        assert documents.fill_text("{{паспорт|____|__}}", ctx) == "____ __"
+    assert documents.unknown_placeholders("{{паспорт|___}} {{опечатка|_}}") == ["опечатка|_"]
+
+
 def test_power_contracts(db, client):
     owner, garage, _chairman = _setup(db)
     meter = ElectricityMeter(garage_id=garage.id, meter_number="СЕ101-777", meter_seal_number="П-15",
@@ -233,6 +244,14 @@ def test_power_contracts(db, client):
     assert "ИПУ) № СЕ101-777" in body and "1234,5 кВт·ч" in body and "— 2,5% от объёма" in body
     assert "1,46 кВт·ч в месяц" in body and "/Петрова А.И./" in body and "/Сидоров С.С./" in body
     assert "Пользователь не является членом" in body and "экземплярах" not in body
+
+    assert "мощностью 4 кВт" in body and "{{год}}" not in outside.body_html
+    # Пустые реквизиты — прочерк до края колонки, адрес — в две строки.
+    assert f"Дата рождения: {'_' * 20}<br>" in body and f"Тел.: {'_' * 29}</p>" in body
+    owner.registration_address = None
+    db.commit()
+    page = client.get(f"/documents/new?template_id={outside.id}&garage_id={garage.id}").get_data(as_text=True)
+    assert f"Адрес регистрации: {'_' * 16}<br>{'_' * 34}<br>" in page
 
     page = client.get(f"/documents/new?template_id={member.id}&garage_id={garage.id}").get_data(as_text=True)
     body = page.split('id="docBody"')[1].split("</div>")[0]

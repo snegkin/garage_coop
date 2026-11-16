@@ -151,9 +151,9 @@
 
 <nav class="d-flex justify-content-between mt-2">
   <a class="btn btn-sm btn-outline-secondary {{ 'disabled' if not page.has_prev }}"
-     href="{{ url_for('mailbox.inbox', page=(request.args.get('page', 1, type=int) - 1), page_size=page_size, folder=folder, q=search, sort=sort, dir=sort_dir) }}">&larr; {{ _("Назад") }}</a>
+     href="{{ url_for('mailbox.inbox', page=page.page - 1, page_size=page_size, folder=folder, q=search, sort=sort, dir=sort_dir) }}">&larr; {{ _("Назад") }}</a>
   <a class="btn btn-sm btn-outline-secondary {{ 'disabled' if not page.has_next }}"
-     href="{{ url_for('mailbox.inbox', page=(request.args.get('page', 1, type=int) + 1), page_size=page_size, folder=folder, q=search, sort=sort, dir=sort_dir) }}">{{ _("Вперёд") }} &rarr;</a>
+     href="{{ url_for('mailbox.inbox', page=page.page + 1, page_size=page_size, folder=folder, q=search, sort=sort, dir=sort_dir) }}">{{ _("Вперёд") }} &rarr;</a>
 </nav>
 {% endif %}
 

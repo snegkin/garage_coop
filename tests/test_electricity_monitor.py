@@ -19,7 +19,7 @@ from app import database
 from app.bank_api import crypto
 from app.electricity_monitor import (
     HISTORY_FETCH_HOURS, RAW_READINGS_KEEP_DAYS, compact_old_readings, reading_from_snapshot,
-    load_profile, baseline_at, load_threshold,
+    load_profile, load_threshold, is_load,
 )
 from app.models import RoleEnum, EWeLinkAccount, PowerPhaseDevice, PowerPhaseReading
 from app.ewelink import EWeLinkClient, EWeLinkTokens, EWeLinkApiError, EWeLinkAuthError, parse_phase_snapshot
@@ -872,21 +872,39 @@ def _fill_lights_history(db, device, now, days=5, base="100", lights="200", on_h
     db.flush()
 
 
-def test_load_profile_includes_scheduled_lights(app, db):
-    """Фонари, горящие каждую ночь, — часть фона: ночью фон с ними, днём без."""
-    device = make_phase_device(db)
-    now = dt.datetime(2026, 11, 16, 18, 0)
+def test_lights_are_background_when_usually_on(app, db):
+    """Фонари, горящие каждую ночь, — часть фона ночью (и в ±30 минут от
+    обычного включения: фотореле срабатывает каждый день чуть по-разному),
+    днём — нет."""
+    device = make_phase_device(db, lights_w=Decimal("200"))
+    now = dt.datetime(2026, 11, 16, 21, 0)
     _fill_lights_history(db, device, now)
-    profile = load_profile(device.id, now)
-    assert baseline_at(profile, dt.datetime(2026, 11, 16, 21, 0)) == Decimal("300")
-    assert baseline_at(profile, dt.datetime(2026, 11, 16, 10, 0)) == Decimal("100")
-    # Ближе 30 минут к включению фонарей — уже фон с фонарями: фотореле
-    # каждый день срабатывает в чуть другое время.
-    assert baseline_at(profile, dt.datetime(2026, 11, 16, 13, 40)) == Decimal("300")
+    info = load_threshold(device, now)
+    assert info["lights_on"] and info["baseline"] == Decimal("300")
+    assert info["threshold"] == Decimal("330")  # +10 % (больше минимальных 15 Вт)
+    assert not is_load(Decimal("305"), info)
+    assert is_load(Decimal("500"), info)  # свет в гараже поверх фонарей — виден
+
+    info = load_threshold(device, dt.datetime(2026, 11, 16, 13, 40))
+    assert info["lights_on"]
+    info = load_threshold(device, dt.datetime(2026, 11, 16, 9, 0))
+    assert not info["lights_on"] and info["baseline"] == Decimal("100") and info["step_band"] is None
+    assert is_load(Decimal("300"), info)  # днём 200 Вт сверх фона — свет в гараже
+
+
+def test_regular_nightly_load_is_not_background(app, db):
+    """Электромобиль заряжается каждую ночь — это потребление, а не фон
+    (фон — нижний уровень, без привязки ко времени суток)."""
+    device = make_phase_device(db)
+    now = dt.datetime(2026, 11, 16, 23, 0)
+    _fill_lights_history(db, device, now, base="55", lights="3500", on_hour=20, off_hour=5)
+    info = load_threshold(device, now)
+    assert info["baseline"] == Decimal("55")
+    assert is_load(Decimal("3555"), info)
 
 
 def test_load_profile_median_ignores_one_off_night_load(app, db):
-    """Разовая нагрузка на всю ночь (обогреватель) — не фон."""
+    """Разовая нагрузка на всю ночь (обогреватель) в профиль не попадает."""
     device = make_phase_device(db)
     now = dt.datetime(2026, 11, 16, 12, 0)
     _fill_lights_history(db, device, now, lights="0")
@@ -896,17 +914,14 @@ def test_load_profile_median_ignores_one_off_night_load(app, db):
     ):
         r.power_w = Decimal("2100")
     db.flush()
-    assert baseline_at(load_profile(device.id, now), dt.datetime(2026, 11, 16, 3, 0)) == Decimal("100")
+    assert set(load_profile(device.id, now).values()) == {Decimal("100")}
 
 
-def test_load_threshold_margin_offset_and_fixed(app, db):
+def test_load_threshold_offset_and_fixed(app, db):
     device = make_phase_device(db)
     now = dt.datetime(2026, 11, 16, 18, 0)
-    _fill_lights_history(db, device, now)
-    info = load_threshold(device, now)
-    assert info["baseline"] == Decimal("300") and not info["fixed"]
-    assert info["threshold"] == Decimal("330")  # +10 % (больше минимальных 15 Вт)
-    assert info["profile_min"] == Decimal("100") and info["profile_max"] == Decimal("300")
+    _fill_lights_history(db, device, now, base="300", lights="0")
+    assert load_threshold(device, now)["threshold"] == Decimal("330")
 
     device.load_threshold_offset_w = Decimal("-20")
     assert load_threshold(device, now)["threshold"] == Decimal("310")
@@ -948,11 +963,40 @@ def test_save_devices_stores_load_threshold_settings(app, db, client):
     login(client, "chair_load", "pass12345")
     client.post("/electricity/devices", data={
         "device_id_a": "dev-a", "load_offset_a": "-12,5", "load_threshold_a": "",
-        "device_id_b": "dev-b", "load_offset_b": "", "load_threshold_b": "450",
+        "device_id_b": "dev-b", "load_offset_b": "", "load_threshold_b": "450", "lights_b": "198",
         "device_id_c": "dev-c", "load_offset_c": "abc", "load_threshold_c": "-5",
     })
     db.expire_all()
     a, b, c = database.db_session.query(PowerPhaseDevice).order_by(PowerPhaseDevice.sort_order).all()
     assert a.load_threshold_offset_w == Decimal("-12.5") and a.load_threshold_w is None
-    assert b.load_threshold_offset_w is None and b.load_threshold_w == Decimal("450")
+    assert b.load_threshold_offset_w is None and b.load_threshold_w == Decimal("450") and b.lights_w == Decimal("198")
+    assert a.lights_w is None
     assert c.load_threshold_offset_w is None and c.load_threshold_w is None  # мусор/отрицательный порог — авто
+
+
+def test_lights_switched_on_early_are_not_load(app, db):
+    """Метель: фотореле включило фонари в 12:30, а обычно — в 14:00 UTC.
+    За 2 часа до обычного времени «фон + фонари ± запас» — не потребление."""
+    device = make_phase_device(db, lights_w=Decimal("200"))
+    now = dt.datetime(2026, 11, 16, 12, 30)
+    _fill_lights_history(db, device, now)
+    info = load_threshold(device, now)
+    assert not info["lights_on"] and info["step_band"] is not None
+    assert not is_load(Decimal("305"), info)
+    assert is_load(Decimal("150"), info)  # нагрузка меньше фонарей — видна
+    assert is_load(Decimal("700"), info)  # фонари + нагрузка — видна
+
+    device.lights_w = None  # без указанных фонарей раннее включение — потребление
+    assert is_load(Decimal("305"), load_threshold(device, now))
+
+
+def test_added_lights_at_night_are_not_load_once_lights_w_updated(app, db):
+    """Добавили 2×50 Вт фонарей: в профиле ещё старые (200 Вт), но после
+    исправления lights_w ночные 400 Вт — не потребление."""
+    device = make_phase_device(db, lights_w=Decimal("300"))
+    now = dt.datetime(2026, 11, 16, 22, 0)
+    _fill_lights_history(db, device, now)
+    info = load_threshold(device, now)
+    assert info["lights_on"] and info["baseline"] == Decimal("400")
+    assert not is_load(Decimal("400"), info)
+    assert is_load(Decimal("900"), info)

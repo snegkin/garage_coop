@@ -235,17 +235,22 @@
             </div>
           </div>
           <div class="row g-2 mb-1 align-items-end">
-            <div class="col-md-4">
+            <div class="col-md-3">
+              <label class="form-label small">{{ _("Фонари на фазе, Вт") }}</label>
+              <input class="form-control form-control-sm" name="lights_{{ phase }}" inputmode="decimal" placeholder="0"
+                     value="{{ fmt2(existing.lights_w) if existing and existing.lights_w is not none else '' }}">
+            </div>
+            <div class="col-md-3">
               <label class="form-label small">{{ _("Поправка к авто-порогу, Вт") }}</label>
               <input class="form-control form-control-sm" name="load_offset_{{ phase }}" inputmode="decimal" placeholder="0"
                      value="{{ fmt2(existing.load_threshold_offset_w) if existing and existing.load_threshold_offset_w is not none else '' }}">
             </div>
-            <div class="col-md-4">
+            <div class="col-md-3">
               <label class="form-label small">{{ _("Фиксированный порог, Вт") }}</label>
               <input class="form-control form-control-sm" name="load_threshold_{{ phase }}" inputmode="decimal" placeholder="{{ _('авто') }}"
                      value="{{ fmt2(existing.load_threshold_w) if existing and existing.load_threshold_w is not none else '' }}">
             </div>
-            <div class="col-md-4 small text-muted">
+            <div class="col-md-3 small text-muted">
               {% if load and load.baseline is not none %}
               {{ _("Фон сейчас") }} {{ fmt2(load.baseline) }} {{ _("Вт") }}{% if load.profile_min is not none %}, {{ _("за сутки") }} {{ fmt2(load.profile_min) }}–{{ fmt2(load.profile_max) }} {{ _("Вт") }}{% endif %}.
               {% if load.threshold is not none %}{{ _("Порог сейчас") }} {{ fmt2(load.threshold) }} {{ _("Вт") }}.{% endif %}
@@ -256,7 +261,7 @@
           </div>
           <hr class="my-2">
           {% endfor %}
-          <p class="text-muted small mb-0">{{ _("Кружок на карточке фазы зелёный, когда мощность выше порога. Авто-порог — фон за последние 5 дней в это же время суток (±30 минут) плюс запас на шум: счётчики, потери, фонари. Это не жёсткое расписание: профиль пересчитывается непрерывно, поэтому сезонный сдвиг заката и рассвета он отслеживает сам, а новые счётчики или фонари учитывает примерно за 3 дня. Поправка (можно отрицательную) прибавляется к авто-порогу; фиксированный порог заменяет его целиком, без учёта времени суток.") }}</p>
+          <p class="text-muted small mb-0">{{ _("Кружок на карточке фазы зелёный, когда мощность выше порога. Авто-порог — фон плюс запас на шум. Фон — самый низкий устойчивый уровень фазы за последние 5 дней (счётчики, потери); регулярная нагрузка — зарядка электромобиля, свет в гаражах — в фон не входит. Новые счётчики или отключённая часть ряда учитываются примерно за 3 дня. «Фонари на фазе» — суммарная мощность уличных фонарей: в то время суток, когда они обычно горят (по данным последних дней, с учётом сдвига заката), они прибавляются к фону; за 2 часа до и после этого времени (пасмурно, метель) включение фонарей тоже не считается потреблением. При добавлении фонарей исправьте цифру. Поправка (можно отрицательную) прибавляется к авто-порогу; фиксированный порог заменяет его целиком.") }}</p>
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>

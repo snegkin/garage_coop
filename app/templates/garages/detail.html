@@ -339,7 +339,7 @@
   {% for photo in garage.photos %}
   <div class="col-md-3 col-sm-4 col-6">
     <div class="card">
-      <img src="{{ url_for('garages.photo_file', photo_id=photo.id) }}" class="card-img-top gallery-thumb" style="height:150px;object-fit:cover;cursor:pointer" data-gallery-index="{{ loop.index0 }}">
+      <img src="{{ url_for('garages.photo_file', photo_id=photo.id, v=photo.file_path) }}" class="card-img-top gallery-thumb bg-body-tertiary" style="height:150px;object-fit:contain;cursor:pointer" data-gallery-index="{{ loop.index0 }}">
       <div class="card-body p-2">
         {% if is_board() %}
         <form method="post" action="{{ url_for('garages.edit_photo', garage_id=garage.id, photo_id=photo.id) }}" enctype="multipart/form-data" class="mb-1" data-ajax>
@@ -382,7 +382,7 @@
 (function () {
   const photos = [
     {% for photo in garage.photos %}
-    { url: "{{ url_for('garages.photo_file', photo_id=photo.id) }}", caption: {{ (photo.caption or "")|tojson }} }{{ "," if not loop.last }}
+    { url: "{{ url_for('garages.photo_file', photo_id=photo.id, v=photo.file_path) }}", caption: {{ (photo.caption or "")|tojson }} }{{ "," if not loop.last }}
     {% endfor %}
   ];
   let current = 0;

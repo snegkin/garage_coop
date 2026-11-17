@@ -562,7 +562,11 @@ function initChatWidget(cfg) {
     }
 
     var body = document.createElement("div");
-    body.textContent = msg.body;
+    body.className = "chat-widget-body";
+    // body_html — уже безопасный HTML с сервера (app/chat_markup.py: текст
+    // экранирован, теги только свои — ссылки, жирный и т. п.).
+    if (msg.body_html != null) body.innerHTML = msg.body_html;
+    else body.textContent = msg.body;
     el.appendChild(body);
 
     var time = document.createElement("span");
@@ -773,7 +777,7 @@ function initChatWidget(cfg) {
     icon.setAttribute("aria-hidden", "true");
     var text = document.createElement("span");
     text.className = "chat-widget-pinned-text";
-    text.textContent = msg.author_name + ": " + msg.body;
+    text.textContent = msg.author_name + ": " + (msg.body_plain != null ? msg.body_plain : msg.body);
     text.title = cfg.pinnedLabel;
     text.addEventListener("click", function () { scrollToMessage(msg.id); });
     var unpin = actionButton("bi-x-lg", cfg.unpinLabel, function () {
@@ -971,7 +975,7 @@ function initChatWidget(cfg) {
     title.textContent = mode === "edit" ? cfg.editingLabel : cfg.replyToLabel + " " + msg.author_name;
     var excerpt = document.createElement("span");
     excerpt.className = "chat-widget-quote-text";
-    excerpt.textContent = msg.body;
+    excerpt.textContent = msg.body_plain != null ? msg.body_plain : msg.body;
     text.appendChild(title);
     text.appendChild(excerpt);
     text.addEventListener("click", function () { scrollToMessage(msg.id); });
@@ -1088,6 +1092,174 @@ function initChatWidget(cfg) {
     }
   });
 
+
+  // Форматирование — как в Telegram Desktop, но разметкой прямо в тексте
+  // (app/chat_markup.py): Ctrl+B — **жирный**, Ctrl+I — __курсив__,
+  // Ctrl+U — ++подчёркнутый++, Ctrl+Shift+X — ~~зачёркнутый~~,
+  // Ctrl+Shift+M — `моноширинный` (несколько строк — ```блок```),
+  // Ctrl+K — ссылка, Ctrl+Shift+N — убрать форматирование. Повторное
+  // сочетание на уже выделенном снимает его. Клавиши — по e.code, чтобы
+  // работали и в русской раскладке.
+  // Вставка: выделен текст и в буфере адрес — текст становится ссылкой;
+  // в буфере HTML со ссылками/форматированием (страница сайта, документ) —
+  // переводится в ту же разметку, иначе ссылки потерялись бы.
+  function replaceRange(start, end, text, selStart, selEnd) {
+    input.focus();
+    input.setSelectionRange(start, end);
+    var before = input.value, ok = false;
+    // execCommand — чтобы правку можно было отменить Ctrl+Z
+    try { ok = document.execCommand("insertText", false, text); } catch (err) {}
+    if (!ok || input.value === before) input.setRangeText(text, start, end, "end");
+    input.setSelectionRange(selStart, selEnd);
+    autoGrow();
+  }
+  function isUrl(str) {
+    return /^(https?:\/\/|www\.|mailto:)[^\s]+$/i.test(str);
+  }
+  function linkMarkup(text, url) {
+    url = url.trim().replace(/ /g, "%20").replace(/\(/g, "%28").replace(/\)/g, "%29");
+    text = text.replace(/[\[\]\n]+/g, " ").trim();
+    if (!text || text === url) return url;
+    return "[" + text + "](" + url + ")";
+  }
+  function toggleWrap(open, close) {
+    var v = input.value, s = input.selectionStart, e = input.selectionEnd;
+    while (s < e && /\s/.test(v[s])) s++;
+    while (e > s && /\s/.test(v[e - 1])) e--;
+    if (s === e) {  // ничего не выделено — пара маркеров, курсор между ними
+      replaceRange(s, s, open + close, s + open.length, s + open.length);
+      return;
+    }
+    var sel = v.slice(s, e);
+    if (v.slice(s - open.length, s) === open && v.slice(e, e + close.length) === close) {
+      replaceRange(s - open.length, e + close.length, sel, s - open.length, e - open.length);
+      return;
+    }
+    if (sel.length > open.length + close.length && sel.indexOf(open) === 0 &&
+        sel.slice(-close.length) === close) {
+      var inner = sel.slice(open.length, sel.length - close.length);
+      replaceRange(s, e, inner, s, s + inner.length);
+      return;
+    }
+    replaceRange(s, e, open + sel + close, s + open.length, e + open.length);
+  }
+  function toggleMono() {
+    var sel = input.value.slice(input.selectionStart, input.selectionEnd);
+    if (sel.indexOf("\n") >= 0 || /^```[\s\S]*```$/.test(sel.trim())) toggleWrap("```\n", "\n```");
+    else toggleWrap("`", "`");
+  }
+  function insertLink() {
+    var s = input.selectionStart, e = input.selectionEnd, sel = input.value.slice(s, e);
+    var url = window.prompt(cfg.linkPromptLabel || "URL", isUrl(sel.trim()) ? sel.trim() : "https://");
+    if (!url || !url.trim() || url.trim() === "https://") { input.focus(); return; }
+    var md = linkMarkup(isUrl(sel.trim()) ? "" : sel, url);
+    replaceRange(s, e, md, s + md.length, s + md.length);
+  }
+  function clearFormatting() {
+    var s = input.selectionStart, e = input.selectionEnd;
+    if (s === e) { s = 0; e = input.value.length; }
+    var plain = input.value.slice(s, e)
+      .replace(/\[([^\[\]\n]+)\]\(([^()\s]+)\)/g, "$1")
+      .replace(/```\n?|\n?```|\*\*|__|\+\+|~~|`/g, "");
+    replaceRange(s, e, plain, s, s + plain.length);
+  }
+  var FORMAT_KEYS = {
+    KeyB: { shift: false, run: function () { toggleWrap("**", "**"); } },
+    KeyI: { shift: false, run: function () { toggleWrap("__", "__"); } },
+    KeyU: { shift: false, run: function () { toggleWrap("++", "++"); } },
+    KeyX: { shift: true, run: function () { toggleWrap("~~", "~~"); } },
+    KeyM: { shift: true, run: toggleMono },
+    KeyK: { shift: false, run: insertLink },
+    KeyN: { shift: true, run: clearFormatting },
+  };
+  input.addEventListener("keydown", function (e) {
+    if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+    var action = FORMAT_KEYS[e.code];
+    if (!action || action.shift !== e.shiftKey) return;
+    e.preventDefault();
+    action.run();
+  });
+
+  // HTML из буфера -> разметка; null — ни ссылок, ни форматирования нет
+  // (обычная вставка браузера).
+  function htmlToMarkup(html) {
+    var doc = new DOMParser().parseFromString(html, "text/html");  // скрипты не выполняются
+    var found = false;
+    var BLOCK = /^(P|DIV|UL|OL|H[1-6]|TR|TABLE|BLOCKQUOTE|SECTION|ARTICLE|HEADER|FOOTER)$/;
+    function wrap(inner, marker) {
+      var m = /^(\s*)([\s\S]*?)(\s*)$/.exec(inner);
+      if (!m[2]) return inner;
+      found = true;
+      return m[1] + marker + m[2] + marker + m[3];
+    }
+    function walk(node, state) {
+      if (node.nodeType === 3) return state.pre ? node.nodeValue : node.nodeValue.replace(/\s+/g, " ");
+      if (node.nodeType !== 1) return "";
+      var tag = node.tagName;
+      if (/^(SCRIPT|STYLE|HEAD|META|TITLE|NOSCRIPT|TEMPLATE)$/.test(tag)) return "";
+      if (tag === "BR") return "\n";
+      if (tag === "PRE") { found = true; return "\n```\n" + node.textContent.replace(/\n$/, "") + "\n```\n"; }
+      if (tag === "CODE" || tag === "KBD") {
+        var code = node.textContent;
+        if (!code.trim() || state.pre) return code;
+        found = true;
+        return "`" + code.replace(/`/g, "'") + "`";
+      }
+      var st = node.style || {}, fw = st.fontWeight || "";
+      var bold = fw ? (fw === "bold" || fw === "bolder" || parseInt(fw, 10) >= 600) : /^(B|STRONG)$/.test(tag);
+      var italic = st.fontStyle ? st.fontStyle === "italic" : /^(I|EM)$/.test(tag);
+      var deco = (st.textDecoration || st.textDecorationLine || "");
+      var under = /^(U|INS)$/.test(tag) || deco.indexOf("underline") >= 0;
+      var strike = /^(S|DEL|STRIKE)$/.test(tag) || deco.indexOf("line-through") >= 0;
+      var href = tag === "A" ? (node.getAttribute("href") || "") : "";
+      var isLink = /^(https?:|mailto:)/i.test(href);
+      var inner = state;
+      if (bold || italic || under || strike || isLink) {
+        inner = { pre: state.pre, b: state.b || bold, i: state.i || italic, u: state.u || under,
+                  s: state.s || strike, a: state.a || isLink };
+      }
+      var out = "";
+      for (var c = node.firstChild; c; c = c.nextSibling) out += walk(c, inner);
+      if (isLink && !state.a) {
+        // подчёркивание у ссылок — обычное оформление страницы, не разметка
+        out = out.replace(/\+\+/g, "");
+        var parts = /^(\s*)([\s\S]*?)(\s*)$/.exec(out);
+        found = true;
+        out = parts[1] + linkMarkup(parts[2] === href ? "" : parts[2], href) + parts[3];
+      }
+      if (under && !state.u && !isLink) out = wrap(out, "++");
+      if (strike && !state.s) out = wrap(out, "~~");
+      if (italic && !state.i) out = wrap(out, "__");
+      if (bold && !state.b) out = wrap(out, "**");
+      if (tag === "LI") out = "\n• " + out.trim();
+      if (BLOCK.test(tag)) out = "\n" + out + "\n";
+      if (tag === "TD" || tag === "TH") out = out + "\t";
+      return out;
+    }
+    var result = walk(doc.body, {});
+    if (!found) return null;
+    return result.replace(/[ \t]+\n/g, "\n").replace(/\n[ \t]+/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+  }
+  input.addEventListener("paste", function (e) {
+    var cd = e.clipboardData;
+    if (!cd) return;
+    var text = cd.getData("text/plain") || "", html = cd.getData("text/html") || "";
+    var s = input.selectionStart, end = input.selectionEnd, sel = input.value.slice(s, end);
+    var url = text.trim();
+    if (sel.trim() && sel.indexOf("\n") < 0 && isUrl(url) && !isUrl(sel.trim())) {
+      e.preventDefault();
+      var md = linkMarkup(sel, url);
+      replaceRange(s, end, md, s + md.length, s + md.length);
+      return;
+    }
+    if (!html) return;
+    var markup = null;
+    try { markup = htmlToMarkup(html); } catch (err) {}
+    if (markup == null || markup === text.trim()) return;
+    e.preventDefault();
+    replaceRange(s, end, markup, s + markup.length, s + markup.length);
+  });
+
   // Heartbeat независимо от того, открыта ли панель — иначе человек,
   // просто работающий на других страницах сайта и ни разу не открывший
   // чат, всегда выглядел бы офлайн в списке участников. Раз в минуту
@@ -1125,6 +1297,7 @@ function initChatWidget(cfg) {
 <script>
   initChatWidget({
     prefix: "board",
+    linkPromptLabel: "{{ _('Адрес ссылки') }}",
     emojiLabel: "{{ _('Смайлики') }}",
     expandLabel: "{{ _('Развернуть поле ввода') }}",
     collapseLabel: "{{ _('Свернуть поле ввода') }}",
@@ -1177,6 +1350,7 @@ function initChatWidget(cfg) {
 <script>
   initChatWidget({
     prefix: "revision",
+    linkPromptLabel: "{{ _('Адрес ссылки') }}",
     emojiLabel: "{{ _('Смайлики') }}",
     expandLabel: "{{ _('Развернуть поле ввода') }}",
     collapseLabel: "{{ _('Свернуть поле ввода') }}",
@@ -1521,6 +1695,10 @@ tr.table-info-subtle { --bs-table-bg: var(--bs-info-bg-subtle); --bs-table-borde
 .chat-widget-messages { flex: 1; min-height: 0; overflow-y: auto; padding: .5rem .75rem; display: flex; flex-direction: column; gap: .5rem; }
 .chat-widget-message { max-width: 85%; padding: .35rem .6rem; border-radius: .75rem; background: var(--bs-tertiary-bg); white-space: pre-wrap; word-break: break-word; font-size: .875rem; }
 .chat-widget-message.is-mine { align-self: flex-end; background: var(--bs-primary-bg-subtle); }
+/* Разметка сообщений (app/chat_markup.py) */
+.chat-widget-body a { word-break: break-all; }
+.chat-widget-body code { font-size: .85em; padding: 0 .2em; border-radius: .2rem; background: rgba(var(--bs-emphasis-color-rgb), .08); color: inherit; }
+.chat-widget-body pre { margin: .2rem 0; padding: .35rem .5rem; border-radius: .35rem; background: rgba(var(--bs-emphasis-color-rgb), .08); font-size: .8rem; white-space: pre-wrap; }
 .chat-widget-message .chat-widget-author { font-size: .75rem; font-weight: 600; opacity: .75; display: block; }
 .chat-widget-message .chat-widget-time { font-size: .7rem; opacity: .6; display: block; margin-top: .15rem; }
 /* Действия с сообщением (чат правления): при наведении; на сенсорных

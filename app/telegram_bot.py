@@ -170,8 +170,9 @@ def send_group_message(settings: TelegramSettings, chat_id: int | str, text: str
                        reply_to: str | None = None) -> str | None:
     """Сообщение в группу (мост чата правления, очередь kind="group");
     reply_to — id сообщения в группе, на которое это ответ.
+    text — HTML (board_chat.copy_text).
     -> id отправленного сообщения (для удаления/закрепа/правки потом)."""
-    message_id = send_message(settings, chat_id, text,
+    message_id = send_message(settings, chat_id, text, parse_mode="HTML",
                               reply_to=_message_id(reply_to) if reply_to is not None else None)
     return str(message_id) if message_id is not None else None
 
@@ -180,7 +181,8 @@ def edit_group_message(settings: TelegramSettings, chat_id, external_id: str, te
     """Правка копии (очередь kind="group_edit"). Текст тот же — Telegram
     отвечает 400 «message is not modified», это не ошибка."""
     try:
-        _call(settings, "editMessageText", {"chat_id": chat_id, "message_id": _message_id(external_id), "text": text})
+        _call(settings, "editMessageText", {"chat_id": chat_id, "message_id": _message_id(external_id), "text": text,
+                                            "parse_mode": "HTML"})
     except TelegramError as exc:
         if "not modified" not in str(exc):
             raise
@@ -267,7 +269,7 @@ def _ingest_board_chat(message: dict, text: str, edited: bool = False) -> bool:
     ingest_external_edit). True — это была группа правления (сообщение
     обработано, дальше не разбирать). Команды боту и сообщения других ботов
     в чат не попадают."""
-    from . import board_chat
+    from . import board_chat, chat_markup
     if not board_chat.is_board_chat(board_chat.SOURCE_TELEGRAM, message["chat"]["id"]):
         return False
     sender = message.get("from") or {}
@@ -276,7 +278,12 @@ def _ingest_board_chat(message: dict, text: str, edited: bool = False) -> bool:
     # Вложения на сайт не переносим (в чате правления их нет) — только
     # подпись и пометка, чтобы на сайте было видно, что что-то прислали.
     attachment = any(message.get(k) for k in _ATTACHMENT_KEYS)
-    body = text or (message.get("caption") or "").strip()
+    # Форматирование (жирный, ссылки текстом и т. п.) — в разметку чата
+    # (app/chat_markup.py), иначе на сайте и в MAX оно бы пропало.
+    if message.get("text"):
+        body = chat_markup.from_telegram(message["text"], message.get("entities")).strip()
+    else:
+        body = chat_markup.from_telegram(message.get("caption") or "", message.get("caption_entities")).strip()
     if message.get("sticker"):
         # Картинку стикера не переносим — только его эмодзи.
         body = f"[стикер {message['sticker'].get('emoji') or ''}]".replace(" ]", "]")

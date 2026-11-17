@@ -2193,6 +2193,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "правление": "board",
         "Закрепить": "Pin",
         "Смайлики": "Emoji",
+        "Адрес ссылки": "Link URL",
         "Развернуть поле ввода": "Expand the input",
         "Свернуть поле ввода": "Collapse the input",
         "председатель в дательном падеже: «Иванову Ивану Ивановичу»": "chairman in the dative case: \"to Ivanov Ivan Ivanovich\"",

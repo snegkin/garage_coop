@@ -94,7 +94,8 @@ def test_group_outbox_sends_to_chat(app, db, monkeypatch):
     monkeypatch.setattr(telegram_bot.requests, "post", lambda url, json=None, **kw: sent_tg.append(json) or FakeResponse(200))
 
     assert messenger_outbox.process(app.config["UPLOAD_FOLDER"]) == (2, 0)
-    assert sent_tg == [{"chat_id": TG_GROUP, "text": "a: b"}]
+    assert sent_tg == [{"chat_id": TG_GROUP, "text": "a: b", "parse_mode": "HTML"}]
+    assert fake.messages[0]["body"]["format"] == "html"
     assert fake.messages[0]["params"] == {"chat_id": MAX_GROUP}
 
 
@@ -445,7 +446,7 @@ def test_site_reply_sent_as_reply_to_copy(app, db, client, monkeypatch):
     fake, tg_calls = _sent_copies(app, monkeypatch)
 
     assert tg_calls == [("sendMessage", {
-        "chat_id": TG_GROUP, "text": "board1: ответ",
+        "chat_id": TG_GROUP, "text": "board1: ответ", "parse_mode": "HTML",
         "reply_parameters": {"message_id": 777, "allow_sending_without_reply": True}})]
     assert fake.messages[0]["body"]["link"] == {"type": "reply", "mid": "m1"}
 
@@ -458,7 +459,8 @@ def test_reply_to_message_without_copy_quotes_it(app, db, client, monkeypatch):
     _bridges(db, max_=False)
     client.post("/board-chat/messages", data={"body": "ответ", "reply_to_id": first})
     _fake, tg_calls = _sent_copies(app, monkeypatch)
-    assert tg_calls == [("sendMessage", {"chat_id": TG_GROUP, "text": "↩ board1: «старое»\nboard1: ответ"})]
+    assert tg_calls == [("sendMessage", {"chat_id": TG_GROUP, "text": "↩ board1: «старое»\nboard1: ответ",
+                                         "parse_mode": "HTML"})]
 
 
 def test_site_edit_edits_copies(app, db, client, monkeypatch):
@@ -471,9 +473,10 @@ def test_site_edit_edits_copies(app, db, client, monkeypatch):
     client.post(f"/board-chat/messages/{message_id}/edit", data={"body": "стало"})
     fake, tg_calls = _sent_copies(app, monkeypatch)
 
-    assert tg_calls == [("editMessageText", {"chat_id": TG_GROUP, "message_id": 777, "text": "board1: стало"})]
+    assert tg_calls == [("editMessageText", {"chat_id": TG_GROUP, "message_id": 777, "text": "board1: стало",
+                                            "parse_mode": "HTML"})]
     assert [(m, p, prm, js) for m, p, prm, js, _h in fake.calls] == [
-        ("PUT", "/messages", {"message_id": "m1"}, {"text": "board1: стало"})]
+        ("PUT", "/messages", {"message_id": "m1"}, {"text": "board1: стало", "format": "html"})]
 
 
 def test_edit_before_copy_sent_updates_pending_copy(db, client):
@@ -620,3 +623,44 @@ def test_reaction_in_other_chat_ignored(app, db, monkeypatch):
     telegram_bot.poll_and_link_accounts()
     from app.models import BoardChatReaction
     assert db.query(BoardChatReaction).count() == 0
+
+
+# ---------------------------------------------------------------------------
+# Разметка (app/chat_markup.py)
+# ---------------------------------------------------------------------------
+
+def test_site_markup_sent_as_html(db, client):
+    _bridges(db)
+    _board_user(db)
+    login(client, "board1", "pass1234")
+    resp = client.post("/board-chat/messages", data={"body": "**важно** <тег> [сайт](https://x.ru)"})
+    data = resp.get_json()["message"]
+    assert data["body"] == "**важно** <тег> [сайт](https://x.ru)"
+    assert data["body_plain"] == "важно <тег> сайт"
+    assert data["body_html"].startswith("<b>важно</b> &lt;тег&gt; <a href=\"https://x.ru\"")
+    texts = {i.channel: i.text for i in db.query(MessengerOutbox)}
+    assert texts["telegram"] == texts["max"] == 'board1: <b>важно</b> &lt;тег&gt; <a href="https://x.ru">сайт</a>'
+
+
+def test_telegram_formatting_reaches_site(db, monkeypatch):
+    _bridges(db)
+    _board_user(db, telegram_chat_id=5001)
+    _tg_updates(monkeypatch, [_tg_message(
+        "смотри сюда", entities=[{"type": "text_link", "offset": 7, "length": 4, "url": "https://x.ru"},
+                                 {"type": "bold", "offset": 0, "length": 6}])])
+    telegram_bot.poll_and_link_accounts()
+    assert db.query(BoardChatMessage).one().body == "**смотри** [сюда](https://x.ru)"
+
+
+def test_max_formatting_reaches_site(app, db, monkeypatch):
+    _bridges(db)
+    _board_user(db, max_user_id=42)
+    fake = FakeMax(monkeypatch)
+    _max_updates(monkeypatch, fake, {"updates": [{"update_type": "message_created", "message": {
+        "sender": {"user_id": 42, "name": "Иван"},
+        "recipient": {"chat_id": int(MAX_GROUP), "chat_type": "chat"},
+        "body": {"mid": "mid.1", "text": "смотри сюда",
+                 "markup": [{"type": "link", "from": 7, "length": 4, "url": "https://x.ru"}]}}}],
+        "marker": 2})
+    max_bot.poll_updates()
+    assert db.query(BoardChatMessage).one().body == "смотри [сюда](https://x.ru)"

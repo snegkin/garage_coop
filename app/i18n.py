@@ -2292,6 +2292,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Текст документа пуст.": "The document text is empty.",
         "Бланки и шаблоны: справки, объявления": "Letterhead & templates: certificates, notices",
         "Группы в соцсетях и мессенджерах": "Social media and messenger groups",
+        "QR-код": "QR code",
+        "Наведите камеру телефона на QR-код, чтобы открыть группу.": "Point your phone camera at the QR code to open the group.",
         "По строке на группу — для бланков и объявлений (подстановка «соцсети»).": "One group per line — for letterhead documents and notices (the \"соцсети\" placeholder).",
         "Кому / по месту требования — можно оставить пустым": "To whom / \"for presentation on demand\" — may be left empty",
         "Заголовок документа": "Document title",

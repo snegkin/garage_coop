@@ -51,3 +51,20 @@ def test_member_still_sees_bank_account_and_documents(db, client):
     page = client.get("/cooperative/").get_data(as_text=True)
     assert "40703810000000000001" in page and "Устав кооператива" in page and "Площади и налоги" in page
     assert "Баланс" not in page and "секретный комментарий" not in page
+
+
+def test_social_links_are_links_with_qr(db, client):
+    _setup(db)
+    coop = db.query(Cooperative).first()
+    coop.social_links = "Telegram: https://t.me/voskhod\nVK — https://vk.com/voskhod.\nСайт: гк-восход.рф\nпросто текст"
+    db.commit()
+    page = client.get("/cooperative/").get_data(as_text=True)
+    assert '<a href="https://t.me/voskhod" target="_blank" rel="noopener">https://t.me/voskhod</a>' in page
+    # Точка в конце строки — не часть адреса.
+    assert '<a href="https://vk.com/voskhod" target="_blank" rel="noopener">https://vk.com/voskhod</a>.' in page
+    # Кириллический домен: в href — punycode, на экране — как написан.
+    assert 'href="https://xn----dtbbg1a0aax0b.xn--p1ai"' in page and ">гк-восход.рф</a>" in page
+    assert "просто текст" in page
+    assert page.count('src="data:image/svg+xml') == 3
+    for label in ("QR-код: Telegram", "QR-код: VK", "QR-код: Сайт"):
+        assert label in page, label

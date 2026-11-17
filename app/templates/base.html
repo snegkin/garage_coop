@@ -2306,6 +2306,12 @@ tr.table-info-subtle { --bs-table-bg: var(--bs-info-bg-subtle); --bs-table-borde
    цитата это не код, заливка тут была бы лишней. */
 .card-text blockquote { border-left: 3px solid var(--bs-border-color); padding: .25rem 1rem; margin: 1rem 0; color: var(--bs-secondary-color); }
 .card-text blockquote p:last-child { margin-bottom: 0; }
+/* Таблица из markdown ("| a | b |", см. news_format.py: расширение tables).
+   display:block + overflow — широкая таблица прокручивается сама, а не
+   распирает страницу на телефоне. */
+.card-text table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; margin: 1rem 0; }
+.card-text th, .card-text td { border: 1px solid var(--bs-border-color); padding: .35rem .65rem; vertical-align: top; }
+.card-text thead th { background-color: var(--bs-tertiary-bg); }
 /* Длинный блок кода в вики (см. news_format.py: _wrap_long_code_block,
    CODE_BLOCK_COLLAPSE_LINES) сворачивается по умолчанию — при обзорном
    чтении страницы не приходится скроллить длинный листинг, кнопка

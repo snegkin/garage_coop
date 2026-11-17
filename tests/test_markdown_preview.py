@@ -289,3 +289,18 @@ def test_news_preview_does_not_collapse_long_code_block(db, client):
     assert resp.status_code == 200
     html = resp.get_json()["html"]
     assert "wiki-code-block" not in html
+
+
+def test_render_html_tables():
+    from app.news_format import render_html
+    html = str(render_html("| Копия | Где |\n|:---|---:|\n| **БД** | `сервер` |"))
+    assert "<table>" in html and "<th>Копия</th>" in html
+    assert "<td><strong>БД</strong></td>" in html and "<code>сервер</code>" in html
+    assert "style=" not in html  # выравнивание bleach срезает
+
+
+def test_render_html_fenced_code():
+    from app.news_format import render_html
+    html = str(render_html("```bash\nrs snapshots  # **не жирный**\nhttps://example.ru\n```"))
+    assert "<pre><code>rs snapshots  # **не жирный**\nhttps://example.ru\n</code></pre>" in html
+    assert "<a " not in html and "language-" not in html

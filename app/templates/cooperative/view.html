@@ -17,7 +17,7 @@
   <tr><th>{{ _("Email") }}</th><td>{% if coop.email %}<a href="mailto:{{ coop.email }}">{{ coop.email }}</a>{% else %}—{% endif %}</td></tr>
   <tr><th>{{ _("Сайт") }}</th><td>{% if coop.website %}<a href="{{ coop.website }}" target="_blank" rel="noopener">{{ coop.website }}</a>{% else %}—{% endif %}</td></tr>
   <tr><th>{{ _("Телефон") }}</th><td>{{ coop.phone or "—" }}</td></tr>
-  <tr><th>{{ _("Группы в соцсетях и мессенджерах") }}</th><td>
+  <tr><th class="align-middle">{{ _("Группы в соцсетях и мессенджерах") }}</th><td>
     {% if social_links %}
     {% set qrs = social_links|selectattr("qr")|list %}
     <div class="d-flex gap-3 align-items-center">

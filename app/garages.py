@@ -613,7 +613,8 @@ def update_owner_share(garage_id, ownership_id):
     return redirect(url_for("garages.detail", garage_id=garage_id))
 
 
-def _remove_owner_and_redistribute(garage: Garage, ownership: GarageOwnership, reason: str | None, user_id: int) -> None:
+def _remove_owner_and_redistribute(garage: Garage, ownership: GarageOwnership, reason: str | None, user_id: int,
+                                   carry_balance: bool = False) -> None:
     """
     Общее ядро удаления собственника — используется и при ручном удалении
     с карточки гаража (remove_owner), и при архивации человека
@@ -630,9 +631,16 @@ def _remove_owner_and_redistribute(garage: Garage, ownership: GarageOwnership, r
     сам найдёт и переиспользует существующий счёт, не заведёт дубль.
 
     Если были ДРУГИЕ собственники: их доли пересчитываются пропорционально
-    друг другу (чтобы снова суммировались в 1 — «доля оставшихся»), и
-    остаток лицевых счетов выбывшего по этому гаражу распределяется между
-    ними в этой же пропорции (см. accounting.redistribute_member_account_balance).
+    друг другу (чтобы снова суммировались в 1 — «доля оставшихся»).
+    Остаток лицевых счетов выбывшего по этому гаражу:
+    - carry_balance=False (по умолчанию) — остаётся за выбывшим: взносы —
+      личная обязанность того, кто был собственником в тот период, а
+      переплата — его деньги; оставшийся совладелец за них не отвечает;
+    - carry_balance=True — распределяется между оставшимися пропорционально
+      новым долям (accounting.redistribute_member_account_balance) —
+      наследство, согласие сторон.
+    Счета выбывшего с нулевым (в т. ч. после переноса) остатком уходят в
+    архив; с долгом/переплатой остаются активными, пока их не закроют.
     Если собственник был ЕДИНСТВЕННЫМ: ничего, кроме самой записи
     GarageOwnership, не трогаем — лицевые счета остаются на нём (активными)
     со всем, что на них есть — например, пока решается вопрос с
@@ -646,10 +654,13 @@ def _remove_owner_and_redistribute(garage: Garage, ownership: GarageOwnership, r
         garage_id=garage.id, person_id=ownership.person_id, event_type=GarageOwnershipEventType.REMOVED,
         share=None, comment=reason, created_by_user_id=user_id,
     ))
+    co_owners = len(garage.ownerships) > 1
     audit.record(
         "garage_owner.remove",
         f"{ownership.person.full_name} выбыл(а) из собственников гаража №{garage.number}"
-        + (f" (причина: {reason})" if reason else ""),
+        + (f" (причина: {reason})" if reason else "")
+        + ((", остаток счетов перенесён на оставшихся" if carry_balance else ", остаток счетов остался за ним")
+           if co_owners else ""),
         entity_type="person", entity_id=ownership.person_id,
     )
 
@@ -673,11 +684,16 @@ def _remove_owner_and_redistribute(garage: Garage, ownership: GarageOwnership, r
 
             departing_accounts = (
                 database.db_session.query(MemberAccount)
-                .filter_by(garage_id=garage.id, person_id=ownership.person_id)
+                .filter_by(garage_id=garage.id, person_id=ownership.person_id, is_archived=False)
                 .all()
             )
             for acc in departing_accounts:
-                redistribute_member_account_balance(acc, new_shares)
+                if carry_balance:
+                    redistribute_member_account_balance(acc, new_shares)
+                    database.db_session.flush()
+                    database.db_session.expire(acc, ["charges", "payments"])
+                if balance(acc) == 0:
+                    acc.is_archived = True
     # else: единственный собственник — лицевые счета не трогаем вовсе.
 
     database.db_session.delete(ownership)
@@ -777,7 +793,8 @@ def remove_owner(garage_id, ownership_id):
     ownership = database.db_session.get(GarageOwnership, ownership_id)
     if ownership and ownership.garage_id == garage_id:
         comment = (request.form.get("comment") or "").strip() or None
-        _remove_owner_and_redistribute(ownership.garage, ownership, comment, g.user.id)
+        _remove_owner_and_redistribute(ownership.garage, ownership, comment, g.user.id,
+                                       carry_balance=bool(request.form.get("carry_balance")))
         database.db_session.commit()
         flash(_("Собственник удалён."), "success")
     return redirect(url_for("garages.detail", garage_id=garage_id))

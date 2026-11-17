@@ -436,8 +436,6 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "История собственников": "Ownership history",
         "например: перераспределение долей между супругами": "e.g. share redistribution between spouses",
         "Удалить собственника: {name}": "Remove owner: {name}",
-        "Вместе с собственником будут удалены его лицевые счета по этому гаражу (взносы, налог, пеня). Причина сохранится в истории собственников.":
-            "The owner's personal accounts for this garage (dues, tax, penalty) will be removed along with them. The reason will be kept in the ownership history.",
         "Причина": "Reason",
         "например: продал, умер, унаследовал": "e.g. sold, deceased, inherited",
         "комментарий, например: купил, унаследовал": "comment, e.g. bought, inherited",
@@ -2341,6 +2339,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "человек из реестра": "a person from the registry",
         "собственник гаража": "garage owner",
         "продавец и покупатель гаража": "garage seller and buyer",
+        "Доли оставшихся собственников пересчитаются. Лицевые счета выбывшего по этому гаражу с нулевым остатком уйдут в архив; долг или переплата по умолчанию остаются за ним — оставшиеся собственники за чужие взносы не отвечают. Причина сохранится в истории собственников.": "The remaining owners' shares will be recalculated. The departing owner's zero-balance accounts for this garage will be archived; any debt or overpayment stays with them by default, since the remaining owners are not liable for someone else's dues. The reason is kept in the ownership history.",
+        "Перенести долг или переплату на оставшихся собственников (наследство, согласие сторон)": "Transfer the debt or overpayment to the remaining owners (inheritance, mutual consent)",
+        "Единственный собственник: лицевые счета с остатком остаются за ним до появления нового собственника — тогда остаток перейдёт новому. Причина сохранится в истории собственников.": "Sole owner: accounts with a balance stay with them until a new owner appears; the balance then passes to the new owner. The reason is kept in the ownership history.",
         "контрагент (организация, ИП)": "vendor (company, sole trader)",
         "Письма на бланке": "Letters on letterhead",
         "Шаблоны писем — в": "Letter templates are in",

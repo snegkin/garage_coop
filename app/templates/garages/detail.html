@@ -157,7 +157,15 @@
               <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
-              <p class="text-muted small">{{ _("Вместе с собственником будут удалены его лицевые счета по этому гаражу (взносы, налог, пеня). Причина сохранится в истории собственников.") }}</p>
+              {% if garage.ownerships|length > 1 %}
+              <p class="text-muted small">{{ _("Доли оставшихся собственников пересчитаются. Лицевые счета выбывшего по этому гаражу с нулевым остатком уйдут в архив; долг или переплата по умолчанию остаются за ним — оставшиеся собственники за чужие взносы не отвечают. Причина сохранится в истории собственников.") }}</p>
+              <div class="form-check mb-3">
+                <input class="form-check-input" type="checkbox" name="carry_balance" value="1" id="carryBalance-{{ o.id }}">
+                <label class="form-check-label" for="carryBalance-{{ o.id }}">{{ _("Перенести долг или переплату на оставшихся собственников (наследство, согласие сторон)") }}</label>
+              </div>
+              {% else %}
+              <p class="text-muted small">{{ _("Единственный собственник: лицевые счета с остатком остаются за ним до появления нового собственника — тогда остаток перейдёт новому. Причина сохранится в истории собственников.") }}</p>
+              {% endif %}
               <div class="mb-3">
                 <label class="form-label">{{ _("Причина") }}</label>
                 <input class="form-control form-control-sm" name="comment" placeholder="{{ _('например: продал, умер, унаследовал') }}" autofocus>

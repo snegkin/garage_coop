@@ -11,9 +11,9 @@
   {% if current_user and (is_board() or topic.author_id == current_user.id) %}
   {% call actions.menu() %}
     {% if is_board() %}
-    {{ actions.post(url_for('forum.reopen_topic' if topic.is_closed else 'forum.close_topic', topic_id=topic.id), "unlock" if topic.is_closed else "lock", _("Открыть тему") if topic.is_closed else _("Закрыть тему"), ajax=True) }}
+    {{ actions.post(url_for('forum.reopen_topic' if topic.is_closed else 'forum.close_topic', topic_id=topic.id), "unlock-fill" if topic.is_closed else "lock-fill", _("Открыть тему") if topic.is_closed else _("Закрыть тему"), ajax=True) }}
     {% endif %}
-    {{ actions.post(url_for('forum.delete_topic', topic_id=topic.id), "trash", _("Удалить тему"), confirm=_("Удалить тему вместе со всеми сообщениями?"), danger=True) }}
+    {{ actions.post(url_for('forum.delete_topic', topic_id=topic.id), "trash-fill", _("Удалить тему"), confirm=_("Удалить тему вместе со всеми сообщениями?"), danger=True) }}
   {% endcall %}
   {% endif %}
 </div>
@@ -34,10 +34,10 @@
       {% if can_edit or can_delete %}
       {% call actions.menu() %}
         {% if can_edit %}
-        {{ actions.link(url_for('forum.edit_post', post_id=post.id), "pencil", _("Изменить")) }}
+        {{ actions.link(url_for('forum.edit_post', post_id=post.id), "pencil-fill", _("Изменить")) }}
         {% endif %}
         {% if can_delete %}
-        {{ actions.post(url_for('forum.delete_post', post_id=post.id), "trash", _("Удалить"), confirm=_("Удалить сообщение?"), danger=True) }}
+        {{ actions.post(url_for('forum.delete_post', post_id=post.id), "trash-fill", _("Удалить"), confirm=_("Удалить сообщение?"), danger=True) }}
         {% endif %}
       {% endcall %}
       {% endif %}

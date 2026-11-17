@@ -2094,17 +2094,17 @@ tr.table-info-subtle { --bs-table-bg: var(--bs-info-bg-subtle); --bs-table-borde
 .chat-widget-reaction.is-mine { border-color: var(--bs-primary); background: var(--bs-primary-bg-subtle); }
 /* Меню сообщения — в духе Roundcube Elastic: строгая рамка, пункты на всю
    ширину через тонкие разделители, иконки отдельной колонкой. */
-.chat-widget-menu { position: absolute; top: 1.9rem; right: .25rem; z-index: 5; width: max-content; min-width: 13rem; max-width: min(20rem, 80vw); white-space: normal; padding: 0; overflow: hidden; background: var(--bs-body-bg); border: 1px solid var(--bs-border-color); border-radius: .25rem; box-shadow: 0 .4rem 1.2rem rgba(0,0,0,.3); }
+.chat-widget-menu { position: absolute; top: 1.9rem; right: .25rem; z-index: 5; width: max-content; min-width: 11rem; max-width: min(20rem, 80vw); white-space: normal; padding: 0; overflow: hidden; background: var(--bs-body-bg); border: 1px solid var(--bs-border-color); border-radius: .25rem; box-shadow: 0 .4rem 1.2rem rgba(0,0,0,.3); }
 .chat-widget-menu.is-up { top: auto; bottom: 100%; }
 .chat-widget-message:not(.is-mine) .chat-widget-menu { right: auto; left: 0; }
 .chat-widget-menu.is-at-cursor, .chat-widget-message:not(.is-mine) .chat-widget-menu.is-at-cursor { position: fixed; right: auto; z-index: 1080; }
 .chat-widget-quote.is-partial .chat-widget-quote-text { white-space: normal; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; font-style: italic; }
-.chat-widget-menu-reactions { display: flex; flex-wrap: nowrap; justify-content: space-between; overflow-x: auto; gap: .1rem; padding: .3rem .4rem; border-bottom: 1px solid var(--bs-border-color); }
-.chat-widget-menu-reactions button { border: none; background: none; font-size: 1.3rem; line-height: 1; padding: .35rem .25rem; border-radius: .4rem; }
+.chat-widget-menu-reactions { display: flex; flex-wrap: nowrap; justify-content: space-between; overflow-x: auto; gap: 0; padding: .2rem .3rem; border-bottom: 1px solid var(--bs-border-color); }
+.chat-widget-menu-reactions button { border: none; background: none; font-size: 1.1rem; line-height: 1; padding: .3rem .2rem; border-radius: .3rem; }
 .chat-widget-menu-reactions button:hover { background: var(--bs-tertiary-bg); }
-.chat-widget-menu-item { display: flex; align-items: center; gap: .75rem; width: 100%; border: none; border-bottom: 1px solid var(--bs-border-color-translucent); background: none; text-align: left; padding: .6rem 1rem .6rem .75rem; border-radius: 0; font-size: .9rem; line-height: 1.2; color: var(--bs-body-color); }
+.chat-widget-menu-item { display: flex; align-items: center; gap: .6rem; width: 100%; border: none; border-bottom: 1px solid var(--bs-border-color-translucent); background: none; text-align: left; padding: .45rem .85rem .45rem .6rem; border-radius: 0; font-size: .8125rem; line-height: 1.2; color: var(--bs-body-color); }
 .chat-widget-menu-item:last-child { border-bottom: none; }
-.chat-widget-menu-item .bi { flex: none; width: 1.4rem; text-align: center; font-size: 1.15rem; line-height: 1; opacity: .85; }
+.chat-widget-menu-item .bi { flex: none; width: 1.2rem; text-align: center; font-size: 1rem; line-height: 1; opacity: .85; }
 .chat-widget-menu-item.text-danger { color: var(--bs-danger); }
 .chat-widget-quote { display: flex; flex-direction: column; border-left: 3px solid var(--bs-primary); padding: .1rem .45rem; margin: .15rem 0 .25rem; border-radius: .2rem; background: rgba(var(--bs-primary-rgb), .08); font-size: .78rem; white-space: normal; cursor: pointer; min-width: 0; }
 .chat-widget-quote.is-deleted { cursor: default; font-style: italic; opacity: .7; border-left-color: var(--bs-secondary-color); }
@@ -2235,6 +2235,18 @@ tr.table-info-subtle { --bs-table-bg: var(--bs-info-bg-subtle); --bs-table-borde
    прижимается к углу. */
 .kebab-toggle { width: 2rem; height: 2rem; padding: 0; margin: -.25rem -.5rem 0 0; display: inline-flex; align-items: center; justify-content: center; border: 0; color: var(--bs-secondary-color); font-size: 1.1rem; }
 .kebab-toggle:hover, .kebab-toggle:focus-visible, .kebab-toggle.show { color: var(--bs-body-color); background-color: var(--bs-tertiary-bg); }
+/* Список меню «⋮» (_actions.html) — как меню сообщения в чате
+   (.chat-widget-menu): строгая рамка, пункты через тонкие разделители,
+   иконки колонкой. Только после .kebab-toggle — главное меню (тоже
+   .dropdown-menu) не трогаем. */
+.kebab-toggle + .dropdown-menu { padding: 0; min-width: 11rem; overflow: hidden; font-size: .8125rem; border-radius: .25rem; box-shadow: 0 .4rem 1.2rem rgba(0,0,0,.3); }
+.kebab-toggle + .dropdown-menu > li + li { border-top: 1px solid var(--bs-border-color-translucent); }
+.kebab-toggle + .dropdown-menu .dropdown-item { display: flex; align-items: center; gap: .6rem; padding: .45rem .85rem .45rem .6rem; line-height: 1.2; }
+.kebab-toggle + .dropdown-menu .dropdown-icon { flex: none; width: 1.2rem; margin: 0; font-size: 1rem; line-height: 1; opacity: .85; }
+.kebab-toggle + .dropdown-menu .dropdown-item:hover, .kebab-toggle + .dropdown-menu .dropdown-item:focus-visible,
+.kebab-toggle + .dropdown-menu .dropdown-item:active { background: var(--bs-secondary-bg); color: var(--bs-body-color); }
+.kebab-toggle + .dropdown-menu .dropdown-item.text-danger:hover, .kebab-toggle + .dropdown-menu .dropdown-item.text-danger:active { color: var(--bs-danger); }
+.kebab-toggle + .dropdown-menu .dropdown-item.text-danger .dropdown-icon { opacity: 1; }
 /* Колокольчик «Требует внимания» в шапке (вне выдвижного меню #nav, см. разметку).
    Бейдж — в правом верхнем углу значка; качается один раз, когда счётчик
    вырос (класс .is-ringing ставит скрипт опроса внизу страницы). */

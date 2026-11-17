@@ -22,8 +22,8 @@
     <h5 class="mb-0">{{ recorder.name }}</h5>
     {% if current_user and is_chairman() %}
     {% call actions.menu() %}
-      {{ actions.modal("#editRecorderModal" ~ recorder.id, "pencil", _("Изменить")) }}
-      {{ actions.post(url_for('surveillance.delete_recorder', recorder_id=recorder.id), "trash", _("Удалить регистратор"), confirm=_("Удалить регистратор и все его камеры? Сохранённые кадры на диске тоже будут удалены."), danger=True) }}
+      {{ actions.modal("#editRecorderModal" ~ recorder.id, "pencil-fill", _("Изменить")) }}
+      {{ actions.post(url_for('surveillance.delete_recorder', recorder_id=recorder.id), "trash-fill", _("Удалить регистратор"), confirm=_("Удалить регистратор и все его камеры? Сохранённые кадры на диске тоже будут удалены."), danger=True) }}
     {% endcall %}
     {% endif %}
   </div>

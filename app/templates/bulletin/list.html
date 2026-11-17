@@ -33,8 +33,8 @@
       {% endif %}
       {% if current_user and (is_board() or post.author_id == current_user.id) %}
       {% call actions.menu() %}
-        {{ actions.link(url_for('bulletin.edit', post_id=post.id), "pencil", _("Изменить")) }}
-        {{ actions.post(url_for('bulletin.delete', post_id=post.id), "trash", _("Удалить"), confirm=_("Удалить объявление?"), danger=True) }}
+        {{ actions.link(url_for('bulletin.edit', post_id=post.id), "pencil-fill", _("Изменить")) }}
+        {{ actions.post(url_for('bulletin.delete', post_id=post.id), "trash-fill", _("Удалить"), confirm=_("Удалить объявление?"), danger=True) }}
       {% endcall %}
       {% endif %}
     </div>

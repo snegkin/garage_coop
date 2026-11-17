@@ -63,3 +63,32 @@ def test_round_trip_through_parser():
     text = cm.from_telegram("жирный и ссылка", [{"type": "bold", "offset": 0, "length": 6},
                                                 {"type": "text_link", "offset": 9, "length": 6, "url": "https://x.ru"}])
     assert cm.to_messenger_html(text) == '<b>жирный</b> и <a href="https://x.ru">ссылка</a>'
+
+
+# Кириллические домены и punycode: href — ASCII, показ — кириллицей.
+PRES = "https://xn--d1abbgf6aiiy.xn--p1ai"
+
+
+@pytest.mark.parametrize("text, html", [
+    ("https://президент.рф/новости",
+     f'<a href="{PRES}/%D0%BD%D0%BE%D0%B2%D0%BE%D1%81%D1%82%D0%B8">https://президент.рф/новости</a>'),
+    (f"{PRES}/", f'<a href="{PRES}/">https://президент.рф/</a>'),
+    ("см. президент.рф, ок", f'см. <a href="{PRES}">президент.рф</a>, ок'),
+    ("xn--d1abbgf6aiiy.xn--p1ai", f'<a href="{PRES}">президент.рф</a>'),
+    (f"[{PRES}](https://президент.рф/)", f'<a href="{PRES}/">https://президент.рф/</a>'),
+    ("[сайт](президент.рф)", f'<a href="{PRES}">сайт</a>'),
+    ("https://ru.wikipedia.org/wiki/%D0%93%D0%B0%D1%80%D0%B0%D0%B6?q=a%20b",
+     '<a href="https://ru.wikipedia.org/wiki/%D0%93%D0%B0%D1%80%D0%B0%D0%B6?q=a%20b">'
+     'https://ru.wikipedia.org/wiki/Гараж?q=a%20b</a>'),
+    # смесь латиницы с кириллицей в одной части домена — punycode
+    ("https://аpple.com", '<a href="https://xn--pple-43d.com">https://xn--pple-43d.com</a>'),
+    # не адреса
+    ("т.е. сайт.рфы user@почта.рф", "т.е. сайт.рфы user@почта.рф"),
+])
+def test_idn_links(text, html):
+    assert cm.to_messenger_html(text) == html
+
+
+def test_idn_display_helpers():
+    assert cm.display_url("https://xn--e1afmkfd.xn--p1ai:8080/%D0%BF?a=%2F") == "https://пример.рф:8080/п?a=%2F"
+    assert cm.href_url("https://Пример.РФ/путь") == "https://xn--e1afmkfd.xn--p1ai/%D0%BF%D1%83%D1%82%D1%8C"

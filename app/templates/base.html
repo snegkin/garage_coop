@@ -1333,11 +1333,14 @@ function initChatWidget(cfg) {
     if (!url) return null;
     if (/^(https?:\/\/|mailto:)/i.test(url)) return url;
     if (/^[a-z][a-z0-9+.-]*:/i.test(url)) return null;  // javascript: и т. п.
-    if (/^[\w.-]+\.[a-zа-яё]{2,}([\/?#:]|$)/i.test(url)) return "https://" + url;
+    if (/^[a-z0-9а-яё_.-]+\.([a-zа-яё]{2,}|xn--[a-z0-9-]+)([\/?#:]|$)/i.test(url)) return "https://" + url;
     return null;
   }
+  // Адрес целиком: со схемой, www. или домен в кириллической зоне
+  // (пример.рф) — те же зоны, что узнаёт app/chat_markup.py.
+  var IDN_DOMAIN_RE = /^[a-z0-9а-яё-]+(\.[a-z0-9а-яё-]+)*\.(рф|рус|москва|онлайн|сайт|орг|ком|дети|бел|укр|xn--[a-z0-9-]+)([\/?#:]\S*)?$/i;
   function isUrl(str) {
-    return /^(https?:\/\/|www\.|mailto:)[^\s]+$/i.test(str);
+    return /^(https?:\/\/|www\.|mailto:)[^\s]+$/i.test(str) || IDN_DOMAIN_RE.test(str);
   }
 
   // DOM -> дерево: {t:"text",v} {t:"br"} {t:"nl"} (граница блока)

@@ -8,7 +8,14 @@
 Разметка (её же расставляют горячие клавиши поля ввода, см. base.html):
   **жирный**  __курсив__  ++подчёркнутый++  ~~зачёркнутый~~
   `код`  ```блок кода```  [текст](https://ссылка)
-Голые адреса (https://…, www.…) — тоже ссылки.
+Голые адреса (https://…, www.…, а также пример.рф и прочие кириллические
+зоны без https://) — тоже ссылки.
+
+Кириллические домены: в href (сайт, Telegram, MAX) — всегда punycode
+(xn--…), показывается — кириллицей, и %D0%… в пути — буквами
+(display_url); как адрес написан — кириллицей или punycode — не важно.
+Часть домена со смесью латиницы и другого алфавита (аррle.com с русскими
+«р») остаётся punycode — как в браузерах, против подделки адресов.
 
 Маркер открывает выделение, только если за ним не пробел, закрывает — если
 перед ним не пробел; маркер без пары — обычный текст («C++ и C++» остаётся
@@ -27,7 +34,12 @@ from markupsafe import escape
 _SPANS = (("**", "b"), ("__", "i"), ("++", "u"), ("~~", "s"))
 _SPAN_TAGS = dict(_SPANS)
 
-_URL_RE = re.compile(r"(?:https?://|www\.)[^\s<>\"']+", re.IGNORECASE)
+# Кириллические зоны, которые узнаются и без https:// (как в Telegram).
+_IDN_TLDS = r"(?:рф|рус|москва|онлайн|сайт|орг|ком|дети|бел|укр|xn--[a-z0-9-]+)"
+_URL_RE = re.compile(
+    r"(?:https?://|www\.)[^\s<>\"']+"
+    r"|[a-z0-9а-яё-]+(?:\.[a-z0-9а-яё-]+)*\." + _IDN_TLDS + r"(?![a-z0-9а-яё-])(?:[/?#:][^\s<>\"']*)?",
+    re.IGNORECASE)
 _LINK_RE = re.compile(r"\[([^\[\]\n]+)\]\(([^()\s]+)\)")
 _TRAILING_PUNCT = ".,;:!?…»\"'"
 
@@ -42,9 +54,99 @@ def _safe_url(url: str) -> str | None:
         return url
     if re.match(r"^[a-z][a-z0-9+.-]*:", url, re.IGNORECASE):
         return None
-    if re.match(r"^[\w.-]+\.[a-zа-яё]{2,}(?:[/?#:]|$)", url, re.IGNORECASE):
+    if re.match(r"^[\w.-]+\.(?:[a-zа-яё]{2,}|xn--[a-z0-9-]+)(?:[/?#:]|$)", url, re.IGNORECASE):
         return "https://" + url
     return None
+
+
+def _split_url(url: str):
+    """-> (схема с //, userinfo@, хост, :порт, остальное) или None."""
+    m = re.match(r"^([a-z][a-z0-9+.-]*://)([^/?#]*)(.*)$", url, re.IGNORECASE | re.DOTALL)
+    if not m:
+        return None
+    scheme, netloc, rest = m.groups()
+    userinfo, _, hostport = netloc.rpartition("@")
+    host, port = hostport, ""
+    pm = re.match(r"^(.*?)(:\d*)$", hostport)
+    if pm and not hostport.startswith("["):
+        host, port = pm.groups()
+    return scheme, (userinfo + "@" if userinfo else ""), host, port, rest
+
+
+def _mixed_script(label: str) -> bool:
+    latin = any("a" <= c.lower() <= "z" for c in label)
+    other = any(c.isalpha() and not c.isascii() for c in label)
+    return latin and other
+
+
+def _host_to_ascii(host: str) -> str:
+    labels = []
+    for label in host.split("."):
+        if label.isascii():
+            labels.append(label)
+            continue
+        try:
+            labels.append(label.encode("idna").decode("ascii"))
+        except UnicodeError:
+            return host
+    return ".".join(labels)
+
+
+def _host_to_unicode(host: str) -> str:
+    labels = []
+    for label in host.split("."):
+        if label.lower().startswith("xn--"):
+            try:
+                decoded = label.encode("ascii").decode("idna")
+            except UnicodeError:
+                decoded = label
+            labels.append(label if _mixed_script(decoded) else decoded)
+        elif not label.isascii() and _mixed_script(label):
+            labels.append(_host_to_ascii(label))
+        else:
+            labels.append(label)
+    return ".".join(labels)
+
+
+_PCT_RUN_RE = re.compile(r"(?:%[89A-Fa-f][0-9A-Fa-f])+")
+
+
+def _unquote_non_ascii(rest: str) -> str:
+    """%D0%BF… -> буквы; только не-ASCII байты (UTF-8), %2F/%20 и т. п. —
+    как есть, чтобы смысл адреса не менялся."""
+    def repl(m):
+        try:
+            text = bytes(int(h, 16) for h in m.group(0)[1:].split("%")).decode("utf-8")
+        except (UnicodeDecodeError, ValueError):
+            return m.group(0)
+        return m.group(0) if any(not c.isprintable() or c.isspace() for c in text) else text
+    return _PCT_RUN_RE.sub(repl, rest)
+
+
+def href_url(url: str) -> str:
+    """Адрес для href — ASCII: домен в punycode, не-ASCII в пути —
+    %-кодами (так его примут и Telegram, и MAX, и любой браузер)."""
+    parts = _split_url(url)
+    if parts is None:
+        return url
+    scheme, userinfo, host, port, rest = parts
+    rest = "".join(c if c.isascii() else "".join(f"%{b:02X}" for b in c.encode("utf-8")) for c in rest)
+    return scheme + userinfo + _host_to_ascii(host) + port + rest
+
+
+def display_url(url: str) -> str:
+    """Адрес для показа — домен кириллицей, %-коды букв — буквами."""
+    parts = _split_url(url)
+    if parts is None:
+        return url
+    scheme, userinfo, host, port, rest = parts
+    return scheme + userinfo + _host_to_unicode(host) + port + _unquote_non_ascii(rest)
+
+
+def _url_key(url: str) -> str:
+    """Для сравнения «текст ссылки — это тот же адрес»."""
+    key = href_url(url).lower()
+    return key + "/" if re.match(r"^[a-z][a-z0-9+.-]*://[^/?#]*$", key) else key
 
 
 def _bare_url(s: str, i: int) -> str | None:
@@ -118,17 +220,28 @@ def _parse(s: str, i: int = 0, closer: str | None = None, depth: int = 0):
             url = _safe_url(m.group(2)) if m else None
             if url:
                 flush()
-                children, _, _ = _parse(m.group(1), depth=depth + 1)
+                label = m.group(1)
+                link_text = _safe_url(label)
+                if link_text and _url_key(link_text) == _url_key(url):
+                    # текст — тот же адрес (в другой записи) — показать читаемо
+                    children = [display_url(url)]
+                else:
+                    children, _, _ = _parse(label, depth=depth + 1)
                 nodes.append(("a", url, children))
                 i = m.end()
                 continue
-        elif ch in "hHwW":
+        elif ch.isalnum():
             url = _bare_url(s, i)
             if url:
                 safe = _safe_url(url)
                 if safe:
                     flush()
-                    nodes.append(("a", safe, [url]))
+                    # как написан (без https:// — так и показываем), но
+                    # домен кириллицей и %-коды буквами
+                    shown = display_url(safe)
+                    if safe != url and shown.startswith("https://"):
+                        shown = shown[len("https://"):]
+                    nodes.append(("a", safe, [shown]))
                     i += len(url)
                     continue
         if depth < 8:
@@ -166,7 +279,7 @@ def _html(nodes, site: bool) -> str:
         if isinstance(node, str):
             out.append(str(escape(node)))
         elif node[0] == "a":
-            attrs = f' href="{escape(node[1])}"'
+            attrs = f' href="{escape(href_url(node[1]))}"'
             if site:
                 attrs += ' target="_blank" rel="noopener noreferrer nofollow"'
             out.append(f"<a{attrs}>{_html(node[2], site)}</a>")

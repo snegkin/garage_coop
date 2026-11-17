@@ -37,20 +37,7 @@
   <tr><th>{{ _("КПП") }}</th><td>{{ coop.kpp or "—" }}</td></tr>
   <tr><th>{{ _("ОГРН") }}</th><td>{{ coop.ogrn or "—" }}</td></tr>
   <tr><th>{{ _("Юридический адрес") }}</th><td>{{ coop.legal_address or "—" }}</td></tr>
-  {% set chairman_address = chairman.residence_address or chairman.registration_address if chairman else none %}
-  <tr>
-    <th>{{ _("Почтовый адрес") }}</th>
-    <td>
-      {% if coop.postal_address %}
-        {{ coop.postal_address }}
-      {% elif chairman_address and not public %}
-        {{ chairman_address }}
-        <div class="text-muted small">{{ _("почтовый адрес не указан — показан адрес места жительства/регистрации председателя") }}</div>
-      {% else %}—{% endif %}
-    </td>
-  </tr>
-  {% if public %}
-  {% elif primary_account %}
+  {% if primary_account %}
   <tr><th>{{ _("Расчётный счёт") }}</th><td class="text-nowrap">{{ primary_account.checking_account }}</td></tr>
   <tr><th>{{ _("Банк") }}</th><td>{{ primary_account.bank_name }}</td></tr>
   <tr><th>{{ _("БИК") }}</th><td>{{ primary_account.bik or "—" }}</td></tr>

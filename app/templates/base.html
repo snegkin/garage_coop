@@ -695,6 +695,15 @@ function initChatWidget(cfg) {
     time.className = "chat-widget-time";
     time.textContent = new Date(msg.created_at).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"});
     if (msg.edited) time.textContent = cfg.editedLabel + " " + time.textContent;
+    // Время — справа внизу, как в Telegram: на последней строке текста, если
+    // там хватает места. Пустая распорка в конце текста резервирует место
+    // шириной с подпись (её текст — в ::after, в выделение и копирование он
+    // не попадает), само время подтягивается на эту строку (см. CSS).
+    var spacer = document.createElement("span");
+    spacer.className = "chat-widget-time-spacer";
+    spacer.setAttribute("aria-hidden", "true");
+    spacer.dataset.time = time.textContent;
+    body.appendChild(spacer);
     el.appendChild(time);
 
     el.dataset.id = msg.id;
@@ -2065,17 +2074,19 @@ tr.table-info-subtle { --bs-table-bg: var(--bs-info-bg-subtle); --bs-table-borde
 .chat-widget-body code, .chat-widget-editor code { font-size: .85em; padding: 0 .2em; border-radius: .2rem; background: rgba(var(--bs-emphasis-color-rgb), .08); color: inherit; }
 .chat-widget-body pre, .chat-widget-editor pre { margin: .2rem 0; padding: .35rem .5rem; border-radius: .35rem; background: rgba(var(--bs-emphasis-color-rgb), .08); font-size: .8rem; white-space: pre-wrap; }
 .chat-widget-message .chat-widget-author { font-size: .75rem; font-weight: 600; opacity: .75; display: block; }
-.chat-widget-message .chat-widget-time { font-size: .7rem; opacity: .6; display: block; margin-top: .15rem; }
-/* Действия с сообщением (чат правления): при наведении; на сенсорных
-   экранах наведения нет — показываем всегда, приглушённо. */
+.chat-widget-message { display: flow-root; }
+.chat-widget-message .chat-widget-time { float: right; position: relative; font-size: .7rem; line-height: 1rem; opacity: .6; margin: -1rem 0 0 .6rem; top: .05rem; white-space: nowrap; }
+.chat-widget-time-spacer { display: inline-block; height: 0; user-select: none; pointer-events: none; }
+.chat-widget-time-spacer::after { content: attr(data-time); visibility: hidden; font-size: .7rem; margin-left: .6rem; padding-left: .6rem; }
+.chat-widget-reactions { clear: both; }
+/* Действия с сообщением (чат правления): «⋮» видна всегда, приглушённо
+   (появление по наведению мигало при движении мыши по ленте), ярче — при
+   наведении на неё и пока меню открыто. */
 .chat-widget-message { position: relative; }
-.chat-widget-actions { position: absolute; top: .15rem; right: .25rem; display: none; }
-.chat-widget-message:hover .chat-widget-actions, .chat-widget-message.menu-open .chat-widget-actions { display: inline-flex; }
-@media (hover: none) {
-  .chat-widget-actions { display: inline-flex; top: 0; right: 0; }
-  .chat-widget-menu-btn.chat-widget-action { border: none; background: none; font-size: 1rem; padding: .45rem .4rem; opacity: .6; }
-  .chat-widget-message { padding-right: 1.9rem; }
-}
+.chat-widget-actions { position: absolute; top: 0; right: 0; display: inline-flex; }
+.chat-widget-menu-btn.chat-widget-action { border: none; background: none; font-size: 1rem; padding: .45rem .4rem; opacity: .5; }
+.chat-widget-menu-btn.chat-widget-action:hover, .chat-widget-message.menu-open .chat-widget-menu-btn.chat-widget-action { opacity: 1; }
+.chat-widget-message:has(.chat-widget-actions) { padding-right: 1.9rem; }
 .chat-widget-action { background: var(--bs-body-bg); border: 1px solid var(--bs-border-color); border-radius: .3rem; color: var(--bs-secondary-color); font-size: .75rem; line-height: 1; padding: .2rem .3rem; }
 .chat-widget-action:hover { color: var(--bs-body-color); }
 .chat-widget-reactions { display: flex; flex-wrap: wrap; gap: .25rem; margin-top: .25rem; }
@@ -2167,6 +2178,10 @@ tr.table-info-subtle { --bs-table-bg: var(--bs-info-bg-subtle); --bs-table-borde
 .chat-emoji > span { opacity: 0; }
 .chat-emoji-system .chat-emoji { display: inline; width: auto; height: auto; overflow: visible; line-height: inherit; vertical-align: baseline; background: none; }
 .chat-emoji-system .chat-emoji > span { opacity: 1; }
+/* Чаты без скруглений: окно, пузыри, поле ввода, кнопки, реакции, меню и
+   панели — прямые углы. Круглые только точки «в сети». */
+:is(#boardChatWidget, #revisionChatWidget, .chat-widget-menu) :is(*, *::before, *::after):not(.chat-widget-dot),
+:is(#boardChatWidget, #revisionChatWidget) { border-radius: 0 !important; }
 .chat-widget-form .chat-widget-editor { min-height: 2.2rem; overflow-y: auto; white-space: pre-wrap; word-break: break-word; cursor: text; }
 .chat-widget-editor:empty::before { content: attr(data-placeholder); color: var(--bs-secondary-color); pointer-events: none; }
 .chat-widget-editor a { text-decoration: underline; }

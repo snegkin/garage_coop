@@ -21,7 +21,7 @@
   {% if editable %}
   <p class="print-title"><input class="application-title-input" name="title" id="docTitle" value="{{ title }}" placeholder="{{ _('Заголовок документа') }}" aria-label="{{ _('Заголовок документа') }}"></p>
   {% elif title %}
-  <p class="print-title">{{ title }}</p>
+  {{ legal.doc_title(title) }}
   {% endif %}
   {% if number %}{{ legal.number_and_date(number, date) }}{% endif %}
   {% if editable %}

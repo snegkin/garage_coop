@@ -55,8 +55,7 @@
 {% macro application_doc(application, coop) %}
 <div class="legal-doc">
   {{ applicant_header(application, coop, application.garage_number or "—") }}
-  <p class="print-title">{{ application_doc_heading(application)|upper }}</p>
-  {% if application.title %}<p class="print-subtitle">{{ application.title }}</p>{% endif %}
+  {{ legal.doc_title(application_doc_heading(application), application.title) }}
   {{ legal.number_and_date(application.number, application.created_at.date()) }}
   <div class="application-body">{{ application.body_html|safe }}</div>
   {% if application.new_owner_data %}
@@ -91,7 +90,8 @@
 {% macro response_doc(application, coop) %}
 <div class="legal-doc">
   {{ response_header(application, coop) }}
-  <p class="print-title">{{ _("Ответ на") if application.status.value == 'answered' else _("Об отклонении:") }} {{ application_accusative(application) }}</p>
+  {% if application.status.value == 'answered' %}{{ legal.doc_title(_("Ответ на") ~ " " ~ application_accusative(application)) }}
+  {% else %}{{ legal.doc_title(_("Ответ на") ~ " " ~ application_accusative(application), _("об отклонении")) }}{% endif %}
   {{ legal.number_and_date(application.number, application.created_at.date()) }}
   <div class="application-body">
     {% if application.status.value == 'rejected' %}<p>{{ _("Правление рассмотрело Ваше заявление и отклонило его.") }}</p>{% endif %}

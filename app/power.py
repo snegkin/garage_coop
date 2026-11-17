@@ -5,11 +5,11 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 
 from . import database
 from . import audit
-from .i18n import translate as _, parse_decimal, parse_optional_decimal
+from .i18n import translate as _, fmt2, parse_decimal, parse_optional_decimal
 from .auth import roles_required
 from .models import Counterparty, ElectricityTariff, ElectricityTariffKind, MasterMeterReading, Document, DocumentType, RoleEnum, Expense, BankAccount
 from .accounting import (
-    get_electricity_settings, current_tariff, outside_territory_rate, pay_counterparty, reallocate_counterparty_expenses, expense_paid_amount,
+    get_electricity_settings, current_tariff, outside_territory_rate, member_rate_below_floor, pay_counterparty, reallocate_counterparty_expenses, expense_paid_amount,
     counterparty_balance, available_statement_lines, resolve_statement_line,
 )
 from .uploads import save_upload
@@ -97,7 +97,21 @@ def _tariff_pairs():
     for i, pair in enumerate(pairs):
         pair["end_date"] = pairs[i - 1]["date"] - dt.timedelta(days=1) if i > 0 else None
         pair["comment"] = (pair["supplier"] and pair["supplier"].comment) or (pair["member"] and pair["member"].comment)
+        pair["member_floor"] = member_rate_below_floor(
+            pair["supplier"] and pair["supplier"].rate, pair["member"] and pair["member"].rate
+        )
     return pairs
+
+
+def _flash_member_rate_floor(supplier_rate, member_rate) -> None:
+    """Предупреждение (не ошибка — сохранить можно): тариф для членов ниже
+    тарифа поставщика с потерями в сетях (accounting.member_rate_floor)."""
+    floor = member_rate_below_floor(supplier_rate, member_rate)
+    if floor is not None:
+        flash(_(
+            "Тариф для членов кооператива ({member} ₽) ниже тарифа поставщика с потерями в сетях ({floor} ₽): "
+            "потери, которые поставщик выставляет сверх показаний, кооператив будет оплачивать из взносов."
+        ).format(member=fmt2(member_rate), floor=fmt2(floor)), "warning")
 
 
 @bp.route("/")
@@ -207,6 +221,11 @@ def save_outside_line_loss():
     audit.record("power.outside_line_loss_set", summary)
     database.db_session.commit()
     flash(_("Процент потерь сохранён."), "success")
+    # Процент — тот же, что в минимуме тарифа для членов: проверить
+    # последний тариф (действующий или будущий) с новым процентом.
+    latest = next(iter(_tariff_pairs()), None)
+    if latest and latest["supplier"] and latest["member"]:
+        _flash_member_rate_floor(latest["supplier"].rate, latest["member"].rate)
     return redirect(url_for("power.view"))
 
 
@@ -271,6 +290,7 @@ def add_tariff():
     )
     database.db_session.commit()
     flash(_("Тариф добавлен."), "success")
+    _flash_member_rate_floor(supplier_rate, member_rate)
     return redirect(url_for("power.view"))
 
 
@@ -328,6 +348,7 @@ def edit_tariff(effective):
     )
     database.db_session.commit()
     flash(_("Тариф изменён."), "success")
+    _flash_member_rate_floor(supplier_rate, member_rate)
     return redirect(url_for("power.view"))
 
 

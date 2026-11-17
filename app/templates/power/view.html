@@ -46,11 +46,19 @@
     {% if outside_rate %}<div><div class="small text-muted">{{ _("Гаражам за территорией") }}</div><div class="fs-4">{{ "%.4f"|format(outside_rate) }} ₽/{{ _("кВт·ч") }}</div></div>{% endif %}
   </div>
   {% if current_pair %}<p class="text-muted small">{{ _("действует с") }} {{ fmt_date(current_pair.date) }}</p>{% endif %}
+  {# Тариф для членов ниже тарифа поставщика с потерями в сетях — действующий и будущие (прошлые — только отметкой в таблице). #}
+  {% for p in tariff_pairs if p.member_floor and (not current_pair or p.date >= current_pair.date) %}
+  <div class="alert alert-warning py-2 small">
+    <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+    {{ _("Тариф для членов кооператива с {date} — {member} ₽, ниже тарифа поставщика с потерями в сетях ({percent}%): {floor} ₽. Потери, которые поставщик выставляет сверх показаний, кооператив оплачивает из взносов.").format(
+        date=fmt_date(p.date), member=fmt2(p.member.rate), percent=fmt2(settings.outside_line_loss_percent), floor=fmt2(p.member_floor)) }}
+  </div>
+  {% endfor %}
   {% else %}
   <p class="text-muted">{{ _("Тариф пока не задан.") }}</p>
   {% endif %}
   <form method="post" action="{{ url_for('power.save_outside_line_loss') }}" class="d-flex flex-wrap align-items-center gap-2 small mb-3">
-    <label for="outsideLineLoss">{{ _("Гаражам за территорией — тариф для членов плюс потери в линии") }}</label>
+    <label for="outsideLineLoss" title="{{ _('Потери в сетях до кооператива, которые поставщик выставляет сверх показаний. Этот же процент задаёт минимальный тариф для членов кооператива: тариф поставщика плюс потери.') }}">{{ _("Гаражам за территорией — тариф для членов плюс потери в линии") }}</label>
     <div class="input-group input-group-sm" style="width:110px">
       <input class="form-control" id="outsideLineLoss" name="outside_line_loss_percent" inputmode="decimal" value="{{ settings.outside_line_loss_percent }}" required>
       <span class="input-group-text">%</span>
@@ -75,7 +83,9 @@
           {% elif p.date > today %}<span class="badge text-bg-info ms-1">{{ _("ещё не вступил в силу") }}</span>{% endif %}
         </td>
         <td data-sort-value="{{ p.supplier.rate if p.supplier else '' }}">{{ (fmt2(p.supplier.rate) ~ " ₽") if p.supplier else "—" }}</td>
-        <td data-sort-value="{{ p.member.rate if p.member else '' }}">{{ (fmt2(p.member.rate) ~ " ₽") if p.member else "—" }}</td>
+        <td data-sort-value="{{ p.member.rate if p.member else '' }}"{% if p.member_floor %} class="text-danger" title="{{ _('Ниже тарифа поставщика с потерями в сетях: минимум {floor} ₽').format(floor=fmt2(p.member_floor)) }}"{% endif %}>
+          {{ (fmt2(p.member.rate) ~ " ₽") if p.member else "—" }}{% if p.member_floor %} <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>{% endif %}
+        </td>
         <td>{{ p.comment or "—" }}</td>
         <td class="no-sort">
           {% if loop.first %}
@@ -184,7 +194,7 @@
 <div class="modal fade" id="tariffModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg">
     <div class="modal-content">
-      <form method="post" action="{{ url_for('power.add_tariff') }}">
+      <form method="post" action="{{ url_for('power.add_tariff') }}" data-member-floor-form>
         <div class="modal-header">
           <h5 class="modal-title">{{ _("Новый тариф") }}</h5>
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
@@ -200,6 +210,7 @@
               <input class="form-control" name="member_rate" inputmode="decimal" value="{{ none_pair.member.rate if none_pair and none_pair.member else '' }}" required>
             </div>
           </div>
+          <div class="alert alert-warning py-2 small d-none" data-member-floor-hint></div>
           <div class="mb-3">
             <label class="form-label">{{ _("Действует с") }}</label>
             <input class="form-control" type="date" name="effective_date" value="{{ none_pair.date.isoformat() if none_pair else '' }}" required>
@@ -223,7 +234,7 @@
 <div class="modal fade" id="editTariffModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg">
     <div class="modal-content">
-      <form method="post" action="{{ url_for('power.edit_tariff', effective=top_pair.date.isoformat()) }}">
+      <form method="post" action="{{ url_for('power.edit_tariff', effective=top_pair.date.isoformat()) }}" data-member-floor-form>
         <div class="modal-header">
           <h5 class="modal-title">{{ _("Изменить тариф") }}</h5>
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
@@ -240,6 +251,7 @@
               <input class="form-control" name="member_rate" inputmode="decimal" value="{{ top_pair.member.rate if top_pair and top_pair.member else '' }}" required>
             </div>
           </div>
+          <div class="alert alert-warning py-2 small d-none" data-member-floor-hint></div>
           <div class="mb-3">
             <label class="form-label">{{ _("Действует с") }}</label>
             <input class="form-control" type="date" name="effective_date" value="{{ top_pair.date.isoformat() if top_pair else '' }}" required>
@@ -433,6 +445,33 @@
     </div>
   </div>
 </div>
+<script>
+// Тариф для членов ниже тарифа поставщика + потери в сетях (настраиваемый %,
+// accounting.member_rate_floor) — предупреждение прямо в форме; сохранить можно.
+(function () {
+  const percent = {{ (settings.outside_line_loss_percent or 0)|float }};
+  const sep = {{ fmt2(0)[1:2]|tojson }};
+  const num = (v) => parseFloat(String(v).replace(",", ".").replace(/\s/g, ""));
+  const template = {{ _("Тариф для членов ниже тарифа поставщика с потерями в сетях ({percent}%): минимум {floor} ₽. Потери, которые поставщик выставляет сверх показаний, кооператив будет оплачивать из взносов.")|tojson }};
+  document.querySelectorAll("[data-member-floor-form]").forEach((form) => {
+    const supplier = form.querySelector("[name=supplier_rate]");
+    const member = form.querySelector("[name=member_rate]");
+    const hint = form.querySelector("[data-member-floor-hint]");
+    const update = () => {
+      const s = num(supplier.value), m = num(member.value);
+      const exact = Math.round(s * (100 + percent) / 100 * 10000) / 10000;
+      const below = s > 0 && m > 0 && m < exact;
+      const floor = Math.ceil(exact * 100 - 1e-9) / 100;
+      hint.classList.toggle("d-none", !below);
+      if (below) hint.textContent = template.replace("{percent}", percent.toFixed(2).replace(".", sep)).replace("{floor}", floor.toFixed(2).replace(".", sep));
+    };
+    supplier.addEventListener("input", update);
+    member.addEventListener("input", update);
+    form.closest(".modal")?.addEventListener("shown.bs.modal", update);
+    update();
+  });
+})();
+</script>
 <script>
 (function () {
   const modal = document.getElementById("readingDocumentModal");

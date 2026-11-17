@@ -103,3 +103,38 @@ def test_power_page_shows_pair_in_one_row(db, client):
     row = next(r for r in html.split("<tr>")[1:] if "6,30 ₽" in r or "6.30 ₽" in r)
     assert "6,50 ₽" in row or "6.50 ₽" in row
     assert "действует сейчас" in row
+
+
+def test_member_rate_below_supplier_plus_losses_warns(db, client):
+    """Тариф для членов ниже тарифа поставщика + потери в сетях
+    (ElectricitySettings.outside_line_loss_percent, по умолчанию 2,33 %) —
+    предупреждение при сохранении и на странице; сохранить всё равно можно.
+    Минимум — в копейках с округлением вверх: 6,30 + 2,33 % = 6,4468 → 6,45."""
+    from app.accounting import member_rate_below_floor
+
+    assert member_rate_below_floor(Decimal("6.30"), Decimal("6.44")) == Decimal("6.45")
+    assert member_rate_below_floor(Decimal("6.30"), Decimal("6.45")) is None
+    assert member_rate_below_floor(Decimal("6.30"), None) is None
+
+    _login_board(db, client, "board_tp6")
+    resp = client.post("/power/tariff", data={
+        "effective_date": "2026-01-01", "supplier_rate": "6,30", "member_rate": "6,40",
+    }, follow_redirects=True)
+    html = resp.get_data(as_text=True)
+    assert len(_rates(db)) == 2  # сохранено
+    assert "ниже тарифа поставщика с потерями в сетях (6,45 ₽)" in html  # flash
+    assert "с 01.01.2026 — 6,40 ₽, ниже тарифа поставщика с потерями в сетях (2,33%): 6,45 ₽" in html  # на странице
+    assert "минимум 6,45 ₽" in html  # отметка в таблице
+
+    # Тариф с запасом — предупреждения нет.
+    resp = client.post("/power/tariff/2026-01-01/edit", data={
+        "effective_date": "2026-01-01", "supplier_rate": "6,30", "member_rate": "6,50",
+    }, follow_redirects=True)
+    html = resp.get_data(as_text=True)
+    assert "с потерями в сетях (" not in html and "минимум 6,45" not in html
+
+    # Процент потерь вырос — тот же тариф уже ниже минимума: 6,30 + 4 % = 6,552 → 6,56.
+    resp = client.post("/power/outside-line-loss", data={
+        "outside_line_loss_percent": "4", "meter_self_consumption_w": "2",
+    }, follow_redirects=True)
+    assert "ниже тарифа поставщика с потерями в сетях (6,56 ₽)" in resp.get_data(as_text=True)

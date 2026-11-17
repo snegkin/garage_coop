@@ -23,7 +23,7 @@
 import calendar
 import datetime as dt
 import re
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, ROUND_HALF_UP, ROUND_UP
 
 from sqlalchemy import func
 
@@ -901,6 +901,24 @@ def outside_territory_rate(member_rate: Decimal) -> Decimal:
     """Тариф для членов + потери в линии до кооператива, % (см. garage_electricity_rate)."""
     percent = get_electricity_settings().outside_line_loss_percent or Decimal("0")
     return (member_rate * (Decimal("100") + percent) / Decimal("100")).quantize(Decimal("0.0001"), ROUND_HALF_UP)
+
+
+def member_rate_floor(supplier_rate: Decimal) -> Decimal:
+    """Минимальный тариф для членов: тариф поставщика + потери в сетях до
+    кооператива, которые поставщик выставляет сверх показаний
+    (ElectricitySettings.outside_line_loss_percent — тот же настраиваемый
+    процент, что у гаражей за территорией). Тариф для членов ниже этого —
+    кооператив доплачивает потери из взносов."""
+    return outside_territory_rate(supplier_rate)
+
+
+def member_rate_below_floor(supplier_rate: Decimal | None, member_rate: Decimal | None) -> Decimal | None:
+    """Если тариф для членов ниже member_rate_floor — минимальный тариф в
+    копейках (округление вверх: 6,30 + 2,33 % = 6,4468 → 6,45), иначе None."""
+    if supplier_rate is None or member_rate is None:
+        return None
+    floor = member_rate_floor(supplier_rate)
+    return floor.quantize(Decimal("0.01"), ROUND_UP) if member_rate < floor else None
 
 
 def meter_self_consumption_kwh(garage: Garage, date_from: dt.date | None, date_to: dt.date) -> Decimal:

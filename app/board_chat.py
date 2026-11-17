@@ -2,7 +2,8 @@
 Чат правления — общий групповой чат для BOARD/ACCOUNTANT/CHAIRMAN
 (is_board()), доступный плавающим виджетом на любой странице (см.
 base.html). Простой хронологический лог (BoardChatMessage) — без
-редактирования/удаления сообщений, без вложений, без markdown-разметки.
+вложений. Разметка (ссылки, жирный и т. п.) — app/chat_markup.py: в БД
+текст как написан, на сайт и в группы — HTML.
 
 Опрос новых сообщений (GET /messages) одновременно и есть "прочтение" —
 обновляет User.board_chat_read_at, отдельного роута для этого нет (см.
@@ -55,6 +56,7 @@ import datetime as dt
 from flask import Blueprint, request, jsonify, g, abort
 
 from . import audit
+from . import chat_markup
 from . import database
 from .auth import roles_required
 from .permissions import is_chairman
@@ -105,8 +107,10 @@ def _bridges() -> dict[str, str]:
 
 
 def copy_text(message: BoardChatMessage) -> str:
-    """Текст копии сообщения в группе мессенджера."""
-    return f"{author_name(message)}: {message.body}"
+    """Текст копии сообщения в группе мессенджера — HTML (Telegram
+    parse_mode=HTML, MAX "format": "html"), разметка — chat_markup."""
+    from markupsafe import escape
+    return f"{escape(author_name(message))}: {chat_markup.to_messenger_html(message.body)}"
 
 
 def relay_to_messengers(message: BoardChatMessage) -> int:
@@ -324,7 +328,8 @@ def _serialize_reply(message: BoardChatMessage | None) -> dict | None:
         return None
     if message.deleted_at is not None:
         return {"id": message.id, "deleted": True}
-    body = message.body if len(message.body) <= REPLY_EXCERPT else message.body[:REPLY_EXCERPT] + "…"
+    plain = chat_markup.to_plain(message.body)
+    body = plain if len(plain) <= REPLY_EXCERPT else plain[:REPLY_EXCERPT] + "…"
     return {"id": message.id, "author_name": author_name(message), "body": body}
 
 
@@ -335,7 +340,9 @@ def _serialize(message: BoardChatMessage, reactions: dict[int, list[dict]] | Non
         "id": message.id,
         "author_name": author_name(message),
         "source": message.source,
-        "body": message.body,
+        "body": message.body,  # как написан — для правки
+        "body_html": chat_markup.to_html(message.body),
+        "body_plain": chat_markup.to_plain(message.body),  # закреп, плашка ответа
         # "Z" — created_at в БД наивный UTC (см. models.py), суффикс
         # делает JS-Date() на клиенте однозначным (тот же приём, что и в
         # electricity_monitor.py: history-data).

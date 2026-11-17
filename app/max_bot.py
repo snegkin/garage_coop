@@ -284,14 +284,14 @@ def send_group_message(settings: MaxSettings, chat_id: int | str, text: str,
     """Сообщение в группу (мост чата правления, очередь kind="group");
     reply_to — mid сообщения, на которое это ответ.
     -> mid отправленного сообщения (для удаления/закрепа/правки потом)."""
-    result = send_message(settings, chat_id, text, reply_to=reply_to) or {}
+    result = send_message(settings, chat_id, text, html=True, reply_to=reply_to) or {}
     return ((result.get("message") or {}).get("body") or {}).get("mid")
 
 
 def edit_group_message(settings: MaxSettings, chat_id, external_id: str, text: str) -> None:
     """Правка копии (очередь kind="group_edit"): PUT /messages."""
     _request(settings, "PUT", "/messages", idempotent=True, params={"message_id": external_id},
-             payload={"text": text})
+             payload={"text": text, "format": "html"})
 
 
 def delete_group_message(settings: MaxSettings, chat_id, external_id: str) -> None:
@@ -371,7 +371,7 @@ def _ingest_board_chat(message: dict, edited: bool = False) -> None:
     правления на сайте (app/board_chat.py: ingest_external; edited — правка,
     ingest_external_edit). Свои сообщения бота (и других ботов) и команды
     пропускаем."""
-    from . import board_chat
+    from . import board_chat, chat_markup
     recipient = message.get("recipient") or {}
     if not board_chat.is_board_chat(board_chat.SOURCE_MAX, recipient.get("chat_id")):
         return
@@ -379,7 +379,8 @@ def _ingest_board_chat(message: dict, edited: bool = False) -> None:
     if sender.get("is_bot"):
         return
     body = message.get("body") or {}
-    text = (body.get("text") or "").strip()
+    # Форматирование (body.markup) — в разметку чата (app/chat_markup.py).
+    text = chat_markup.from_max(body.get("text") or "", body.get("markup")).strip()
     if text.startswith("/"):
         return
     attachments = body.get("attachments") or []

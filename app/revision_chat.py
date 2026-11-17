@@ -13,6 +13,7 @@ from functools import wraps
 
 from flask import Blueprint, request, jsonify, g, flash, redirect, url_for
 
+from . import chat_markup
 from . import database
 from .auth import login_required
 from .i18n import translate as _
@@ -46,6 +47,7 @@ def _serialize(message: RevisionChatMessage) -> dict:
         "id": message.id,
         "author_name": _author_name(message.author),
         "body": message.body,
+        "body_html": chat_markup.to_html(message.body),
         "created_at": message.created_at.isoformat() + "Z",
         "is_mine": message.author_id == g.user.id,
     }

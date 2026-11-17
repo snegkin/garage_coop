@@ -153,9 +153,12 @@ def _reply_target(message, channel: str) -> str | None:
 def _quote(message) -> str:
     """Цитата вместо ответа, когда сообщения, на которое отвечают, в группе
     нет (написано до моста, не дошло)."""
+    from markupsafe import escape
     from .board_chat import author_name
-    body = message.body if len(message.body) <= 60 else message.body[:60] + "…"
-    return f"↩ {author_name(message)}: «{body}»\n"
+    from .chat_markup import to_plain
+    plain = to_plain(message.body)
+    body = plain if len(plain) <= 60 else plain[:60] + "…"
+    return f"↩ {escape(author_name(message))}: «{escape(body)}»\n"  # копия — HTML, см. board_chat.copy_text
 
 
 def _board_target(item: MessengerOutbox) -> str | None:

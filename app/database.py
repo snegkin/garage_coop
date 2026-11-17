@@ -1,4 +1,6 @@
 """Инициализация БД: движок и scoped_session, подключаемые к жизненному циклу запроса Flask."""
+import contextlib
+import fcntl
 import logging
 import os
 import re
@@ -74,13 +76,74 @@ def run_migrations(database_uri: str):
     # ~80 файлов миграций — ~1,5 с на каждый запуск cron-скрипта.
     if _is_at_head(database_uri):
         return
-    alembic_logger = logging.getLogger("alembic")
-    previous_level = alembic_logger.level
-    alembic_logger.setLevel(logging.WARNING)
+    # Миграции накатывает тот процесс, что стартовал первым: веб-воркер или
+    # cron-скрипт (они тоже вызывают create_app()) — после git pull до
+    # перезапуска сервиса это бывает одновременно. batch_alter_table на
+    # SQLite не транзакционный: второй процесс, начавший ту же миграцию,
+    # оставлял _alembic_tmp_<таблица>, и все следующие старты падали на
+    # «table _alembic_tmp_… already exists». Блокировка файла — остальные
+    # ждут, затем видят, что схема уже на последней ревизии.
+    with _migration_lock(database_uri):
+        if _is_at_head(database_uri):
+            return
+        alembic_logger = logging.getLogger("alembic")
+        previous_level = alembic_logger.level
+        alembic_logger.setLevel(logging.WARNING)
+        try:
+            _drop_stale_batch_tables(database_uri)
+            _run_migrations(database_uri)
+        finally:
+            alembic_logger.setLevel(previous_level)
+
+
+def _sqlite_path(database_uri: str) -> str | None:
+    """Путь к файлу SQLite из URI или None (другая СУБД, БД в памяти)."""
+    prefix = "sqlite:///"
+    if not database_uri.startswith(prefix):
+        return None
+    path = database_uri[len(prefix):].split("?", 1)[0]
+    return None if not path or path == ":memory:" else path
+
+
+@contextlib.contextmanager
+def _migration_lock(database_uri: str):
+    """Межпроцессная блокировка на время миграций: файл <БД>.migrate.lock
+    рядом с базой (flock снимается и при падении процесса)."""
+    path = _sqlite_path(database_uri)
+    if path is None:
+        yield
+        return
+    with open(path + ".migrate.lock", "a") as lock_file:
+        fcntl.flock(lock_file, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock_file, fcntl.LOCK_UN)
+
+
+def _drop_stale_batch_tables(database_uri: str) -> None:
+    """Временные таблицы Alembic (_alembic_tmp_<таблица>), оставшиеся от
+    прерванной миграции. Под блокировкой миграций других миграторов нет —
+    такая таблица точно мусор, если исходная таблица на месте (batch
+    сначала копирует данные во временную и только потом удаляет исходную).
+    Исходной нет — данные могли остаться только во временной: не трогаем,
+    миграция упадёт с понятной ошибкой, разбираться руками."""
+    if _sqlite_path(database_uri) is None:
+        return
+    probe_engine = create_engine(database_uri, connect_args={"check_same_thread": False})
     try:
-        _run_migrations(database_uri)
+        with probe_engine.begin() as conn:
+            tables = set(inspect(conn).get_table_names())
+            for name in sorted(t for t in tables if t.startswith("_alembic_tmp_")):
+                original = name[len("_alembic_tmp_"):]
+                if original in tables:
+                    conn.execute(text(f'DROP TABLE "{name}"'))
+                    logger.warning("Удалена временная таблица прерванной миграции: %s", name)
+                else:
+                    logger.error("Временная таблица %s есть, а исходной %s нет — нужна ручная проверка",
+                                 name, original)
     finally:
-        alembic_logger.setLevel(previous_level)
+        probe_engine.dispose()
 
 
 _REVISION_RE = re.compile(r"^revision\b[^=]*=\s*['\"]([^'\"]+)['\"]", re.MULTILINE)

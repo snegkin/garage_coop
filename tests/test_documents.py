@@ -405,7 +405,7 @@ def test_sale_contract(db, client):
     assert sale.is_public
     client.get("/auth/logout")
     blank = client.get(f"/documents/public/{sale.id}").get_data(as_text=True)
-    assert "ДОГОВОР купли-продажи гаража" in blank and "Петрова" not in blank and "_" * 40 in blank
+    assert '<p class="print-title">ДОГОВОР</p>' in blank and "купли-продажи гаража</p>" in blank and "Петрова" not in blank and "_" * 40 in blank
     login(client, "board1", "pass1234")
     # Оформляет только председатель.
     assert client.get(f"/documents/new?template_id={sale.id}").status_code == 302
@@ -488,3 +488,30 @@ def test_contractor_letters(db, client):
     card = client.get(f"/counterparties/{host.id}").get_data(as_text=True)
     assert f"/documents/{doc.id}" in card and "Писем пока нет" not in card
     assert "ООО «Хостинг»" in client.get(f"/documents/{doc.id}").get_data(as_text=True)
+
+
+def test_split_doc_title():
+    split = documents.split_doc_title
+    assert split("ДОГОВОР о подключении гаража") == ("ДОГОВОР", "о подключении гаража")
+    assert split("Ответ на заявление о выходе") == ("ОТВЕТ", "на заявление о выходе")
+    assert split("ПРОТОКОЛ № ___ заседания правления") == ("ПРОТОКОЛ № ___", "заседания правления")
+    assert split("ЗАЯВЛЕНИЕ") == ("ЗАЯВЛЕНИЕ", "")
+    assert split("КООПЕРАТИВ В ИНТЕРНЕТЕ") == ("КООПЕРАТИВ В ИНТЕРНЕТЕ", "")
+    assert split("  ") == ("", "")
+
+
+def test_document_title_on_two_lines(db, client):
+    owner, garage, _chairman = _setup(db)
+    login(client, "board1", "pass1234")
+    client.post("/documents/templates/defaults")
+    member = db.query(DocumentTemplate).filter_by(name="Договор на электроэнергию (член кооператива)").one()
+    page = client.get(f"/documents/new?template_id={member.id}&garage_id={garage.id}").get_data(as_text=True)
+    body = page.split('id="docBody"')[1].split("</div>")[0]
+    client.post("/documents/new", data={
+        "template_id": member.id, "owner": f"{owner.id}:{garage.id}", "issued_at": "2026-11-17",
+        "title": member.title, "body_html": "<p>Текст.</p>",
+    })
+    document = db.query(IssuedDocument).one()
+    page = client.get(f"/documents/{document.id}").get_data(as_text=True)
+    assert '<p class="print-title">ДОГОВОР</p>' in page
+    assert '<p class="print-subtitle">о подключении гаража к электрической сети кооператива</p>' in page

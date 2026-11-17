@@ -6,6 +6,16 @@
 {% endmacro %}
 
 
+{# Заголовок документа: вид отдельной строкой прописными, ниже пояснение
+   (documents.split_doc_title); extra — ещё строка пояснения (тема заявления). #}
+{% macro doc_title(title, extra=None) %}
+{% set head, rest = split_doc_title(title) %}
+{% if head %}<p class="print-title">{{ head }}</p>{% endif %}
+{% if rest %}<p class="print-subtitle">{{ rest }}</p>{% endif %}
+{% if extra %}<p class="print-subtitle">{{ extra }}</p>{% endif %}
+{% endmacro %}
+
+
 {% macro signature_block(chairman, date=None, role=None) %}
 <div class="print-signatures">
   <div class="signature-rows">
@@ -99,7 +109,7 @@
     </div>
   </div>
 
-  <p class="print-title">{{ _("Уведомление о задолженности") }}</p>
+  {{ doc_title(_("Уведомление о задолженности")) }}
 
   {# Обращение по имени-отчеству, род — по отчеству («Уважаемая Анна
      Ивановна!»); адрес — в шапке справа, в обращении не повторяется. #}

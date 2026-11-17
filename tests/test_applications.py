@@ -188,7 +188,7 @@ def test_board_answer_notifies_applicant(db, client, monkeypatch):
     login(client, "owner", "pass1234")
     page = client.get(f"/applications/{application.id}").get_data(as_text=True)
     assert "Счётчик заменим в субботу." in page
-    assert "Ответ на заявление" in page
+    assert '<p class="print-title">ОТВЕТ</p>' in page and '<p class="print-subtitle">на заявление</p>' in page
 
 
 def test_board_reject_without_reason(db, client):
@@ -508,7 +508,7 @@ def test_member_submits_application_from_template(db, client):
     login(client, "board1", "pass1234")
     client.post(f"/applications/{application.id}/decide", data={"decision": "answer", "response_html": "<p>Ответ.</p>"})
     page = client.get(f"/applications/{application.id}").get_data(as_text=True)
-    assert "Ответ на жалобу" in page
+    assert '<p class="print-subtitle">на жалобу</p>' in page
     assert documents.member_templates()  # шаблоны на месте
 
 

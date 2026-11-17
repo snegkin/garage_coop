@@ -57,6 +57,29 @@ from .permissions import is_board, is_chairman
 
 bp = Blueprint("documents", __name__, url_prefix="/documents")
 
+
+def split_doc_title(title: str | None) -> tuple[str, str]:
+    """Заголовок на бланке — вид документа отдельной строкой прописными,
+    ниже пояснение: «ДОГОВОР о подключении…» → («ДОГОВОР», «о подключении…»),
+    «Ответ на заявление» → («ОТВЕТ», «на заявление»). «№ …» после вида
+    остаётся в первой строке («ПРОТОКОЛ № ___»). Заголовок целиком
+    прописными («КООПЕРАТИВ В ИНТЕРНЕТЕ») — не делится: это не вид
+    документа с пояснением."""
+    words = (title or "").split()
+    if not words:
+        return "", ""
+    if len(words) > 1 and not any(ch.islower() for ch in " ".join(words)):
+        return " ".join(words), ""
+    head = [words[0]]
+    rest = words[1:]
+    if rest and rest[0] == "№":
+        head += rest[:2]
+        rest = rest[2:]
+    return " ".join(head).upper(), " ".join(rest)
+
+
+bp.add_app_template_global(split_doc_title, "split_doc_title")
+
 RECIPIENTS = {
     "none": "без адресата (объявление, информационный лист)",
     "person": "человек из реестра",
@@ -1071,7 +1094,7 @@ DEFAULT_TEMPLATES = [
     },
     {
         "name": "Уведомление о задолженности",
-        "title": "УВЕДОМЛЕНИЕ О ЗАДОЛЖЕННОСТИ",
+        "title": "УВЕДОМЛЕНИЕ о задолженности",
         "recipient": "person",
         "addressee_html": "<p>{{ФИО_кому}}</p><p>{{адрес}}</p>",
         "body_html": (

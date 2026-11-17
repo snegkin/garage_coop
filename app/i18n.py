@@ -2922,6 +2922,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Приложения": "Attachments",
         "Ответ на": "Answer to",
         "Об отклонении:": "Rejection:",
+        "об отклонении": "rejection",
         "Правление рассмотрело Ваше заявление и отклонило его.": "The board has reviewed your application and rejected it.",
         "← к заявлениям": "← to applications",
         "ответ": "answer",

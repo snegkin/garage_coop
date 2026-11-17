@@ -101,6 +101,34 @@
         "LICENSE": "ec9fb67dcb25eccc416ed56e1aab819222c805a2a4bfe4cb19e7556bf2ffde80",
         "mermaid.min.js": "581ed7d74bd9048d0e3a91363927d72ef22942d7722546b27f7cc29e35390eb8"
       }
+    },
+    "emoji-datasource-apple": {
+      "version": "16.0.0",
+      "files": {
+        "sheet-64.png": "img/apple/sheets-256/64.png",
+        "emoji.json": "emoji.json"
+      },
+      "license": "LICENSE",
+      "used_on": "чаты правления и ревизионной комиссии (base.html) — смайлы в стиле Apple; emoji.json — карта спрайта для app/chat_emoji.py",
+      "integrity": "sha512-dVYjsK0FnCry9F+PBtnivhG2K0xdwlmqYaSgiUtztUdAGPYiHYhZcVKvNBqC791g2qyEcFNTBO6utg4eQ3uLTw==",
+      "sha256": {
+        "LICENSE": "ee9953a79bf2132b59b1342b217f1c377b3d03d9e7713006f6c3b89eb159f1db",
+        "emoji.json": "1d602e65be88772bf8cc368ce16b855d719eeddbafe128d471b80203f494d29f",
+        "sheet-64.png": "a2acf99bd9c60654458aa5c4068037dbed1fe4fa33641cfcab8abeff8664f483"
+      }
+    },
+    "emoji-datasource-twitter": {
+      "version": "16.0.0",
+      "files": {
+        "sheet-64.png": "img/twitter/sheets-256/64.png"
+      },
+      "license": "LICENSE",
+      "used_on": "чаты правления и ревизионной комиссии (base.html) — смайлы Twemoji",
+      "integrity": "sha512-7F+uCuHH+7Qnrc15P5tnbvKkg9E6tlzi4MnT2uW1RlN4pLYTza6cP/dstIfSDMtpjFLWuZewWg8jBbuL2eyELQ==",
+      "sha256": {
+        "LICENSE": "ee9953a79bf2132b59b1342b217f1c377b3d03d9e7713006f6c3b89eb159f1db",
+        "sheet-64.png": "3823598464719ad7cb3a7ba14537b7852c8a323e18b39f7ca4fa9b1e98e9cc68"
+      }
     }
   }
 }

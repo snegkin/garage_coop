@@ -31,6 +31,11 @@ telegram_chat_id/max_user_id), иначе имя из мессенджера с 
 отправке. Из мессенджеров на сайт удаление и закреп не переносятся: Bot API
 Telegram об удалениях ботам не сообщает.
 
+Ответ может цитировать выделенный кусок сообщения (reply_quote): в
+Telegram — нативной цитатой ответа (reply_parameters.quote), в MAX —
+блоком <blockquote> перед текстом; цитата из Telegram (message.quote)
+приходит на сайт так же.
+
 Ответ (reply_to) уходит в группы настоящим ответом на копию/оригинал
 (id находится при отправке, см. messenger_outbox._send), ответ в группе
 приходит на сайт ответом. Правка: своё сообщение с сайта — правятся и
@@ -211,7 +216,8 @@ def ingest_external_edit(source: str, external_message_id, text: str) -> BoardCh
 
 
 def ingest_external(source: str, external_message_id, external_user_id, display_name: str | None,
-                    text: str, reply_to: BoardChatMessage | None = None) -> BoardChatMessage | None:
+                    text: str, reply_to: BoardChatMessage | None = None,
+                    reply_quote: str | None = None) -> BoardChatMessage | None:
     """Сообщение из группы правления в мессенджере -> чат правления на сайте
     и пересылка в другие группы. Повторный апдейт (тот же id) и пустой
     текст пропускаются. Без commit — вызывающий (опрос бота) коммитит вместе
@@ -234,6 +240,7 @@ def ingest_external(source: str, external_message_id, external_user_id, display_
         external_author=None if user else ((display_name or "").strip()[:128] or None),
         external_message_id=external_message_id,
         reply_to=reply_to,
+        reply_quote=clean_quote(reply_quote, reply_to),
     )
     database.db_session.add(message)
     database.db_session.flush()
@@ -321,16 +328,26 @@ def _reactions_by_message(message_ids) -> dict[int, list[dict]]:
 
 
 REPLY_EXCERPT = 120
+REPLY_QUOTE_MAX = 1000
 
 
-def _serialize_reply(message: BoardChatMessage | None) -> dict | None:
+def clean_quote(quote: str | None, reply_to: "BoardChatMessage | None") -> str | None:
+    """Цитата ответа: только при ответе, без лишних пробелов по краям, не
+    длиннее REPLY_QUOTE_MAX; совпадает со всем текстом — не цитата."""
+    quote = (quote or "").strip()[:REPLY_QUOTE_MAX].strip()
+    if not quote or reply_to is None or quote == chat_markup.to_plain(reply_to.body).strip():
+        return None
+    return quote
+
+
+def _serialize_reply(message: BoardChatMessage | None, quote: str | None = None) -> dict | None:
     if message is None:
         return None
     if message.deleted_at is not None:
         return {"id": message.id, "deleted": True}
-    plain = chat_markup.to_plain(message.body)
+    plain = quote or chat_markup.to_plain(message.body)
     body = plain if len(plain) <= REPLY_EXCERPT else plain[:REPLY_EXCERPT] + "…"
-    return {"id": message.id, "author_name": author_name(message), "body": body}
+    return {"id": message.id, "author_name": author_name(message), "body": body, "quote": bool(quote)}
 
 
 def _serialize(message: BoardChatMessage, reactions: dict[int, list[dict]] | None = None) -> dict:
@@ -352,7 +369,7 @@ def _serialize(message: BoardChatMessage, reactions: dict[int, list[dict]] | Non
         "can_edit": _can_edit(message),
         "edited": message.edited_at is not None,
         "pinned": message.pinned_at is not None,
-        "reply_to": _serialize_reply(message.reply_to),
+        "reply_to": _serialize_reply(message.reply_to, message.reply_quote),
         "reactions": reactions.get(message.id, []),
     }
 
@@ -533,7 +550,8 @@ def send_message():
             reply_to = None  # успели удалить — отправляем обычным сообщением
 
     message = BoardChatMessage(author_id=g.user.id, author=g.user, body=body, source=SOURCE_SITE,
-                               reply_to=reply_to)
+                               reply_to=reply_to,
+                               reply_quote=clean_quote(request.form.get("reply_quote"), reply_to))
     database.db_session.add(message)
     relay_to_messengers(message)
     g.user.board_chat_read_at = dt.datetime.utcnow()

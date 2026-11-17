@@ -95,7 +95,7 @@ def is_configured(settings: TelegramSettings | None) -> bool:
 
 def send_message(settings: TelegramSettings, chat_id: int | str, text: str,
                  parse_mode: str | None = None, disable_preview: bool = False,
-                 silent: bool = False, reply_to: int | None = None) -> None:
+                 silent: bool = False, reply_to: int | None = None, quote: str | None = None) -> None:
     """Поднимает TelegramError при сбое — вызывающий код (notifications.notify)
     сам решает, что с этим делать (обычно — залогировать и не ронять
     остальную обработку). chat_id — число (личный чат, группа -100…) или
@@ -111,6 +111,8 @@ def send_message(settings: TelegramSettings, chat_id: int | str, text: str,
     if reply_to is not None:
         # Сообщение успели удалить в группе — уйдёт просто сообщением.
         payload["reply_parameters"] = {"message_id": reply_to, "allow_sending_without_reply": True}
+        if quote:
+            payload["reply_parameters"]["quote"] = quote
     try:
         resp = requests.post(
             _api(settings, token, "sendMessage"),
@@ -167,13 +169,25 @@ def send_notification(settings: TelegramSettings, chat_id: int | str, text: str)
 
 
 def send_group_message(settings: TelegramSettings, chat_id: int | str, text: str,
-                       reply_to: str | None = None) -> str | None:
+                       reply_to: str | None = None, quote: str | None = None) -> str | None:
     """Сообщение в группу (мост чата правления, очередь kind="group");
     reply_to — id сообщения в группе, на которое это ответ.
-    text — HTML (board_chat.copy_text).
+    text — HTML (board_chat.copy_text). quote — цитата из сообщения reply_to
+    (нативная цитата ответа); Telegram её не принял (не нашёл такого
+    куска в сообщении) — та же цитата блоком <blockquote> в тексте.
     -> id отправленного сообщения (для удаления/закрепа/правки потом)."""
-    message_id = send_message(settings, chat_id, text, parse_mode="HTML",
-                              reply_to=_message_id(reply_to) if reply_to is not None else None)
+    from markupsafe import escape
+    target = _message_id(reply_to) if reply_to is not None else None
+    if quote and target is not None:
+        try:
+            message_id = send_message(settings, chat_id, text, parse_mode="HTML", reply_to=target, quote=quote)
+            return str(message_id) if message_id is not None else None
+        except TelegramError as exc:
+            if exc.status_code != 400 or "quote" not in str(exc).lower():
+                raise
+    if quote:
+        text = f"<blockquote>{escape(quote)}</blockquote>{text}"
+    message_id = send_message(settings, chat_id, text, parse_mode="HTML", reply_to=target)
     return str(message_id) if message_id is not None else None
 
 
@@ -304,6 +318,7 @@ def _ingest_board_chat(message: dict, text: str, edited: bool = False) -> bool:
     board_chat.ingest_external(
         board_chat.SOURCE_TELEGRAM, f"{chat_id}:{message['message_id']}",
         sender.get("id"), _display_name(sender), body, reply_to=reply_to,
+        reply_quote=(message.get("quote") or {}).get("text"),
     )
     return True
 

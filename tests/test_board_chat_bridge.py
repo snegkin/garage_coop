@@ -664,3 +664,73 @@ def test_max_formatting_reaches_site(app, db, monkeypatch):
         "marker": 2})
     max_bot.poll_updates()
     assert db.query(BoardChatMessage).one().body == "смотри [сюда](https://x.ru)"
+
+
+# ---------------------------------------------------------------------------
+# Частичная цитата в ответе (reply_quote)
+# ---------------------------------------------------------------------------
+
+def test_reply_with_partial_quote(app, db, client, monkeypatch):
+    _bridges(db)
+    _board_user(db)
+    login(client, "board1", "pass1234")
+    first = _post(client, "**первое** и второе <3")
+    _sent_copies(app, monkeypatch)
+
+    resp = client.post("/board-chat/messages", data={"body": "ответ", "reply_to_id": first,
+                                                     "reply_quote": "  второе <3 "})
+    reply = resp.get_json()["message"]["reply_to"]
+    assert reply["quote"] is True and reply["body"] == "второе <3"
+    assert db.query(BoardChatMessage).filter_by(body="ответ").one().reply_quote == "второе <3"
+
+    fake, tg_calls = _sent_copies(app, monkeypatch)
+    assert tg_calls[0][1]["reply_parameters"] == {
+        "message_id": 777, "allow_sending_without_reply": True, "quote": "второе <3"}
+    assert tg_calls[0][1]["text"] == "board1: ответ"
+    assert fake.messages[0]["body"]["text"] == "<blockquote>второе &lt;3</blockquote>board1: ответ"
+    assert fake.messages[0]["body"]["link"] == {"type": "reply", "mid": "m1"}
+
+
+def test_whole_text_quote_is_plain_reply(db, client):
+    _board_user(db)
+    login(client, "board1", "pass1234")
+    first = _post(client, "**всё**")
+    client.post("/board-chat/messages", data={"body": "ответ", "reply_to_id": first, "reply_quote": "всё"})
+    client.post("/board-chat/messages", data={"body": "без ответа", "reply_quote": "всё"})
+    assert {m.body: m.reply_quote for m in db.query(BoardChatMessage)} == {
+        "**всё**": None, "ответ": None, "без ответа": None}
+
+
+def test_telegram_rejected_quote_falls_back_to_blockquote(app, db, client, monkeypatch):
+    _bridges(db, max_=False)
+    _board_user(db)
+    login(client, "board1", "pass1234")
+    first = _post(client, "вопрос длинный")
+    _sent_copies(app, monkeypatch)
+    client.post("/board-chat/messages", data={"body": "ответ", "reply_to_id": first, "reply_quote": "длинный"})
+
+    calls = []
+
+    def tg_post(url, json=None, **kw):
+        calls.append(json)
+        if "quote" in json.get("reply_parameters", {}):
+            return FakeResponse(400, text='{"ok":false,"description":"Bad Request: QUOTE_TEXT_INVALID"}')
+        return FakeResponse(200, {"ok": True, "result": {"message_id": 778}})
+
+    monkeypatch.setattr(telegram_bot.requests, "post", tg_post)
+    assert messenger_outbox.process(app.config["UPLOAD_FOLDER"]) == (1, 0)
+    assert calls[-1]["text"] == "<blockquote>длинный</blockquote>board1: ответ"
+    assert calls[-1]["reply_parameters"] == {"message_id": 777, "allow_sending_without_reply": True}
+
+
+def test_telegram_quote_reaches_site(db, monkeypatch, app, client):
+    _bridges(db)
+    _board_user(db, telegram_chat_id=5001)
+    login(client, "board1", "pass1234")
+    first = _post(client, "один два три")
+    _sent_copies(app, monkeypatch)
+    _tg_updates(monkeypatch, [_tg_message("ответ", message_id=12, reply_to_message={"message_id": 777},
+                                          quote={"text": "два", "position": 12})])
+    telegram_bot.poll_and_link_accounts()
+    reply = db.query(BoardChatMessage).filter_by(body="ответ").one()
+    assert reply.reply_to_id == first and reply.reply_quote == "два"

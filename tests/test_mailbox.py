@@ -579,7 +579,8 @@ def test_view_message_decodes_idn_domain_in_from_and_to(db, client, monkeypatch)
     resp = client.get("/mailbox/messages/1")
     body = resp.get_data(as_text=True)
     assert "гм-восход.рф" in body
-    assert "xn--" not in body
+    # Не просто "xn--": он есть в JS-регулярке IDN_DOMAIN_RE (редактор чата в base.html).
+    assert "xn----dtbbg1boax0b" not in body
 
 
 def test_external_images_shown_by_default(db, client, monkeypatch):
@@ -1074,7 +1075,8 @@ def test_compose_forward_decodes_idn_domain_in_quoted_from_and_to(db, client, mo
     resp = client.get("/mailbox/compose?forward=1")
     body = resp.get_data(as_text=True)
     assert "гм-восход.рф" in body
-    assert "xn--" not in body
+    # Не просто "xn--": он есть в JS-регулярке IDN_DOMAIN_RE (редактор чата в base.html).
+    assert "xn----dtbbg1boax0b" not in body
 
 
 def test_compose_reply_connection_error_shows_flash_not_500(db, client, monkeypatch):

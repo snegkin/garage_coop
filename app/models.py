@@ -787,6 +787,9 @@ class Document(Base):
     file_name: Mapped[str | None] = mapped_column(String(500))  # оригинальное имя файла при загрузке
     comment: Mapped[str | None] = mapped_column(Text)
     is_internal: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    # Виден и скачивается без входа на сайт (устав и т. п.) — на странице
+    # кооператива для гостя; только у не-внутреннего документа.
+    is_public: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     counterparty_id: Mapped[int | None] = mapped_column(ForeignKey("counterparty.id", ondelete="SET NULL"), index=True)
     # Расход, к которому приложен этот документ (счёт/акт/УПД) — см.
     # Expense.documents: один расход может ссылаться на несколько

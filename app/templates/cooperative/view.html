@@ -83,6 +83,15 @@
 <p class="text-muted">{{ _("Реквизиты ещё не заполнены.") }}</p>
 {% endif %}
 
+{% if public and docs %}
+<h4 id="documentsSection">{{ _("Документы") }}</h4>
+<ul class="mb-4">
+  {% for d in docs %}
+  <li>{% if d.file_path %}<a href="{{ url_for('cooperative.download_document', doc_id=d.id) }}">{{ d.title }}</a>{% else %}{{ d.title }}{% endif %}{% if d.number or d.date %} <span class="text-muted small">{% if d.number %}№ {{ d.number }} {% endif %}{{ _("от") }} {{ fmt_date(d.date) }}</span>{% endif %}</li>
+  {% endfor %}
+</ul>
+{% endif %}
+
 {% if not public %}
 
 {% if is_board() %}
@@ -142,6 +151,7 @@
         <span class="badge bg-secondary">{{ _("внутренний") }}</span>
         {% else %}
         <span class="badge bg-success">{{ _("общедоступный") }}</span>
+        {% if d.is_public %}<span class="badge bg-info text-dark">{{ _("без входа") }}</span>{% endif %}
         {% endif %}
       </td>
       {% endif %}

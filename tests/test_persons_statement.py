@@ -17,6 +17,7 @@
 не проверить).
 """
 import datetime as dt
+import re
 from decimal import Decimal
 
 from app.models import (
@@ -27,6 +28,13 @@ from app.accounting import reallocate_member_charges
 
 from tests.conftest import make_person, make_garage, make_ownership, make_user, login
 
+
+
+def _page_text(body: str) -> str:
+    """HTML без <script>, <style> и комментариев: проверки «этого на странице
+    нет» не должны спотыкаться о JS-комментарии общего base.html (там,
+    например, «частичной цитаты» в коде чата)."""
+    return re.sub(r"<script\b.*?</script>|<style\b.*?</style>|<!--.*?-->", "", body, flags=re.S | re.I)
 
 def _setup_fee_types(db):
     membership = FeeType(code="membership", name="Членский взнос", type_code="1")
@@ -92,9 +100,9 @@ def test_statement_shows_one_row_per_account_with_totals_and_links(app, db, clie
     assert "Итого" in body
 
     # старой построчной разбивки по годам/статусам оплаты больше нет
-    assert "не оплачено" not in body
-    assert "частично" not in body
-    assert "оплачено" not in body
+    assert "не оплачено" not in _page_text(body)
+    assert "частично" not in _page_text(body)
+    assert "оплачено" not in _page_text(body)
 
 
 def test_statement_without_penalty_has_no_penalty_block(app, db, client):
@@ -118,8 +126,8 @@ def test_statement_without_penalty_has_no_penalty_block(app, db, client):
     body = resp.get_data(as_text=True)
     # "Пеня" в меню навигации есть всегда (ссылка на /finance/penalty) —
     # проверяем специфичные для блока пени в самой выписке признаки
-    assert "Пеня по взносу" not in body
-    assert "Итого" not in body  # блок пени/итога целиком не рендерится без пени
+    assert "Пеня по взносу" not in _page_text(body)
+    assert "Итого" not in _page_text(body)  # блок пени/итога целиком не рендерится без пени
     assert "за 2026 г." in body  # год_from == год_to — единственный год
 
 
@@ -212,10 +220,10 @@ def test_statement_print_form_has_letterhead_and_signatures(app, db, client):
     assert 'class="print-signatures"' in body
     assert "Председатель" in body
     assert "Председателев П.П." in body
-    assert "Председателев Пётр Петрович" not in body
+    assert "Председателев Пётр Петрович" not in _page_text(body)
     assert "Бухгалтер" in body
     assert "Бухгалтерова А.И." in body
-    assert "Бухгалтерова Анна Ивановна" not in body
+    assert "Бухгалтерова Анна Ивановна" not in _page_text(body)
     assert 'class="stamp-place"' in body
     assert "М.П." in body
 
@@ -236,7 +244,7 @@ def test_statement_print_form_without_coop_or_officers_does_not_crash(app, db, c
     # Бухгалтер не назначен — под его подпись не должно резервироваться
     # место в бланке (в отличие от председателя, который тут есть всегда,
     # т.к. только он может смотреть чужую выписку).
-    assert "Бухгалтер" not in body
+    assert "Бухгалтер" not in _page_text(body)
 
 
 def test_statement_print_form_hides_accountant_signature_when_unassigned(app, db, client):
@@ -250,7 +258,7 @@ def test_statement_print_form_hides_accountant_signature_when_unassigned(app, db
     assert resp.status_code == 200
     body = resp.get_data(as_text=True)
     assert "Председатель" in body
-    assert "Бухгалтер" not in body
+    assert "Бухгалтер" not in _page_text(body)
 
 
 # ---------------------------------------------------------------------------

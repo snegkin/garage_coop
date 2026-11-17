@@ -68,3 +68,5 @@ def test_social_links_are_links_with_qr(db, client):
     assert page.count('src="data:image/svg+xml') == 3
     for label in ("QR-код: Telegram", "QR-код: VK", "QR-код: Сайт"):
         assert label in page, label
+    # Значки по центру кодов: Telegram — иконка, VK — плашка, сайт — ссылка.
+    assert "bi-telegram" in page and ">VK</span>" in page and "bi-link-45deg" in page

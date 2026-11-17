@@ -18,11 +18,35 @@ from .permissions import is_board
 bp = Blueprint("cooperative", __name__, url_prefix="/cooperative")
 
 
+# Значок по центру QR-кода — по домену адреса: (иконка Bootstrap Icons или
+# текст плашки, цвет). VK, MAX и OK в Bootstrap Icons нет — для них плашка
+# с названием в фирменном цвете. Неизвестный сайт — значок ссылки.
+_SOCIAL_ICONS = (
+    (("t.me", "telegram.me", "telegram.org"), {"bi": "telegram", "color": "#229ED9"}),
+    (("vk.com", "vk.ru", "vk.me"), {"text": "VK", "color": "#0077FF"}),
+    (("max.ru",), {"text": "MAX", "color": "#7A3CF0"}),
+    (("ok.ru",), {"text": "OK", "color": "#EE8208"}),
+    (("wa.me", "whatsapp.com"), {"bi": "whatsapp", "color": "#25D366"}),
+    (("youtube.com", "youtu.be"), {"bi": "youtube", "color": "#FF0000"}),
+)
+_DEFAULT_ICON = {"bi": "link-45deg", "color": "#6c757d"}
+
+
+def _social_icon(href: str) -> dict:
+    host = href.split("://", 1)[-1].split("/", 1)[0].split(":", 1)[0].lower()
+    for domains, icon in _SOCIAL_ICONS:
+        if any(host == d or host.endswith("." + d) for d in domains):
+            return icon
+    return _DEFAULT_ICON
+
+
 def social_link_items(text: str | None) -> list[dict]:
     """Строки поля «Группы в соцсетях и мессенджерах» для показа: по строке
     «Telegram: https://t.me/…» — текст до адреса, сам адрес ссылкой (как
     написан), после него, и QR-код адреса (SVG data URI) — навести телефон
-    и сразу открыть группу. Строка без адреса — просто текст, без QR."""
+    и сразу открыть группу; по центру кода — значок мессенджера (_social_icon),
+    поэтому коррекция ошибок максимальная (H — до 30 % площади). Строка без
+    адреса — просто текст, без QR."""
     import segno
     from .chat_markup import find_url
     items = []
@@ -32,14 +56,15 @@ def social_link_items(text: str | None) -> list[dict]:
             continue
         found = find_url(line)
         if found is None:
-            items.append({"before": line, "url_text": None, "after": "", "href": None, "label": line, "qr": None})
+            items.append({"before": line, "url_text": None, "after": "", "href": None, "label": line, "qr": None, "icon": None})
             continue
         start, end, href, display = found
         before = line[:start]
         label = before.strip().rstrip(":—–-").strip() or display.split("://", 1)[-1]
         items.append({
             "before": before, "url_text": line[start:end], "after": line[end:], "href": href, "label": label,
-            "qr": segno.make(href, error="m").svg_data_uri(scale=4, border=2, dark="black", light="white"),
+            "qr": segno.make(href, error="h").svg_data_uri(scale=4, border=2, dark="black", light="white"),
+            "icon": _social_icon(href),
         })
     return items
 

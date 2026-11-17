@@ -20,11 +20,11 @@ bp = Blueprint("cooperative", __name__, url_prefix="/cooperative")
 
 @bp.route("/")
 def view():
-    """Информация о кооперативе. Без входа — только открытые сведения
-    (наименование, ИНН/КПП/ОГРН, юридический и почтовый адрес, контакты,
-    сайт и группы): без баланса, комментария, расчётного счёта, площадей
-    и кадастровых данных, документов и без подстановки адреса председателя
-    вместо почтового (его личные данные)."""
+    """Информация о кооперативе. Без входа — открытые сведения: наименование,
+    ИНН/КПП/ОГРН, юридический адрес, контакты, сайт, группы и расчётный счёт;
+    без баланса, комментария, площадей и кадастровых данных, документов.
+    Почтовый адрес на странице не показывается никому — он нужен только
+    для писем в госорганы."""
     coop = database.db_session.query(Cooperative).first()
     from .documents import public_templates
     public_blanks = public_templates()
@@ -37,7 +37,7 @@ def view():
             .all()
         )
         return render_template("cooperative/view.html", coop=coop, public=True, docs=public_docs, chairman=None,
-                               primary_account=None, coop_balance=None, doc_types=DocumentType,
+                               primary_account=get_primary_bank_account(), coop_balance=None, doc_types=DocumentType,
                                all_counterparties=[], public_blanks=public_blanks)
     # Загружаем документы — рядовые участники видят только не-внутренние.
     # Документы, привязанные к контрагенту (Document.counterparty_id), сюда

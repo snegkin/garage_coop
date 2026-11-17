@@ -26,7 +26,6 @@
       </div>
       {% if qrs %}
       {# На телефоне QR не нужен — там просто нажимают ссылку. #}
-      <div class="vr d-none d-md-block"></div>
       <div class="d-none d-md-flex flex-wrap gap-3 flex-grow-1 justify-content-end" style="min-width: 0;">
         {% for s in qrs %}
         <a href="{{ s.href }}" target="_blank" rel="noopener" class="position-relative d-block" style="width: 132px; height: 132px;" title="{{ s.label }}">

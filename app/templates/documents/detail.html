@@ -10,6 +10,7 @@
     <h3 class="mb-1">{{ document.template.name if document.template else (document.title or _("Документ")) }}{% if document.number %} № {{ document.number }}{% endif %}</h3>
     <div class="text-muted small">
       {% if document.person %}{% if is_board() %}<a href="{{ url_for('persons.detail', person_id=document.person_id) }}">{{ document.person.full_name }}</a>{% else %}{{ document.person.full_name }}{% endif %} · {% endif %}
+      {% if document.buyer %}{{ _("покупатель") }} {% if is_board() %}<a href="{{ url_for('persons.detail', person_id=document.buyer_person_id) }}">{{ document.buyer.full_name }}</a>{% else %}{{ document.buyer.full_name }}{% endif %} · {% endif %}
       {% if document.garage %}<a href="{{ url_for('garages.detail', garage_id=document.garage_id) }}">{{ _("гараж") }} № {{ document.garage.number }}</a> · {% endif %}
       {{ fmt_date(document.issued_at) }}
     </div>

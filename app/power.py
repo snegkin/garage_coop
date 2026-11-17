@@ -49,16 +49,23 @@ def _attach_reading_document(reading, file_storage, title=None):
     поставщиком. Прежний документ, если был, не удаляется — остаётся в
     разделе «Документы» и у расхода, показание просто ссылается на новый.
     Возвращает созданный Document или None, если файла нет / расширение
-    не разрешено."""
+    не разрешено.
+
+    Это счёт поставщика, поэтому — как и прочие документы по расчётам с
+    контрагентом (counterparties._save_document) — он внутренний
+    (is_internal: только правлению) и привязан к контрагенту: к тому, на
+    кого начислен расход по показанию, а без расхода — к текущему
+    поставщику из настроек."""
     file_path = save_upload(file_storage, current_app.config["UPLOAD_FOLDER"])
     if not file_path:
         return None
     title = title or _(
         "Счёт за электроэнергию {month}.{year}", month=reading.month, year=reading.year
     )
+    counterparty_id = reading.expense.counterparty_id if reading.expense else get_electricity_settings().supplier_id
     doc = Document(
-        doc_type=DocumentType.LETTER, date=dt.date.today(), title=title, file_path=file_path,
-        expense_id=reading.expense_id,
+        doc_type=DocumentType.INVOICE, date=dt.date.today(), title=title, file_path=file_path,
+        expense_id=reading.expense_id, counterparty_id=counterparty_id, is_internal=True,
     )
     database.db_session.add(doc)
     database.db_session.flush()

@@ -4,7 +4,7 @@ from decimal import Decimal
 
 from app import database
 from app.models import (
-    Counterparty, ElectricityTariff, ElectricityTariffKind, Expense, MasterMeterReading, RoleEnum,
+    Counterparty, DocumentType, ElectricityTariff, ElectricityTariffKind, Expense, MasterMeterReading, RoleEnum,
 )
 from tests.conftest import login, make_user
 
@@ -41,6 +41,12 @@ def test_attach_document_to_older_reading(app, db, client):
     assert reading.document is not None
     assert reading.document.expense_id == expense.id
     assert "9.2026" in reading.document.title
+    # Счёт поставщика — только правлению и у контрагента, как прочие
+    # документы по расчётам с ним.
+    assert reading.document.is_internal is True
+    assert reading.document.is_public is False
+    assert reading.document.counterparty_id == expense.counterparty_id
+    assert reading.document.doc_type == DocumentType.INVOICE
 
     # Повторная загрузка заменяет документ у показания.
     first_doc_id = reading.document_id

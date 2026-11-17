@@ -29,14 +29,14 @@
           <h5 class="card-title mb-1">{{ item.title }}</h5>
           {% if current_user and is_board() %}
           {% call actions.menu() %}
-            {{ actions.link(url_for('news.edit', news_id=item.id), "pencil", _("Изменить")) }}
+            {{ actions.link(url_for('news.edit', news_id=item.id), "pencil-fill", _("Изменить")) }}
             {% for channel in news_channels %}
             {% set send_label = _("Отправить в {channel}", channel=channel.label) %}
             <li><button type="button" class="dropdown-item" data-bs-toggle="modal" data-bs-target="#messengerSendModal"
                         data-url="{{ url_for('news.send_to_channel', news_id=item.id, channel_id=channel.id) }}"
                         data-channel="{{ channel.id }}" data-title="{{ send_label }}" data-icon="{{ channel.icon }}"><span class="dropdown-icon"><i class="bi {{ channel.icon }}" aria-hidden="true"></i></span>{{ send_label }}</button></li>
             {% endfor %}
-            {{ actions.post(url_for('news.delete', news_id=item.id), "trash", _("Удалить"), confirm=_("Удалить новость?"), danger=True) }}
+            {{ actions.post(url_for('news.delete', news_id=item.id), "trash-fill", _("Удалить"), confirm=_("Удалить новость?"), danger=True) }}
           {% endcall %}
           {% endif %}
         </div>

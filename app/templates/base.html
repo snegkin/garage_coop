@@ -812,7 +812,7 @@ function initChatWidget(cfg) {
     item.addEventListener("click", function () { closeMessageMenu(); onClick(); });
     return item;
   }
-  // Выделенный в тексте сообщения кусок — для частичной цитаты в ответе.
+  // Выделенный в тексте сообщения кусок — для цитаты фрагмента в ответе.
   // Выделение, задевающее и другое (автора, время), обрезается по тексту.
   function selectedQuote(msgEl) {
     var sel = window.getSelection();

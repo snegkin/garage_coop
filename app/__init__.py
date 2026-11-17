@@ -69,10 +69,11 @@ def create_app(config_class=Config):
     engine, _db_session = init_engine(app.config["SQLALCHEMY_DATABASE_URI"])
     init_db_lifecycle(app)
 
-    from . import auth, i18n, theme, news_format, contact_format, comment_format, audit, mail_client, name_declension, accounting, vendor
+    from . import auth, i18n, theme, news_format, contact_format, comment_format, audit, mail_client, name_declension, accounting, vendor, chat_emoji
     app.register_blueprint(auth.bp)
     i18n.init_app(app)
     vendor.init_app(app)
+    chat_emoji.init_app(app)
     theme.init_app(app)
     app.jinja_env.globals["audit_entity_url"] = audit.entity_url
     app.jinja_env.globals["pd4_purpose"] = accounting.pd4_purpose

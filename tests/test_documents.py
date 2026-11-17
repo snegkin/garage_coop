@@ -515,3 +515,15 @@ def test_document_title_on_two_lines(db, client):
     page = client.get(f"/documents/{document.id}").get_data(as_text=True)
     assert '<p class="print-title">ДОГОВОР</p>' in page
     assert '<p class="print-subtitle">о подключении гаража к электрической сети кооператива</p>' in page
+
+
+def test_full_name_blanks_full_width(db, client):
+    _setup(db)
+    login(client, "board1", "pass1234")
+    client.post("/documents/templates/defaults")
+    line = "_" * 70 + "<br><span style=\"font-size: 9pt\">(фамилия, имя, отчество полностью)</span>"
+    for name, label in (("Заявление о выходе из кооператива", "Новый владелец гаража:<br>"),
+                        ("Заявление о вступлении в кооператив", "Прежний собственник гаража:<br>"),
+                        ("Договор купли-продажи гаража", "Супруг(а) Продавца:<br>")):
+        template = db.query(DocumentTemplate).filter_by(name=name).one()
+        assert label + line in template.body_html, name

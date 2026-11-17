@@ -2,9 +2,11 @@
 Архивация человека (умер, продал гараж и т.п.) — скрытие из общего
 реестра с сохранением доступа по прямой ссылке, синхронизированное с
 выбытием из собственников гаражей: доли оставшихся пересчитываются,
-остаток лицевых счетов выбывшего по каждому такому гаражу переносится
-им пропорционально новым долям. Единственный собственник — ничего не
-трогается (ни GarageOwnership, ни лицевые счета).
+остаток лицевых счетов выбывшего остаётся за ним (нулевые счета — в
+архив). Перенос остатка на оставшихся пропорционально новым долям —
+только по отметке «перенести» при удалении собственника на карточке
+гаража (наследство, согласие сторон). Единственный собственник — ничего
+не трогается (ни GarageOwnership, ни лицевые счета).
 
 Общее ядро (garages._remove_owner_and_redistribute) используется и
 здесь, и обычной ручной кнопкой «Удалить собственника» на странице
@@ -30,6 +32,14 @@ def _make_fee_type(db, name="Членский взнос", code="10", type_code=
     db.add(ft)
     db.flush()
     return ft
+
+
+def _remove_with_carry(client, garage, person):
+    """Удалить совладельца на карточке гаража с переносом остатка на оставшихся."""
+    ownership = database.db_session.query(GarageOwnership).filter_by(
+        garage_id=garage.id, person_id=person.id).one()
+    return client.post(f"/garages/{garage.id}/owners/{ownership.id}/remove",
+                       data={"comment": "наследство", "carry_balance": "1"})
 
 
 # ---------------------------------------------------------------------------
@@ -174,7 +184,7 @@ def test_archiving_co_owner_redistributes_balance_and_shares(app, db, client):
     db.commit()
     login(client, "chair6", "pass12345")
 
-    client.post(f"/persons/{person_a.id}/archive", data={"reason": "продал долю"})
+    _remove_with_carry(client, garage, person_a)
 
     db.expire_all()
     remaining = database.db_session.query(GarageOwnership).filter_by(garage_id=garage.id).all()
@@ -184,8 +194,8 @@ def test_archiving_co_owner_redistributes_balance_and_shares(app, db, client):
 
     assert balance(database.db_session.get(MemberAccount, account_a.id)) == Decimal("0.00")
     assert balance(database.db_session.get(MemberAccount, account_b.id)) == Decimal("300.00")
-    # счёт выбывшего не удалён — история доступна
-    assert database.db_session.get(MemberAccount, account_a.id) is not None
+    # счёт выбывшего не удалён — история доступна; обнулён — в архиве
+    assert database.db_session.get(MemberAccount, account_a.id).is_archived
 
     # платёж, унаследованный оставшимся содольщиком, ссылается на выбывшего
     # (см. accounting.redistribute_member_account_balance,
@@ -221,11 +231,43 @@ def test_archiving_co_owner_with_debt_transfers_debt_not_credit(app, db, client)
     db.commit()
     login(client, "chair7", "pass12345")
 
-    client.post(f"/persons/{person_a.id}/archive", data={"reason": "продал, долг остаётся за гаражом"})
+    _remove_with_carry(client, garage, person_a)
 
     db.expire_all()
     assert balance(database.db_session.get(MemberAccount, account_a.id)) == Decimal("0.00")
     assert balance(database.db_session.get(MemberAccount, account_b.id)) == Decimal("-777.00")
+
+
+def test_archiving_co_owner_keeps_balance_with_departing(app, db, client):
+    """Архивация (и удаление без отметки «перенести») — долг выбывшего
+    остаётся за ним: оставшийся совладелец за чужие взносы не отвечает.
+    Счёт с долгом — активный, нулевой — в архив."""
+    person_a = make_person(db, full_name="Выбывший Должник")
+    person_b = make_person(db, full_name="Оставшийся Без Чужих Долгов")
+    garage = make_garage(db, number="5")
+    make_ownership(db, garage, person_a, share="0.5")
+    make_ownership(db, garage, person_b, share="0.5")
+    fee_type = _make_fee_type(db)
+    tax = _make_fee_type(db, name="Земельный налог", code="20", type_code="2")
+    account_a = MemberAccount(person_id=person_a.id, garage_id=garage.id, fee_type_id=fee_type.id, account_number="5A")
+    zero_a = MemberAccount(person_id=person_a.id, garage_id=garage.id, fee_type_id=tax.id, account_number="5Z")
+    account_b = MemberAccount(person_id=person_b.id, garage_id=garage.id, fee_type_id=fee_type.id, account_number="5B")
+    db.add_all([account_a, zero_a, account_b])
+    db.flush()
+    db.add(Charge(account_id=account_a.id, year=2026, amount=Decimal("855.00")))
+    make_user(db, "chair9", "pass12345", role=RoleEnum.CHAIRMAN)
+    db.commit()
+    login(client, "chair9", "pass12345")
+
+    client.post(f"/persons/{person_a.id}/archive", data={"reason": "продал долю"})
+
+    db.expire_all()
+    owners = database.db_session.query(GarageOwnership).filter_by(garage_id=garage.id).all()
+    assert [(o.person_id, o.share) for o in owners] == [(person_b.id, Decimal("1.00000"))]
+    kept = database.db_session.get(MemberAccount, account_a.id)
+    assert balance(kept) == Decimal("-855.00") and not kept.is_archived
+    assert database.db_session.get(MemberAccount, zero_a.id).is_archived
+    assert balance(database.db_session.get(MemberAccount, account_b.id)) == Decimal("0")
 
 
 def test_archiving_co_owner_with_three_owners_uneven_shares(app, db, client):
@@ -254,7 +296,7 @@ def test_archiving_co_owner_with_three_owners_uneven_shares(app, db, client):
     db.commit()
     login(client, "chair8", "pass12345")
 
-    client.post(f"/persons/{person_a.id}/archive", data={"reason": "умер"})
+    _remove_with_carry(client, garage, person_a)
 
     db.expire_all()
     ownerships = {

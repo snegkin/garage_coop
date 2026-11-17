@@ -439,3 +439,41 @@ def test_sale_contract(db, client):
     client.get("/logout")
     login(client, "buyer", "pass1234")
     assert client.get(f"/documents/{doc.id}").status_code == 200
+
+
+def test_contractor_letters(db, client):
+    from app.models import Counterparty
+    _owner, _garage, _chairman = _setup(db)
+    host = Counterparty(name="ООО «Хостинг»", inn="7800000000", address="г. Санкт-Петербург, ул. Серверная, 1",
+                        email="support@host.example")
+    db.add(host)
+    db.commit()
+    login(client, "board1", "pass1234")
+    client.post("/documents/templates/defaults")
+    letter = db.query(DocumentTemplate).filter_by(name="Письмо контрагенту").one()
+    removal = db.query(DocumentTemplate).filter_by(
+        name="Заявление об удалении учётной записи (личного кабинета)").one()
+    assert letter.recipient == removal.recipient == "contractor" and removal.show_signature
+
+    # Без контрагента — только выбор.
+    page = client.get(f"/documents/new?template_id={removal.id}").get_data(as_text=True)
+    assert 'id="docBody"' not in page and "ООО «Хостинг» (ИНН 7800000000)" in page
+    page = client.get(f"/documents/new?template_id={removal.id}&counterparty_id={host.id}").get_data(as_text=True)
+    head = page.split('id="docAddressee"')[1].split("</div>")[0]
+    body = page.split('id="docBody"')[1].split("</div>")[0]
+    assert "ООО «Хостинг»" in head and "ИНН 7800000000" in head and "support@host.example" in head
+    assert "{{" not in body and "ИНН 1234567890" in body and "40703810000000000001" in body
+    assert "председателя правления Сидоров Сидор Сидорович" in body
+
+    # Карточка контрагента — ссылки на шаблоны писем; сохранённое письмо — в списке.
+    card = client.get(f"/counterparties/{host.id}").get_data(as_text=True)
+    assert f"template_id={removal.id}&amp;counterparty_id={host.id}" in card and "Писем пока нет" in card
+    resp = client.post("/documents/new", data={
+        "template_id": removal.id, "counterparty_id": host.id, "issued_at": "2026-11-17",
+        "title": "ЗАЯВЛЕНИЕ об удалении учётной записи", "body_html": "<p>Прошу удалить</p>",
+    })
+    doc = db.query(IssuedDocument).one()
+    assert resp.status_code == 302 and doc.counterparty_id == host.id and doc.number
+    card = client.get(f"/counterparties/{host.id}").get_data(as_text=True)
+    assert f"/documents/{doc.id}" in card and "Писем пока нет" not in card
+    assert "ООО «Хостинг»" in client.get(f"/documents/{doc.id}").get_data(as_text=True)

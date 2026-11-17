@@ -50,7 +50,7 @@ from .i18n import translate as _
 from .legal_docs import _render_pdf_or_fallback, _coop_and_chairman
 from .models import garage_sort_key, short_name_of
 from .models import (
-    Application, ApplicationKind, ApplicationStatus, DocumentCounter, DocumentTemplate, ElectricitySettings,
+    Application, ApplicationKind, ApplicationStatus, Counterparty, DocumentCounter, DocumentTemplate, ElectricitySettings,
     Garage, GarageOwnership, IssuedDocument, MemberAccount, Person, RoleEnum,
 )
 from .permissions import is_board, is_chairman
@@ -62,6 +62,7 @@ RECIPIENTS = {
     "person": "человек из реестра",
     "garage": "собственник гаража",
     "sale": "продавец и покупатель гаража",
+    "contractor": "контрагент (организация, ИП)",
 }
 
 BLANK = "________"
@@ -290,7 +291,7 @@ class Context:
     расчётный счёт, дата документа и (если есть) адресат."""
 
     def __init__(self, today: dt.date, person: Person | None = None, garage: Garage | None = None,
-                 public: bool = False, buyer: Person | None = None):
+                 public: bool = False, buyer: Person | None = None, counterparty: Counterparty | None = None):
         self.coop, self.chairman = _coop_and_chairman()
         # Общедоступный бланк — без банковских реквизитов (как и публичная
         # страница кооператива): в бланке прочерк.
@@ -301,6 +302,8 @@ class Context:
         # Договор купли-продажи: продавец — person (собственник garage),
         # покупатель — buyer; любой из них может быть не из реестра.
         self.buyer = buyer
+        # Письмо контрагенту (recipient="contractor").
+        self.counterparty = counterparty
         self.ownership = None
         if person is not None and garage is not None:
             self.ownership = next((o for o in garage.ownerships if o.person_id == person.id), None)
@@ -323,6 +326,9 @@ class Context:
 
     def garage_attr(self, fn) -> str:
         return fn(self.garage) if self.garage is not None else ""
+
+    def counterparty_attr(self, name: str) -> str:
+        return (getattr(self.counterparty, name, None) or "") if self.counterparty else ""
 
 
 # (ключ, описание, группа, функция(ctx) -> str). Значения — обычный текст
@@ -424,6 +430,12 @@ VARIABLES = [
      "Для справки о владении", _no_debt),
     *_party_variables("продавец", "Продавец", lambda c: c.person),
     *_party_variables("покупатель", "Покупатель", lambda c: c.buyer),
+    ("контрагент", "наименование контрагента", "Контрагент", lambda c: c.counterparty_attr("name")),
+    ("ИНН_контрагента", "ИНН контрагента", "Контрагент", lambda c: c.counterparty_attr("inn")),
+    ("КПП_контрагента", "КПП контрагента", "Контрагент", lambda c: c.counterparty_attr("kpp")),
+    ("адрес_контрагента", "адрес контрагента", "Контрагент", lambda c: c.counterparty_attr("address")),
+    ("email_контрагента", "электронная почта контрагента", "Контрагент", lambda c: c.counterparty_attr("email")),
+    ("телефон_контрагента", "телефоны контрагента", "Контрагент", lambda c: c.counterparty_attr("phone")),
     ("предмет_продажи", "«гараж (бокс) № 42» или «1/2 доли в праве собственности на гараж (бокс) № 42»",
      "Купля-продажа", _sale_subject),
 ]
@@ -531,8 +543,8 @@ def variable_groups(recipient: str = "garage") -> list[tuple[str, list[tuple[str
     """Подстановки для панели редактора шаблона — без «Адресата»/«Гаража»,
     если у шаблона их нет."""
     skip = {
-        "none": {"Адресат", "Гараж", "Для справки о владении", "Электроэнергия", "Купля-продажа"},
-        "person": {"Электроэнергия", "Купля-продажа"},
+        "none": {"Адресат", "Гараж", "Для справки о владении", "Электроэнергия", "Купля-продажа", "Контрагент"},
+        "person": {"Электроэнергия", "Купля-продажа", "Контрагент"},
     }.get(recipient, set())
     groups: dict[str, list] = {}
     for key, desc, group, _fn in VARIABLES:
@@ -680,6 +692,15 @@ _SALE_PARTIES = (
 )
 # ФИО в преамбуле — не из реестра: строка под фамилию, имя, отчество.
 _NAME_BLANK = "_" * 40
+
+# Письма контрагентам — шапка справа: кому (реквизиты из «Контрагентов»),
+# внизу — куда ответить. Подпись председателя и М.П. — бланка (для ЭДО —
+# PDF с факсимиле).
+_TO_CONTRACTOR = (
+    "<p>{{контрагент}}</p><p>ИНН {{ИНН_контрагента|____________}}</p>"
+    "<p>{{адрес_контрагента|" + _ADDRESS_BLANK + "}}</p><p>{{email_контрагента|}}</p>"
+)
+_CONTRACTOR_REPLY = "<p>Ответ просим направить по адресу электронной почты {{email}} или по телефону {{телефон_кооператива}}.</p>"
 
 DEFAULT_TEMPLATES = [
     {
@@ -996,6 +1017,37 @@ DEFAULT_TEMPLATES = [
             + "<p><br></p>"
             + _fill_clause("Договор заверен {{кооператив}}. На дату заверения задолженность Продавца "
                            "по взносам и платежам перед Кооперативом: {{задолженность|______________}} руб.")
+        ),
+    },
+    {
+        "name": "Письмо контрагенту",
+        "title": "",
+        "recipient": "contractor",
+        "signer_role": "Председатель правления",
+        "addressee_html": _TO_CONTRACTOR,
+        "body_html": (
+            "<p style=\"text-align: center; text-indent: 0\">Уважаемые коллеги!</p>"
+            "<p>Текст письма.</p>"
+            + _CONTRACTOR_REPLY
+        ),
+    },
+    {
+        "name": "Заявление об удалении учётной записи (личного кабинета)",
+        "title": "ЗАЯВЛЕНИЕ об удалении учётной записи",
+        "recipient": "contractor",
+        "signer_role": "Председатель правления",
+        "addressee_html": _TO_CONTRACTOR,
+        "body_html": (
+            _FILL + "{{кооператив}} (ИНН {{ИНН}}, КПП {{КПП}}, ОГРН {{ОГРН}}) в лице председателя правления "
+            "{{председатель}}, действующего на основании Устава, просит удалить учётную запись (личный "
+            "кабинет) кооператива: логин (номер договора, аккаунта) ______________________, а также все "
+            "связанные с ней услуги и данные, и расторгнуть договор с даты удаления.</p>"
+            "<p>Кооператив подтверждает, что необходимые данные сохранены, и понимает, что удаление "
+            "необратимо.</p>"
+            + _FILL + "Неиспользованный остаток денежных средств на балансе учётной записи (при наличии) "
+            "просим вернуть на расчётный счёт кооператива: р/с {{расчётный_счёт}} в {{банк}}, БИК {{БИК}}, "
+            "к/с {{корр_счёт}}.</p>"
+            + _CONTRACTOR_REPLY
         ),
     },
     {
@@ -1438,7 +1490,14 @@ def _sale_parties_from(form):
     return seller, garage, buyer
 
 
-def _needs_recipient(recipient: str, person, garage) -> bool:
+def _counterparty_from(form) -> Counterparty | None:
+    counterparty_id = form.get("counterparty_id", type=int)
+    return database.db_session.get(Counterparty, counterparty_id) if counterparty_id else None
+
+
+def _needs_recipient(recipient: str, person, garage, counterparty=None) -> bool:
+    if recipient == "contractor":
+        return counterparty is None
     if recipient == "sale":
         return False  # стороны не из реестра — прочерки
     return (recipient != "none" and person is None) or (recipient == "garage" and garage is None)
@@ -1471,18 +1530,20 @@ def create():
         flash(_("Документы по шаблону «{name}» составляет только председатель.", name=template.name), "warning")
         return redirect(url_for("documents.index"))
 
-    buyer = None
+    buyer = counterparty = None
     if cert_application is not None:
         person, garage = _recipient_from({"owner": f"{cert_application.person_id}:{cert_application.garage_id or 0}"}, recipient)
         if person is None and request.method == "GET":
             flash(_("Заявитель уже не числится собственником этого гаража."), "warning")
-    elif source is not None and not ({"owner", "person_id", "garage_id", "buyer_id"} & set(form)):
-        person, garage, buyer = source.person, source.garage, source.buyer
+    elif source is not None and not ({"owner", "person_id", "garage_id", "buyer_id", "counterparty_id"} & set(form)):
+        person, garage, buyer, counterparty = source.person, source.garage, source.buyer, source.counterparty
+    elif recipient == "contractor":
+        person, garage, counterparty = None, None, _counterparty_from(form)
     elif recipient == "sale":
         person, garage, buyer = _sale_parties_from(form)
     else:
         person, garage = _recipient_from(form, recipient)
-    need_recipient = _needs_recipient(recipient, person, garage)
+    need_recipient = _needs_recipient(recipient, person, garage, counterparty)
     coop, chairman = _coop_and_chairman()
 
     if request.method == "POST":
@@ -1506,7 +1567,7 @@ def create():
             flash(error, "danger")
             return _render_create(template, source, recipient, person, garage, coop, chairman, cert_application,
                                   title=title, addressee_html=addressee_html, body_html=body_html,
-                                  issued_at=issued_at or dt.date.today(), buyer=buyer)
+                                  issued_at=issued_at or dt.date.today(), buyer=buyer, counterparty=counterparty)
         show_number = template.show_number if template else bool(source and source.number)
         document = IssuedDocument(
             template_id=template.id if template else None,
@@ -1515,6 +1576,7 @@ def create():
             body_html=body_html, issued_at=issued_at,
             person_id=person.id if person else None, garage_id=garage.id if garage else None,
             buyer_person_id=buyer.id if buyer else None,
+            counterparty_id=counterparty.id if counterparty else None,
             show_signature=template.show_signature if template else source.show_signature,
             signer_role=template.signer_role if template else source.signer_role,
             signer_person_id=chairman.id if chairman else None,
@@ -1529,6 +1591,7 @@ def create():
                     + (f" № {document.number}" if document.number else "")
                     + (f": {person.full_name}" if person else "")
                     + (f" → {buyer.full_name}" if buyer else "")
+                    + (f": {counterparty.name}" if counterparty else "")
                     + (f", гараж № {garage.number}" if garage else ""),
         )
         if cert_application is not None:
@@ -1544,20 +1607,21 @@ def create():
     except ValueError:
         issued_at = None
     return _render_create(template, source, recipient, person, garage, coop, chairman, cert_application,
-                          issued_at=issued_at, buyer=buyer)
+                          issued_at=issued_at, buyer=buyer, counterparty=counterparty)
 
 
 def _render_create(template, source, recipient, person, garage, coop, chairman, cert_application=None,
-                   title=None, addressee_html=None, body_html=None, issued_at=None, buyer=None):
+                   title=None, addressee_html=None, body_html=None, issued_at=None, buyer=None, counterparty=None):
     issued_at = issued_at or dt.date.today()
     missing: set[str] = set()
-    need_recipient = _needs_recipient(recipient, person, garage)
+    need_recipient = _needs_recipient(recipient, person, garage, counterparty)
     if not need_recipient and body_html is None:
         if source is not None and (template is None or (person == source.person and garage == source.garage
-                                                         and buyer == source.buyer)):
+                                                         and buyer == source.buyer
+                                                         and counterparty == source.counterparty)):
             title, addressee_html, body_html = source.title, source.addressee_html, source.body_html
         else:
-            ctx = Context(issued_at, person, garage, buyer=buyer)
+            ctx = Context(issued_at, person, garage, buyer=buyer, counterparty=counterparty)
             title = fill_text(template.title, ctx, missing)
             addressee_html = fill(template.addressee_html, ctx, missing, header=True)
             body_html = fill(template.body_html, ctx, missing)
@@ -1587,7 +1651,9 @@ def _render_create(template, source, recipient, person, garage, coop, chairman, 
         ownerships=_ownership_choices() if recipient in ("garage", "sale") and cert_application is None else [],
         persons=_person_choices() if recipient in ("person", "sale") else [],
         garages=sorted(database.db_session.query(Garage).all(), key=garage_sort_key) if recipient == "sale" else [],
-        buyer=buyer,
+        buyer=buyer, counterparty=counterparty,
+        counterparties=(database.db_session.query(Counterparty).order_by(Counterparty.name).all()
+                        if recipient == "contractor" else []),
         # Доля в праве на недвижимость отчуждается только у нотариуса
         # (ст. 42 Федерального закона № 218-ФЗ) — предупреждение.
         sale_share=(recipient == "sale" and person is not None and garage is not None

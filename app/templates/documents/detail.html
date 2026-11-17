@@ -11,6 +11,7 @@
     <div class="text-muted small">
       {% if document.person %}{% if is_board() %}<a href="{{ url_for('persons.detail', person_id=document.person_id) }}">{{ document.person.full_name }}</a>{% else %}{{ document.person.full_name }}{% endif %} · {% endif %}
       {% if document.buyer %}{{ _("покупатель") }} {% if is_board() %}<a href="{{ url_for('persons.detail', person_id=document.buyer_person_id) }}">{{ document.buyer.full_name }}</a>{% else %}{{ document.buyer.full_name }}{% endif %} · {% endif %}
+      {% if document.counterparty %}{% if is_board() %}<a href="{{ url_for('counterparties.detail', counterparty_id=document.counterparty_id) }}">{{ document.counterparty.name }}</a>{% else %}{{ document.counterparty.name }}{% endif %} · {% endif %}
       {% if document.garage %}<a href="{{ url_for('garages.detail', garage_id=document.garage_id) }}">{{ _("гараж") }} № {{ document.garage.number }}</a> · {% endif %}
       {{ fmt_date(document.issued_at) }}
     </div>

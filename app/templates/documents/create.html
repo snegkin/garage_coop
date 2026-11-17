@@ -25,7 +25,15 @@
 {% if recipient != "none" and not cert_application %}
 <form method="get" action="{{ url_for('documents.create') }}" class="no-print mb-3" style="max-width: 210mm; margin: 0 auto;">
   {% for k, v in keep.items() %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
-  {% if recipient == "sale" %}
+  {% if recipient == "contractor" %}
+  <label class="form-label small mb-1" for="docCounterparty">{{ _("Контрагент") }}</label>
+  <select class="form-select" name="counterparty_id" id="docCounterparty" onchange="this.form.submit()">
+    <option value="">—</option>
+    {% for c in counterparties %}
+    <option value="{{ c.id }}"{% if counterparty and c.id == counterparty.id %} selected{% endif %}>{{ c.name }}{% if c.inn %} ({{ _("ИНН") }} {{ c.inn }}){% endif %}</option>
+    {% endfor %}
+  </select>
+  {% elif recipient == "sale" %}
   <div class="row g-2">
     <div class="col-md-6">
       <label class="form-label small mb-1" for="docOwner">{{ _("Продавец (собственник) и гараж") }}</label>
@@ -93,11 +101,13 @@
 {% set reset_args = dict(keep) %}
 {% if recipient == "garage" and not cert_application %}{% set _x = reset_args.update({"owner": person.id ~ ":" ~ garage.id}) %}{% endif %}
 {% if recipient == "person" %}{% set _x = reset_args.update({"person_id": person.id}) %}{% endif %}
+{% if recipient == "contractor" %}{% set _x = reset_args.update({"counterparty_id": counterparty.id}) %}{% endif %}
 {% if recipient == "sale" %}{% set _x = reset_args.update({"owner": (person.id ~ ":" ~ garage.id) if person else "", "garage_id": garage.id if garage and not person else "", "buyer_id": buyer.id if buyer else ""}) %}{% endif %}
 <form method="post" action="{{ url_for('documents.create') }}">
   {% for k, v in keep.items() %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
   {% if recipient == "garage" and not cert_application %}<input type="hidden" name="owner" value="{{ person.id }}:{{ garage.id }}">{% endif %}
   {% if recipient == "person" %}<input type="hidden" name="person_id" value="{{ person.id }}">{% endif %}
+  {% if recipient == "contractor" %}<input type="hidden" name="counterparty_id" value="{{ counterparty.id }}">{% endif %}
   {% if recipient == "sale" %}
   <input type="hidden" name="owner" value="{{ (person.id ~ ':' ~ garage.id) if person else '' }}">
   <input type="hidden" name="garage_id" value="{{ garage.id if garage and not person else '' }}">

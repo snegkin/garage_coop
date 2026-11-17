@@ -1396,6 +1396,8 @@ class IssuedDocument(Base):
     # Договор купли-продажи (recipient="sale"): person — продавец,
     # buyer_person — покупатель (если он есть в реестре); договор видят оба.
     buyer_person_id: Mapped[int | None] = mapped_column(ForeignKey("person.id", ondelete="SET NULL"), index=True)
+    # Письмо контрагенту (recipient="contractor") — видно в его карточке.
+    counterparty_id: Mapped[int | None] = mapped_column(ForeignKey("counterparty.id", ondelete="SET NULL"), index=True)
     show_signature: Mapped[bool] = mapped_column(Boolean, default=True)
     signer_role: Mapped[str] = mapped_column(String(100), default="Председатель")
     signer_person_id: Mapped[int | None] = mapped_column(ForeignKey("person.id", ondelete="SET NULL"))
@@ -1405,6 +1407,7 @@ class IssuedDocument(Base):
     template: Mapped["DocumentTemplate | None"] = relationship()
     person: Mapped["Person | None"] = relationship(foreign_keys=[person_id])
     buyer: Mapped["Person | None"] = relationship(foreign_keys=[buyer_person_id])
+    counterparty: Mapped["Counterparty | None"] = relationship()
     garage: Mapped["Garage | None"] = relationship()
     signer: Mapped["Person | None"] = relationship(foreign_keys=[signer_person_id])
 

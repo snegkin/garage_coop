@@ -11,7 +11,7 @@ from .auth import roles_required
 from .models import (
     Counterparty, CounterpartyApiProvider, CounterpartyApiCredential, Expense, ExpenseKind, CounterpartyPayment, ReconciliationAct,
     BALANCE_SYNC_INTERVAL_CHOICES,
-    BankAccount, BankStatementLine, Document, DocumentType, MasterMeterReading, RoleEnum,
+    BankAccount, BankStatementLine, Document, DocumentTemplate, DocumentType, IssuedDocument, MasterMeterReading, RoleEnum,
 )
 from .accounting import (
     counterparty_balance, counterparty_amount_to_pay, counterparty_unbilled_usage,
@@ -308,6 +308,13 @@ def detail(counterparty_id):
     # к расходу/платежу/акту сверки (см. _save_document выше).
     documents = sorted(counterparty.documents, key=lambda d: d.date, reverse=True)
     bank_accounts = database.db_session.query(BankAccount).order_by(BankAccount.is_primary.desc(), BankAccount.bank_name).all()
+    # Письма на бланке кооператива этому контрагенту (app/documents.py,
+    # шаблоны «контрагент») и шаблоны, по которым их составить.
+    letters = (database.db_session.query(IssuedDocument).filter_by(counterparty_id=counterparty.id)
+               .order_by(IssuedDocument.issued_at.desc(), IssuedDocument.id.desc()).all())
+    letter_templates = (database.db_session.query(DocumentTemplate)
+                        .filter_by(recipient="contractor", is_archived=False)
+                        .order_by(DocumentTemplate.sort_order, DocumentTemplate.name).all())
 
     expense_paid = {e.id: expense_paid_amount(e) for e in expenses}
     originals = [p for p in counterparty.payments if p.reverses_payment_id is None]
@@ -340,6 +347,8 @@ def detail(counterparty_id):
         payments=payments,
         acts=acts,
         documents=documents,
+        letters=letters,
+        letter_templates=letter_templates,
         doc_types=DocumentType,
         bank_accounts=bank_accounts,
         expense_paid=expense_paid,

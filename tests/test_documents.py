@@ -256,7 +256,12 @@ def test_power_contracts(db, client):
     db.commit()
     page = client.get(f"/documents/new?template_id={outside.id}&garage_id={garage.id}").get_data(as_text=True)
     assert "Срок оплаты — до 31 марта года, следующего за расчётным" in page
-    assert "до 31 марта каждого года" in page and "после предупреждения Пользователя" in page
+    assert "до 31 марта каждого года" in page
+    # Отключение не члена — через отказ от договора (п. 5.1), без условия о погашении долга;
+    # приостановка (п. 2.2.2) — без неоплаты; взнос на электросеть — по смете/затратам.
+    assert "за 30 календарных дней (ст. 450.1 ГК РФ)" in page and "Кооператив отключает Объект" in page
+    assert "при условии погашения" not in page and "не оплачена в срок" not in page
+    assert "1.6. Подключение Объекта временное" in page and "по утверждённой смете или по фактическим" in page
     # Лицевой счёт гаража — в реквизитах и в способах оплаты; записи счёта нет — по формуле номера.
     from app.accounting import electricity_account_number
     from app.models import PersonalAccount

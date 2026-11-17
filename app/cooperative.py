@@ -29,7 +29,14 @@ def view():
     from .documents import public_templates
     public_blanks = public_templates()
     if g.user is None:
-        return render_template("cooperative/view.html", coop=coop, public=True, docs=[], chairman=None,
+        # Гостю — только документы, отмеченные «виден без входа» (устав).
+        public_docs = (
+            database.db_session.query(Document)
+            .filter(Document.is_public.is_(True), Document.is_internal.is_(False), Document.counterparty_id.is_(None))
+            .order_by(Document.date.desc())
+            .all()
+        )
+        return render_template("cooperative/view.html", coop=coop, public=True, docs=public_docs, chairman=None,
                                primary_account=None, coop_balance=None, doc_types=DocumentType,
                                all_counterparties=[], public_blanks=public_blanks)
     # Загружаем документы — рядовые участники видят только не-внутренние.
@@ -263,6 +270,7 @@ def create_document():
             file_name=secure_filename(file_storage.filename) if file_storage and file_storage.filename else None,
             comment=f.get("comment") or None,
             is_internal=bool(f.get("is_internal")),
+            is_public=bool(f.get("is_public")) and not f.get("is_internal"),
             counterparty_id=int(f["counterparty_id"]) if f.get("counterparty_id") else None,
         )
         database.db_session.add(doc)
@@ -303,6 +311,8 @@ def edit_document(doc_id):
     doc.title = f["title"]
     doc.comment = f.get("comment") or None
     doc.is_internal = bool(f.get("is_internal"))
+    if "counterparty_id" in f:  # форма страницы кооператива (с отметкой «без входа»)
+        doc.is_public = bool(f.get("is_public")) and not doc.is_internal
     # Поле "Контрагент" есть в форме только на странице /cooperative/ (там,
     # где all_counterparties передан в шаблон) — на карточке контрагента его
     # нет вовсе, и отсутствие ключа в форме не должно отвязывать документ.
@@ -326,9 +336,11 @@ def edit_document(doc_id):
 
 
 @bp.route("/documents/<int:doc_id>/file")
-@login_required
 def download_document(doc_id):
     doc = database.db_session.get(Document, doc_id)
+    if g.user is None and not (doc is not None and doc.is_public and not doc.is_internal):
+        flash(_("Пожалуйста, войдите в систему."), "warning")
+        return redirect(url_for("auth.login", next=request.path))
     if doc is None:
         abort(404)
     if doc.is_internal and not is_board():

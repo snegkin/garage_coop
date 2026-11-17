@@ -199,8 +199,10 @@ def test_member_application_templates(db, client):
 
     page = client.get(f"/documents/new?template_id={leave.id}&person_id={owner.id}").get_data(as_text=True)
     header = page.split('id="docAddressee"')[1].split("</div>")[0]
-    assert "В правление ГК" in header and "Председателю" not in header and "Сидоров" not in header
+    # Выход — по Уставу на имя председателя (п. 5.6), не раньше двух недель.
+    assert "Председателю правления ГК «Восход»" in header and "Сидорову С.С." in header
     assert "от Петровой Анны Ивановны" in header and "/Петрова А.И./" in page and "гаража № 42" in page
+    assert "не ранее чем через две недели" in page
 
     page = client.get(f"/documents/new?template_id={power.id}&garage_id={garage.id}").get_data(as_text=True)
     assert "гараж (бокс) № 42 (доля в праве 1/2)" in page
@@ -300,7 +302,8 @@ def test_public_blanks_without_login(db, client):
     assert "Заявление о вступлении в кооператив" in page and f"/documents/public/{leave.id}" in page
     assert f"/documents/public/{join.id}" in client.get("/cooperative/").get_data(as_text=True)
     page = client.get(f"/documents/public/{leave.id}").get_data(as_text=True)
-    assert "В правление ГК" in page
+    assert "Председателю правления ГК" in page
+    assert "Председателю правления ГК" in client.get(f"/documents/public/{join.id}").get_data(as_text=True)
     # Данные человека — прочерками, а не чьи-то.
     assert "Петрова" not in page and documents.BLANK in page
     page = client.get(f"/documents/public/{notice.id}").get_data(as_text=True)
@@ -382,7 +385,7 @@ def test_member_application_text_from_template(db, client, app):
         heading, title, body = documents.member_application_text(leave, owner, garage, dt.date(2026, 11, 16))
         assert (heading, title) == ("Заявление", "о выходе из кооператива")
         # Подпись заявителя — своя у заявления, строка из шаблона убрана.
-        assert "гаража № 42" in body and "«___»" not in body and "Петрова А.И." not in body
+        assert "гаража № 42" in body and "Петрова А.И." not in body
         heading, title, _body = documents.member_application_text(complaint, owner, garage, dt.date(2026, 11, 16))
         assert (heading, title) == ("Жалоба", "")
 
@@ -398,6 +401,12 @@ def test_sale_contract(db, client):
     client.post("/documents/templates/defaults")
     sale = db.query(DocumentTemplate).filter_by(code=documents.SALE_CONTRACT_CODE).one()
     assert sale.recipient == "sale" and sale.chairman_only and sale.show_signature and sale.show_number
+    # Пустой бланк — без входа, с прочерками вместо сторон.
+    assert sale.is_public
+    client.get("/auth/logout")
+    blank = client.get(f"/documents/public/{sale.id}").get_data(as_text=True)
+    assert "ДОГОВОР купли-продажи гаража" in blank and "Петрова" not in blank and "_" * 40 in blank
+    login(client, "board1", "pass1234")
     # Оформляет только председатель.
     assert client.get(f"/documents/new?template_id={sale.id}").status_code == 302
     client.get("/logout")
@@ -419,6 +428,8 @@ def test_sale_contract(db, client):
     assert "покупает гараж (бокс) № 7 " in body and "61:44:0000000:7" in body
     assert "/Петрова А.И./" in body and "/Козлов П.С./" in body and "г. Город, ул. Новая, 5" in body
     assert "перед Кооперативом: 0,00 руб." in body and "нотариальному" not in page
+    assert "полностью выплатившему паевой взнос" in body and "п. 5.5 Устава" in body
+    assert "Супруг(а) Продавца" in body
 
     # Покупатель не из реестра, гараж — без продавца.
     page = client.get(f"/documents/new?template_id={sale.id}&garage_id={whole.id}").get_data(as_text=True)

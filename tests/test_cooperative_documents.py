@@ -278,3 +278,44 @@ def test_requisites_section_without_bank_account(app, db, client):
     resp = client.get("/cooperative/")
     assert resp.status_code == 200
     assert "не указан" in resp.get_data(as_text=True)
+
+
+def test_guest_sees_and_downloads_only_documents_marked_public(app, db, client):
+    """Устав и т. п. — «виден без входа»: гость видит его на странице
+    кооператива и скачивает; обычный общедоступный (только вошедшим) и
+    внутренний — нет, файл — через вход."""
+    upload_dir = app.config["UPLOAD_FOLDER"]
+    with open(f"{upload_dir}/charter.pdf", "w") as f:
+        f.write("charter")
+    charter = _make_document(db, is_internal=False, title="Устав кооператива", doc_type=DocumentType.CHARTER)
+    charter.file_path, charter.is_public = f"{upload_dir}/charter.pdf", True
+    members_only = _make_document(db, is_internal=False, title="Отчёт для членов")
+    members_only.file_path = f"{upload_dir}/charter.pdf"
+    hidden = _make_document(db, is_internal=True, title="Внутренний")
+    hidden.file_path, hidden.is_public = f"{upload_dir}/charter.pdf", True  # внутренний важнее
+    db.commit()
+
+    page = client.get("/cooperative/").get_data(as_text=True)
+    assert "Устав кооператива" in page and "Отчёт для членов" not in page and "Внутренний" not in page
+    assert client.get(f"/cooperative/documents/{charter.id}/file").status_code == 200
+    for doc in (members_only, hidden):
+        resp = client.get(f"/cooperative/documents/{doc.id}/file")
+        assert resp.status_code == 302 and "/auth/login" in resp.headers["Location"]
+
+
+def test_board_marks_document_public_unless_internal(app, db, client):
+    from app.models import Counterparty
+    _make_board(db)
+    db.add(Counterparty(name="ООО Ромашка"))  # с контрагентами форма показывает отметки
+    db.commit()
+    login(client, "board1", "pass1234")
+    base = {"doc_type": DocumentType.CHARTER.value, "date": "2026-01-01", "counterparty_id": ""}
+    client.post("/cooperative/documents/new", data={**base, "title": "Устав", "is_public": "on"})
+    client.post("/cooperative/documents/new", data={**base, "title": "Тайный", "is_public": "on", "is_internal": "on"})
+    docs = {d.title: d for d in db.query(Document).all()}
+    assert docs["Устав"].is_public and not docs["Тайный"].is_public
+    assert "Виден без входа на сайт" in client.get("/cooperative/").get_data(as_text=True)
+    client.post(f"/cooperative/documents/{docs['Устав'].id}/edit",
+                data={**base, "title": "Устав", "counterparty_id": ""})
+    db.expire_all()
+    assert not db.get(Document, docs["Устав"].id).is_public

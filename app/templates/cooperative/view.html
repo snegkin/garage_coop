@@ -19,19 +19,32 @@
   <tr><th>{{ _("Телефон") }}</th><td>{{ coop.phone or "—" }}</td></tr>
   <tr><th>{{ _("Группы в соцсетях и мессенджерах") }}</th><td>
     {% if social_links %}
-    {% for s in social_links %}<div>{{ s.before }}{% if s.href %}<a href="{{ s.href }}" target="_blank" rel="noopener">{{ s.url_text }}</a>{{ s.after }}{% endif %}</div>{% endfor %}
     {% set qrs = social_links|selectattr("qr")|list %}
-    {% if qrs %}
-    <div class="d-flex flex-wrap gap-3 mt-2">
-      {% for s in qrs %}
-      <a href="{{ s.href }}" target="_blank" rel="noopener" class="text-center text-decoration-none text-body small" style="width: 132px;">
-        <img src="{{ s.qr }}" width="132" height="132" alt="{{ _('QR-код') }}: {{ s.label }}" class="d-block border rounded" style="background: #fff;">
-        <span class="d-block text-break mt-1">{{ s.label }}</span>
-      </a>
-      {% endfor %}
+    <div class="d-flex gap-3 align-items-center">
+      <div class="flex-shrink-0">
+        {% for s in social_links %}<div>{{ s.before }}{% if s.href %}<a href="{{ s.href }}" target="_blank" rel="noopener">{{ s.url_text }}</a>{{ s.after }}{% endif %}</div>{% endfor %}
+      </div>
+      {% if qrs %}
+      {# На телефоне QR не нужен — там просто нажимают ссылку. #}
+      <div class="vr d-none d-md-block"></div>
+      <div class="d-none d-md-flex flex-wrap gap-3 flex-grow-1 justify-content-end" style="min-width: 0;">
+        {% for s in qrs %}
+        <a href="{{ s.href }}" target="_blank" rel="noopener" class="position-relative d-block" style="width: 132px; height: 132px;" title="{{ s.label }}">
+          <img src="{{ s.qr }}" width="132" height="132" alt="{{ _('QR-код') }}: {{ s.label }}" class="d-block border rounded" style="background: #fff;">
+          <span class="position-absolute top-50 start-50 translate-middle d-flex align-items-center justify-content-center rounded-3"
+                style="width: 34px; height: 34px; background: #fff; padding: 3px;" aria-hidden="true">
+            {% if s.icon.bi %}
+            <i class="bi bi-{{ s.icon.bi }}" style="font-size: 26px; line-height: 1; color: {{ s.icon.color }};"></i>
+            {% else %}
+            <span class="d-flex align-items-center justify-content-center w-100 h-100 rounded-2 fw-bold text-white"
+                  style="background: {{ s.icon.color }}; font-size: {{ '10px' if s.icon.text|length > 2 else '13px' }}; letter-spacing: -0.02em;">{{ s.icon.text }}</span>
+            {% endif %}
+          </span>
+        </a>
+        {% endfor %}
+      </div>
+      {% endif %}
     </div>
-    <div class="form-text">{{ _("Наведите камеру телефона на QR-код, чтобы открыть группу.") }}</div>
-    {% endif %}
     {% else %}—{% endif %}
   </td></tr>
   {% if is_board() %}

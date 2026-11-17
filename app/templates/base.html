@@ -492,6 +492,18 @@ function initChatWidget(cfg) {
     }).catch(function () {});
   }
 
+  function formatSeen(at) {
+    var now = new Date();
+    var time = at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    var startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    if (now - at < 60000) return cfg.seenJustNowLabel;
+    if (at >= startOfDay) return time;
+    if (at >= new Date(startOfDay.getTime() - 86400000)) return cfg.seenYesterdayLabel + " " + time;
+    var opts = { day: "numeric", month: "short" };
+    if (at.getFullYear() !== now.getFullYear()) opts.year = "numeric";
+    return at.toLocaleDateString([], opts);
+  }
+
   function renderParticipants(list) {
     if (!participantsEl) return;
     participantsEl.innerHTML = "";
@@ -511,6 +523,17 @@ function initChatWidget(cfg) {
       name.textContent = p.username + (p.is_mine ? " (" + cfg.youLabel + ")" : "");
       row.appendChild(name);
 
+      // «был(а) в чате …» — как в Telegram; время, а не «N минут назад»,
+      // чтобы подпись не менялась каждую минуту и не двигала список.
+      if (!p.chat_open && !p.is_mine && p.in_chat_at) {
+        var seen = document.createElement("span");
+        seen.className = "chat-widget-seen";
+        var at = new Date(p.in_chat_at);
+        seen.textContent = formatSeen(at);
+        seen.title = cfg.inChatLabel + " " + at.toLocaleString();
+        row.appendChild(seen);
+      }
+
       participantsEl.appendChild(row);
     });
   }
@@ -523,7 +546,9 @@ function initChatWidget(cfg) {
       .catch(function () {});
   }
 
+  var messageData = {};  // id -> сообщение с сервера (для «↑» — правки последнего)
   function buildMessage(msg) {
+    messageData[msg.id] = msg;
     var el = document.createElement("div");
     el.className = "chat-widget-message" + (msg.is_mine ? " is-mine" : "");
 
@@ -919,12 +944,8 @@ function initChatWidget(cfg) {
     b.type = "button";
     b.textContent = ch;
     b.addEventListener("click", function () {
-      var start = input.selectionStart, end = input.selectionEnd;
-      if (start == null) { start = end = input.value.length; }
-      input.value = input.value.slice(0, start) + ch + input.value.slice(end);
-      input.selectionStart = input.selectionEnd = start + ch.length;
-      input.focus();
-      autoGrow();
+      restoreSelection();
+      insertText(ch);
     });
     emojiPanel.appendChild(b);
   });
@@ -962,7 +983,7 @@ function initChatWidget(cfg) {
     });
   }
   function startCompose(mode, msg) {
-    if (compose && compose.mode === "edit" && mode !== "edit") input.value = "";
+    if (compose && compose.mode === "edit" && mode !== "edit") setEditorHtml("");
     compose = { mode: mode, msg: msg };
     composeBar.innerHTML = "";
     var icon = document.createElement("i");
@@ -984,14 +1005,13 @@ function initChatWidget(cfg) {
     composeBar.appendChild(text);
     composeBar.appendChild(cancel);
     composeBar.classList.remove("d-none");
-    if (mode === "edit") input.value = msg.body;
+    if (mode === "edit") setEditorHtml(msg.body_html != null ? msg.body_html : escapeHtml(msg.body));
     autoGrow();
-    input.focus();
-    if (mode === "edit") input.setSelectionRange(input.value.length, input.value.length);
+    placeCaretAtEnd();
   }
   function cancelCompose() {
     if (!compose) return;
-    if (compose.mode === "edit") { input.value = ""; autoGrow(); }
+    if (compose.mode === "edit") setEditorHtml("");
     compose = null;
     composeBar.classList.add("d-none");
     composeBar.innerHTML = "";
@@ -999,7 +1019,7 @@ function initChatWidget(cfg) {
 
   form.addEventListener("submit", function (e) {
     e.preventDefault();
-    var body = input.value.trim();
+    var body = editorMarkup();
     if (!body) return;
     var formData = new FormData();
     formData.append("body", body);
@@ -1022,7 +1042,7 @@ function initChatWidget(cfg) {
         }
       });
     if (compose) { compose = null; composeBar.classList.add("d-none"); composeBar.innerHTML = ""; }
-    input.value = "";
+    setEditorHtml("");
     setExpanded(false);
     autoGrow();
     toggleEmoji(false);
@@ -1078,98 +1098,277 @@ function initChatWidget(cfg) {
 
   // Enter отправляет, Shift+Enter — перенос строки (обычное поведение
   // чатов). В развёрнутом поле — наоборот удобнее: Enter — перенос,
-  // Ctrl+Enter — отправить; Esc сворачивает.
+  // Ctrl+Enter — отправить; Esc сворачивает. Перенос вставляем сами
+  // (<br>) — иначе браузер на Enter заворачивает строки в <div>.
+  // «↑» в пустом поле — править своё последнее сообщение (как в Telegram).
   input.addEventListener("keydown", function (e) {
     if (e.key === "Escape" && expanded) {
       e.preventDefault();
       setExpanded(false);
       return;
     }
-    if (e.key !== "Enter") return;
-    if (expanded ? (e.ctrlKey || e.metaKey) : !e.shiftKey) {
-      e.preventDefault();
-      form.requestSubmit();
+    if (e.key === "ArrowUp" && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey &&
+        cfg.messageUrl && !compose && editorEmpty()) {
+      var last = lastEditableMessage();
+      if (last) { e.preventDefault(); startCompose("edit", last); }
+      return;
     }
+    if (e.key !== "Enter" || e.isComposing) return;
+    e.preventDefault();
+    if (expanded ? (e.ctrlKey || e.metaKey) : !e.shiftKey) form.requestSubmit();
+    else insertLineBreak();
   });
 
+  // ---------------------------------------------------------------------
+  // Поле ввода — визуальный редактор (contenteditable), как в Telegram:
+  // жирный сразу жирный, ссылка — текстом. Хранится и отправляется всё
+  // равно разметкой (app/chat_markup.py): при отправке содержимое поля
+  // переводится в неё (editorMarkup), при правке сообщения — обратно из
+  // body_html. Вставленный HTML чистится тем же разбором — в поле остаются
+  // только текст, переносы, b/i/u/s/code/pre и ссылки http(s)/mailto.
+  //
+  // Горячие клавиши (по e.code — работают и в русской раскладке):
+  // Ctrl+B/I/U — жирный/курсив/подчёркнутый, Ctrl+Shift+X — зачёркнутый,
+  // Ctrl+Shift+M — моноширинный, Ctrl+K — ссылка, Ctrl+Shift+N — убрать
+  // форматирование. Вставка адреса поверх выделенного текста делает его
+  // ссылкой.
+  // ---------------------------------------------------------------------
+  try { document.execCommand("styleWithCSS", false, false); } catch (err) {}
 
-  // Форматирование — как в Telegram Desktop, но разметкой прямо в тексте
-  // (app/chat_markup.py): Ctrl+B — **жирный**, Ctrl+I — __курсив__,
-  // Ctrl+U — ++подчёркнутый++, Ctrl+Shift+X — ~~зачёркнутый~~,
-  // Ctrl+Shift+M — `моноширинный` (несколько строк — ```блок```),
-  // Ctrl+K — ссылка, Ctrl+Shift+N — убрать форматирование. Повторное
-  // сочетание на уже выделенном снимает его. Клавиши — по e.code, чтобы
-  // работали и в русской раскладке.
-  // Вставка: выделен текст и в буфере адрес — текст становится ссылкой;
-  // в буфере HTML со ссылками/форматированием (страница сайта, документ) —
-  // переводится в ту же разметку, иначе ссылки потерялись бы.
-  function replaceRange(start, end, text, selStart, selEnd) {
-    input.focus();
-    input.setSelectionRange(start, end);
-    var before = input.value, ok = false;
-    // execCommand — чтобы правку можно было отменить Ctrl+Z
-    try { ok = document.execCommand("insertText", false, text); } catch (err) {}
-    if (!ok || input.value === before) input.setRangeText(text, start, end, "end");
-    input.setSelectionRange(selStart, selEnd);
-    autoGrow();
+  function escapeHtml(s) {
+    return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+  function normalizeUrl(url) {
+    url = (url || "").trim();
+    if (!url) return null;
+    if (/^(https?:\/\/|mailto:)/i.test(url)) return url;
+    if (/^[a-z][a-z0-9+.-]*:/i.test(url)) return null;  // javascript: и т. п.
+    if (/^[\w.-]+\.[a-zа-яё]{2,}([\/?#:]|$)/i.test(url)) return "https://" + url;
+    return null;
   }
   function isUrl(str) {
     return /^(https?:\/\/|www\.|mailto:)[^\s]+$/i.test(str);
   }
-  function linkMarkup(text, url) {
-    url = url.trim().replace(/ /g, "%20").replace(/\(/g, "%28").replace(/\)/g, "%29");
-    text = text.replace(/[\[\]\n]+/g, " ").trim();
-    if (!text || text === url) return url;
-    return "[" + text + "](" + url + ")";
+
+  // DOM -> дерево: {t:"text",v} {t:"br"} {t:"nl"} (граница блока)
+  // {t:"b"|"i"|"u"|"s",c:[…]} {t:"a",href,c:[…]} {t:"code"|"pre",v}.
+  var BLOCK_TAGS = /^(P|DIV|LI|UL|OL|H[1-6]|TR|TABLE|BLOCKQUOTE|SECTION|ARTICLE|HEADER|FOOTER)$/;
+  function domToTree(root, keepSpaces) {
+    function walk(node, parentIsBlock) {
+      if (node.nodeType === 3) {
+        var v = keepSpaces ? node.nodeValue : node.nodeValue.replace(/\s+/g, " ");
+        return v ? [{ t: "text", v: v }] : [];
+      }
+      if (node.nodeType !== 1) return [];
+      var tag = node.tagName;
+      if (/^(SCRIPT|STYLE|HEAD|META|TITLE|NOSCRIPT|TEMPLATE|IMG|SVG)$/.test(tag)) return [];
+      if (tag === "BR") {
+        // <br> в конце блока — лишь заглушка пустой строки браузера
+        return (parentIsBlock && !node.nextSibling) ? [] : [{ t: "br" }];
+      }
+      if (tag === "PRE") return [{ t: "pre", v: node.textContent.replace(/\n$/, "") }];
+      if (tag === "CODE" || tag === "KBD") return node.textContent ? [{ t: "code", v: node.textContent }] : [];
+      var isBlock = BLOCK_TAGS.test(tag) && node !== root;
+      var kids = [];
+      for (var c = node.firstChild; c; c = c.nextSibling) kids = kids.concat(walk(c, isBlock));
+      if (node === root) return kids;
+      var st = node.style || {}, fw = st.fontWeight || "";
+      var deco = st.textDecoration || st.textDecorationLine || "";
+      var href = tag === "A" ? normalizeUrl(node.getAttribute("href")) : null;
+      if (href) kids = [{ t: "a", href: href, c: kids }];
+      else if (tag === "A") { /* ссылка без годного адреса — просто текст */ }
+      if (/^(U|INS)$/.test(tag) || (!href && deco.indexOf("underline") >= 0)) kids = [{ t: "u", c: kids }];
+      if (/^(S|DEL|STRIKE)$/.test(tag) || deco.indexOf("line-through") >= 0) kids = [{ t: "s", c: kids }];
+      if (st.fontStyle ? st.fontStyle === "italic" : /^(I|EM)$/.test(tag)) kids = [{ t: "i", c: kids }];
+      if (fw ? (fw === "bold" || fw === "bolder" || parseInt(fw, 10) >= 600) : /^(B|STRONG)$/.test(tag)) kids = [{ t: "b", c: kids }];
+      if (tag === "LI") kids = [{ t: "text", v: "• " }].concat(kids);
+      if (isBlock) kids = [{ t: "nl" }].concat(kids, [{ t: "nl" }]);
+      if (tag === "TD" || tag === "TH") kids = kids.concat([{ t: "text", v: "\t" }]);
+      return kids;
+    }
+    return walk(root, false);
   }
-  function toggleWrap(open, close) {
-    var v = input.value, s = input.selectionStart, e = input.selectionEnd;
-    while (s < e && /\s/.test(v[s])) s++;
-    while (e > s && /\s/.test(v[e - 1])) e--;
-    if (s === e) {  // ничего не выделено — пара маркеров, курсор между ними
-      replaceRange(s, s, open + close, s + open.length, s + open.length);
-      return;
+  // \u0000 — «мягкий» перенос (граница блока): схлопывается с соседними
+  // переносами и пропадает по краям.
+  function resolveSoftBreaks(s) {
+    return s.replace(/\u0000*\n\u0000*/g, "\n").replace(/^\u0000+|\u0000+$/g, "").replace(/\u0000+/g, "\n");
+  }
+  var MARKERS = { b: "**", i: "__", u: "++", s: "~~" };
+  function treeToMarkup(nodes, st) {
+    st = st || {};
+    var out = "";
+    nodes.forEach(function (n) {
+      if (n.t === "text") out += n.v;
+      else if (n.t === "br") out += "\n";
+      else if (n.t === "nl") out += "\u0000";
+      else if (n.t === "pre" || (n.t === "code" && n.v.indexOf("\n") >= 0)) {
+        if (n.v.trim()) out += "\u0000```\n" + n.v.replace(/```/g, "'''") + "\n```\u0000";
+        else out += n.v;
+      } else if (n.t === "code") {
+        out += n.v.trim() ? "`" + n.v.replace(/`/g, "'") + "`" : n.v;
+      } else if (n.t === "a") {
+        if (st.a) { out += treeToMarkup(n.c, st); return; }
+        var inner = treeToMarkup(n.c, Object.assign({}, st, { a: true, u: true }));
+        var parts = /^([\s\u0000]*)([\s\S]*?)([\s\u0000]*)$/.exec(inner);
+        var text = parts[2].replace(/[\[\]\n\u0000]+/g, " ").trim();
+        var url = n.href.replace(/ /g, "%20").replace(/\(/g, "%28").replace(/\)/g, "%29");
+        out += parts[1] + (!text || text === n.href || text === url ? url : "[" + text + "](" + url + ")") + parts[3];
+      } else {
+        var inner2 = treeToMarkup(n.c, Object.assign({}, st, (function () { var o = {}; o[n.t] = true; return o; })()));
+        if (st[n.t]) { out += inner2; return; }
+        var m = /^([\s\u0000]*)([\s\S]*?)([\s\u0000]*)$/.exec(inner2);
+        out += m[2] ? m[1] + MARKERS[n.t] + m[2] + MARKERS[n.t] + m[3] : inner2;
+      }
+    });
+    return out;
+  }
+  function treeToHtml(nodes) {
+    var out = "";
+    nodes.forEach(function (n) {
+      if (n.t === "text") out += escapeHtml(n.v).replace(/\n/g, "<br>");
+      else if (n.t === "br") out += "<br>";
+      else if (n.t === "nl") out += "\u0000";
+      else if (n.t === "pre") out += "\u0000<pre>" + escapeHtml(n.v) + "</pre>\u0000";
+      else if (n.t === "code") out += "<code>" + escapeHtml(n.v) + "</code>";
+      else if (n.t === "a") out += '<a href="' + escapeHtml(n.href) + '">' + treeToHtml(n.c) + "</a>";
+      else out += "<" + n.t + ">" + treeToHtml(n.c) + "</" + n.t + ">";
+    });
+    return out;
+  }
+  function htmlFromTree(nodes) {
+    return treeToHtml(nodes).replace(/\u0000*(<br>)\u0000*/g, "$1").replace(/^\u0000+|\u0000+$/g, "")
+      .replace(/(<\/pre>)\u0000+/g, "$1").replace(/\u0000+(<pre>)/g, "$1").replace(/\u0000+/g, "<br>");
+  }
+  function cleanHtml(html, keepSpaces) {
+    var doc = new DOMParser().parseFromString(html, "text/html");  // скрипты не выполняются
+    return htmlFromTree(domToTree(doc.body, keepSpaces));
+  }
+
+  function editorMarkup() {
+    return resolveSoftBreaks(treeToMarkup(domToTree(input, true))).replace(/​/g, "").trim();
+  }
+  function editorEmpty() {
+    return !input.textContent.replace(/​/g, "").trim();
+  }
+  function setEditorHtml(html) {
+    input.innerHTML = html ? cleanHtml(html, true) : "";
+    autoGrow();
+  }
+  function placeCaretAtEnd() {
+    input.focus();
+    var range = document.createRange();
+    range.selectNodeContents(input);
+    range.collapse(false);
+    var sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+  }
+  // Последнее положение курсора в поле — кнопка смайликов и окно Ctrl+K
+  // забирают фокус, вставка должна прийти туда, где был курсор.
+  var savedRange = null;
+  document.addEventListener("selectionchange", function () {
+    var sel = window.getSelection();
+    if (sel.rangeCount && input.contains(sel.anchorNode)) savedRange = sel.getRangeAt(0).cloneRange();
+  });
+  function restoreSelection() {
+    input.focus();
+    if (savedRange && input.contains(savedRange.startContainer)) {
+      var sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(savedRange);
+    } else {
+      placeCaretAtEnd();
     }
-    var sel = v.slice(s, e);
-    if (v.slice(s - open.length, s) === open && v.slice(e, e + close.length) === close) {
-      replaceRange(s - open.length, e + close.length, sel, s - open.length, e - open.length);
-      return;
+  }
+  function insertHtml(html) {
+    if (!document.execCommand("insertHTML", false, html)) {
+      var sel = window.getSelection();
+      if (!sel.rangeCount) return;
+      var range = sel.getRangeAt(0);
+      range.deleteContents();
+      var frag = range.createContextualFragment(html), lastNode = frag.lastChild;
+      range.insertNode(frag);
+      if (lastNode) { range.setStartAfter(lastNode); range.collapse(true); sel.removeAllRanges(); sel.addRange(range); }
     }
-    if (sel.length > open.length + close.length && sel.indexOf(open) === 0 &&
-        sel.slice(-close.length) === close) {
-      var inner = sel.slice(open.length, sel.length - close.length);
-      replaceRange(s, e, inner, s, s + inner.length);
-      return;
+    autoGrow();
+  }
+  function insertText(text) {
+    insertHtml(escapeHtml(text).replace(/\n/g, "<br>"));
+  }
+  function insertLineBreak() {
+    var ok = false;
+    try { ok = document.execCommand("insertLineBreak"); } catch (err) {}
+    if (!ok) insertHtml("<br>");
+    autoGrow();
+  }
+  // элемент tag (A, CODE, PRE) вокруг выделения, внутри поля
+  function enclosing(tagRe) {
+    var sel = window.getSelection();
+    if (!sel.rangeCount) return null;
+    var node = sel.getRangeAt(0).commonAncestorContainer;
+    while (node && node !== input) {
+      if (node.nodeType === 1 && tagRe.test(node.tagName)) return node;
+      node = node.parentNode;
     }
-    replaceRange(s, e, open + sel + close, s + open.length, e + open.length);
+    return null;
+  }
+  function unwrap(el) {
+    var range = document.createRange();
+    range.selectNode(el);
+    var sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+    insertText(el.textContent);
   }
   function toggleMono() {
-    var sel = input.value.slice(input.selectionStart, input.selectionEnd);
-    if (sel.indexOf("\n") >= 0 || /^```[\s\S]*```$/.test(sel.trim())) toggleWrap("```\n", "\n```");
-    else toggleWrap("`", "`");
+    var code = enclosing(/^(CODE|PRE)$/);
+    if (code) { unwrap(code); return; }
+    var sel = window.getSelection();
+    if (!sel.rangeCount) return;
+    var text = sel.toString();
+    if (!text) {
+      // пусто — моноширинный кусок с невидимым символом, курсор внутри
+      insertHtml("<code>​</code>");
+      return;
+    }
+    insertHtml(text.indexOf("\n") >= 0 ? "<pre>" + escapeHtml(text) + "</pre>" : "<code>" + escapeHtml(text) + "</code>");
   }
-  function insertLink() {
-    var s = input.selectionStart, e = input.selectionEnd, sel = input.value.slice(s, e);
-    var url = window.prompt(cfg.linkPromptLabel || "URL", isUrl(sel.trim()) ? sel.trim() : "https://");
-    if (!url || !url.trim() || url.trim() === "https://") { input.focus(); return; }
-    var md = linkMarkup(isUrl(sel.trim()) ? "" : sel, url);
-    replaceRange(s, e, md, s + md.length, s + md.length);
+  function editLink() {
+    var link = enclosing(/^A$/);
+    var sel = window.getSelection();
+    var selected = sel.toString();
+    if (sel.rangeCount && input.contains(sel.anchorNode)) savedRange = sel.getRangeAt(0).cloneRange();
+    var answer = window.prompt(cfg.linkPromptLabel || "URL",
+      link ? link.getAttribute("href") : (isUrl(selected.trim()) ? selected.trim() : "https://"));
+    restoreSelection();
+    if (answer == null) return;
+    var url = normalizeUrl(answer);
+    if (link) {
+      if (!answer.trim()) { unwrap(link); return; }
+      if (url) link.setAttribute("href", url);
+      return;
+    }
+    if (!url) return;
+    if (window.getSelection().isCollapsed) insertHtml('<a href="' + escapeHtml(url) + '">' + escapeHtml(url) + "</a>&nbsp;");
+    else document.execCommand("createLink", false, url);
   }
   function clearFormatting() {
-    var s = input.selectionStart, e = input.selectionEnd;
-    if (s === e) { s = 0; e = input.value.length; }
-    var plain = input.value.slice(s, e)
-      .replace(/\[([^\[\]\n]+)\]\(([^()\s]+)\)/g, "$1")
-      .replace(/```\n?|\n?```|\*\*|__|\+\+|~~|`/g, "");
-    replaceRange(s, e, plain, s, s + plain.length);
+    var sel = window.getSelection();
+    if (sel.isCollapsed) {
+      var range = document.createRange();
+      range.selectNodeContents(input);
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+    insertText(sel.toString());
   }
   var FORMAT_KEYS = {
-    KeyB: { shift: false, run: function () { toggleWrap("**", "**"); } },
-    KeyI: { shift: false, run: function () { toggleWrap("__", "__"); } },
-    KeyU: { shift: false, run: function () { toggleWrap("++", "++"); } },
-    KeyX: { shift: true, run: function () { toggleWrap("~~", "~~"); } },
+    KeyB: { shift: false, run: function () { document.execCommand("bold"); } },
+    KeyI: { shift: false, run: function () { document.execCommand("italic"); } },
+    KeyU: { shift: false, run: function () { document.execCommand("underline"); } },
+    KeyX: { shift: true, run: function () { document.execCommand("strikeThrough"); } },
     KeyM: { shift: true, run: toggleMono },
-    KeyK: { shift: false, run: insertLink },
+    KeyK: { shift: false, run: editLink },
     KeyN: { shift: true, run: clearFormatting },
   };
   input.addEventListener("keydown", function (e) {
@@ -1178,87 +1377,57 @@ function initChatWidget(cfg) {
     if (!action || action.shift !== e.shiftKey) return;
     e.preventDefault();
     action.run();
+    autoGrow();
   });
 
-  // HTML из буфера -> разметка; null — ни ссылок, ни форматирования нет
-  // (обычная вставка браузера).
-  function htmlToMarkup(html) {
-    var doc = new DOMParser().parseFromString(html, "text/html");  // скрипты не выполняются
-    var found = false;
-    var BLOCK = /^(P|DIV|UL|OL|H[1-6]|TR|TABLE|BLOCKQUOTE|SECTION|ARTICLE|HEADER|FOOTER)$/;
-    function wrap(inner, marker) {
-      var m = /^(\s*)([\s\S]*?)(\s*)$/.exec(inner);
-      if (!m[2]) return inner;
-      found = true;
-      return m[1] + marker + m[2] + marker + m[3];
-    }
-    function walk(node, state) {
-      if (node.nodeType === 3) return state.pre ? node.nodeValue : node.nodeValue.replace(/\s+/g, " ");
-      if (node.nodeType !== 1) return "";
-      var tag = node.tagName;
-      if (/^(SCRIPT|STYLE|HEAD|META|TITLE|NOSCRIPT|TEMPLATE)$/.test(tag)) return "";
-      if (tag === "BR") return "\n";
-      if (tag === "PRE") { found = true; return "\n```\n" + node.textContent.replace(/\n$/, "") + "\n```\n"; }
-      if (tag === "CODE" || tag === "KBD") {
-        var code = node.textContent;
-        if (!code.trim() || state.pre) return code;
-        found = true;
-        return "`" + code.replace(/`/g, "'") + "`";
-      }
-      var st = node.style || {}, fw = st.fontWeight || "";
-      var bold = fw ? (fw === "bold" || fw === "bolder" || parseInt(fw, 10) >= 600) : /^(B|STRONG)$/.test(tag);
-      var italic = st.fontStyle ? st.fontStyle === "italic" : /^(I|EM)$/.test(tag);
-      var deco = (st.textDecoration || st.textDecorationLine || "");
-      var under = /^(U|INS)$/.test(tag) || deco.indexOf("underline") >= 0;
-      var strike = /^(S|DEL|STRIKE)$/.test(tag) || deco.indexOf("line-through") >= 0;
-      var href = tag === "A" ? (node.getAttribute("href") || "") : "";
-      var isLink = /^(https?:|mailto:)/i.test(href);
-      var inner = state;
-      if (bold || italic || under || strike || isLink) {
-        inner = { pre: state.pre, b: state.b || bold, i: state.i || italic, u: state.u || under,
-                  s: state.s || strike, a: state.a || isLink };
-      }
-      var out = "";
-      for (var c = node.firstChild; c; c = c.nextSibling) out += walk(c, inner);
-      if (isLink && !state.a) {
-        // подчёркивание у ссылок — обычное оформление страницы, не разметка
-        out = out.replace(/\+\+/g, "");
-        var parts = /^(\s*)([\s\S]*?)(\s*)$/.exec(out);
-        found = true;
-        out = parts[1] + linkMarkup(parts[2] === href ? "" : parts[2], href) + parts[3];
-      }
-      if (under && !state.u && !isLink) out = wrap(out, "++");
-      if (strike && !state.s) out = wrap(out, "~~");
-      if (italic && !state.i) out = wrap(out, "__");
-      if (bold && !state.b) out = wrap(out, "**");
-      if (tag === "LI") out = "\n• " + out.trim();
-      if (BLOCK.test(tag)) out = "\n" + out + "\n";
-      if (tag === "TD" || tag === "TH") out = out + "\t";
-      return out;
-    }
-    var result = walk(doc.body, {});
-    if (!found) return null;
-    return result.replace(/[ \t]+\n/g, "\n").replace(/\n[ \t]+/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
-  }
-  input.addEventListener("paste", function (e) {
-    var cd = e.clipboardData;
-    if (!cd) return;
-    var text = cd.getData("text/plain") || "", html = cd.getData("text/html") || "";
-    var s = input.selectionStart, end = input.selectionEnd, sel = input.value.slice(s, end);
-    var url = text.trim();
-    if (sel.trim() && sel.indexOf("\n") < 0 && isUrl(url) && !isUrl(sel.trim())) {
-      e.preventDefault();
-      var md = linkMarkup(sel, url);
-      replaceRange(s, end, md, s + md.length, s + md.length);
-      return;
-    }
-    if (!html) return;
-    var markup = null;
-    try { markup = htmlToMarkup(html); } catch (err) {}
-    if (markup == null || markup === text.trim()) return;
+  // Вставка и перетаскивание — только через свою чистку: браузер иначе
+  // вставил бы в поле всё оформление страницы-источника.
+  function insertTransfer(dt, e) {
+    if (!dt) return;
+    var text = dt.getData("text/plain") || "", html = dt.getData("text/html") || "";
+    if (!text && !html) return;  // файлы и т. п. — не принимаем
     e.preventDefault();
-    replaceRange(s, end, markup, s + markup.length, s + markup.length);
+    var sel = window.getSelection();
+    var selected = sel.rangeCount ? sel.toString() : "";
+    var url = text.trim();
+    if (e.type === "paste" && selected.trim() && selected.indexOf("\n") < 0 && isUrl(url) &&
+        !isUrl(selected.trim()) && normalizeUrl(url)) {
+      document.execCommand("createLink", false, normalizeUrl(url));
+    } else if (html) {
+      insertHtml(cleanHtml(html, false));
+    } else {
+      insertText(text);
+    }
+    autoGrow();
+  }
+  input.addEventListener("paste", function (e) { insertTransfer(e.clipboardData, e); });
+  input.addEventListener("drop", function (e) {
+    if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) { e.preventDefault(); return; }
+    insertTransfer(e.dataTransfer, e);
   });
+  // Удалили всё — убрать оставшиеся от браузера <br>, чтобы снова
+  // показалась подсказка (:empty::before в CSS).
+  input.addEventListener("input", function () {
+    if (!input.textContent && !input.querySelector("code, pre") && input.innerHTML) input.innerHTML = "";
+  });
+  // Ссылки в поле не открываются по клику — курсор ставится в текст;
+  // Ctrl+клик — открыть.
+  input.addEventListener("click", function (e) {
+    var a = e.target.closest && e.target.closest("a");
+    if (!a || !input.contains(a)) return;
+    e.preventDefault();
+    if (e.ctrlKey || e.metaKey) window.open(a.href, "_blank", "noopener");
+  });
+
+  // Своё последнее сообщение, которое можно править (для «↑»).
+  function lastEditableMessage() {
+    var els = messagesEl.querySelectorAll(".chat-widget-message");
+    for (var k = els.length - 1; k >= 0; k--) {
+      var data = messageData[els[k].dataset.id];
+      if (data && data.is_mine && data.can_edit) return data;
+    }
+    return null;
+  }
 
   // Heartbeat независимо от того, открыта ли панель — иначе человек,
   // просто работающий на других страницах сайта и ни разу не открывший
@@ -1289,7 +1458,7 @@ function initChatWidget(cfg) {
     <div id="boardChatParticipants" class="chat-widget-participants"></div>
     <div id="boardChatMessages" class="chat-widget-messages"></div>
     <form id="boardChatForm" class="chat-widget-form">
-      <textarea id="boardChatInput" class="form-control form-control-sm" rows="1" placeholder="{{ _('Написать сообщение…') }}"></textarea>
+      <div id="boardChatInput" class="form-control form-control-sm chat-widget-editor" contenteditable="true" role="textbox" aria-multiline="true" data-placeholder="{{ _('Написать сообщение…') }}" aria-label="{{ _('Написать сообщение…') }}" title="{{ _('Ctrl+B жирный, Ctrl+I курсив, Ctrl+U подчёркнутый, Ctrl+Shift+X зачёркнутый, Ctrl+Shift+M моноширинный, Ctrl+K ссылка; ↑ — изменить последнее сообщение') }}"></div>
       <button type="submit" class="btn btn-sm btn-primary chat-widget-send" title="{{ _('Отправить') }}" aria-label="{{ _('Отправить') }}"><i class="bi bi-send-fill" aria-hidden="true"></i></button>
     </form>
   </div>
@@ -1324,6 +1493,9 @@ function initChatWidget(cfg) {
     deleteConfirm: "{{ _('Удалить сообщение? Оно удалится и в группах Telegram и MAX.') }}",
     youLabel: "{{ _('вы') }}",
     chatOpenLabel: "{{ _('чат открыт') }}",
+    inChatLabel: "{{ _('Был(а) в чате') }}",
+    seenJustNowLabel: "{{ _('только что') }}",
+    seenYesterdayLabel: "{{ _('вчера') }}",
   });
 </script>
 {% endif %}
@@ -1342,7 +1514,7 @@ function initChatWidget(cfg) {
     </div>
     <div id="revisionChatMessages" class="chat-widget-messages"></div>
     <form id="revisionChatForm" class="chat-widget-form">
-      <textarea id="revisionChatInput" class="form-control form-control-sm" rows="1" placeholder="{{ _('Написать сообщение…') }}"></textarea>
+      <div id="revisionChatInput" class="form-control form-control-sm chat-widget-editor" contenteditable="true" role="textbox" aria-multiline="true" data-placeholder="{{ _('Написать сообщение…') }}" aria-label="{{ _('Написать сообщение…') }}" title="{{ _('Ctrl+B жирный, Ctrl+I курсив, Ctrl+U подчёркнутый, Ctrl+Shift+X зачёркнутый, Ctrl+Shift+M моноширинный, Ctrl+K ссылка; ↑ — изменить последнее сообщение') }}"></div>
       <button type="submit" class="btn btn-sm btn-primary chat-widget-send" title="{{ _('Отправить') }}" aria-label="{{ _('Отправить') }}"><i class="bi bi-send-fill" aria-hidden="true"></i></button>
     </form>
   </div>
@@ -1687,6 +1859,7 @@ tr.table-info-subtle { --bs-table-bg: var(--bs-info-bg-subtle); --bs-table-borde
 .chat-widget-dot { width: .5rem; height: .5rem; border-radius: 50%; flex: none; background: var(--bs-secondary); }
 .chat-widget-dot.is-online { background: var(--bs-success); }
 .chat-widget-dot.is-chat-open { background: var(--bs-primary); }
+.chat-widget-seen { font-size: .7rem; color: var(--bs-secondary-color); }
 /* min-height:0 — без него flex-итем с overflow:auto по умолчанию не
    сжимается меньше высоты своего контента (min-height:auto), из-за чего
    при большом числе сообщений раздувался бы уже весь .chat-widget-panel
@@ -1697,8 +1870,8 @@ tr.table-info-subtle { --bs-table-bg: var(--bs-info-bg-subtle); --bs-table-borde
 .chat-widget-message.is-mine { align-self: flex-end; background: var(--bs-primary-bg-subtle); }
 /* Разметка сообщений (app/chat_markup.py) */
 .chat-widget-body a { word-break: break-all; }
-.chat-widget-body code { font-size: .85em; padding: 0 .2em; border-radius: .2rem; background: rgba(var(--bs-emphasis-color-rgb), .08); color: inherit; }
-.chat-widget-body pre { margin: .2rem 0; padding: .35rem .5rem; border-radius: .35rem; background: rgba(var(--bs-emphasis-color-rgb), .08); font-size: .8rem; white-space: pre-wrap; }
+.chat-widget-body code, .chat-widget-editor code { font-size: .85em; padding: 0 .2em; border-radius: .2rem; background: rgba(var(--bs-emphasis-color-rgb), .08); color: inherit; }
+.chat-widget-body pre, .chat-widget-editor pre { margin: .2rem 0; padding: .35rem .5rem; border-radius: .35rem; background: rgba(var(--bs-emphasis-color-rgb), .08); font-size: .8rem; white-space: pre-wrap; }
 .chat-widget-message .chat-widget-author { font-size: .75rem; font-weight: 600; opacity: .75; display: block; }
 .chat-widget-message .chat-widget-time { font-size: .7rem; opacity: .6; display: block; margin-top: .15rem; }
 /* Действия с сообщением (чат правления): при наведении; на сенсорных
@@ -1772,9 +1945,11 @@ tr.table-info-subtle { --bs-table-bg: var(--bs-info-bg-subtle); --bs-table-borde
 .chat-widget-emoji-panel.d-none { display: none; }
 .chat-widget-emoji-panel button { background: none; border: none; border-radius: .3rem; font-size: 1.25rem; line-height: 1; padding: .25rem 0; }
 .chat-widget-emoji-panel button:hover, .chat-widget-emoji-panel button:focus-visible { background: var(--bs-tertiary-bg); }
-.chat-widget-form textarea { resize: none; min-height: 2.2rem; overflow-y: auto; }
+.chat-widget-form .chat-widget-editor { min-height: 2.2rem; overflow-y: auto; white-space: pre-wrap; word-break: break-word; cursor: text; }
+.chat-widget-editor:empty::before { content: attr(data-placeholder); color: var(--bs-secondary-color); pointer-events: none; }
+.chat-widget-editor a { text-decoration: underline; }
 .chat-widget-input-wrap { position: relative; flex: 1; min-width: 0; display: flex; }
-.chat-widget-input-wrap textarea { flex: 1; }
+.chat-widget-input-wrap .chat-widget-editor { flex: 1; }
 /* Значок «развернуть/свернуть» в правом верхнем углу поля (как в Telegram). */
 .chat-widget-expand {
   position: absolute; top: .2rem; right: .35rem; z-index: 1;
@@ -1782,13 +1957,13 @@ tr.table-info-subtle { --bs-table-bg: var(--bs-info-bg-subtle); --bs-table-borde
   color: var(--bs-secondary-color); font-size: .8rem; line-height: 1;
 }
 .chat-widget-expand:hover { color: var(--bs-body-color); }
-.chat-widget-input-wrap textarea { padding-right: 1.6rem; }
+.chat-widget-input-wrap .chat-widget-editor { padding-right: 1.6rem; }
 /* Развёрнутое поле — на всё окно под шапкой (top задаёт JS). */
 .chat-widget-form.is-expanded {
   position: absolute; left: 0; right: 0; bottom: 0; z-index: 4;
   background: var(--bs-body-bg); align-items: stretch;
 }
-.chat-widget-form.is-expanded .chat-widget-input-wrap textarea { height: auto !important; max-height: none; }
+.chat-widget-form.is-expanded .chat-widget-input-wrap .chat-widget-editor { height: auto !important; max-height: none; }
 .chat-widget-form.is-expanded .chat-widget-emoji-btn,
 .chat-widget-form.is-expanded .chat-widget-send { align-self: flex-end; }
 .chat-widget-form.is-expanded .chat-widget-form-buttons { align-self: flex-end; }
@@ -1957,7 +2132,7 @@ tr.table-info-subtle { --bs-table-bg: var(--bs-info-bg-subtle); --bs-table-borde
   .chat-widget-message { font-size: .95rem; }
   .chat-widget-form { padding: .5rem .5rem calc(.5rem + env(safe-area-inset-bottom)); }
   /* 16px — меньше iOS Safari при фокусе зумит страницу. */
-  .chat-widget-form textarea { font-size: 16px; resize: none; }
+  .chat-widget-form .chat-widget-editor { font-size: 16px; }
   /* Страница под открытым чатом не прокручивается. */
   html.chat-widget-fullscreen, html.chat-widget-fullscreen body { overflow: hidden; }
 }

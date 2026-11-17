@@ -242,7 +242,7 @@ def test_widget_panel_is_resizable_and_draggable(db, client):
     assert "cursor: move" in body
     assert "ResizeObserver" in body
     assert "if (isMobile() || isHidden()) return;" in body
-    assert ".chat-widget-form textarea { resize: none;" in body
+    assert ".chat-widget-form .chat-widget-editor { min-height" in body
     assert 'input.addEventListener("input", autoGrow)' in body
     assert "chat-widget-splitter" in body and "chatWidgetInputHeight:" in body
     assert "bi-send-fill" in body

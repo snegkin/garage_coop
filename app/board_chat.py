@@ -575,5 +575,9 @@ def participants():
             # иначе тот, кто закрыл вкладку не свернув чат явно, навсегда
             # висел бы «открыт» (см. докстринг board_chat_open в models.py).
             "chat_open": online and user.board_chat_open,
+            # Когда последний раз был в чате (читал/писал — board_chat_read_at
+            # обновляет опрос открытой панели и отправка), как «был(а)…» в
+            # Telegram; виджет показывает у тех, у кого чат сейчас не открыт.
+            "in_chat_at": user.board_chat_read_at.isoformat() + "Z" if user.board_chat_read_at else None,
         })
     return jsonify(participants=result)

@@ -578,7 +578,9 @@ function initChatWidget(cfg) {
         qa.textContent = msg.reply_to.author_name;
         var qb = document.createElement("span");
         qb.className = "chat-widget-quote-text";
-        qb.textContent = msg.reply_to.body;
+        // частичная цитата (выделенный кусок) — в кавычках, как в Telegram
+        qb.textContent = msg.reply_to.quote ? "«" + msg.reply_to.body + "»" : msg.reply_to.body;
+        if (msg.reply_to.quote) quote.classList.add("is-partial");
         quote.appendChild(qa);
         quote.appendChild(qb);
         quote.addEventListener("click", function () { scrollToMessage(msg.reply_to.id); });
@@ -607,6 +609,14 @@ function initChatWidget(cfg) {
       el.appendChild(reactionsEl);
       renderReactions(msg.id, msg.reactions || [], reactionsEl);
       el.appendChild(messageActions(msg));
+      // Правый клик — то же меню, у курсора. По ссылке и с Shift — обычное
+      // меню браузера (скопировать адрес и т. п.).
+      el.addEventListener("contextmenu", function (e) {
+        if (e.shiftKey || (e.target.closest && e.target.closest("a"))) return;
+        if (menuEl && menuEl.contains(e.target)) return;
+        e.preventDefault();
+        openMessageMenu(msg, el, { quote: selectedQuote(el), x: e.clientX, y: e.clientY });
+      });
     }
     return el;
   }
@@ -707,7 +717,37 @@ function initChatWidget(cfg) {
     item.addEventListener("click", function () { closeMessageMenu(); onClick(); });
     return item;
   }
-  function openMessageMenu(msg, msgEl) {
+  // Выделенный в тексте сообщения кусок — для частичной цитаты в ответе.
+  // Выделение, задевающее и другое (автора, время), обрезается по тексту.
+  function selectedQuote(msgEl) {
+    var sel = window.getSelection();
+    var body = msgEl.querySelector(".chat-widget-body");
+    if (!body || !sel.rangeCount || sel.isCollapsed) return "";
+    var range = sel.getRangeAt(0);
+    if (!range.intersectsNode(body)) return "";
+    var r = range.cloneRange();
+    if (!body.contains(r.startContainer)) r.setStart(body, 0);
+    if (!body.contains(r.endContainer)) r.setEnd(body, body.childNodes.length);
+    return r.toString().trim();
+  }
+  function copyText(text) {
+    function fallback() {
+      var ta = document.createElement("textarea");
+      ta.value = text;
+      ta.setAttribute("readonly", "");
+      ta.style.position = "fixed"; ta.style.top = "-1000px"; ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand("copy"); } catch (err) {}
+      ta.remove();
+    }
+    // navigator.clipboard — только в secure context (не по http в сети)
+    if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(text).catch(fallback);
+    else fallback();
+  }
+  function openMessageMenu(msg, msgEl, opts) {
+    opts = opts || {};
+    var quote = opts.quote || "";
     closeMessageMenu();
     var menu = document.createElement("div");
     menu.className = "chat-widget-menu";
@@ -724,7 +764,11 @@ function initChatWidget(cfg) {
       row.appendChild(b);
     });
     menu.appendChild(row);
-    menu.appendChild(menuItem("bi-reply", cfg.replyLabel, function () { startCompose("reply", msg); }));
+    menu.appendChild(menuItem(quote ? "bi-quote" : "bi-reply", quote ? cfg.quoteLabel : cfg.replyLabel,
+      function () { startCompose("reply", msg, quote); }));
+    menu.appendChild(menuItem("bi-copy", quote ? cfg.copySelectionLabel : cfg.copyLabel, function () {
+      copyText(quote || (msg.body_plain != null ? msg.body_plain : msg.body));
+    }));
     if (msg.can_edit) {
       menu.appendChild(menuItem("bi-pencil", cfg.editLabel, function () { startCompose("edit", msg); }));
     }
@@ -749,6 +793,14 @@ function initChatWidget(cfg) {
     msgEl.appendChild(menu);
     msgEl.classList.add("menu-open");
     menuEl = menu;
+    if (opts.x != null) {
+      // правый клик — меню у курсора, не вылезая за край экрана
+      menu.classList.add("is-at-cursor");
+      var w = menu.offsetWidth, h = menu.offsetHeight;
+      menu.style.left = Math.max(4, Math.min(opts.x, window.innerWidth - w - 4)) + "px";
+      menu.style.top = Math.max(4, (opts.y + h > window.innerHeight - 4) ? opts.y - h : opts.y) + "px";
+      return;
+    }
     // Меню у нижнего края переписки — открываем вверх, чтобы не обрезалось.
     var box = messagesEl.getBoundingClientRect(), r = menu.getBoundingClientRect();
     if (r.bottom > box.bottom && r.height < msgEl.getBoundingClientRect().top - box.top) {
@@ -767,11 +819,14 @@ function initChatWidget(cfg) {
   function messageActions(msg) {
     var box = document.createElement("span");
     box.className = "chat-widget-actions";
+    var pendingQuote = "";
     var btn = actionButton("bi-three-dots-vertical", cfg.menuLabel, function () {
       var msgEl = btn.closest(".chat-widget-message");
       if (menuEl && menuEl.parentNode === msgEl) closeMessageMenu();
-      else openMessageMenu(msg, msgEl);
+      else openMessageMenu(msg, msgEl, { quote: pendingQuote });
     });
+    // выделение запоминаем до клика — нажатие кнопки может его снять
+    btn.addEventListener("mousedown", function () { pendingQuote = selectedQuote(btn.closest(".chat-widget-message")); });
     btn.classList.add("chat-widget-menu-btn");
     btn.setAttribute("aria-haspopup", "menu");
     box.appendChild(btn);
@@ -982,9 +1037,9 @@ function initChatWidget(cfg) {
       if (e.key === "Escape" && compose) { e.stopPropagation(); cancelCompose(); }
     });
   }
-  function startCompose(mode, msg) {
+  function startCompose(mode, msg, quote) {
     if (compose && compose.mode === "edit" && mode !== "edit") setEditorHtml("");
-    compose = { mode: mode, msg: msg };
+    compose = { mode: mode, msg: msg, quote: mode === "reply" ? (quote || "") : "" };
     composeBar.innerHTML = "";
     var icon = document.createElement("i");
     icon.className = "bi " + (mode === "edit" ? "bi-pencil" : "bi-reply") + " chat-widget-compose-icon";
@@ -996,7 +1051,7 @@ function initChatWidget(cfg) {
     title.textContent = mode === "edit" ? cfg.editingLabel : cfg.replyToLabel + " " + msg.author_name;
     var excerpt = document.createElement("span");
     excerpt.className = "chat-widget-quote-text";
-    excerpt.textContent = msg.body_plain != null ? msg.body_plain : msg.body;
+    excerpt.textContent = compose.quote ? "«" + compose.quote + "»" : (msg.body_plain != null ? msg.body_plain : msg.body);
     text.appendChild(title);
     text.appendChild(excerpt);
     text.addEventListener("click", function () { scrollToMessage(msg.id); });
@@ -1025,7 +1080,10 @@ function initChatWidget(cfg) {
     formData.append("body", body);
     var url = cfg.sendUrl, editing = compose && compose.mode === "edit";
     if (editing) url = messageUrl(compose.msg.id, "edit");
-    else if (compose) formData.append("reply_to_id", compose.msg.id);
+    else if (compose) {
+      formData.append("reply_to_id", compose.msg.id);
+      if (compose.quote) formData.append("reply_quote", compose.quote);
+    }
     fetch(url, {
       method: "POST",
       headers: csrfMeta ? { "X-CSRFToken": csrfMeta.getAttribute("content") } : {},
@@ -1479,6 +1537,9 @@ function initChatWidget(cfg) {
     reactLabel: "{{ _('Реакция') }}",
     menuLabel: "{{ _('Действия с сообщением') }}",
     replyLabel: "{{ _('Ответить') }}",
+    quoteLabel: "{{ _('Ответить с цитатой') }}",
+    copyLabel: "{{ _('Копировать текст') }}",
+    copySelectionLabel: "{{ _('Копировать выделенное') }}",
     editLabel: "{{ _('Изменить') }}",
     editingLabel: "{{ _('Редактирование') }}",
     editedLabel: "{{ _('изменено') }}",
@@ -1892,6 +1953,8 @@ tr.table-info-subtle { --bs-table-bg: var(--bs-info-bg-subtle); --bs-table-borde
 .chat-widget-menu { position: absolute; top: 1.9rem; right: .25rem; z-index: 5; width: max-content; max-width: min(20rem, 80vw); white-space: normal; padding: .3rem; background: var(--bs-body-bg); border: 1px solid var(--bs-border-color); border-radius: .6rem; box-shadow: 0 .25rem .9rem rgba(0,0,0,.18); }
 .chat-widget-menu.is-up { top: auto; bottom: 100%; }
 .chat-widget-message:not(.is-mine) .chat-widget-menu { right: auto; left: 0; }
+.chat-widget-menu.is-at-cursor, .chat-widget-message:not(.is-mine) .chat-widget-menu.is-at-cursor { position: fixed; right: auto; z-index: 1080; }
+.chat-widget-quote.is-partial .chat-widget-quote-text { white-space: normal; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; font-style: italic; }
 .chat-widget-menu-reactions { display: flex; flex-wrap: wrap; gap: .1rem; padding-bottom: .3rem; margin-bottom: .2rem; border-bottom: 1px solid var(--bs-border-color); }
 .chat-widget-menu-reactions button { border: none; background: none; font-size: 1.3rem; line-height: 1; padding: .35rem .25rem; border-radius: .4rem; }
 .chat-widget-menu-reactions button:hover { background: var(--bs-tertiary-bg); }

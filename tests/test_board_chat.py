@@ -433,7 +433,7 @@ def test_reply_shows_quote(db, client):
     first = _post_message(client, "вопрос")
 
     data = client.post("/board-chat/messages", data={"body": "ответ", "reply_to_id": first}).get_json()
-    assert data["message"]["reply_to"] == {"id": first, "author_name": "board1", "body": "вопрос"}
+    assert data["message"]["reply_to"] == {"id": first, "author_name": "board1", "body": "вопрос", "quote": False}
 
     client.post(f"/board-chat/messages/{first}/delete")
     [shown] = client.get("/board-chat/messages").get_json()["messages"]

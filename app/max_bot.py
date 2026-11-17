@@ -280,10 +280,12 @@ def send_notification(settings: MaxSettings, user_id: int | str, text: str) -> N
 
 
 def send_group_message(settings: MaxSettings, chat_id: int | str, text: str,
-                       reply_to: str | None = None) -> str | None:
+                       reply_to: str | None = None, quote: str | None = None) -> str | None:
     """Сообщение в группу (мост чата правления, очередь kind="group");
     reply_to — mid сообщения, на которое это ответ.
     -> mid отправленного сообщения (для удаления/закрепа/правки потом)."""
+    if quote:  # нативной частичной цитаты в Bot API MAX нет — блоком в тексте
+        text = f"<blockquote>{escape(quote)}</blockquote>{text}"
     result = send_message(settings, chat_id, text, html=True, reply_to=reply_to) or {}
     return ((result.get("message") or {}).get("body") or {}).get("mid")
 

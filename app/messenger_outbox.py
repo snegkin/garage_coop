@@ -150,13 +150,13 @@ def _reply_target(message, channel: str) -> str | None:
     return copy.external_id if copy is not None else None
 
 
-def _quote(message) -> str:
+def _quote(message, fragment: str | None = None) -> str:
     """Цитата вместо ответа, когда сообщения, на которое отвечают, в группе
     нет (написано до моста, не дошло)."""
     from markupsafe import escape
     from .board_chat import author_name
     from .chat_markup import to_plain
-    plain = to_plain(message.body)
+    plain = fragment or to_plain(message.body)
     body = plain if len(plain) <= 60 else plain[:60] + "…"
     return f"↩ {escape(author_name(message))}: «{escape(body)}»\n"  # копия — HTML, см. board_chat.copy_text
 
@@ -207,13 +207,15 @@ def _send(bot, settings, item: MessengerOutbox, upload_folder: str) -> None:
         bot.send_notification(settings, item.chat_id, item.text)
         return
     if item.kind == KIND_GROUP:
-        text, reply_to = item.text, None
+        text, reply_to, quote = item.text, None, None
         replied = item.board_message.reply_to if item.board_message is not None else None
         if replied is not None and replied.deleted_at is None:
             reply_to = _reply_target(replied, item.channel)
             if reply_to is None:
-                text = _quote(replied) + text
-        item.external_id = bot.send_group_message(settings, item.chat_id, text, reply_to=reply_to)
+                text = _quote(replied, item.board_message.reply_quote) + text
+            else:
+                quote = item.board_message.reply_quote
+        item.external_id = bot.send_group_message(settings, item.chat_id, text, reply_to=reply_to, quote=quote)
         return
     if item.kind == KIND_GROUP_EDIT:
         target = _board_target(item)

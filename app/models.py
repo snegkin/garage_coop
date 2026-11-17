@@ -3495,6 +3495,9 @@ class BoardChatMessage(Base):
     pinned_by_id: Mapped[int | None] = mapped_column(ForeignKey("user.id", ondelete="SET NULL"))
     # Ответ на сообщение (с сайта или из группы — по reply в мессенджере).
     reply_to_id: Mapped[int | None] = mapped_column(ForeignKey("board_chat_message.id", ondelete="SET NULL"))
+    # Цитата — выделенный фрагмент сообщения reply_to (ответ не на всё
+    # сообщение, а на кусок, как в Telegram); None — ответ на всё.
+    reply_quote: Mapped[str | None] = mapped_column(Text)
     # Последняя правка текста (автором на сайте или в группе мессенджера).
     edited_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
     # Последнее изменение уже отправленного сообщения — правка или реакции

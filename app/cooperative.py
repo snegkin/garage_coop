@@ -18,6 +18,32 @@ from .permissions import is_board
 bp = Blueprint("cooperative", __name__, url_prefix="/cooperative")
 
 
+def social_link_items(text: str | None) -> list[dict]:
+    """Строки поля «Группы в соцсетях и мессенджерах» для показа: по строке
+    «Telegram: https://t.me/…» — текст до адреса, сам адрес ссылкой (как
+    написан), после него, и QR-код адреса (SVG data URI) — навести телефон
+    и сразу открыть группу. Строка без адреса — просто текст, без QR."""
+    import segno
+    from .chat_markup import find_url
+    items = []
+    for line in (text or "").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        found = find_url(line)
+        if found is None:
+            items.append({"before": line, "url_text": None, "after": "", "href": None, "label": line, "qr": None})
+            continue
+        start, end, href, display = found
+        before = line[:start]
+        label = before.strip().rstrip(":—–-").strip() or display.split("://", 1)[-1]
+        items.append({
+            "before": before, "url_text": line[start:end], "after": line[end:], "href": href, "label": label,
+            "qr": segno.make(href, error="m").svg_data_uri(scale=4, border=2, dark="black", light="white"),
+        })
+    return items
+
+
 @bp.route("/")
 def view():
     """Информация о кооперативе. Без входа — открытые сведения: наименование,
@@ -38,7 +64,8 @@ def view():
         )
         return render_template("cooperative/view.html", coop=coop, public=True, docs=public_docs, chairman=None,
                                primary_account=get_primary_bank_account(), coop_balance=None, doc_types=DocumentType,
-                               all_counterparties=[], public_blanks=public_blanks)
+                               all_counterparties=[], public_blanks=public_blanks,
+                               social_links=social_link_items(coop.social_links if coop else None))
     # Загружаем документы — рядовые участники видят только не-внутренние.
     # Документы, привязанные к контрагенту (Document.counterparty_id), сюда
     # не попадают — они показываются в карточке соответствующего контрагента
@@ -67,6 +94,7 @@ def view():
         coop_balance=cooperative_balance() if is_board() else None,
         primary_account=get_primary_bank_account(),
         docs=docs, doc_types=DocumentType, chairman=chairman, all_counterparties=all_counterparties,
+        social_links=social_link_items(coop.social_links if coop else None),
     )
 
 

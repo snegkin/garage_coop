@@ -165,6 +165,21 @@ def _bare_url(s: str, i: int) -> str | None:
     return url
 
 
+def find_url(text: str):
+    """Первый адрес в строке -> (начало, конец, href, display) или None.
+    Те же правила, что у голых ссылок в сообщениях: хвостовая пунктуация
+    не входит, без схемы — https://, javascript: и т. п. — не ссылка."""
+    for m in _URL_RE.finditer(text):
+        url = _bare_url(text, m.start())
+        if not url:
+            continue
+        safe = _safe_url(url)
+        if safe is None:
+            continue
+        return m.start(), m.start() + len(url), href_url(safe), display_url(safe)
+    return None
+
+
 def _can_open(s: str, i: int, marker: str) -> bool:
     after = i + len(marker)
     if after >= len(s) or s[after].isspace():

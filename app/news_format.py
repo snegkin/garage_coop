@@ -28,10 +28,15 @@ from .i18n import translate as _
 ALLOWED_TAGS = [
     "p", "br", "strong", "em", "b", "i", "u", "a", "ul", "ol", "li",
     "blockquote", "code", "pre", "h3", "h4", "hr", "img", "span",
+    "table", "thead", "tbody", "tr", "th", "td",
 ]
 ALLOWED_ATTRS = {"a": ["href", "title"], "img": ["src", "alt"], "span": ["class", "tabindex", "role"]}
 
-_md = md_lib.Markdown(extensions=["nl2br"])
+# tables — таблицы "| a | b |" (выравнивание через style= bleach срезает,
+# оформление — .card-text table в base.html); fenced_code — блоки ```…```
+# (```bash и т. п.: class="language-…" bleach тоже срезает, получается
+# обычный <pre><code>, на который рассчитаны _CODE_BLOCK_RE и Telegram).
+_md = md_lib.Markdown(extensions=["nl2br", "tables", "fenced_code"])
 
 EXCERPT_LENGTH = 400
 
@@ -206,6 +211,7 @@ class _TelegramHTML(HTMLParser):
         self.open: list[str] = []     # открытые теги, которые переносим в вывод
         self.pre = 0
         self.skip = 0
+        self.cells = 0                # ячеек в текущей строке таблицы
 
     def _emit(self, text: str) -> None:
         self.out.append(text)
@@ -230,6 +236,15 @@ class _TelegramHTML(HTMLParser):
             self._emit("    " * (depth - 1) + marker)
         elif tag == "br":
             self._emit("\n")
+        elif tag in ("td", "th"):
+            # таблиц в Telegram нет — строка таблицы идёт строкой текста,
+            # ячейки через « | », заголовок жирным
+            if self.cells:
+                self._emit(" | ")
+            self.cells += 1
+            if tag == "th":
+                self._emit("<b>")
+                self.open.append("b")
         elif tag == "hr":
             self._emit("———\n\n")
         elif tag in ("h1", "h2", "h3", "h4", "h5", "h6"):
@@ -281,6 +296,13 @@ class _TelegramHTML(HTMLParser):
                 self._emit("\n")
         elif tag == "p":
             self._emit("\n" if self.lists else "\n\n")
+        elif tag == "th":
+            self._close({"b"})
+        elif tag == "tr":
+            self.cells = 0
+            self._emit("\n")
+        elif tag == "table":
+            self._emit("\n")
         elif tag in ("h1", "h2", "h3", "h4", "h5", "h6"):
             self._close({"b"})
             self._emit("\n\n")

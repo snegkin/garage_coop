@@ -785,3 +785,8 @@ def test_send_telegram_modal_and_fragment(app, db, client):
     fragment = client.get(f"/news/{item.id}/telegram", headers={"X-Requested-With": "XMLHttpRequest"}).get_data(as_text=True)
     assert "Старая новость" in fragment and 'id="telegramSilent"' in fragment
     assert "<html" not in fragment
+
+
+def test_telegram_html_table_as_lines():
+    html = telegram_html("| A | B |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |\n\nПосле", base_url="https://a.b/")
+    assert "<b>A</b> | <b>B</b>\n1 | 2\n3 | 4\n\nПосле" in html

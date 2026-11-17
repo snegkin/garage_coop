@@ -385,3 +385,57 @@ def test_member_application_text_from_template(db, client, app):
         assert "гаража № 42" in body and "«___»" not in body and "Петрова А.И." not in body
         heading, title, _body = documents.member_application_text(complaint, owner, garage, dt.date(2026, 11, 16))
         assert (heading, title) == ("Жалоба", "")
+
+
+def test_sale_contract(db, client):
+    owner, garage, chairman = _setup(db)
+    buyer = make_person(db, full_name="Козлов Пётр Сергеевич", registration_address="г. Город, ул. Новая, 5")
+    make_user(db, "buyer", "pass1234", role=RoleEnum.MEMBER, person=buyer)
+    whole = make_garage(db, number="7", cadastral_number="61:44:0000000:7")
+    make_ownership(db, whole, owner)
+    db.commit()
+    login(client, "board1", "pass1234")
+    client.post("/documents/templates/defaults")
+    sale = db.query(DocumentTemplate).filter_by(code=documents.SALE_CONTRACT_CODE).one()
+    assert sale.recipient == "sale" and sale.chairman_only and sale.show_signature and sale.show_number
+    # Оформляет только председатель.
+    assert client.get(f"/documents/new?template_id={sale.id}").status_code == 302
+    client.get("/logout")
+    login(client, "chair", "pass1234")
+
+    # Обе стороны не из реестра — бланк с прочерками, без «не заполнено».
+    page = client.get(f"/documents/new?template_id={sale.id}").get_data(as_text=True)
+    body = page.split('id="docBody"')[1].split("</div>")[0]
+    assert "{{" not in body and "Не заполнены в реестре" not in page
+    assert "_" * 40 + ", именуемый(ая) в дальнейшем «Продавец»" in body
+    assert "покупает гараж (бокс) № ______ " in body and "/Сидоров С.С./" in page
+
+    # Продавец и покупатель из реестра.
+    url = f"/documents/new?template_id={sale.id}&owner={owner.id}:{whole.id}&buyer_id={buyer.id}"
+    page = client.get(url).get_data(as_text=True)
+    body = page.split('id="docBody"')[1].split("</div>")[0]
+    assert "Петрова Анна Ивановна, именуемая в дальнейшем «Продавец»" in body
+    assert "Козлов Пётр Сергеевич, именуемый в дальнейшем «Покупатель»" in body
+    assert "покупает гараж (бокс) № 7 " in body and "61:44:0000000:7" in body
+    assert "/Петрова А.И./" in body and "/Козлов П.С./" in body and "г. Город, ул. Новая, 5" in body
+    assert "перед Кооперативом: 0,00 руб." in body and "нотариальному" not in page
+
+    # Покупатель не из реестра, гараж — без продавца.
+    page = client.get(f"/documents/new?template_id={sale.id}&garage_id={whole.id}").get_data(as_text=True)
+    assert "покупает гараж (бокс) № 7 " in page and "счётчика гаража" in page and "Покупатель: ФИО" not in page
+    # Доля в праве — предупреждение о нотариусе.
+    page = client.get(f"/documents/new?template_id={sale.id}&owner={owner.id}:{garage.id}").get_data(as_text=True)
+    assert "покупает 1/2 доли в праве собственности на гараж (бокс) № 42" in page and "нотариальному" in page
+
+    resp = client.post("/documents/new", data={
+        "template_id": sale.id, "owner": f"{owner.id}:{whole.id}", "garage_id": "", "buyer_id": buyer.id,
+        "issued_at": "2026-11-17", "title": "ДОГОВОР купли-продажи гаража", "body_html": "<p>Текст</p>",
+    })
+    assert resp.status_code == 302
+    doc = db.query(IssuedDocument).one()
+    assert (doc.person_id, doc.garage_id, doc.buyer_person_id) == (owner.id, whole.id, buyer.id)
+    assert "Козлов" in db.query(AuditLog).filter_by(action="issued_document.create").one().summary
+    # Договор видит и покупатель.
+    client.get("/logout")
+    login(client, "buyer", "pass1234")
+    assert client.get(f"/documents/{doc.id}").status_code == 200

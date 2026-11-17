@@ -38,6 +38,7 @@ from decimal import Decimal
 
 from flask import Blueprint, render_template, request, redirect, url_for, flash, g, abort
 from markupsafe import Markup, escape
+from sqlalchemy import or_
 
 from . import audit
 from . import database
@@ -60,6 +61,7 @@ RECIPIENTS = {
     "none": "без адресата (объявление, информационный лист)",
     "person": "человек из реестра",
     "garage": "собственник гаража",
+    "sale": "продавец и покупатель гаража",
 }
 
 BLANK = "________"
@@ -68,6 +70,9 @@ CERTIFICATE_CODE = "garage_certificate"
 # который по нему оформляет правление (documents.create?application_id=…).
 POWER_APPLICATION_CODE = "power_application"
 POWER_CONTRACT_CODE = "power_contract"
+# Договор купли-продажи гаража между собственником и покупателем:
+# оформляет и заверяет печатью председатель (recipient="sale").
+SALE_CONTRACT_CODE = "sale_contract"
 
 # Прочерки в шапке (правая колонка — «от кого», адрес, паспорт, телефон):
 # пропуск должен вмещать то, что впишут от руки, адрес — в две строки.
@@ -248,12 +253,44 @@ def _outside_loss(ctx) -> str:
     return _number(settings.outside_line_loss_percent if settings else Decimal("2.33"))
 
 
+def _sale_subject(ctx) -> str:
+    """«гараж (бокс) № 42» или «1/2 доли в праве собственности на гараж
+    (бокс) № 42» — что продаёт продавец (по его доле в праве)."""
+    if ctx.garage is None:
+        return ""
+    if ctx.ownership is None or ctx.ownership.share == 1:
+        return f"гараж (бокс) № {ctx.garage.number}"
+    return f"{_share(ctx.ownership.share)} доли в праве собственности на гараж (бокс) № {ctx.garage.number}"
+
+
+def _party_variables(prefix: str, title: str, getter) -> list:
+    """Подстановки стороны договора купли-продажи: {{продавец}},
+    {{продавец_паспорт}} … — getter(ctx) → Person или None (не из
+    реестра — прочерки)."""
+    def attr(fn):
+        return lambda c: fn(p) if (p := getter(c)) is not None else ""
+    group = "Купля-продажа"
+    return [
+        (prefix, f"{title}: ФИО полностью", group, attr(lambda p: p.full_name)),
+        (f"{prefix}_кратко", f"{title}: «Петрова А.И.»", group, attr(lambda p: p.short_name)),
+        (f"{prefix}_именуемый", f"«именуемый» / «именуемая» по отчеству ({title.lower()})", group,
+         attr(lambda p: {"male": "именуемый", "female": "именуемая"}.get(
+             name_declension.gender(p.full_name), "именуемый(ая)"))),
+        (f"{prefix}_дата_рождения", f"{title}: дата рождения", group, attr(lambda p: _date(p.birth_date))),
+        (f"{prefix}_паспорт", f"{title}: паспорт", group, attr(_passport)),
+        (f"{prefix}_адрес_регистрации", f"{title}: адрес регистрации", group,
+         attr(lambda p: p.registration_address or "")),
+        (f"{prefix}_телефон", f"{title}: телефоны", group,
+         attr(lambda p: ", ".join(ph.number for ph in p.phones))),
+    ]
+
+
 class Context:
     """Данные для подстановок: кооператив, председатель, основной
     расчётный счёт, дата документа и (если есть) адресат."""
 
     def __init__(self, today: dt.date, person: Person | None = None, garage: Garage | None = None,
-                 public: bool = False):
+                 public: bool = False, buyer: Person | None = None):
         self.coop, self.chairman = _coop_and_chairman()
         # Общедоступный бланк — без банковских реквизитов (как и публичная
         # страница кооператива): в бланке прочерк.
@@ -261,6 +298,9 @@ class Context:
         self.today = today
         self.person = person
         self.garage = garage
+        # Договор купли-продажи: продавец — person (собственник garage),
+        # покупатель — buyer; любой из них может быть не из реестра.
+        self.buyer = buyer
         self.ownership = None
         if person is not None and garage is not None:
             self.ownership = next((o for o in garage.ownerships if o.person_id == person.id), None)
@@ -382,9 +422,16 @@ VARIABLES = [
      "Для справки о владении", _garage_facts),
     ("нет_задолженности", "фраза «Задолженности … не имеет.» — только если долга нет, иначе пусто",
      "Для справки о владении", _no_debt),
+    *_party_variables("продавец", "Продавец", lambda c: c.person),
+    *_party_variables("покупатель", "Покупатель", lambda c: c.buyer),
+    ("предмет_продажи", "«гараж (бокс) № 42» или «1/2 доли в праве собственности на гараж (бокс) № 42»",
+     "Купля-продажа", _sale_subject),
 ]
 # Пустое значение у них — норма (фраза просто не нужна), не прочерк.
 OPTIONAL_KEYS = {"членство", "нет_задолженности"}
+# Сведения о гараже — при продаже гаража не из реестра прочерки задуманы.
+_GARAGE_KEYS = {"гараж", "площадь_гаража", "кадастровый_номер", "кадастровый_номер_участка", "счётчик",
+                "показания_счётчика", "предмет_продажи", "лицевой_счёт_гаража", "доля", "пломба_счётчика"}
 _BY_KEY = {key.lower(): (key, fn) for key, _desc, _group, fn in VARIABLES}
 _EMPTY_P_RE = re.compile(r"<p(?:\s[^>]*)?>(?:\s|&nbsp;)*</p>")
 PLACEHOLDER_RE = re.compile(r"\{\{\s*([^{}<>]+?)\s*\}\}")
@@ -484,8 +531,8 @@ def variable_groups(recipient: str = "garage") -> list[tuple[str, list[tuple[str
     """Подстановки для панели редактора шаблона — без «Адресата»/«Гаража»,
     если у шаблона их нет."""
     skip = {
-        "none": {"Адресат", "Гараж", "Для справки о владении", "Электроэнергия"},
-        "person": {"Электроэнергия"},
+        "none": {"Адресат", "Гараж", "Для справки о владении", "Электроэнергия", "Купля-продажа"},
+        "person": {"Электроэнергия", "Купля-продажа"},
     }.get(recipient, set())
     groups: dict[str, list] = {}
     for key, desc, group, _fn in VARIABLES:
@@ -609,6 +656,30 @@ _PAY_TERMS = (
     "личный кабинет на сайте Кооператива или правлению. Пени за просрочку оплаты электроэнергии не "
     "начисляются."
 )
+
+# Договор купли-продажи: реквизиты Продавца и Покупателя — две колонки
+# (как _CONTRACT_PARTIES), не из реестра — прочерки до края колонки.
+def _sale_party(prefix: str, title: str) -> str:
+    return (
+        _TD + f"<p><b>{title}</b></p>"
+        f"<p>{{{{{prefix}|" + _COL + "|" + _COL + "}}<br>"
+        f"Дата рождения: {{{{{prefix}_дата_рождения|" + _COL_AFTER["Дата рождения:"] + "}}<br>"
+        f"Паспорт: {{{{{prefix}_паспорт|" + _COL_AFTER["Паспорт:"] + "|" + _COL + "}}<br>"
+        f"Адрес регистрации: {{{{{prefix}_адрес_регистрации|" + _COL_AFTER["Адрес регистрации:"] + "|"
+        + _COL + "}}<br>"
+        f"Тел.: {{{{{prefix}_телефон|" + _COL_AFTER["Тел.:"] + "}}</p></td>"
+    )
+
+
+_SALE_PARTIES = (
+    "<table><tbody><tr>" + _sale_party("продавец", "Продавец") + _sale_party("покупатель", "Покупатель")
+    + "</tr><tr>"
+    + _TD + "<p><br>______________ /{{продавец_кратко|______________}}/</p></td>"
+    + _TD + "<p><br>______________ /{{покупатель_кратко|______________}}/</p></td>"
+    "</tr></tbody></table>"
+)
+# ФИО в преамбуле — не из реестра: строка под фамилию, имя, отчество.
+_NAME_BLANK = "_" * 40
 
 DEFAULT_TEMPLATES = [
     {
@@ -864,6 +935,70 @@ DEFAULT_TEMPLATES = [
         ).replace("{{сторона}}", "Член кооператива").replace("{{сторона_кого}}", "Члена кооператива"),
     },
     {
+        "name": "Договор купли-продажи гаража",
+        "code": SALE_CONTRACT_CODE,
+        "chairman_only": True,
+        "title": "ДОГОВОР купли-продажи гаража",
+        "recipient": "sale",
+        # Подписи Сторон — в тексте; ниже — подпись председателя и М.П.:
+        # Кооператив заверяет договор (отметка в разделе 6).
+        "signer_role": "Председатель правления",
+        "body_html": (
+            _fill_clause("{{продавец|" + _NAME_BLANK + "}}, {{продавец_именуемый|именуемый(ая)}} в дальнейшем "
+                         "«Продавец», с одной стороны, и {{покупатель|" + _NAME_BLANK + "}}, "
+                         "{{покупатель_именуемый|именуемый(ая)}} в дальнейшем «Покупатель», с другой стороны, "
+                         "вместе именуемые «Стороны», заключили настоящий Договор о нижеследующем.")
+            + _section("1. Предмет Договора")
+            + _fill_clause("1.1. Продавец продаёт, а Покупатель покупает {{предмет_продажи|гараж (бокс) № ______}} "
+                           "(далее — Гараж), расположенный на территории {{кооператив}} по адресу: "
+                           "{{юр_адрес}}, площадью {{площадь_гаража|______}} м², кадастровый номер "
+                           "{{кадастровый_номер|______________________}}, на земельном участке с "
+                           "кадастровым номером {{кадастровый_номер_участка|______________________}}.")
+            + _fill_clause("1.2. Гараж принадлежит Продавцу на основании: ______________________________ "
+                           "(выписка из ЕГРН, справка о выплате паевого взноса, договор, свидетельство о "
+                           "праве на наследство и т. п.).")
+            + _clause("1.3. Продавец гарантирует, что Гараж никому не продан, не подарен, не заложен, в споре "
+                      "и под арестом (запрещением) не состоит, правами третьих лиц не обременён.")
+            + _section("2. Цена и порядок расчётов")
+            + _fill_clause("2.1. Цена Гаража — " + _AMOUNT + " Цена окончательная и изменению не подлежит.")
+            + _fill_clause("2.2. Расчёт производится: полностью при подписании Договора / в течение ______ "
+                           "дней с даты подписания (нужное подчеркнуть) — наличными или переводом на счёт "
+                           "Продавца. Получение денег Продавец подтверждает распиской или подписью в "
+                           "Договоре: «Деньги в сумме ______________ руб. получил(а) "
+                           "______________ /{{продавец_кратко|______________}}/».")
+            + _section("3. Передача Гаража")
+            + _clause("3.1. Гараж передаётся Покупателю в момент подписания Договора вместе с ключами; "
+                      "Договор имеет силу передаточного акта (ст. 556 ГК РФ). Покупатель осмотрел Гараж, "
+                      "его состояние ему известно, претензий к Продавцу он не имеет.")
+            + _fill_clause("3.2. Показания прибора учёта электроэнергии № {{счётчик|______________}} на дату "
+                           "передачи — {{показания_счётчика|______________}} кВт·ч. Электроэнергию, взносы и "
+                           "платежи в Кооператив до даты передачи оплачивает Продавец, после — Покупатель.")
+            + _clause("3.3. Если право Продавца на Гараж зарегистрировано в Едином государственном реестре "
+                      "недвижимости, право собственности Покупателя возникает с момента государственной "
+                      "регистрации перехода права (ст. 551 ГК РФ); Стороны подают документы на регистрацию "
+                      "в течение 30 дней со дня подписания Договора. Расходы по регистрации несёт "
+                      "Покупатель.")
+            + _section("4. Кооператив")
+            + _clause("4.1. Продавец обязуется подать в правление Кооператива заявление о выходе из "
+                      "членов Кооператива (если он член Кооператива), Покупатель — заявление о вступлении "
+                      "в члены Кооператива; до вступления Покупатель уплачивает взносы и платежи "
+                      "наравне с членами Кооператива в соответствии с Уставом.")
+            + _clause("4.2. Покупатель ознакомлен с Уставом и порядком пользования общим имуществом и "
+                      "электросетью Кооператива.")
+            + _section("5. Заключительные положения")
+            + _clause("5.1. Договор вступает в силу с момента подписания. Споры Стороны решают "
+                      "переговорами, при недостижении согласия — в суде по месту нахождения Гаража.")
+            + _clause("5.2. Договор составлен в трёх экземплярах: по одному для Продавца, Покупателя и "
+                      "Кооператива; скан экземпляра Кооператива размещается в карточке гаража на сайте "
+                      "Кооператива {{сайт}}.")
+            + _section("6. Реквизиты и подписи Сторон")
+            + _SALE_PARTIES
+            + "<p><br></p>"
+            + _fill_clause("Договор заверен {{кооператив}}. На дату заверения задолженность Продавца "
+                           "по взносам и платежам перед Кооперативом: {{задолженность|______________}} руб.")
+        ),
+    },
+    {
         "name": "Уведомление о задолженности",
         "title": "УВЕДОМЛЕНИЕ О ЗАДОЛЖЕННОСТИ",
         "recipient": "person",
@@ -1074,7 +1209,7 @@ def visible_documents(person_id: int | None = None, garage_id: int | None = None
     адресованные ему."""
     query = database.db_session.query(IssuedDocument)
     if person_id is not None:
-        query = query.filter(IssuedDocument.person_id == person_id)
+        query = query.filter(or_(IssuedDocument.person_id == person_id, IssuedDocument.buyer_person_id == person_id))
     if garage_id is not None:
         query = query.filter(IssuedDocument.garage_id == garage_id)
     if code is not None:
@@ -1082,7 +1217,8 @@ def visible_documents(person_id: int | None = None, garage_id: int | None = None
     if not is_board():
         if g.user.person_id is None:
             return []
-        query = query.filter(IssuedDocument.person_id == g.user.person_id)
+        query = query.filter(or_(IssuedDocument.person_id == g.user.person_id,
+                                 IssuedDocument.buyer_person_id == g.user.person_id))
     return query.order_by(IssuedDocument.issued_at.desc(), IssuedDocument.id.desc()).all()
 
 
@@ -1110,7 +1246,8 @@ def _document_or_404(document_id: int) -> IssuedDocument:
     document = database.db_session.get(IssuedDocument, document_id)
     if document is None:
         abort(404)
-    if not (is_board() or (g.user.person_id is not None and g.user.person_id == document.person_id)):
+    if not (is_board() or (g.user.person_id is not None
+                            and g.user.person_id in (document.person_id, document.buyer_person_id))):
         abort(403)
     return document
 
@@ -1287,7 +1424,23 @@ def _recipient_from(form, recipient: str):
     return None, None
 
 
+def _sale_parties_from(form):
+    """(продавец, гараж, покупатель) договора купли-продажи: owner=
+    "<person_id>:<garage_id>" — продавец-собственник с гаражом; продавец не
+    из реестра — гараж отдельно (garage_id) или тоже прочерком;
+    buyer_id — покупатель. Любой может быть None — прочерки в тексте."""
+    seller, garage = _recipient_from({"owner": form.get("owner")}, "garage") if form.get("owner") else (None, None)
+    if seller is None:
+        garage_id = form.get("garage_id", type=int)
+        garage = database.db_session.get(Garage, garage_id) if garage_id else None
+    buyer_id = form.get("buyer_id", type=int)
+    buyer = database.db_session.get(Person, buyer_id) if buyer_id else None
+    return seller, garage, buyer
+
+
 def _needs_recipient(recipient: str, person, garage) -> bool:
+    if recipient == "sale":
+        return False  # стороны не из реестра — прочерки
     return (recipient != "none" and person is None) or (recipient == "garage" and garage is None)
 
 
@@ -1318,12 +1471,15 @@ def create():
         flash(_("Документы по шаблону «{name}» составляет только председатель.", name=template.name), "warning")
         return redirect(url_for("documents.index"))
 
+    buyer = None
     if cert_application is not None:
         person, garage = _recipient_from({"owner": f"{cert_application.person_id}:{cert_application.garage_id or 0}"}, recipient)
         if person is None and request.method == "GET":
             flash(_("Заявитель уже не числится собственником этого гаража."), "warning")
-    elif source is not None and "owner" not in form and "person_id" not in form:
-        person, garage = source.person, source.garage
+    elif source is not None and not ({"owner", "person_id", "garage_id", "buyer_id"} & set(form)):
+        person, garage, buyer = source.person, source.garage, source.buyer
+    elif recipient == "sale":
+        person, garage, buyer = _sale_parties_from(form)
     else:
         person, garage = _recipient_from(form, recipient)
     need_recipient = _needs_recipient(recipient, person, garage)
@@ -1350,7 +1506,7 @@ def create():
             flash(error, "danger")
             return _render_create(template, source, recipient, person, garage, coop, chairman, cert_application,
                                   title=title, addressee_html=addressee_html, body_html=body_html,
-                                  issued_at=issued_at or dt.date.today())
+                                  issued_at=issued_at or dt.date.today(), buyer=buyer)
         show_number = template.show_number if template else bool(source and source.number)
         document = IssuedDocument(
             template_id=template.id if template else None,
@@ -1358,6 +1514,7 @@ def create():
             title=title, addressee_html=addressee_html if has_text(addressee_html) else "",
             body_html=body_html, issued_at=issued_at,
             person_id=person.id if person else None, garage_id=garage.id if garage else None,
+            buyer_person_id=buyer.id if buyer else None,
             show_signature=template.show_signature if template else source.show_signature,
             signer_role=template.signer_role if template else source.signer_role,
             signer_person_id=chairman.id if chairman else None,
@@ -1371,6 +1528,7 @@ def create():
             summary=f"Составлен документ «{doc_name}»"
                     + (f" № {document.number}" if document.number else "")
                     + (f": {person.full_name}" if person else "")
+                    + (f" → {buyer.full_name}" if buyer else "")
                     + (f", гараж № {garage.number}" if garage else ""),
         )
         if cert_application is not None:
@@ -1386,22 +1544,29 @@ def create():
     except ValueError:
         issued_at = None
     return _render_create(template, source, recipient, person, garage, coop, chairman, cert_application,
-                          issued_at=issued_at)
+                          issued_at=issued_at, buyer=buyer)
 
 
 def _render_create(template, source, recipient, person, garage, coop, chairman, cert_application=None,
-                   title=None, addressee_html=None, body_html=None, issued_at=None):
+                   title=None, addressee_html=None, body_html=None, issued_at=None, buyer=None):
     issued_at = issued_at or dt.date.today()
     missing: set[str] = set()
     need_recipient = _needs_recipient(recipient, person, garage)
     if not need_recipient and body_html is None:
-        if source is not None and (template is None or (person == source.person and garage == source.garage)):
+        if source is not None and (template is None or (person == source.person and garage == source.garage
+                                                         and buyer == source.buyer)):
             title, addressee_html, body_html = source.title, source.addressee_html, source.body_html
         else:
-            ctx = Context(issued_at, person, garage)
+            ctx = Context(issued_at, person, garage, buyer=buyer)
             title = fill_text(template.title, ctx, missing)
             addressee_html = fill(template.addressee_html, ctx, missing, header=True)
             body_html = fill(template.body_html, ctx, missing)
+    if recipient == "sale":
+        # Сторона не из реестра — прочерки задуманы, это не «не заполнено».
+        missing = {k for k in missing
+                   if not (person is None and (k.startswith("продавец") or k == "задолженность"))
+                   and not (buyer is None and k.startswith("покупатель"))
+                   and not (garage is None and k in _GARAGE_KEYS)}
     labels = {key: desc for key, desc, _g, _f in VARIABLES}
     debt = person_debt(person) if person is not None and not need_recipient else None
     if cert_application is not None:
@@ -1419,8 +1584,14 @@ def _render_create(template, source, recipient, person, garage, coop, chairman, 
         show_number=template.show_number if template else bool(source and source.number),
         show_signature=template.show_signature if template else source.show_signature,
         signer_role=template.signer_role if template else source.signer_role,
-        ownerships=_ownership_choices() if recipient == "garage" and cert_application is None else [],
-        persons=_person_choices() if recipient == "person" else [],
+        ownerships=_ownership_choices() if recipient in ("garage", "sale") and cert_application is None else [],
+        persons=_person_choices() if recipient in ("person", "sale") else [],
+        garages=sorted(database.db_session.query(Garage).all(), key=garage_sort_key) if recipient == "sale" else [],
+        buyer=buyer,
+        # Доля в праве на недвижимость отчуждается только у нотариуса
+        # (ст. 42 Федерального закона № 218-ФЗ) — предупреждение.
+        sale_share=(recipient == "sale" and person is not None and garage is not None
+                    and any(o.person_id == person.id and o.share != 1 for o in garage.ownerships)),
     )
 
 

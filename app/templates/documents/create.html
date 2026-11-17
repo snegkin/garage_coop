@@ -25,7 +25,39 @@
 {% if recipient != "none" and not cert_application %}
 <form method="get" action="{{ url_for('documents.create') }}" class="no-print mb-3" style="max-width: 210mm; margin: 0 auto;">
   {% for k, v in keep.items() %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
-  {% if recipient == "garage" %}
+  {% if recipient == "sale" %}
+  <div class="row g-2">
+    <div class="col-md-6">
+      <label class="form-label small mb-1" for="docOwner">{{ _("Продавец (собственник) и гараж") }}</label>
+      <select class="form-select" name="owner" id="docOwner" onchange="this.form.submit()">
+        <option value="">{{ _("— не из реестра: заполнить от руки —") }}</option>
+        {% for o in ownerships %}
+        <option value="{{ o.person_id }}:{{ o.garage_id }}"{% if person and garage and o.person_id == person.id and o.garage_id == garage.id %} selected{% endif %}>{{ o.person.full_name }} — {{ _("гараж") }} № {{ o.garage.number }}{% if o.share != 1 %} ({{ _("доля") }} {{ fmt2(o.share) }}){% endif %}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-6">
+      <label class="form-label small mb-1" for="docBuyer">{{ _("Покупатель") }}</label>
+      <select class="form-select" name="buyer_id" id="docBuyer" onchange="this.form.submit()">
+        <option value="">{{ _("— не из реестра: заполнить от руки —") }}</option>
+        {% for p in persons %}
+        <option value="{{ p.id }}"{% if buyer and p.id == buyer.id %} selected{% endif %}>{{ p.full_name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    {% if not person %}
+    <div class="col-md-6">
+      <label class="form-label small mb-1" for="docGarage">{{ _("Гараж") }}</label>
+      <select class="form-select" name="garage_id" id="docGarage" onchange="this.form.submit()">
+        <option value="">{{ _("— заполнить от руки —") }}</option>
+        {% for gr in garages %}
+        <option value="{{ gr.id }}"{% if garage and gr.id == garage.id %} selected{% endif %}>№ {{ gr.number }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    {% endif %}
+  </div>
+  {% elif recipient == "garage" %}
   <label class="form-label small mb-1" for="docOwner">{{ _("Собственник и гараж") }}</label>
   <select class="form-select" name="owner" id="docOwner" onchange="this.form.submit()">
     <option value="">—</option>
@@ -51,17 +83,26 @@
   {% if missing %}
   <div class="alert alert-warning small">{{ _("Не заполнены в реестре — в тексте прочерк, допишите от руки или в карточке:") }} {{ missing|join(", ") }}.</div>
   {% endif %}
+  {% if sale_share %}
+  <div class="alert alert-danger small">{{ _("Продавец владеет долей в праве на гараж: сделка по отчуждению доли в праве на недвижимость подлежит нотариальному удостоверению (ст. 42 Федерального закона № 218-ФЗ) — договор, заверенный кооперативом, для неё недостаточен.") }}</div>
+  {% endif %}
   {% if debt %}
-  <div class="alert alert-warning small">{{ _("Задолженность адресата на сегодня: {amount} ₽.", amount=fmt2(debt)) }}</div>
+  <div class="alert alert-warning small">{{ _("Задолженность продавца на сегодня: {amount} ₽.", amount=fmt2(debt)) if recipient == "sale" else _("Задолженность адресата на сегодня: {amount} ₽.", amount=fmt2(debt)) }}</div>
   {% endif %}
 </div>
 {% set reset_args = dict(keep) %}
 {% if recipient == "garage" and not cert_application %}{% set _x = reset_args.update({"owner": person.id ~ ":" ~ garage.id}) %}{% endif %}
 {% if recipient == "person" %}{% set _x = reset_args.update({"person_id": person.id}) %}{% endif %}
+{% if recipient == "sale" %}{% set _x = reset_args.update({"owner": (person.id ~ ":" ~ garage.id) if person else "", "garage_id": garage.id if garage and not person else "", "buyer_id": buyer.id if buyer else ""}) %}{% endif %}
 <form method="post" action="{{ url_for('documents.create') }}">
   {% for k, v in keep.items() %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
   {% if recipient == "garage" and not cert_application %}<input type="hidden" name="owner" value="{{ person.id }}:{{ garage.id }}">{% endif %}
   {% if recipient == "person" %}<input type="hidden" name="person_id" value="{{ person.id }}">{% endif %}
+  {% if recipient == "sale" %}
+  <input type="hidden" name="owner" value="{{ (person.id ~ ':' ~ garage.id) if person else '' }}">
+  <input type="hidden" name="garage_id" value="{{ garage.id if garage and not person else '' }}">
+  <input type="hidden" name="buyer_id" value="{{ buyer.id if buyer else '' }}">
+  {% endif %}
   <div class="no-print d-flex align-items-end gap-3 mb-2" style="max-width: 210mm; margin: 0 auto;">
     <div>
       <label class="form-label small mb-1" for="docDate">{{ _("Дата документа") }}</label>

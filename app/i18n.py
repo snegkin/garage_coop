@@ -3740,6 +3740,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "отменил": "undone by",
         "Вернуть карточку к данным до этого одобрения? Правки карточки, сделанные после него, тоже откатятся.": "Restore the record to its data before this approval? Edits made to the record after it will be rolled back too.",
         "Отменить одобрение": "Undo approval",
+        "По времени отправки, последний запрос — внизу.": "By submission time, the latest request is at the bottom.",
         "{provider} не выполнил вход — попробуйте ещё раз или войдите по логину.": "{provider} did not complete the sign-in — try again or sign in with your login.",
         "Не удалось связаться с {provider} — попробуйте позже или войдите по логину.": "Could not reach {provider} — try later or sign in with your login.",
         "Номер телефона из {provider} указан сразу в нескольких карточках кооператива, поэтому войти по нему нельзя. Сообщите правлению — карточки нужно исправить.": "The phone number from {provider} appears in several cooperative records, so it cannot be used to sign in. Let the board know so the records can be fixed.",

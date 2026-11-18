@@ -158,3 +158,15 @@ def test_revert_of_legacy_approval_falls_back_to_previous_approved(db, client):
     assert person.email == "full@example.com"
     assert person.registration_address == "ул. Полная, 1"
     assert db.get(PersonDataRevision, older.id).status == S.REVERTED
+
+
+def test_history_lists_oldest_first(db, client):
+    person = _setup(db)
+    for i, email in enumerate(["first@example.com", "second@example.com"]):
+        db.add(PersonDataRevision(person_id=person.id, submitted_by_user_id=1, status=S.REJECTED,
+                                  fields_snapshot=json.dumps({"email": email}),
+                                  submitted_at=dt.datetime(2026, 11, 1, 10 + i, 0)))
+    db.commit()
+    login(client, "chair", "pw")
+    html = client.get(f"/persons/{person.id}").get_data(as_text=True)
+    assert html.index("first@example.com") < html.index("second@example.com")

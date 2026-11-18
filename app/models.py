@@ -3364,6 +3364,48 @@ class WebPushSubscription(Base):
 
 
 # ---------------------------------------------------------------------------
+# Вход через Яндекс ID и VK ID (app/external_login.py)
+# ---------------------------------------------------------------------------
+
+class ExternalLoginSettings(Base):
+    """Единственная запись — приложения Яндекс ID (oauth.yandex.ru) и VK ID
+    (id.vk.com), через которые можно войти на сайт. Провайдер включён, когда
+    заполнены его реквизиты. VK ID для сайта работает по OAuth 2.1 с PKCE —
+    секрет приложения при обмене кода не нужен, хватает ID приложения."""
+    __tablename__ = "external_login_settings"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    yandex_client_id: Mapped[str | None] = mapped_column(String(64))
+    yandex_client_secret_encrypted: Mapped[str | None] = mapped_column(Text)
+    vk_client_id: Mapped[str | None] = mapped_column(String(32))
+
+
+class ExternalIdentity(Base):
+    """Привязка учётной записи к аккаунту у провайдера: provider — "yandex"
+    или "vk", subject — постоянный ID пользователя у провайдера. Заводится
+    при первом входе (по подтверждённому провайдером телефону, совпавшему с
+    Person.phones) или вручную из профиля. У одной учётной записи — не больше
+    одной привязки к каждому провайдеру."""
+    __tablename__ = "external_identity"
+    __table_args__ = (
+        UniqueConstraint("provider", "subject", name="uq_external_identity_subject"),
+        UniqueConstraint("user_id", "provider", name="uq_external_identity_user_provider"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("user.id", ondelete="CASCADE"), index=True)
+    provider: Mapped[str] = mapped_column(String(16))
+    subject: Mapped[str] = mapped_column(String(64))
+    # Как аккаунт называется у провайдера (логин Яндекса, имя в VK) — только
+    # для показа в профиле.
+    display_name: Mapped[str | None] = mapped_column(String(255))
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.utcnow)
+    last_login_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
+
+    user: Mapped["User"] = relationship()
+
+
+# ---------------------------------------------------------------------------
 # СМС (подтверждение регистрации по телефону, восстановление пароля)
 # ---------------------------------------------------------------------------
 

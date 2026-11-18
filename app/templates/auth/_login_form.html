@@ -38,6 +38,25 @@
   </div>
 </div>
 {% endmacro %}
+{#
+  Вход через Яндекс ID / VK ID (app/external_login.py) — кнопки внутри
+  каждой формы (formaction), чтобы с ними ушли и галочки «Запомнить меня»
+  и «Разрешить уведомления»; formnovalidate — логин и пароль тут не нужны.
+  Показываются только провайдеры, которые председатель настроил.
+#}
+{% macro external_login_buttons() %}
+{% if external_login_providers %}
+<div class="text-center text-muted small my-2">{{ _("или войти через") }}</div>
+<div class="d-flex gap-2">
+  {% for provider in external_login_providers %}
+  <button type="submit" class="btn btn-outline-secondary flex-fill" formnovalidate
+          formaction="{{ url_for('external_login.start', provider=provider, next=login_next_url) if login_next_url else url_for('external_login.start', provider=provider) }}">
+    {{ "Яндекс ID" if provider == "yandex" else "VK ID" }}
+  </button>
+  {% endfor %}
+</div>
+{% endif %}
+{% endmacro %}
 <ul class="nav nav-tabs mb-3" role="tablist">
   <li class="nav-item" role="presentation">
     <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#loginByUsername-{{ form_id }}" type="button" role="tab">{{ _("По логину") }}</button>
@@ -59,6 +78,7 @@
       </div>
       {{ login_checkboxes("Username", form_id) }}
       <button class="btn btn-primary w-100">{{ _("Войти") }}</button>
+      {{ external_login_buttons() }}
     </form>
     <div class="text-end mt-3">
       <a href="{{ url_for('auth.forgot_password') }}" class="small">{{ _("Забыли пароль?") }}</a>
@@ -77,6 +97,7 @@
       <div class="form-text mb-3">{{ _("Если у вас ещё нет учётной записи, но этот номер телефона есть в базе кооператива — на него придёт СМС с кодом подтверждения, а введённый здесь пароль станет вашим паролем для входа.") }}</div>
       {{ login_checkboxes("Phone", form_id) }}
       <button class="btn btn-primary w-100">{{ _("Войти") }}</button>
+      {{ external_login_buttons() }}
     </form>
     <div class="text-end mt-3">
       <a href="{{ url_for('auth.forgot_password') }}" class="small">{{ _("Забыли пароль?") }}</a>
@@ -96,8 +117,15 @@
     var box = form.querySelector && form.querySelector(".js-enable-push");
     if (!box || !box.checked || !window.Notification || Notification.permission !== "default") return;
     e.preventDefault();
+    // form.submit() не учитывает formaction нажатой кнопки (Яндекс ID / VK ID).
+    var submitter = e.submitter;
     var done = false;
-    function proceed() { if (!done) { done = true; form.submit(); } }
+    function proceed() {
+      if (done) return;
+      done = true;
+      if (submitter && submitter.hasAttribute("formaction")) form.action = submitter.formAction;
+      form.submit();
+    }
     try {
       var result = Notification.requestPermission(proceed);
       if (result && result.then) result.then(proceed, proceed);

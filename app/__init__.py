@@ -150,6 +150,7 @@ def create_app(config_class=Config):
         from . import attention
         from .accounting import balance as _balance
         from . import board_chat as _board_chat
+        from . import external_login as _external_login
         from .permissions import is_board, is_chairman, is_privileged
         coop = database.db_session.query(Cooperative).first()
         coop_name = (coop.short_name or coop.full_name) if coop and (coop.short_name or coop.full_name) else "ГСК"
@@ -234,6 +235,9 @@ def create_app(config_class=Config):
             "attention_items": attention.items(user, attention_counts),
             "attention_total": attention.total(attention_counts),
             "login_next_url": login_next_url,
+            # Кнопки «Яндекс ID»/«VK ID» на форме входа — только для
+            # анонимного посетителя (см. auth/_login_form.html).
+            "external_login_providers": _external_login.enabled_providers() if user is None else [],
             "webpush_prompt": webpush_prompt,
             "webpush_public_key": webpush_public_key,
         }
@@ -273,6 +277,7 @@ def create_app(config_class=Config):
     from .sms_settings import bp as sms_settings_bp
     from .telegram_settings import bp as telegram_settings_bp
     from .max_settings import bp as max_settings_bp
+    from .external_login import bp as external_login_bp
     from .board_chat import bp as board_chat_bp
     from .revision_chat import bp as revision_chat_bp
     from .legal_docs import bp as legal_docs_bp
@@ -317,6 +322,7 @@ def create_app(config_class=Config):
     app.register_blueprint(sms_settings_bp)
     app.register_blueprint(telegram_settings_bp)
     app.register_blueprint(max_settings_bp)
+    app.register_blueprint(external_login_bp)
     app.register_blueprint(board_chat_bp)
     app.register_blueprint(revision_chat_bp)
     app.register_blueprint(legal_docs_bp)

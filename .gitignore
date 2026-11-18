@@ -43,3 +43,6 @@ deployment/deploy/deploy.conf
 # Корневые сертификаты УЦ для API банков — deploy.sh кладёт их на сервер
 # в instance/bundles/ (deployment/deploy/README.md, «Сертификаты»), в git не храним
 deployment/deploy/bundles/
+
+# Пароли почтовых ящиков (для imapsync), не коммитить
+/*@*.txt

@@ -265,7 +265,10 @@
 <div class="collapse" id="personRevisionsHistory">
 {% if revisions %}
 <div class="bg-body p-3 rounded border">
-  {% for rev in revisions|sort(attribute='submitted_at', reverse=true) %}
+  {# По времени отправки, последний запрос — внизу: так порядок одобрения
+     совпадает с порядком чтения сверху вниз. #}
+  <p class="text-muted small">{{ _("По времени отправки, последний запрос — внизу.") }}</p>
+  {% for rev in revisions|sort(attribute='submitted_at') %}
   <div class="border-bottom pb-2 mb-2 {% if rev.status.value == 'pending' %}bg-warning-subtle rounded p-2{% endif %}">
     <div class="d-flex justify-content-between align-items-start">
       <div>

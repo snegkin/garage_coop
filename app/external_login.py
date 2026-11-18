@@ -257,6 +257,14 @@ def _persons_by_phone_digits(digits: str) -> set[int]:
     }
 
 
+def _fill_vk_contact(provider: str, profile: Profile, user: User) -> None:
+    """VK ID подтвердил аккаунт — заносим его в поле VK карточки, если оно
+    пустое (без ревизии председателя: аккаунт подтверждён самим VK).
+    Заполненное поле не трогаем — его мог вписать человек или правление."""
+    if provider == VK and user.person is not None and not user.person.vk:
+        user.person.vk = f"id{profile.subject}"
+
+
 def _mask_phone(digits: str) -> str:
     return f"…{digits[-4:]}" if len(digits) >= 4 else digits
 
@@ -338,6 +346,7 @@ def _link(provider: str, profile: Profile):
     database.db_session.add(ExternalIdentity(
         user_id=g.user.id, provider=provider, subject=profile.subject, display_name=profile.display_name,
     ))
+    _fill_vk_contact(provider, profile, g.user)
     audit.record(
         "account.external_link", entity_type="user", entity_id=g.user.id,
         summary=f"К учётной записи «{g.user.username}» привязан {title} ({profile.display_name or profile.subject})",
@@ -420,6 +429,7 @@ def _login(provider: str, profile: Profile, pending: dict):
         return login_page
 
     identity.last_login_at = dt.datetime.utcnow()
+    _fill_vk_contact(provider, profile, user)
     if profile.display_name:
         identity.display_name = profile.display_name
     return _complete_login(

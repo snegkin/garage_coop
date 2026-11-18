@@ -79,7 +79,7 @@ def test_bot_started_links_account(app, db, monkeypatch):
     other.max_link_token = "zzz999"
     db.commit()
     _updates(monkeypatch, fake, {"updates": [
-        {"update_type": "bot_started", "chat_id": 9001, "user": {"user_id": 555, "name": "Иван"}, "payload": "abc123"},
+        {"update_type": "bot_started", "chat_id": 9001, "user": {"user_id": 555, "name": "Иван", "username": "ivan_max"}, "payload": "abc123"},
         {"update_type": "bot_started", "chat_id": 9002, "user": {"user_id": 556}, "payload": "wrong"},
         {"update_type": "bot_started", "chat_id": 9003, "user": {"user_id": 557}, "payload": None},
     ], "marker": 7})
@@ -88,6 +88,7 @@ def test_bot_started_links_account(app, db, monkeypatch):
     db.refresh(person)
     db.refresh(other)
     assert person.max_user_id == 555 and person.max_link_token is None
+    assert person.max_messenger == "@ivan_max"
     assert other.max_user_id is None and other.max_link_token == "zzz999"
     [welcome] = fake.messages
     assert welcome["params"] == {"user_id": 555} and "Готово" in welcome["body"]["text"]

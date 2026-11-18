@@ -421,6 +421,11 @@ def poll_and_link_accounts() -> tuple[int, int]:
         chat_id = message["chat"]["id"]
         person.telegram_chat_id = chat_id
         person.telegram_link_token = None
+        # Аккаунт подтверждён самим Telegram — в поле контактов карточки,
+        # если оно пустое (заполненное мог вписать человек или правление).
+        username = (message.get("from") or {}).get("username")
+        if username and not person.telegram:
+            person.telegram = f"@{username}"
         linked += 1
         try:
             send_message(

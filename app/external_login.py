@@ -50,7 +50,7 @@ from .auth import (
 from .bank_api import crypto
 from .i18n import translate as _
 from .login_generation import generate_unique_login
-from .models import ExternalIdentity, ExternalLoginSettings, RoleEnum, User
+from .models import ExternalIdentity, ExternalLoginSettings, Phone, RoleEnum, User
 from .rate_limit import limiter
 
 bp = Blueprint("external_login", __name__, url_prefix="/auth/external")
@@ -235,6 +235,28 @@ def _check_provider(provider: str) -> ExternalLoginSettings:
     return settings
 
 
+# Коды ошибки в адресе возврата, когда человек сам отказался (нажал
+# «Отмена» или не дал доступ) — это не сбой, в журнал не пишем.
+CANCEL_ERRORS = {"access_denied", "user_denied", "cancel", "cancelled"}
+
+
+def _audit_failure(detail: str) -> None:
+    """Технические подробности сбоя — в журнал, человеку на экран — общее
+    сообщение. Пишется и при привязке из профиля (тогда актор — g.user)."""
+    audit.record("auth.login_failed", summary=f"Не удалось войти через внешний сервис: {detail}")
+    database.db_session.commit()
+
+
+def _persons_by_phone_digits(digits: str) -> set[int]:
+    """ID всех карточек с этим номером — чтобы отличить «номера нет» от
+    «номер в нескольких карточках» (auth._person_by_phone_digits в обоих
+    случаях отдаёт None)."""
+    return {
+        p.person_id for p in database.db_session.query(Phone)
+        if _normalize_phone_digits(p.number) == digits
+    }
+
+
 def _mask_phone(digits: str) -> str:
     return f"…{digits[-4:]}" if len(digits) >= 4 else digits
 
@@ -270,8 +292,13 @@ def callback(provider):
     fail_to = url_for("cabinet.profile") if g.user is not None else url_for("auth.login")
 
     if not params.get("code"):
-        error = params.get("error_description") or params.get("error") or "—"
-        flash(_("{provider}: вход не выполнен ({error}).", provider=title, error=error), "danger")
+        error = params.get("error") or ""
+        if error in CANCEL_ERRORS:
+            flash(_("Вход через {provider} отменён.", provider=title), "info")
+        else:
+            detail = params.get("error_description") or error or "нет кода авторизации"
+            _audit_failure(f"{title} вернул ошибку: {detail}")
+            flash(_("{provider} не выполнил вход — попробуйте ещё раз или войдите по логину.", provider=title), "danger")
         return redirect(fail_to)
     if not pending or pending.get("provider") != provider or params.get("state") != pending.get("state"):
         flash(_("Не удалось подтвердить запрос входа — попробуйте ещё раз."), "danger")
@@ -286,7 +313,8 @@ def callback(provider):
                 pending["verifier"], callback_url(provider),
             )
     except ExternalLoginError as exc:
-        flash(_("Не удалось войти через {provider}: {error}", provider=title, error=str(exc)), "danger")
+        _audit_failure(str(exc))
+        flash(_("Не удалось связаться с {provider} — попробуйте позже или войдите по логину.", provider=title), "danger")
         return redirect(fail_to)
 
     if pending.get("link") and g.user is not None:
@@ -332,6 +360,15 @@ def _login(provider: str, profile: Profile, pending: dict):
             audit.record("auth.login_failed", summary=f"Неудачная попытка входа {how}: провайдер не передал телефон")
             database.db_session.commit()
             flash(_("{provider} не передал номер телефона. Войдите по логину или телефону и привяжите {provider} в профиле.", provider=title), "danger")
+            return login_page
+        person_ids = _persons_by_phone_digits(profile.phone_digits)
+        if len(person_ids) > 1:
+            audit.record(
+                "auth.login_failed",
+                summary=f"Неудачная попытка входа {how}: телефон {_mask_phone(profile.phone_digits)} указан в нескольких карточках ({len(person_ids)})",
+            )
+            database.db_session.commit()
+            flash(_("Номер телефона из {provider} указан сразу в нескольких карточках кооператива, поэтому войти по нему нельзя. Сообщите правлению — карточки нужно исправить.", provider=title), "danger")
             return login_page
         person = _person_by_phone_digits(profile.phone_digits)
         if person is None:

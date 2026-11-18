@@ -53,8 +53,8 @@ def _start(client, provider="yandex", data=None, next_url=None):
     return parse_qs(urlsplit(resp.headers["Location"]).query)
 
 
-def _callback(client, provider="yandex", **params):
-    return client.get(f"/auth/external/{provider}/callback", query_string=params)
+def _callback(client, provider="yandex", follow_redirects=False, **params):
+    return client.get(f"/auth/external/{provider}/callback", query_string=params, follow_redirects=follow_redirects)
 
 
 def _logged_in_user_id(client):
@@ -150,8 +150,32 @@ def test_ambiguous_phone_refused(client, db, configured, fake_profile):
     _person_with_phone(db, full_name="Второй")
     db.commit()
     state = _start(client)["state"][0]
-    _callback(client, code="c", state=state)
+    resp = _callback(client, code="c", state=state, follow_redirects=True)
     assert _logged_in_user_id(client) is None
+    assert "в нескольких карточках" in resp.get_data(as_text=True)
+
+
+def test_cancel_shows_calm_message_without_audit(client, db, configured):
+    from app.models import AuditLog
+    _start(client)
+    resp = _callback(client, error="access_denied", follow_redirects=True)
+    assert "Вход через Яндекс ID отменён" in resp.get_data(as_text=True)
+    assert db.query(AuditLog).filter_by(action="auth.login_failed").count() == 0
+
+
+def test_provider_failure_hides_details_but_audits_them(client, db, configured, monkeypatch):
+    from app.models import AuditLog
+
+    def broken(settings, code):
+        raise external_login.ExternalLoginError("Яндекс ID, получение токена: invalid_grant")
+
+    monkeypatch.setattr(external_login, "yandex_profile", broken)
+    state = _start(client)["state"][0]
+    html = _callback(client, code="c", state=state, follow_redirects=True).get_data(as_text=True)
+    assert "Не удалось связаться с Яндекс ID" in html
+    assert "invalid_grant" not in html
+    entry = db.query(AuditLog).filter_by(action="auth.login_failed").one()
+    assert "invalid_grant" in entry.summary
 
 
 def test_inactive_account_refused(client, db, configured, fake_profile):

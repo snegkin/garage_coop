@@ -200,7 +200,8 @@ def test_poll_and_link_accounts_links_matching_token(app, db, monkeypatch):
     def fake_get(url, params=None, timeout=None):
         if url.endswith("/getUpdates"):
             return FakeResponse(200, {"ok": True, "result": [
-                {"update_id": 1, "message": {"text": "/start sometoken123", "chat": {"id": 999}}},
+                {"update_id": 1, "message": {"text": "/start sometoken123", "chat": {"id": 999},
+                                             "from": {"id": 999, "username": "ivan_tg"}}},
             ]})
         raise AssertionError(f"unexpected GET {url}")
 
@@ -220,6 +221,7 @@ def test_poll_and_link_accounts_links_matching_token(app, db, monkeypatch):
     db.refresh(person)
     assert person.telegram_chat_id == 999
     assert person.telegram_link_token is None
+    assert person.telegram == "@ivan_tg"  # пустое поле контактов заполнилось
     db.refresh(settings)
     assert settings.last_update_id == 1
     assert len(sent) == 1  # приветственное сообщение

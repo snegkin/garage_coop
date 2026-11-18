@@ -320,3 +320,35 @@ def test_profile_shows_link_buttons(client, db, configured):
     html = client.get("/cabinet/profile").get_data(as_text=True)
     assert "/auth/external/yandex/start" in html
     assert "/auth/external/vk/unlink" in html and "Кузьма К." in html
+
+
+def test_vk_login_fills_empty_vk_contact(client, db, configured, fake_profile):
+    person = _person_with_phone(db)
+    db.commit()
+    fake_profile["profile"] = Profile(subject="777", phone_digits="9001234567", display_name="Иван")
+    state = _start(client, "vk")["state"][0]
+    _callback(client, "vk", code="c", state=state, device_id="d")
+    db.refresh(person)
+    assert person.vk == "id777"
+
+
+def test_vk_link_keeps_filled_vk_contact(client, db, configured, fake_profile):
+    person = make_person(db, "Заполнено Уже", vk="durov")
+    make_user(db, "filled", "pw", person=person)
+    db.commit()
+    login(client, "filled", "pw")
+    fake_profile["profile"] = Profile(subject="777", phone_digits=None, display_name="Иван")
+    state = _start(client, "vk")["state"][0]
+    _callback(client, "vk", code="c", state=state, device_id="d")
+    db.refresh(person)
+    assert person.vk == "durov"
+    assert db.query(ExternalIdentity).one().provider == "vk"
+
+
+def test_yandex_login_does_not_touch_vk_contact(client, db, configured, fake_profile):
+    person = _person_with_phone(db)
+    db.commit()
+    state = _start(client)["state"][0]
+    _callback(client, code="c", state=state)
+    db.refresh(person)
+    assert person.vk is None

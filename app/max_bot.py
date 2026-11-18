@@ -329,6 +329,10 @@ def _link_account(settings: MaxSettings, update: dict) -> bool:
         return False
     person.max_user_id = user_id
     person.max_link_token = None
+    # Как у Telegram: имя пользователя MAX — в пустое поле контактов карточки.
+    username = (update.get("user") or {}).get("username")
+    if username and not person.max_messenger:
+        person.max_messenger = f"@{username}"
     try:
         send_notification(settings, user_id, "Готово! Теперь вы будете получать здесь уведомления с сайта "
                                              "кооператива (если включите их в настройках профиля).")

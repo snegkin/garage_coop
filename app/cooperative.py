@@ -7,6 +7,7 @@ from werkzeug.utils import secure_filename
 
 from . import database
 from . import audit
+from . import coop_contacts
 from . import notifications
 from .i18n import translate as _, parse_optional_decimal as _parse_decimal
 from .auth import login_required, roles_required
@@ -142,6 +143,9 @@ def edit():
         coop.postal_address = f.get("postal_address") or None
         coop.email = f.get("email") or None
         coop.website = f.get("website") or None
+        coop.domain_alias = (f.get("domain_alias") or "").strip() or None
+        coop.site_display = f.get("site_display") if f.get("site_display") in coop_contacts.DISPLAY_CHOICES else "main"
+        coop.email_display = f.get("email_display") if f.get("email_display") in coop_contacts.DISPLAY_CHOICES else "main"
         coop.phone = (f.get("phone") or "").strip() or None
         coop.social_links = (f.get("social_links") or "").strip() or None
         reg_date = f.get("registration_date")

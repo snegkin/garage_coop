@@ -285,6 +285,45 @@ def test_chairman_can_save_settings(db, client):
     assert settings.incoming_host == "imap.new.com"
 
 
+_SETTINGS_FORM = {
+    "incoming_protocol": "imap", "incoming_host": "imap.example.com", "incoming_port": "993",
+    "incoming_encryption": "ssl", "smtp_host": "smtp.example.com", "smtp_port": "587",
+    "smtp_encryption": "starttls", "username": "pravlenie@example.com", "password": "",
+}
+
+
+def test_changing_account_resets_known_message_ids(db, client):
+    """Переезд на другой ящик: UID там свои, без сброса ближайший опрос
+    принял бы всю перенесённую историю за новые письма."""
+    _make_chairman(db)
+    settings = _make_settings(db)
+    settings.known_message_ids = '["1", "2"]'
+    settings.unread_count = 5
+    db.commit()
+    login(client, "chair1", "pass1234")
+
+    client.post("/mailbox/settings", data={**_SETTINGS_FORM, "username": "pravlenie@new.example.com"})
+
+    db.expire_all()
+    settings = db.query(MailboxSettings).first()
+    assert settings.known_message_ids is None
+    assert settings.unread_count == 0
+
+
+def test_other_settings_change_keeps_known_message_ids(db, client):
+    _make_chairman(db)
+    settings = _make_settings(db)
+    settings.known_message_ids = '["1", "2"]'
+    db.commit()
+    login(client, "chair1", "pass1234")
+
+    client.post("/mailbox/settings", data={**_SETTINGS_FORM, "from_name": "Правление ГК"})
+
+    db.expire_all()
+    settings = db.query(MailboxSettings).first()
+    assert settings.known_message_ids == '["1", "2"]'
+
+
 def test_chairman_can_clear_sent_folder(db, client):
     """Очистка поля через форму — это UPDATE уже существующей записи, не
     INSERT, поэтому column-level default модели ("Sent") не подставляется

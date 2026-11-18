@@ -827,6 +827,7 @@ def save_settings():
     вводить пароль заново при каждой правке любого другого поля."""
     settings = _get_or_create_settings()
     f = request.form
+    old_account = (settings.incoming_protocol, settings.incoming_host, settings.username)
 
     try:
         settings.incoming_protocol = MailProtocol(f.get("incoming_protocol"))
@@ -858,6 +859,14 @@ def save_settings():
         settings.password_encrypted = crypto.encrypt(password)
 
     settings.last_error = None
+
+    # Другой ящик (переезд, новый логин): UID/UIDL писем там свои, старый
+    # список известных к нему не подходит — без сброса ближайший опрос
+    # принял бы всю историю за новые письма и разослал уведомления. NULL —
+    # бутстрап, см. _new_message_ids.
+    if (settings.incoming_protocol, settings.incoming_host, settings.username) != old_account:
+        settings.known_message_ids = None
+        settings.unread_count = 0
 
     audit.record(
         "mailbox.settings_save",

@@ -166,4 +166,109 @@ def entity_url(entity_type: str | None, entity_id: int | None) -> str | None:
         return url_for("forum.view", topic_id=post.topic_id, _anchor=f"post-{post.id}") if post else None
     if entity_type == "bulletin_post":
         return url_for("bulletin.list_posts", _anchor=f"bulletin-{entity_id}")
+    if entity_type == "mailbox_trash_message":
+        # UID письма в «Корзине» почты правления (app/mailbox.py: delete_message).
+        from .models import MailboxSettings
+        settings = database.db_session.query(MailboxSettings).first()
+        if settings is None or not settings.trash_folder:
+            return None
+        return url_for("mailbox.view_message", uid=entity_id, folder=settings.trash_folder)
     return None
+
+
+# Записи без своей карточки (настройки, удалённые объекты, массовые
+# действия) — ссылка на раздел, к которому относится действие: точное
+# совпадение кода, иначе префикс «раздел.». Порядок не важен — точный
+# код проверяется раньше префикса.
+_ACTION_PAGES = {
+    "account_format.": ("finance.account_format", {}),
+    "bank_account.": ("finance.bank_accounts", {}),
+    "board_term.": ("governance.view", {}),
+    "revision_commission.": ("governance.view", {}),
+    "control_meter.": ("control_meters.list_tree", {}),
+    "cooperative.": ("cooperative.view", {}),
+    "counterparty.": ("counterparties.list_counterparties", {}),
+    "document.": ("cooperative.list_documents", {}),
+    "external_login.": ("external_login.settings_page", {}),
+    "facsimile.": ("cooperative.edit", {}),
+    "fee_type.": ("finance.fee_types", {}),
+    "key_rate.": ("penalty.view", {}),
+    "penalty_amnesty.": ("penalty.view", {}),
+    "mailbox.": ("mailbox.inbox", {}),
+    "max.": ("max_settings.view", {}),
+    "telegram.": ("telegram_settings.view", {}),
+    "sms.": ("sms_settings.view", {}),
+    "meeting.": ("meetings.list_meetings", {}),
+    "member_account.": ("finance.member_accounts", {}),
+    "news.": ("main.index", {}),
+    "news_gallery.": ("news_gallery.index", {}),
+    "power.": ("power.view", {}),
+    "vote.": ("voting.list_votes", {}),
+    "wiki.": ("wiki.list_pages", {}),
+    "postal_api.": ("postal_letters.api_settings", {}),
+}
+
+# Действия над счётом банка — на ту страницу счёта, где это видно.
+_BANK_ACCOUNT_PAGES = (
+    ("bank_api.statement", "bank_sync.statement"),
+    ("bank_api.balance", "bank_sync.statement"),
+    ("bank_api.payment_registry", "bank_sync.payment_registry"),
+    ("bank_api.charge_registry", "bank_sync.charge_registry"),
+)
+
+
+def _entity_link(action: str | None, entity_type: str | None, entity_id: int | None) -> str | None:
+    """Ссылки на сущности, которых нет в entity_url: им нужен код действия
+    (счёт банка — выписка или реестр) или запрос в БД."""
+    if entity_id is None:
+        return None
+    from .models import Document, PostalDispatch, CounterpartyPayment, User
+    if entity_type == "bank_account":
+        for prefix, endpoint in _BANK_ACCOUNT_PAGES:
+            if action and action.startswith(prefix):
+                return url_for(endpoint, account_id=entity_id)
+        return url_for("finance.bank_accounts")
+    if entity_type == "user":
+        user = database.db_session.get(User, entity_id)
+        if user is not None and user.person_id:
+            return url_for("persons.detail", person_id=user.person_id)
+        return url_for("persons.accounts_list")
+    if entity_type == "document":
+        doc = database.db_session.get(Document, entity_id)
+        if doc is not None and doc.counterparty_id:
+            return url_for("counterparties.detail", counterparty_id=doc.counterparty_id)
+        return url_for("cooperative.list_documents")
+    if entity_type == "postal_dispatch":
+        return url_for("postal_letters.edit", dispatch_id=entity_id) if database.db_session.get(PostalDispatch, entity_id) else None
+    if entity_type == "counterparty_payment":
+        payment = database.db_session.get(CounterpartyPayment, entity_id)
+        return url_for("counterparties.detail", counterparty_id=payment.counterparty_id) if payment else None
+    if entity_type == "control_meter":
+        return url_for("control_meters.detail", node_id=entity_id)
+    if entity_type == "court_section":
+        return url_for("legal_docs.court_sections_list")
+    if entity_type == "annual_report":
+        return url_for("annual_reports.view", report_id=entity_id)
+    if entity_type == "fee_type":
+        return url_for("finance.fee_types")
+    if entity_type == "cooperative":
+        return url_for("cooperative.view")
+    if entity_type == "postal_api_settings":
+        return url_for("postal_letters.api_settings")
+    return None
+
+
+def link_for(action: str | None, entity_type: str | None, entity_id: int | None) -> str | None:
+    """Ссылка из записи журнала: на карточку сущности, иначе — на раздел,
+    к которому относится действие (_ACTION_PAGES)."""
+    try:
+        link = entity_url(entity_type, entity_id) or _entity_link(action, entity_type, entity_id)
+    except Exception:
+        link = None  # удалённая сущность/маршрут — без ссылки, журнал не должен падать
+    if link or not action:
+        return link
+    for prefix, (endpoint, kwargs) in _ACTION_PAGES.items():
+        if action == prefix or action.startswith(prefix):
+            return url_for(endpoint, **kwargs)
+    return None
+

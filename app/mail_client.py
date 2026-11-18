@@ -501,9 +501,10 @@ class IncomingMailClient(abc.ABC):
         ImapMailClient."""
         raise MailError("Изменение статуса письма не поддерживается этим протоколом")
 
-    def move_message(self, uid: str, folder: str, target_folder: str) -> None:
+    def move_message(self, uid: str, folder: str, target_folder: str) -> str | None:
         """Перемещение в другую папку (для «Корзины») — по умолчанию не
-        поддерживается (POP3: папок нет вовсе), переопределено в ImapMailClient."""
+        поддерживается (POP3: папок нет вовсе), переопределено в ImapMailClient.
+        Возвращает UID письма в целевой папке, если сервер его сообщил."""
         raise MailError("Перемещение писем между папками не поддерживается этим протоколом")
 
     def count_unread(self, folder: str = DEFAULT_FOLDER) -> int:
@@ -673,25 +674,47 @@ class ImapMailClient(IncomingMailClient):
         except imaplib.IMAP4.error as exc:
             raise MailError(f"IMAP: {exc}") from exc
 
-    def move_message(self, uid: str, folder: str, target_folder: str) -> None:
+    def move_message(self, uid: str, folder: str, target_folder: str) -> str | None:
         """COPY в целевую папку (создавая её при отсутствии — как в
         _save_to_sent_folder) + пометка оригинала к удалению — обычной IMAP
         MOVE не пользуемся, чтобы не зависеть от необязательного расширения
-        протокола (RFC 6851), COPY+STORE+EXPUNGE поддерживает любой сервер."""
+        протокола (RFC 6851), COPY+STORE+EXPUNGE поддерживает любой сервер.
+
+        Возвращает UID копии в целевой папке из ответа COPYUID (расширение
+        UIDPLUS, RFC 4315 — есть у Dovecot и большинства серверов), иначе
+        None — для ссылки на письмо в корзине из журнала."""
         self._ensure_selected(folder)
         try:
+            self._pop_copyuid()  # не спутать с ответом прошлой команды
             typ, _data = self.conn.uid("copy", uid.encode(), f'"{target_folder}"')
             if typ != "OK":
                 self.conn.create(f'"{target_folder}"')
                 typ, _data = self.conn.uid("copy", uid.encode(), f'"{target_folder}"')
                 if typ != "OK":
                     raise MailError(f"IMAP: не удалось скопировать письмо в «{target_folder}»")
+            new_uid = self._pop_copyuid()
             typ, _data = self.conn.uid("store", uid.encode(), "+FLAGS", "(\\Deleted)")
             if typ != "OK":
                 raise MailError("IMAP: не удалось пометить письмо к удалению")
             self.conn.expunge()
         except imaplib.IMAP4.error as exc:
             raise MailError(f"IMAP: {exc}") from exc
+        return new_uid
+
+    def _pop_copyuid(self) -> str | None:
+        """«[COPYUID <uidvalidity> <старые> <новые>]» из ответа на COPY —
+        imaplib складывает коды ответа в untagged_responses."""
+        response = getattr(self.conn, "response", None)
+        if response is None:
+            return None
+        _code, data = response("COPYUID")
+        for item in reversed(data or []):
+            if not item:
+                continue
+            parts = (item.decode() if isinstance(item, bytes) else str(item)).split()
+            if len(parts) == 3 and parts[2].isdigit():
+                return parts[2]
+        return None
 
     def count_unread(self, folder: str = DEFAULT_FOLDER) -> int:
         return len(self.search_uids("UNSEEN", folder))

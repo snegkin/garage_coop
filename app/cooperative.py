@@ -331,7 +331,8 @@ def create_document():
             counterparty_id=int(f["counterparty_id"]) if f.get("counterparty_id") else None,
         )
         database.db_session.add(doc)
-        audit.record("document.create", f"Добавлен документ: {doc.title}")
+        database.db_session.flush()
+        audit.record("document.create", f"Добавлен документ: {doc.title}", entity_type="document", entity_id=doc.id)
         if not doc.is_internal:
             notifications.after_commit(
                 notifications.notify_subscribers, "documents", f"Новый документ кооператива: {doc.title}",
@@ -386,7 +387,7 @@ def edit_document(doc_id):
         doc.file_path = save_upload(file_storage, current_app.config["UPLOAD_FOLDER"])
         doc.file_name = secure_filename(file_storage.filename)
 
-    audit.record("document.edit", f"Изменён документ: {doc.title}")
+    audit.record("document.edit", f"Изменён документ: {doc.title}", entity_type="document", entity_id=doc.id)
     database.db_session.commit()
     flash(_("Документ обновлён."), "success")
     return _document_list_redirect(doc.counterparty_id)
@@ -419,7 +420,10 @@ def delete_document(doc_id):
         full_path = os.path.join(current_app.config["UPLOAD_FOLDER"], doc.file_path)
         if os.path.exists(full_path):
             os.remove(full_path)
-    audit.record("document.delete", f"Удалён документ: {doc.title}")
+    audit.record(
+        "document.delete", f"Удалён документ: {doc.title}",
+        entity_type="counterparty" if doc.counterparty_id else None, entity_id=doc.counterparty_id,
+    )
     database.db_session.delete(doc)
     database.db_session.commit()
     flash(_("Документ удалён."), "success")

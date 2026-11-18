@@ -132,8 +132,15 @@ class FakeImapConn:
             target = self.mailboxes.setdefault(name, {})
             next_uid = (max(target) + 1) if target else 1
             target[next_uid] = raw
+            self.copyuid = f"1 {uid} {next_uid}".encode()  # как у сервера с UIDPLUS
             return ("OK", [b""])
         return ("NO", [None])
+
+    def response(self, code):
+        if code == "COPYUID":
+            value, self.copyuid = getattr(self, "copyuid", None), None
+            return (code, [value])
+        return (code, [None])
 
     def expunge(self):
         self.expunged = True
@@ -1150,6 +1157,14 @@ def test_delete_message_moves_to_trash_folder_when_configured(db, client, monkey
     actions = [a.action for a in db.query(AuditLog).all()]
     assert "mailbox.message_trash" in actions
     assert "mailbox.message_delete" not in actions
+    entry = db.query(AuditLog).filter_by(action="mailbox.message_trash").one()
+    # тема и отправитель — записи об удалении разных писем различимы
+    assert "«" in entry.summary and " от " in entry.summary
+    assert "№1" not in entry.summary
+    trash_uid = max(fake.mailboxes["Trash"])
+    with client.application.test_request_context():
+        from app import audit
+        assert audit.entity_url(entry.entity_type, entry.entity_id) == f"/mailbox/messages/{trash_uid}?folder=Trash"
 
 
 def test_delete_message_from_trash_is_permanent(db, client, monkeypatch):

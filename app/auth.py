@@ -115,6 +115,18 @@ def _person_by_email(email_lower: str) -> "Person | None":
     return matches[0]
 
 
+def initial_role(person: Person) -> RoleEnum:
+    """Роль учётной записи, которую человек заводит себе сам (по телефону
+    с СМС-кодом или входом через Яндекс/VK) — по его должности в карточке."""
+    if person.is_chairman:
+        return RoleEnum.CHAIRMAN
+    if person.is_accountant:
+        return RoleEnum.ACCOUNTANT
+    if person.is_board_member:
+        return RoleEnum.BOARD
+    return RoleEnum.MEMBER
+
+
 def is_safe_next_url(next_url: str | None) -> bool:
     """
     Проверяет, что `next` — это относительный путь внутри нашего сайта, а не
@@ -177,7 +189,8 @@ def _login_form_choices() -> dict:
     }
 
 
-def _complete_login(user: User, summary: str, remember: bool = False, enable_push: bool = False):
+def _complete_login(user: User, summary: str, remember: bool = False, enable_push: bool = False,
+                    next_url: str | None = None):
     """Общий хвост успешного входа — заводит сессию, пишет аудит,
     редиректит на next (если безопасный), иначе — на главную (по прямой
     просьбе не уводить рядового члена на дашборд/«мои гаражи»
@@ -203,7 +216,11 @@ def _complete_login(user: User, summary: str, remember: bool = False, enable_pus
     страница подпишет этот браузер на push (тот же одноразовый флаг
     webpush_prompt, что и у force_change_password) и включит push как
     способ доставки — в дополнение к уже выбранным, и только если человек
-    не отключал push в профиле сам."""
+    не отключал push в профиле сам.
+
+    next_url — куда вернуть после входа, если не из ?next= текущего
+    запроса: вход через Яндекс/VK (app/external_login.py) завершается на
+    адресе возврата провайдера, и next к этому моменту лежит в сессии."""
     session.clear()
     session["user_id"] = user.id
     session.permanent = remember
@@ -222,7 +239,7 @@ def _complete_login(user: User, summary: str, remember: bool = False, enable_pus
         session["webpush_prompt"] = True
     database.db_session.commit()
 
-    next_url = request.args.get("next")
+    next_url = next_url or request.args.get("next")
     if is_safe_next_url(next_url):
         return redirect(next_url)
     if ROLE_LEVEL[user.role] >= ROLE_LEVEL[RoleEnum.BOARD]:
@@ -443,13 +460,8 @@ def register_phone_confirm():
 
     existing_usernames = {u for (u,) in database.db_session.query(User.username)}
     username = generate_unique_login(person.full_name, existing_usernames)
-    initial_role = RoleEnum.CHAIRMAN if person.is_chairman else (
-        RoleEnum.ACCOUNTANT if person.is_accountant else (
-            RoleEnum.BOARD if person.is_board_member else RoleEnum.MEMBER
-        )
-    )
     user = User(
-        username=username, password_hash=password_hash, role=initial_role,
+        username=username, password_hash=password_hash, role=initial_role(person),
         person_id=person.id, is_active=True,
     )
     database.db_session.add(user)

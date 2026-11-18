@@ -1,0 +1,28 @@
+{# Привязка Яндекс ID / VK ID в профиле (app/external_login.py). Кнопка
+   «Привязать» — обычная форма без data-ajax: она уводит браузер к провайдеру. #}
+{% set external_links = external_login_links() %}
+{% if external_links %}
+<h6 class="text-muted mt-4">{{ _("Вход через Яндекс ID и VK ID") }}</h6>
+<ul class="list-group mb-2">
+  {% for item in external_links %}
+  <li class="list-group-item d-flex justify-content-between align-items-center gap-2">
+    <span>
+      {{ item.title }}
+      {% if item.identity %}
+      <span class="text-muted small">— {{ item.identity.display_name or _("привязан") }}</span>
+      {% endif %}
+    </span>
+    {% if item.identity %}
+    <form method="post" action="{{ url_for('external_login.unlink', provider=item.provider) }}" onsubmit="return confirm('{{ _('Отвязать?') }}')">
+      <button class="btn btn-sm btn-outline-secondary">{{ _("Отвязать") }}</button>
+    </form>
+    {% elif item.enabled %}
+    <form method="post" action="{{ url_for('external_login.start', provider=item.provider) }}">
+      <button class="btn btn-sm btn-outline-primary">{{ _("Привязать") }}</button>
+    </form>
+    {% endif %}
+  </li>
+  {% endfor %}
+</ul>
+<p class="text-muted small">{{ _("Если номер телефона в Яндексе или VK совпадает с номером в базе кооператива, аккаунт привяжется сам при первом входе.") }}</p>
+{% endif %}

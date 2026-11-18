@@ -155,6 +155,7 @@
             <li><hr class="dropdown-divider"></li>
             <li><h6 class="dropdown-header">{{ _("Администрирование") }}</h6></li>
             <li><a class="dropdown-item" href="{{ url_for('persons.accounts_list') }}">{{ _("Учётные записи") }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('external_login.settings_page') }}">{{ _("Вход через Яндекс и VK") }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('setup_wizard.index') }}">{{ _("Мастер первоначальной настройки") }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('system_logs.index', section='server') }}">{{ _("Сервер") }}</a></li>
             {% endif %}

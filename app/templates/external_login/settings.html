@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Вход через Яндекс ID и VK ID") }}{% endblock %}
+{% block content %}
+<h3 class="mb-3">{{ _("Вход через Яндекс ID и VK ID") }}</h3>
+<p class="text-muted">{{ _("Кнопки появляются на форме входа, когда заполнены реквизиты приложения. При первом входе человек находится по номеру телефона, подтверждённому Яндексом или VK, — номер должен быть в карточке кооператива. Учётная запись при этом заводится сама, если её ещё не было.") }}</p>
+
+<form method="post" class="row g-4">
+  <div class="col-lg-6">
+    <div class="bg-body p-4 rounded border h-100">
+      <h5>Яндекс ID {% if "yandex" in enabled %}<span class="badge text-bg-success">{{ _("включён") }}</span>{% endif %}</h5>
+      <p class="small text-muted">{{ _("oauth.yandex.ru → Создать приложение → «Для авторизации пользователей», платформа «Веб-сервисы». Права: «Доступ к логину, имени и фамилии» и «Доступ к номеру телефона».") }}</p>
+      <div class="mb-3">
+        <label class="form-label">{{ _("Адрес возврата (Redirect URI)") }}</label>
+        <input class="form-control font-monospace" value="{{ yandex_callback }}" readonly onclick="this.select()">
+      </div>
+      <div class="mb-3">
+        <label class="form-label">ClientID</label>
+        <input class="form-control" name="yandex_client_id" value="{{ settings.yandex_client_id or '' }}" autocomplete="off">
+      </div>
+      <div class="mb-3">
+        <label class="form-label">Client secret</label>
+        <input class="form-control" type="password" name="yandex_client_secret" autocomplete="off" placeholder="{{ _('оставьте пустым, чтобы не менять') if settings.yandex_client_secret_encrypted else '' }}">
+      </div>
+      <div class="small text-muted">{{ _("Привязано учётных записей:") }} {{ linked.get("yandex", 0) }}</div>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="bg-body p-4 rounded border h-100">
+      <h5>VK ID {% if "vk" in enabled %}<span class="badge text-bg-success">{{ _("включён") }}</span>{% endif %}</h5>
+      <p class="small text-muted">{{ _("id.vk.com → вход через VK Бизнес ID → Создать приложение «Веб». Номер телефона VK выдаёт как расширенный доступ — только после верификации профиля кооператива (Госуслуги организации или проверка документов); без него войти можно лишь тем, кто привязал VK в профиле.") }}</p>
+      <div class="mb-3">
+        <label class="form-label">{{ _("Доверенный Redirect URL") }}</label>
+        <input class="form-control font-monospace" value="{{ vk_callback }}" readonly onclick="this.select()">
+      </div>
+      <div class="mb-3">
+        <label class="form-label">{{ _("ID приложения") }}</label>
+        <input class="form-control" name="vk_client_id" value="{{ settings.vk_client_id or '' }}" inputmode="numeric" autocomplete="off">
+      </div>
+      <div class="small text-muted">{{ _("Привязано учётных записей:") }} {{ linked.get("vk", 0) }}</div>
+    </div>
+  </div>
+  <div class="col-12">
+    <button class="btn btn-primary">{{ _("Сохранить") }}</button>
+    <span class="text-muted small ms-2">{{ _("Очистите поле ID, чтобы выключить вход через провайдера.") }}</span>
+  </div>
+</form>
+{% endblock %}

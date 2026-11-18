@@ -13,7 +13,7 @@
 <p>
   {{ coop.full_name if coop else coop_name }}{% if coop %}, ИНН {{ coop.inn }}, ОГРН {{ coop.ogrn }}{% endif %}.
   {% if coop and coop.legal_address %}<br>Адрес: {{ coop.legal_address }}.{% endif %}
-  {% if coop and coop.email %}<br>Электронная почта: <a href="mailto:{{ coop.email }}">{{ coop.email }}</a>.{% endif %}
+  {% if coop_primary_email(coop) %}<br>Электронная почта: <a href="mailto:{{ coop_primary_email(coop) }}">{{ coop_primary_email(coop) }}</a>.{% endif %}
 </p>
 
 <h5 class="mt-4">Какие данные обрабатываются</h5>
@@ -56,7 +56,7 @@
 установленные законодательством для учётных и бухгалтерских документов.
 Вы можете запросить сведения о своих данных, их исправление или удаление,
 а также отозвать согласие на обработку, обратившись к председателю
-кооператива{% if coop and coop.email %} по адресу <a href="mailto:{{ coop.email }}">{{ coop.email }}</a>{% endif %}.
+кооператива{% if coop_primary_email(coop) %} по адресу <a href="mailto:{{ coop_primary_email(coop) }}">{{ coop_primary_email(coop) }}</a>{% endif %}.
 Исправить свои контактные данные можно и самостоятельно в личном кабинете.</p>
 </div>
 {% endblock %}

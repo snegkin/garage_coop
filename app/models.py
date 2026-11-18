@@ -55,6 +55,11 @@ class Cooperative(Base):
     postal_address: Mapped[str | None] = mapped_column(Text)
     email: Mapped[str | None] = mapped_column(String(255))
     website: Mapped[str | None] = mapped_column(String(255))
+    # Второй домен сайта и почты (например, латиницей рядом с кириллическим)
+    # и что из них печатать в документах — см. app/coop_contacts.py.
+    domain_alias: Mapped[str | None] = mapped_column(String(255))
+    site_display: Mapped[str] = mapped_column(String(8), default="main", server_default="main")
+    email_display: Mapped[str] = mapped_column(String(8), default="main", server_default="main")
     phone: Mapped[str | None] = mapped_column(String(100))
     # Группы/каналы в соцсетях и мессенджерах — по ссылке на строку
     # («Telegram: https://t.me/…»); для бланков (app/documents.py, {{соцсети}}).

@@ -26,6 +26,29 @@
       <input class="form-control" type="text" name="website" value="{{ coop.website or '' }}" placeholder="https://...">
     </div>
     <div class="col-md-4">
+      <label class="form-label">{{ _("Второй домен (алиас)") }}</label>
+      <input class="form-control" type="text" name="domain_alias" value="{{ coop.domain_alias or '' }}" placeholder="gm-voshod.ru">
+      <div class="form-text">{{ _("Тот же сайт и почта под другим доменом, например латиницей.") }}</div>
+    </div>
+    {% set display_labels = {"main": _("основной"), "alias": _("алиас"), "both": _("оба")} %}
+    <div class="col-md-4">
+      <label class="form-label">{{ _("Сайт в документах") }}</label>
+      <select class="form-select" name="site_display">
+        {% for value, label in display_labels.items() %}
+        <option value="{{ value }}" {{ 'selected' if coop.site_display == value }}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-4">
+      <label class="form-label">{{ _("Почта в документах") }}</label>
+      <select class="form-select" name="email_display">
+        {% for value, label in display_labels.items() %}
+        <option value="{{ value }}" {{ 'selected' if coop.email_display == value }}>{{ label }}</option>
+        {% endfor %}
+      </select>
+      <div class="form-text">{{ _("Алиас — тот же ящик с доменом алиаса.") }}</div>
+    </div>
+    <div class="col-md-4">
       <label class="form-label">{{ _("Телефон") }}</label>
       <input class="form-control" type="text" name="phone" value="{{ coop.phone or '' }}">
     </div>

@@ -16,6 +16,7 @@ from . import notifications
 from . import max_bot
 from . import telegram_bot
 from . import webpush
+from . import person_revisions
 from .auth import login_required
 from .permissions import is_board
 from .i18n import translate as _
@@ -53,20 +54,7 @@ def profile():
         f = request.form
 
         # Сохраняем текущие (одобренные) данные для сравнения
-        current = {
-            "email": person.email,
-            "telegram": person.telegram,
-            "vk": person.vk,
-            "max_messenger": person.max_messenger,
-            "registration_address": person.registration_address,
-            "residence_address": person.residence_address,
-            "phones": sorted([p.number for p in person.phones]),
-            "birth_date": person.birth_date.isoformat() if person.birth_date else None,
-            "passport_series": person.passport_series,
-            "passport_number": person.passport_number,
-            "passport_issue_date": person.passport_issue_date.isoformat() if person.passport_issue_date else None,
-            "membership_start_date": person.membership_start_date.isoformat() if person.membership_start_date else None,
-        }
+        current = person_revisions.snapshot(person)
         new_data = {
             "email": f.get("email") or None,
             "telegram": f.get("telegram") or None,
@@ -93,10 +81,14 @@ def profile():
             previous_snapshot=json.dumps(current, ensure_ascii=False),
             status=PersonDataRevisionStatus.PENDING,
         )
+        # Новый запрос уже включает всё из ожидающих (форма подставляет их
+        # данные) — старые заменяются, одобрить их по ошибке будет нельзя.
+        superseded = person_revisions.supersede_pending(person.id)
         database.db_session.add(revision)
         audit.record(
             "person.revision_submit", entity_type="person", entity_id=person.id,
-            summary=f"Отправлены на рассмотрение изменённые данные: {person.full_name}",
+            summary=f"Отправлены на рассмотрение изменённые данные: {person.full_name}"
+                    + (f" (заменяет предыдущий запрос: {superseded})" if superseded else ""),
         )
         database.db_session.commit()
         flash(_("Изменения отправлены на рассмотрение председателю."), "success")

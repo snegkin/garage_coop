@@ -649,10 +649,12 @@ def delete_message(uid):
     trash_available = _trash_folder_available(settings)
     move_to_trash = trash_available and folder != settings.trash_folder
 
+    trash_uid = None
     try:
         with mail_client.get_incoming_client(settings) as client:
+            described = _describe_for_audit(client, uid, folder)
             if move_to_trash:
-                client.move_message(uid, folder, settings.trash_folder)
+                trash_uid = client.move_message(uid, folder, settings.trash_folder)
             else:
                 client.delete_message(uid, folder=folder)
             # POP3 удаляет письмо только при QUIT — пересчёт тут его ещё увидит.
@@ -664,13 +666,40 @@ def delete_message(uid):
         return redirect(url_for("mailbox.view_message", uid=uid, folder=folder))
 
     if move_to_trash:
-        audit.record("mailbox.message_trash", f"Письмо из папки «{folder}» перемещено в «{settings.trash_folder}»")
+        # Ссылка — на письмо уже в корзине (UID там другой, его сообщает
+        # сервер, см. ImapMailClient.move_message); не сообщил — без ссылки.
+        audit.record(
+            "mailbox.message_trash", f"Письмо {described} перемещено в корзину",
+            entity_type="mailbox_trash_message" if trash_uid else None,
+            entity_id=int(trash_uid) if trash_uid else None,
+        )
         flash(_("Письмо перемещено в корзину."), "success")
     else:
-        audit.record("mailbox.message_delete", f"Удалено письмо из папки «{folder}»")
+        audit.record("mailbox.message_delete", f"Безвозвратно удалено письмо {described} из папки «{folder}»")
         flash(_("Письмо удалено."), "success")
     database.db_session.commit()
     return redirect(url_for("mailbox.inbox", folder=folder))
+
+
+def _describe_for_audit(client, uid: str, folder: str) -> str:
+    """«Тема» от отправителя, дата — чтобы записи журнала об удалении
+    отличались друг от друга. IMAP — только заголовки; POP3 — письмо целиком
+    (заголовков отдельно его клиент не отдаёт по номеру). Не вышло — номер."""
+    try:
+        if client.supports_flags:
+            found = client.message_summaries([uid], folder)
+            info = found[0] if found else None
+        else:
+            info = client.get_message(uid, folder=folder)
+    except MailError:
+        info = None
+    if info is None:
+        return f"№{uid}"
+    sender = info.from_name or info.from_addr or "неизвестного отправителя"
+    if info.from_name and info.from_addr:
+        sender = f"{info.from_name} <{info.from_addr}>"
+    when = f", {info.date.strftime('%d.%m.%Y %H:%M')}" if info.date else ""
+    return f"«{info.subject or 'без темы'}» от {sender}{when}"
 
 
 @bp.route("/messages/<uid>/state", methods=["POST"])

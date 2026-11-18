@@ -76,6 +76,7 @@ def create_app(config_class=Config):
     chat_emoji.init_app(app)
     theme.init_app(app)
     app.jinja_env.globals["audit_entity_url"] = audit.entity_url
+    app.jinja_env.globals["audit_link_for"] = audit.link_for
     from . import coop_contacts
     app.jinja_env.globals["coop_contacts_line"] = coop_contacts.contacts_line
     app.jinja_env.globals["coop_primary_email"] = coop_contacts.primary_email

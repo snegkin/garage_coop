@@ -2822,6 +2822,12 @@ class PersonDataRevisionStatus(str, enum.Enum):
     PENDING = "pending"   # предложение ожидает рассмотрения
     APPROVED = "approved" # председатель одобрил
     REJECTED = "rejected" # председатель отклонил
+    # Человек отправил более поздний запрос, пока этот ждал рассмотрения
+    # (новый запрос и так включает всё из этого — форма профиля подставляет
+    # ожидающие данные). Одобрить устаревший нельзя: иначе, одобрив оба не по
+    # порядку, можно затереть свежие данные старыми.
+    SUPERSEDED = "superseded"
+    REVERTED = "reverted"  # председатель отменил одобрение, карточка возвращена
 
 
 class PersonDataRevision(Base):
@@ -2850,10 +2856,17 @@ class PersonDataRevision(Base):
     submitted_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.utcnow)
     reviewed_at: Mapped[dt.datetime | None] = mapped_column(DateTime, nullable=True)
     reviewer_user_id: Mapped[int | None] = mapped_column(ForeignKey("user.id"), index=True)
+    # JSON: карточка непосредственно перед одобрением (в отличие от
+    # previous_snapshot — на момент отправки) — что вернуть при отмене
+    # одобрения (person_revisions.revert). У одобренных до появления поля — NULL.
+    applied_over_snapshot: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reverted_at: Mapped[dt.datetime | None] = mapped_column(DateTime, nullable=True)
+    reverted_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("user.id"), nullable=True)
 
     person: Mapped["Person"] = relationship(back_populates="revisions")
     submitter: Mapped["User"] = relationship(foreign_keys=[submitted_by_user_id])
     reviewer: Mapped["User | None"] = relationship(foreign_keys=[reviewer_user_id])
+    reverted_by: Mapped["User | None"] = relationship(foreign_keys=[reverted_by_user_id])
 
 
 class PD4Document(Base):

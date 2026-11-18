@@ -9,6 +9,7 @@ from werkzeug.security import generate_password_hash
 from . import database
 from . import audit
 from . import notifications
+from . import person_revisions
 from .i18n import translate as _
 from .auth import login_required, roles_required, is_safe_next_url, login_taken
 from .permissions import is_board, is_chairman, sync_user_role
@@ -323,8 +324,11 @@ def detail(person_id):
     )
     revision_rows = {}
     court_sections = []
+    revertable_revision_id = None
     if is_chairman():
         revision_rows = {rev.id: _revision_diff_rows(rev, person) for rev in person.revisions}
+        latest_approved = person_revisions.last_approved(person.id)
+        revertable_revision_id = latest_approved.id if latest_approved else None
         court_sections = database.db_session.query(CourtSection).order_by(CourtSection.name).all()
     # Гаражи человека — блок ссылок «Гаражи» на карточке (собственник и
     # лицо для связи), обратная сторона ссылок на людей в карточке гаража.
@@ -350,7 +354,7 @@ def detail(person_id):
         "persons/detail.html", person=person, account=account, member_accounts=member_accounts,
         has_unpaid_penalty=has_unpaid_penalty, ownerships=ownerships, contact_links=contact_links,
         electricity_garages=electricity_garages,
-        revision_rows=revision_rows, court_sections=court_sections, today=dt.date.today(),
+        revision_rows=revision_rows, revertable_revision_id=revertable_revision_id, court_sections=court_sections, today=dt.date.today(),
         applications=visible_applications(person_id=person.id),
         documents=visible_documents(person_id=person.id),
     )
@@ -850,56 +854,6 @@ def toggle_account_active(user_id):
 # Одобрение / отклонение изменений персональных данных (только председатель)
 # ---------------------------------------------------------------------------
 
-def _apply_revision(revision):
-    """Применяет одобренные данные из ревизии к карточке Person."""
-    person = database.db_session.get(Person, revision.person_id)
-    if person is None:
-        return
-    try:
-        snap = json.loads(revision.fields_snapshot)
-    except Exception:
-        return
-    person.email = snap.get("email")
-    person.telegram = snap.get("telegram")
-    person.vk = snap.get("vk")
-    person.max_messenger = snap.get("max_messenger")
-    person.registration_address = snap.get("registration_address")
-    person.residence_address = snap.get("residence_address")
-    # телефоны
-    for phone in list(person.phones):
-        database.db_session.delete(phone)
-    for number in snap.get("phones", []):
-        database.db_session.add(Phone(person_id=person.id, number=number))
-    birth_date_str = snap.get("birth_date")
-    if birth_date_str:
-        try:
-            person.birth_date = dt.date.fromisoformat(birth_date_str)
-        except (ValueError, TypeError):
-            pass
-    else:
-        person.birth_date = None
-    # паспорт
-    person.passport_series = snap.get("passport_series")
-    person.passport_number = snap.get("passport_number")
-    issue_date_str = snap.get("passport_issue_date")
-    if issue_date_str:
-        try:
-            person.passport_issue_date = dt.date.fromisoformat(issue_date_str)
-        except (ValueError, TypeError):
-            pass
-    else:
-        person.passport_issue_date = None
-    # членство
-    membership_start_str = snap.get("membership_start_date")
-    if membership_start_str:
-        try:
-            person.membership_start_date = dt.date.fromisoformat(membership_start_str)
-        except (ValueError, TypeError):
-            pass
-    else:
-        person.membership_start_date = None
-
-
 @bp.route("/persons/<int:person_id>/revisions/approve/<int:revision_id>", methods=["POST"])
 @roles_required(RoleEnum.CHAIRMAN)
 def approve_revision(person_id, revision_id):
@@ -913,10 +867,16 @@ def approve_revision(person_id, revision_id):
         flash(_("Эта ревизия уже обработана."), "warning")
         return redirect(url_for("persons.detail", person_id=person.id))
 
-    _apply_revision(revision)
-    revision.status = PersonDataRevisionStatus.APPROVED
-    revision.reviewed_at = dt.datetime.utcnow()
-    revision.reviewer_user_id = g.user.id
+    newer = person_revisions.newer_revision(revision)
+    if newer is not None:
+        # Устаревший запрос: человек позже отправил другой. Одобрение затёрло
+        # бы свежие данные старыми — помечаем заменённым.
+        person_revisions.supersede_pending(person.id, older_than=newer.submitted_at)
+        database.db_session.commit()
+        flash(_("Этот запрос устарел: позже отправлен другой — рассмотрите его."), "warning")
+        return redirect(url_for("persons.detail", person_id=person.id))
+
+    person_revisions.approve(revision, g.user.id)
     audit.record(
         "person.revision_approve", entity_type="person", entity_id=person.id,
         summary=f"Одобрены и применены изменённые данные: {person.full_name}",
@@ -959,4 +919,35 @@ def reject_revision(person_id, revision_id):
     )
     database.db_session.commit()
     flash(_("Изменения для «{name}» отклонены.", name=person.full_name), "info")
+    return redirect(url_for("persons.detail", person_id=person.id))
+
+
+@bp.route("/persons/<int:person_id>/revisions/revert/<int:revision_id>", methods=["POST"])
+@roles_required(RoleEnum.CHAIRMAN)
+def revert_revision(person_id, revision_id):
+    """Отмена последнего одобрения: карточка возвращается к данным перед
+    ним (см. person_revisions.revert)."""
+    person = database.db_session.get(Person, person_id)
+    if person is None:
+        abort(404)
+    revision = database.db_session.get(PersonDataRevision, revision_id)
+    if revision is None or revision.person_id != person_id:
+        abort(404)
+    if not person_revisions.revert(revision, g.user.id):
+        flash(_("Отменить можно только последнее одобрение по карточке."), "warning")
+        return redirect(url_for("persons.detail", person_id=person.id))
+
+    audit.record(
+        "person.revision_revert", entity_type="person", entity_id=person.id,
+        summary=f"Отменено одобрение изменённых данных, карточка возвращена к прежним: {person.full_name}",
+    )
+    notifications.after_commit(
+        notifications.notify_user_id, revision.submitted_by_user_id, "my_requests",
+        "Одобрение изменений данных отменено",
+        "Председатель отменил одобрение изменений ваших данных — в карточке прежние данные. "
+        "Проверьте профиль и при необходимости отправьте изменения заново.",
+        notifications.path_for("cabinet.profile"),
+    )
+    database.db_session.commit()
+    flash(_("Одобрение отменено, карточка «{name}» возвращена к прежним данным.", name=person.full_name), "success")
     return redirect(url_for("persons.detail", person_id=person.id))

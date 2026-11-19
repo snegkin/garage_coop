@@ -74,8 +74,13 @@ def one_member_one_vote(vote: Vote | None = None) -> bool:
 
 
 def _share_to_weight(share_sum: Decimal, per_member: bool) -> Decimal:
+    """В режиме «один член — один голос» голос человека — сумма его долей,
+    но НЕ БОЛЬШЕ 1: владелец нескольких гаражей не получает лишних голосов,
+    а совладельцы одного гаража делят его голос по долям — иначе, вписав в
+    один гараж сотню «совладельцев», можно было бы выиграть любое
+    голосование. Итого один гараж никогда не даёт больше одного голоса."""
     if per_member:
-        return Decimal("1") if share_sum > 0 else Decimal("0")
+        return min(share_sum, Decimal("1"))
     return share_sum
 
 
@@ -95,7 +100,7 @@ def total_cooperative_weight(vote: Vote | None = None) -> Decimal:
     долей отличается от 1 из-за ошибки в данных.
     """
     if one_member_one_vote(vote):
-        return Decimal(len(vote_ledger.registry_snapshot(per_member=True)))
+        return sum(vote_ledger.registry_snapshot(per_member=True).values(), Decimal("0"))
     ownerships = database.db_session.query(GarageOwnership).all()
     return sum((o.share for o in ownerships), Decimal("0"))
 

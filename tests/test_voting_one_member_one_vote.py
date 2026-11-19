@@ -83,3 +83,20 @@ def test_mode_fixed_at_open_and_in_hash(app, db, client, monkeypatch):
     vote.one_member_one_vote = False
     db.commit()
     assert not vote_ledger.verify(vote).ok
+
+
+def test_stuffing_co_owners_into_one_garage_gives_no_extra_votes(app, db, client, monkeypatch):
+    """Сотня «совладельцев» одного гаража в сумме — всё равно один голос."""
+    monkeypatch.setattr(notifications, "notify_persons", lambda *a, **k: None)
+    db.add(Cooperative(full_name="ГМ", inn="1", kpp="1", ogrn="1", one_member_one_vote=True))
+    honest = make_person(db, full_name="Честный")
+    make_ownership(db, make_garage(db, number="H"), honest)
+    stuffed = make_garage(db, number="S")
+    fakes = [make_person(db, full_name=f"Подставной {i}") for i in range(100)]
+    for p in fakes:
+        make_ownership(db, stuffed, p, share="0.01")
+    db.commit()
+
+    assert person_voting_weight(honest.id) == Decimal("1")
+    assert person_voting_weight(fakes[0].id) == Decimal("0.01")
+    assert total_cooperative_weight() == Decimal("2")

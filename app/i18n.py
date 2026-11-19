@@ -2315,6 +2315,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Удалить из журнала": "Remove from the log",
         "Бланки и шаблоны": "Letterhead & templates",
         "Новый шаблон": "New template",
+        "Уведомления о задолженности (с расчётом по годам и видам взносов), заказные письма, госпошлина и иски — в разделе":
+            "Debt notices (with a breakdown by year and fee type), registered letters, state duty and lawsuits are in",
+        "«Делопроизводство → Должники»": "“Legal proceedings → Debtors”",
         "Документы на официальном бланке кооператива: справки, уведомления, объявления, информационные листы. Шаблон задаёт заголовок и текст с подстановками из реестра; документ составляется по шаблону, правится прямо на бланке и сохраняется в журнал — для печати и PDF.": "Documents on the cooperative's official letterhead: certificates, notices, announcements, information sheets. A template sets the title and text with placeholders from the registry; a document is drawn up from a template, edited right on the letterhead and saved to the log — for printing and PDF.",
         "Запросы справок о владении гаражом": "Garage ownership certificate requests",
         "Шаблоны": "Templates",

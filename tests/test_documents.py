@@ -80,7 +80,9 @@ def test_defaults_and_announcement_without_number(db, client):
     assert {"Заявление о вступлении в кооператив", "Заявление о выходе из кооператива",
             "Заявление на подключение к электрической сети"} <= names
     assert {"Справка о владении гаражом", "Объявление об общем собрании", "Сайт и группы в соцсетях", "Регистрационные данные и реквизиты",
-            "Уведомление о задолженности"} <= names
+            "Письмо нотариусу о наследниках умершего члена кооператива"} <= names
+    # Уведомление о задолженности — только в «Делопроизводстве».
+    assert "Уведомление о задолженности" not in names
     cert = db.query(DocumentTemplate).filter_by(name="Справка о владении гаражом").one()
     assert cert.code == "garage_certificate" and cert.chairman_only
     client.post("/documents/templates/defaults")
@@ -290,7 +292,7 @@ def test_public_blanks_without_login(db, client):
     client.post("/documents/templates/defaults")
     join = db.query(DocumentTemplate).filter_by(name="Заявление о вступлении в кооператив").one()
     leave = db.query(DocumentTemplate).filter_by(name="Заявление о выходе из кооператива").one()
-    notice = db.query(DocumentTemplate).filter_by(name="Уведомление о задолженности").one()
+    notice = db.query(DocumentTemplate).filter_by(name="Регистрационные данные и реквизиты").one()
     assert join.is_public and leave.is_public and not notice.is_public
     # Банковские реквизиты в публичном бланке — прочерком: проверяем на шаблоне с ними.
     client.post(f"/documents/templates/{notice.id}/edit", data={
@@ -334,15 +336,17 @@ def test_chairman_and_applicant_declension(db, app):
         assert documents.fill("{{уважаемый}} {{имя_отчество}}!", ctx) == "Уважаемая Анна Ивановна!"
 
 
-def test_debt_notice_template_declension(db, client):
-    owner, _garage, _chairman = _setup(db)
+def test_notary_letter_about_heirs(db, client):
+    owner, garage, _chairman = _setup(db)
     login(client, "board1", "pass1234")
     client.post("/documents/templates/defaults")
-    notice = db.query(DocumentTemplate).filter_by(name="Уведомление о задолженности").one()
-    page = client.get(f"/documents/new?template_id={notice.id}&person_id={owner.id}").get_data(as_text=True)
-    header = page.split('id="docAddressee"')[1].split("</div>")[0]
-    assert "Петровой Анне Ивановне" in header
-    assert "Уважаемая Анна Ивановна!" in page and "Уважаемый(ая)" not in page
+    letter = db.query(DocumentTemplate).filter_by(
+        name="Письмо нотариусу о наследниках умершего члена кооператива").one()
+    assert letter.recipient == "garage" and not letter.is_public
+    page = client.get(f"/documents/new?template_id={letter.id}&owner={owner.id}:{garage.id}").get_data(as_text=True)
+    assert "к имуществу Петровой Анны Ивановны" in page and "гаража (бокса) № 42" in page
+    assert "ст. 63 Основ законодательства" in page and "заказным" in page
+    assert "{{" not in page.split('id="docAddressee"')[1]
 
 
 def test_greeting_fallbacks():

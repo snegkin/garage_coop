@@ -665,7 +665,22 @@ def test_get_balance_raises_when_balance_endpoint_rejects_request(monkeypatch):
     monkeypatch.setattr(tns_energo_business.requests, "Session", lambda: fake_session)
 
     client = TnsEnergoBusinessBalanceClient("me@example.com", "mypassword", "yar")
-    with pytest.raises(CounterpartyApiError):
+    with pytest.raises(CounterpartyApiError, match="отказ без описания причины"):
+        client.get_balance()
+
+
+def test_get_balance_shows_server_error_text_when_balance_rejected(monkeypatch):
+    """Ответ ТНС, пойманный в проде 17.11.2026: вход прошёл, а запрос
+    баланса вернул status=error с текстом — показываем этот текст."""
+    fake_session = _FakeTnsSession(
+        _login_page_html(),
+        {"success": True, "data": {}},
+        {"status": "error", "data": None, "errors": [{"message": "Ошибка получения данных", "code": 0, "customData": None}]},
+    )
+    monkeypatch.setattr(tns_energo_business.requests, "Session", lambda: fake_session)
+
+    client = TnsEnergoBusinessBalanceClient("me@example.com", "mypassword", "yar")
+    with pytest.raises(CounterpartyApiError, match="ТНС-Энерго Бизнес не отдал баланс: Ошибка получения данных"):
         client.get_balance()
 
 

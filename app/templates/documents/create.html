@@ -11,6 +11,9 @@
   <a data-back-link data-back-label="&larr; {{ _('Назад') }}" class="btn btn-outline-secondary btn-sm" href="{{ url_for('documents.index') }}">{{ _("← к бланкам и шаблонам") }}</a>
 </div>
 
+{% if hint %}
+<div class="alert alert-info no-print small" style="max-width: 210mm; margin: 0 auto 1rem;"><i class="bi bi-info-circle" aria-hidden="true"></i> {{ hint }}</div>
+{% endif %}
 {% if cert_application %}
 <div class="alert alert-info no-print" style="max-width: 210mm; margin: 0 auto 1rem;">
   {% if cert_application.kind.value == 'certificate' %}

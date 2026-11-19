@@ -119,14 +119,14 @@ def final_hash_of(head_hash: str, results: dict) -> str:
 
 def registry_snapshot(per_member: bool = False) -> dict[int, Decimal]:
     """Текущий реестр голосующих: person_id → сумма долей (как
-    person_voting_weight); per_member — у каждого вес 1 («один член — один
-    голос», Vote.one_member_one_vote)."""
+    person_voting_weight); per_member — сумма долей, но не больше 1 («один
+    член — один голос», Vote.one_member_one_vote, см. voting._share_to_weight)."""
     weights: dict[int, Decimal] = {}
     for o in database.db_session.query(GarageOwnership).all():
         if o.share and o.share > 0:
             weights[o.person_id] = weights.get(o.person_id, Decimal("0")) + o.share
     if per_member:
-        return {pid: Decimal("1") for pid in weights}
+        return {pid: min(w, Decimal("1")) for pid, w in weights.items()}
     return weights
 
 

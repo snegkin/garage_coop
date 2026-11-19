@@ -398,6 +398,7 @@ def candidacy():
     return render_template(
         "cabinet/candidacy.html", person=person, eligible=elections.is_eligible(person),
         positions=elections.POSITIONS, position_labels=elections.POSITION_LABELS, mine=mine,
+        blocked={p for p in elections.POSITIONS if not mine.get(p) and any(q in mine for q in elections.conflicting_positions(p))},
     )
 
 
@@ -417,6 +418,16 @@ def candidacy_submit():
         flash(_("Выдвигаться могут только собственники гаражей на территории кооператива."), "danger")
         return redirect(url_for("cabinet.candidacy"))
     statement = (request.form.get("statement") or "").strip() or None
+    conflict = (
+        database.db_session.query(ElectionCandidacy)
+        .filter(ElectionCandidacy.person_id == person.id,
+                ElectionCandidacy.position.in_(elections.conflicting_positions(position)))
+        .first()
+    )
+    if conflict is not None:
+        flash(_("По уставу член ревизионной комиссии не может входить в правление — сначала снимите кандидатуру «{position}».",
+                position=_(elections.POSITION_LABELS[conflict.position])), "danger")
+        return redirect(url_for("cabinet.candidacy"))
     existing = database.db_session.query(ElectionCandidacy).filter_by(person_id=person.id, position=position).first()
     if existing is not None:
         existing.statement = statement

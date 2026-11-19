@@ -102,3 +102,29 @@ def test_candidates_marked_in_term_and_commission_member_lists(db, client):
 
     assert "Отмеченный Кандидат — кандидат в председатели" in client.get(f"/governance/board-terms/{term.id}").get_data(as_text=True)
     assert "Отмеченный Кандидат — кандидат в комиссию" in client.get(f"/governance/revision-commissions/{commission.id}").get_data(as_text=True)
+
+
+def test_cannot_run_for_commission_and_board_at_once(db, client):
+    """Устав: ревизор не может быть членом правления/председателем."""
+    person, _ = _member(db, "cand7")
+    login(client, "cand7", "pass12345")
+
+    client.post("/cabinet/candidacy", data={"position": "board"})
+    client.post("/cabinet/candidacy", data={"position": "revision_commission"})
+    positions = {c.position for c in db.query(ElectionCandidacy).filter_by(person_id=person.id)}
+    assert positions == {ElectionPosition.BOARD}
+
+    # В председатели и в правление одновременно — можно.
+    client.post("/cabinet/candidacy", data={"position": "chairman"})
+    positions = {c.position for c in db.query(ElectionCandidacy).filter_by(person_id=person.id)}
+    assert positions == {ElectionPosition.BOARD, ElectionPosition.CHAIRMAN}
+
+    page = client.get("/cabinet/candidacy").get_data(as_text=True)
+    assert "Недоступно, пока вы кандидат в другой орган" in page
+
+    client.post("/cabinet/candidacy/withdraw", data={"position": "board"})
+    client.post("/cabinet/candidacy/withdraw", data={"position": "chairman"})
+    client.post("/cabinet/candidacy", data={"position": "revision_commission"})
+    client.post("/cabinet/candidacy", data={"position": "chairman"})
+    positions = {c.position for c in db.query(ElectionCandidacy).filter_by(person_id=person.id)}
+    assert positions == {ElectionPosition.REVISION_COMMISSION}

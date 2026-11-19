@@ -230,10 +230,16 @@ class TnsEnergoBusinessBalanceClient(CounterpartyApiClient):
             raise CounterpartyApiError(f"ТНС-Энерго Бизнес вернул нераспознаваемый ответ на запрос баланса: {exc}") from exc
 
         if not balance_payload.get("isSuccess"):
-            raise CounterpartyApiError(
-                "ТНС-Энерго Бизнес отклонил запрос баланса — возможно, сессия истекла "
-                "или логин/пароль/регион всё же неверны"
-            )
+            # Вход к этому моменту уже прошёл, так что дело не в логине/пароле:
+            # ТНС сам отвечает ошибкой ({"status": "error", "errors":
+            # [{"message": "Ошибка получения данных", ...}]}) — показываем её текст.
+            errors = balance_payload.get("errors") or []
+            messages = [
+                (err.get("message") if isinstance(err, dict) else str(err)) or ""
+                for err in errors
+            ]
+            message = "; ".join(m for m in messages if m) or "отказ без описания причины"
+            raise CounterpartyApiError(f"ТНС-Энерго Бизнес не отдал баланс: {message}")
 
         fragment_html = (balance_payload.get("data") or {}).get("html") or ""
         amount = _extract_balance(fragment_html)

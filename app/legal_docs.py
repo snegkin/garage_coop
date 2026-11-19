@@ -364,7 +364,26 @@ _PROCEEDING_LABELS = {
         "demand_intro": "Вынести судебный приказ о взыскании с",
         "doc_name_genitive": "заявления о вынесении судебного приказа",
     },
+    # Должник умер, наследники приняли наследство, но не известны
+    # кооперативу: иск к наследникам, суд истребует наследственное дело у
+    # нотариуса и привлекает их ответчиками. Приказ невозможен — должник
+    # не определён.
+    "heirs": {
+        "doc_title": "Исковое заявление",
+        "doc_subtitle": "о взыскании с наследников задолженности по взносам, пени и судебных расходов",
+        "party_label": "Ответчик",
+        "form_basis": "ст. 131-132 ГПК РФ",
+        "demand_intro": "Взыскать солидарно с наследников",
+        "doc_name_genitive": "искового заявления",
+    },
 }
+
+
+def proceeding_type_from(form) -> str:
+    """Вид документа из формы выбора должников: иск, судебный приказ или
+    иск к наследникам умершего должника."""
+    value = form.get("proceeding_type")
+    return value if value in _PROCEEDING_LABELS else "claim"
 
 
 def build_lawsuit_header(person: Person, coop: Cooperative, court_section: CourtSection | None,
@@ -388,9 +407,16 @@ def build_lawsuit_header(person: Person, coop: Cooperative, court_section: Court
     court_name = court_section.name if court_section else "____________________ (судебный участок не определён)"
     court_address = court_section.court_address if court_section and court_section.court_address else "____________________"
     address = person.residence_address or person.registration_address or "адрес не известен, см. материалы дела"
+    defendant = person.short_name
+    if proceeding_type == "heirs":
+        # Наследники не известны: иск — по последнему месту жительства
+        # наследодателя или месту нахождения гаража (ч. 1 ст. 29 ГПК РФ).
+        defendant = (f"наследники {name_declension.genitive(person.full_name)}, умершего(ей) "
+                     "«___» ______________ 20___ г.")
+        address = f"последнее место жительства наследодателя: {address}"
     return {
         "court_name": court_name, "court_address": court_address,
-        "defendant_name": person.short_name, "defendant_address": address,
+        "defendant_name": defendant, "defendant_address": address,
         "party_label": _(labels["party_label"]),
         "doc_title": _(labels["doc_title"]), "doc_subtitle": _(labels["doc_subtitle"]),
     }
@@ -462,6 +488,9 @@ def build_lawsuit_body(person: Person, coop: Cooperative, totals: dict, duty_amo
     coop_label = coop.short_name if coop and coop.short_name else (coop.full_name if coop else "кооператива")
     defendant_genitive = name_declension.genitive(person.full_name)
 
+    if proceeding_type == "heirs":
+        return _heirs_lawsuit_body(person, coop_label, garages_text, debt, penalty_total, duty_text,
+                                   total_claim, defendant_genitive)
     return (
         f"{party_label} является собственником гаража(ей) {garages_text}, расположенного(ых) в "
         f"границах территории кооператива {coop_label}. Обязанность вносить членские и/или "
@@ -491,6 +520,74 @@ def build_lawsuit_body(person: Person, coop: Cooperative, totals: dict, duty_amo
         f"3. Документ об уплате государственной пошлины.\n"
         f"4. Доказательства направления {party_label.lower()}у уведомления о задолженности.\n"
         f"5. Документы, подтверждающие членство/право собственности {party_label.lower()}а на гараж."
+    )
+
+
+def _heirs_lawsuit_body(person: Person, coop_label: str, garages_text: str, debt: Decimal,
+                        penalty_total: Decimal, duty_text: str, total_claim: Decimal,
+                        deceased_genitive: str) -> str:
+    """
+    Иск к наследникам умершего должника, которые приняли наследство, но
+    кооперативу не известны (нотариус сообщает их только суду — ст. 5
+    Основ законодательства РФ о нотариате). Суд истребует наследственное
+    дело (ст. 57 ГПК РФ) и привлекает наследников ответчиками (ст. 40, 41
+    ГПК РФ; п. 13 постановления Пленума ВС РФ от 29.05.2012 № 9).
+
+    Долг до смерти — долг наследодателя: наследники отвечают солидарно в
+    пределах стоимости наследства (ст. 1175 ГК РФ). Взносы после смерти —
+    их собственный долг как собственников гаража со дня открытия
+    наследства (п. 4 ст. 1152 ГК РФ). Пеня по долгам наследодателя за
+    шесть месяцев на принятие наследства не взыскивается (п. 61 того же
+    постановления) — программа этот период не исключает, поэтому в тексте
+    оставлено место для суммы, а на странице черновика — предупреждение.
+    Дата смерти, нотариус и номер дела — от руки.
+    """
+    return (
+        f"«___» ______________ 20___ г. умер(ла) {person.full_name} — собственник гаража(ей) "
+        f"{garages_text}, расположенного(ых) в границах территории кооператива {coop_label}. "
+        f"Наследственное дело № ______________ открыто нотариусом "
+        f"________________________________________ (нотариальный округ, адрес). Наследство принято, "
+        f"однако наследники в кооператив не обратились, на уведомления кооператива и обращение к "
+        f"нотариусу не ответили, взносы не уплачивают. Фамилии, имена, отчества и адреса наследников "
+        f"кооперативу не известны: нотариус сообщает их только по запросу суда (ст. 5 Основ "
+        f"законодательства Российской Федерации о нотариате).\n\n"
+        f"Обязанность вносить членские и/или целевые взносы установлена уставом кооператива и "
+        f"Федеральным законом от 24.07.2023 № 338-ФЗ «О гаражных объединениях и о внесении изменений в "
+        f"отдельные законодательные акты Российской Федерации» — как для членов кооператива (ч. 9 "
+        f"ст. 26), так и для собственников гаражей, не являющихся его членами (ч. 3 ст. 27).\n\n"
+        f"Наследники, принявшие наследство, отвечают по долгам наследодателя солидарно в пределах "
+        f"стоимости перешедшего к каждому из них наследственного имущества (п. 1 ст. 1175 ГК РФ). "
+        f"Наследство признаётся принадлежащим наследнику со дня открытия наследства (п. 4 ст. 1152 "
+        f"ГК РФ), поэтому взносы, начисленные после смерти наследодателя, — собственный долг "
+        f"наследников как собственников гаража (ст. 210 ГК РФ, ч. 3 ст. 27 Федерального закона "
+        f"№ 338-ФЗ). Размер требований не превышает стоимости наследственного имущества (гаража).\n\n"
+        f"Расчёт суммы иска:\n"
+        f"— основной долг по взносам: {_fmt_amount(debt)}, в том числе по день смерти наследодателя — "
+        f"______________ руб., после — ______________ руб.;\n"
+        f"— пеня за просрочку (расчёт прилагается; без шести месяцев со дня открытия наследства — "
+        f"п. 61 постановления Пленума Верховного Суда РФ от 29.05.2012 № 9): {_fmt_amount(penalty_total)};\n"
+        f"— судебные расходы (уплаченная государственная пошлина): {duty_text}.\n"
+        f"Итого ко взысканию: {_fmt_amount(total_claim)}.\n\n"
+        f"На основании изложенного, руководствуясь ст. 1152, 1175 ГК РФ, ст. 26, 27 Федерального закона "
+        f"от 24.07.2023 № 338-ФЗ, ст. 29, 40, 41, 57, 131-132 ГПК РФ,\n\n"
+        f"ПРОШУ:\n"
+        f"1. Истребовать у нотариуса ________________________________________ копию наследственного "
+        f"дела № ______________ к имуществу {deceased_genitive} для установления наследников, принявших "
+        f"наследство, их места жительства, состава и стоимости наследственного имущества.\n"
+        f"2. Привлечь установленных наследников к участию в деле в качестве ответчиков.\n"
+        f"3. Взыскать солидарно с наследников {deceased_genitive}, принявших наследство, в пользу "
+        f"{coop_label} задолженность по взносам в размере {_fmt_amount(debt)}, пеню в размере "
+        f"{_fmt_amount(penalty_total)} и судебные расходы по уплате государственной пошлины в размере "
+        f"{duty_text}, а всего {_fmt_amount(total_claim)}, — в части долгов наследодателя в пределах "
+        f"стоимости перешедшего к ним наследственного имущества.\n\n"
+        f"Приложения:\n"
+        f"1. Расчёт задолженности и пени.\n"
+        f"2. Документ об уплате государственной пошлины.\n"
+        f"3. Сведения из реестра наследственных дел (notariat.ru) о нотариусе и номере дела.\n"
+        f"4. Копия претензии кредитора, направленной нотариусу, и доказательства её отправки.\n"
+        f"5. Доказательства направления уведомления о задолженности наследникам по последнему месту "
+        f"жительства наследодателя.\n"
+        f"6. Документы, подтверждающие членство и право собственности наследодателя на гараж."
     )
 
 
@@ -931,7 +1028,7 @@ def lawsuit_draft():
         return redirect(url_for("legal_docs.debtors"))
 
     selected = parse_selected_categories(request.form)
-    proceeding_type = "writ" if request.form.get("proceeding_type") == "writ" else "claim"
+    proceeding_type = proceeding_type_from(request.form)
     coop, _chairman = _coop_and_chairman()
     target_date = dt.date.today()
     drafts = []
@@ -958,7 +1055,7 @@ def lawsuit_print():
         return redirect(url_for("legal_docs.debtors"))
 
     selected = parse_selected_categories(request.form)
-    proceeding_type = "writ" if request.form.get("proceeding_type") == "writ" else "claim"
+    proceeding_type = proceeding_type_from(request.form)
     coop, chairman = _coop_and_chairman()
     target_date = dt.date.today()
     persons = database.db_session.query(Person).filter(Person.id.in_(person_ids)).order_by(Person.full_name).all()

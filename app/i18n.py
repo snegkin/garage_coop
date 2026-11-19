@@ -2814,8 +2814,6 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Приказное производство (без заседания, госпошлина 50%)": "Writ proceeding (no hearing, 50% state duty)",
         "Доступно по требованиям о взыскании обязательных платежей и взносов с членов кооператива (абз. 10 ст. 122 ГПК РФ). Если не отмечено — обычное исковое заявление (очный процесс, госпошлина в полном размере). Выбор один на весь пакет — вид документа и текст зависят от него.":
             "Available for claims to recover mandatory payments and dues from cooperative members (para. 10, Art. 122 of the Code of Civil Procedure). If unchecked — a regular statement of claim (full trial, full state duty). One choice for the whole batch — it changes the document type and text, not just a number.",
-        "Только для искового заявления. Доступно по требованиям о взыскании обязательных платежей и взносов с членов кооператива (абз. 10 ст. 122 ГПК РФ). Если не отмечено — обычное исковое заявление (очный процесс, госпошлина в полном размере). Выбор один на весь пакет — вид документа и текст зависят от него.":
-            "Statement of claim only. Available for claims to recover mandatory payments and dues from cooperative members (para. 10, Art. 122 of the Code of Civil Procedure). If unchecked — a regular statement of claim (full trial, full state duty). One choice for the whole batch — it changes the document type and text, not just a number.",
         # legal_docs.debtors — единая страница выбора должников для всех инструментов
         "Должники": "Debtors",
         "Должники: уведомления, госпошлина, иски": "Debtors: notices, state duty, lawsuits",
@@ -2856,6 +2854,15 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Шапка (суд, {party}) и заголовок «{title}» формируются автоматически по данным карточек и печатаются отдельно — здесь редактируется только основной текст ниже.":
             "The header (court, {party}) and the \"{title}\" title are generated automatically from the records and printed separately — only the main text below is editable here.",
         "Заявление о вынесении судебного приказа": "Application for a court order",
+        "о взыскании с наследников задолженности по взносам, пени и судебных расходов":
+            "to recover debt on dues, penalty and court costs from the heirs",
+        "Вид искового документа:": "Type of claim document:",
+        "Исковое заявление (очный процесс, госпошлина в полном размере)": "Statement of claim (hearing, full state duty)",
+        "Иск к наследникам умершего должника": "Claim against the heirs of a deceased debtor",
+        "Только для искового заявления. Приказное производство доступно по требованиям о взыскании обязательных платежей и взносов с членов кооператива (абз. 10 ст. 122 ГПК РФ). Иск к наследникам — если должник умер, а наследники кооперативу не известны: суд истребует наследственное дело у нотариуса и привлечёт их ответчиками. Выбор один на весь пакет — вид документа и текст зависят от него.":
+            "For the statement of claim only. A court order is available for claims to recover mandatory payments and dues from cooperative members (para. 10 of Art. 122 of the Civil Procedure Code). A claim against the heirs is for a deceased debtor whose heirs are unknown to the cooperative: the court requests the probate file from the notary and joins them as defendants. One choice for the whole batch — the document type and text depend on it.",
+        "Иск к наследникам. Впишите дату смерти, нотариуса и номер наследственного дела (их можно найти в реестре наследственных дел на notariat.ru) и разделите долг на «до» и «после» смерти. Пеня по долгам наследодателя за шесть месяцев со дня смерти не взыскивается — программа этот период не исключает, пересчитайте её вручную.":
+            "Claim against the heirs. Fill in the date of death, the notary and the probate case number (see the probate register at notariat.ru) and split the debt into before and after the death. Penalty on the deceased's debts for the six months after death is not recoverable — the program does not exclude this period, recalculate it manually.",
         "о взыскании задолженности по членским (целевым) взносам и пени": "to recover debt on membership (special-purpose) dues and penalty",
         # postal_letters — отправка через API ИС ЭПС агентом ЭЗП
         "В очереди на отправку": "Queued for sending",

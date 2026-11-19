@@ -81,11 +81,20 @@
       <button class="btn btn-outline-primary" formaction="{{ url_for('legal_docs.lawsuit_draft') }}" {{ "disabled" if not debtors }}
               title="{{ _('Редактируемый черновик: долг + пеня + судебные расходы') }}">{{ _("Исковое заявление") }}</button>
     </div>
-    <div class="form-check mb-0">
-      <input class="form-check-input" type="checkbox" name="proceeding_type" id="pickerProceedingWrit" value="writ">
-      <label class="form-check-label" for="pickerProceedingWrit">{{ _("Приказное производство (без заседания, госпошлина 50%)") }}</label>
-      <div class="form-text">{{ _("Только для искового заявления. Доступно по требованиям о взыскании обязательных платежей и взносов с членов кооператива (абз. 10 ст. 122 ГПК РФ). Если не отмечено — обычное исковое заявление (очный процесс, госпошлина в полном размере). Выбор один на весь пакет — вид документа и текст зависят от него.") }}</div>
+    <div class="small fw-semibold mb-1">{{ _("Вид искового документа:") }}</div>
+    <div class="form-check">
+      <input class="form-check-input" type="radio" name="proceeding_type" id="pickerProceedingClaim" value="claim" checked>
+      <label class="form-check-label" for="pickerProceedingClaim">{{ _("Исковое заявление (очный процесс, госпошлина в полном размере)") }}</label>
     </div>
+    <div class="form-check">
+      <input class="form-check-input" type="radio" name="proceeding_type" id="pickerProceedingWrit" value="writ">
+      <label class="form-check-label" for="pickerProceedingWrit">{{ _("Приказное производство (без заседания, госпошлина 50%)") }}</label>
+    </div>
+    <div class="form-check mb-0">
+      <input class="form-check-input" type="radio" name="proceeding_type" id="pickerProceedingHeirs" value="heirs">
+      <label class="form-check-label" for="pickerProceedingHeirs">{{ _("Иск к наследникам умершего должника") }}</label>
+    </div>
+    <div class="form-text">{{ _("Только для искового заявления. Приказное производство доступно по требованиям о взыскании обязательных платежей и взносов с членов кооператива (абз. 10 ст. 122 ГПК РФ). Иск к наследникам — если должник умер, а наследники кооперативу не известны: суд истребует наследственное дело у нотариуса и привлечёт их ответчиками. Выбор один на весь пакет — вид документа и текст зависят от него.") }}</div>
   </div>
 </form>
 

@@ -352,6 +352,19 @@ def test_notary_letter_about_heirs(db, client):
     assert "{{" not in page.split('id="docAddressee"')[1]
 
 
+def test_letter_to_heirs(db, client):
+    owner, garage, _chairman = _setup(db)
+    login(client, "board1", "pass1234")
+    client.post("/documents/templates/defaults")
+    letter = db.query(DocumentTemplate).filter_by(name="Письмо наследникам умершего члена кооператива").one()
+    page = client.get(f"/documents/new?template_id={letter.id}&owner={owner.id}:{garage.id}").get_data(as_text=True)
+    header = page.split('id="docAddressee"')[1].split("</div>")[0]
+    assert "Наследникам Петровой Анны Ивановны" in header and "г. Город, ул. Улица, 1" in header
+    assert "Уважаемые наследники!" in page and "гаража (бокса) № 42" in page and "п. 4 ст. 1152" in page
+    assert "заказным письмом с уведомлением" in page  # подсказка
+    assert "{{" not in page.split('id="docAddressee"')[1]
+
+
 def test_greeting_fallbacks():
     from app import name_declension
     assert name_declension.greeting("Кузнецов Игорь Петрович") == "Уважаемый Игорь Петрович"

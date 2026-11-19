@@ -33,6 +33,17 @@ POSITION_AUDIT = {
 }
 
 
+# Устав: член ревизионной комиссии не может входить в правление (и быть
+# председателем) — поэтому и выдвигаться одновременно туда и туда нельзя.
+BOARD_POSITIONS = frozenset({ElectionPosition.BOARD, ElectionPosition.CHAIRMAN})
+
+
+def conflicting_positions(position: ElectionPosition) -> frozenset[ElectionPosition]:
+    if position == ElectionPosition.REVISION_COMMISSION:
+        return BOARD_POSITIONS
+    return frozenset({ElectionPosition.REVISION_COMMISSION})
+
+
 def eligible_person_ids() -> set[int]:
     today = dt.date.today()
     rows = (

@@ -17,12 +17,13 @@ from . import max_bot
 from . import telegram_bot
 from . import webpush
 from . import person_revisions
+from . import elections
 from .auth import login_required
 from .permissions import is_board
 from .i18n import translate as _
 from .models import (
     Person, Phone, GarageOwnership, GarageContact, MemberAccount, PersonDataRevision, PersonDataRevisionStatus,
-    User, NotificationChannel,
+    User, NotificationChannel, ElectionCandidacy, ElectionPosition,
 )
 from .accounting import balance as account_balance
 from sqlalchemy.orm import joinedload
@@ -382,6 +383,72 @@ def garages():
         electricity_by_garage=electricity_by_garage,
         personal_accounts=[(acc, account_balance(acc)) for acc in personal_accounts] if person is not None else [],
     )
+
+
+@bp.route("/candidacy")
+@login_required
+def candidacy():
+    """Самовыдвижение в правление/ревизионную комиссию/председатели — см.
+    app/elections.py (право — гараж на территории кооператива)."""
+    person = _current_person()
+    mine = {}
+    if person is not None:
+        for c in database.db_session.query(ElectionCandidacy).filter_by(person_id=person.id).all():
+            mine[c.position] = c
+    return render_template(
+        "cabinet/candidacy.html", person=person, eligible=elections.is_eligible(person),
+        positions=elections.POSITIONS, position_labels=elections.POSITION_LABELS, mine=mine,
+    )
+
+
+def _candidacy_position():
+    try:
+        return ElectionPosition(request.form.get("position", ""))
+    except ValueError:
+        return None
+
+
+@bp.route("/candidacy", methods=["POST"])
+@login_required
+def candidacy_submit():
+    person = _current_person()
+    position = _candidacy_position()
+    if not elections.is_eligible(person) or position is None:
+        flash(_("Выдвигаться могут только собственники гаражей на территории кооператива."), "danger")
+        return redirect(url_for("cabinet.candidacy"))
+    statement = (request.form.get("statement") or "").strip() or None
+    existing = database.db_session.query(ElectionCandidacy).filter_by(person_id=person.id, position=position).first()
+    if existing is not None:
+        existing.statement = statement
+        flash(_("Текст заявки обновлён."), "success")
+    else:
+        database.db_session.add(ElectionCandidacy(person_id=person.id, position=position, statement=statement))
+        audit.record(
+            "candidacy.nominate", entity_type="person", entity_id=person.id,
+            summary=f"{person.full_name} выдвинул(а) свою кандидатуру {elections.POSITION_AUDIT[position]}",
+        )
+        flash(_("Ваша кандидатура выдвинута. Правление увидит её при подготовке выборов."), "success")
+    database.db_session.commit()
+    return redirect(url_for("cabinet.candidacy"))
+
+
+@bp.route("/candidacy/withdraw", methods=["POST"])
+@login_required
+def candidacy_withdraw():
+    person = _current_person()
+    position = _candidacy_position()
+    existing = None
+    if person is not None and position is not None:
+        existing = database.db_session.query(ElectionCandidacy).filter_by(person_id=person.id, position=position).first()
+    if existing is not None:
+        database.db_session.delete(existing)
+        audit.record(
+            "candidacy.withdraw", entity_type="person", entity_id=person.id,
+            summary=f"{person.full_name} снял(а) свою кандидатуру {elections.POSITION_AUDIT[position]}",
+        )
+        database.db_session.commit()
+        flash(_("Кандидатура снята."), "success")
+    return redirect(url_for("cabinet.candidacy"))
 
 
 @bp.route("/profile/max/link", methods=["POST"])

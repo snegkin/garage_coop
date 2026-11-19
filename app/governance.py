@@ -5,6 +5,7 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 from sqlalchemy.orm import joinedload
 
 from . import database
+from . import elections
 from . import audit
 from . import audit_format
 from .i18n import translate as _
@@ -12,7 +13,7 @@ from .auth import login_required, roles_required
 from .permissions import sync_user_role
 from .models import (
     BoardTerm, BoardMember, RevisionCommission, RevisionCommissionMember,
-    Person, GeneralMeeting, RoleEnum, AuditLog, User, MemberAccount, PersonalAccount,
+    Person, GeneralMeeting, RoleEnum, AuditLog, User, MemberAccount, PersonalAccount, ElectionPosition,
 )
 
 bp = Blueprint("governance", __name__, url_prefix="/governance")
@@ -78,6 +79,8 @@ def view():
         persons=persons,
         current_commission=_current_commission(),
         current_accountant=database.db_session.query(Person).filter_by(is_accountant=True).first(),
+        candidacies=elections.candidacies_by_position(),
+        position_labels=elections.POSITION_LABELS,
     )
 
 
@@ -209,6 +212,8 @@ def term_detail(term_id):
         term=term,
         is_current=(term.id == _current_term().id if _current_term() else False),
         persons=persons,
+        board_candidate_ids=elections.candidate_person_ids(ElectionPosition.BOARD),
+        chairman_candidate_ids=elections.candidate_person_ids(ElectionPosition.CHAIRMAN),
     )
 
 
@@ -362,6 +367,7 @@ def commission_detail(commission_id):
         is_current=(commission.id == _current_commission().id if _current_commission() else False),
         persons=persons,
         current_board_ids=current_board_ids,
+        commission_candidate_ids=elections.candidate_person_ids(ElectionPosition.REVISION_COMMISSION),
     )
 
 

@@ -186,6 +186,7 @@ _ACTION_PAGES = {
     "bank_account.": ("finance.bank_accounts", {}),
     "board_term.": ("governance.view", {}),
     "revision_commission.": ("governance.view", {}),
+    "candidacy.": ("governance.view", {}),
     "control_meter.": ("control_meters.list_tree", {}),
     "cooperative.": ("cooperative.view", {}),
     "counterparty.": ("counterparties.list_counterparties", {}),

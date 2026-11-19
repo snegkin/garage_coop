@@ -875,6 +875,42 @@ class RevisionCommissionMember(Base):
     )
 
 
+class ElectionPosition(str, enum.Enum):
+    BOARD = "board"                              # член правления
+    REVISION_COMMISSION = "revision_commission"  # член ревизионной комиссии
+    CHAIRMAN = "chairman"                        # председатель кооператива
+
+
+class ElectionCandidacy(Base):
+    """
+    Самовыдвижение члена кооператива в выборный орган — из личного
+    кабинета (см. app/elections.py). Выдвигаться может только собственник
+    гаража НА ТЕРРИТОРИИ кооператива (Garage.outside_territory=False — за
+    территорией не члены, отдельный договор), не в архиве и без даты
+    выхода из членства в прошлом. Право проверяется и при показе: если
+    человек продал гараж, его заявка просто перестаёт выводиться, а не
+    удаляется — вернёт гараж, вернётся и заявка.
+
+    Это лишь список желающих для правления и общего собрания — сами
+    выборы по-прежнему оформляются созывом правления / составом комиссии
+    по протоколу собрания (BoardTerm, RevisionCommission). Одна запись на
+    (человек, должность): отзыв — удаление записи.
+    """
+    __tablename__ = "election_candidacy"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    person_id: Mapped[int] = mapped_column(ForeignKey("person.id", ondelete="CASCADE"), index=True)
+    position: Mapped[ElectionPosition] = mapped_column(Enum(ElectionPosition), index=True)
+    statement: Mapped[str | None] = mapped_column(Text)  # о себе / программа — по желанию
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.now)
+
+    person: Mapped["Person"] = relationship()
+
+    __table_args__ = (
+        UniqueConstraint("person_id", "position", name="uq_election_candidacy_person_position"),
+    )
+
+
 class GeneralMeeting(Base):
     """Общее собрание членов кооператива (не реже раза в месяц)."""
     __tablename__ = "general_meeting"

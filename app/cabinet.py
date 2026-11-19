@@ -425,7 +425,7 @@ def candidacy_submit():
         .first()
     )
     if conflict is not None:
-        flash(_("По уставу член ревизионной комиссии не может входить в правление — сначала снимите кандидатуру «{position}».",
+        flash(_("Ревизионная комиссия проверяет работу правления, совмещать нельзя — сначала снимите кандидатуру «{position}».",
                 position=_(elections.POSITION_LABELS[conflict.position])), "danger")
         return redirect(url_for("cabinet.candidacy"))
     existing = database.db_session.query(ElectionCandidacy).filter_by(person_id=person.id, position=position).first()

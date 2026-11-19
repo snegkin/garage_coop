@@ -1,0 +1,224 @@
+# Убрать дополнительный кооператив (coop_extra_instances) с сервера. Обычно
+# запускается из deployment/remove-coop.sh: тот спрашивает имя и
+# подтверждение, а после успешного прогона убирает запись из vars.yml.
+#
+#   ansible-playbook remove_coop.yml -e coop_remove=coop2
+#   ansible-playbook remove_coop.yml -e coop_remove=coop2 -e coop_keep_data=true
+#
+# Порядок: cron и служба останавливаются, затем снимается vhost (сайт перестаёт
+# отвечать), удаляются сертификат и правило sudo. Потом домашний каталог
+# (БД, файлы, coop.env) упаковывается в /var/backups/garage-coop/ на сервере
+# и копируется на этот компьютер, и только после этого пользователь удаляется
+# вместе с каталогом. С coop_keep_data=true пользователь и данные
+# остаются на сервере: можно вернуть кооператив, снова добавив его с тем же
+# name (и с теми же ключами — иначе секреты в БД не расшифруются).
+# Основной кооператив этим плейбуком не удаляется.
+
+- name: Убрать дополнительный кооператив
+  hosts: coop
+  become: true
+  gather_facts: false
+  vars_files:
+    - defaults.yml
+    - "{{ lookup('env', 'COOP_VARS') or lookup('env', 'HOME') + '/.config/garage-coop/vars.yml' }}"
+  vars:
+    coop_remove: ""
+    coop_keep_data: false
+    coop_archive_dir: /var/backups/garage-coop
+    coop_archive_fetch: true
+    # Больше — архив остаётся только на сервере (fetch держит файл в памяти).
+    coop_archive_fetch_max_mb: 1024
+    coop_archive_local_dir: "{{ lookup('env', 'HOME') }}/garage-coop-archive"
+
+  tasks:
+    - name: Кооперативы из vars.yml
+      ansible.builtin.set_fact:
+        all_instances: >-
+          {{ coop_extra_instances | coop_instances({'app_user': app_user, 'app_port': app_port,
+             'coop_domain': coop_domain, 'coop_domain_aliases': coop_domain_aliases,
+             'app_secret_key': app_secret_key,
+             'service_name': service_name, 'cron_jobs': cron_jobs}) }}
+
+    - name: Кооператив для удаления есть в coop_extra_instances
+      ansible.builtin.assert:
+        that:
+          - coop_remove | length > 0
+          - coop_remove != app_user
+          - coop_remove in all_instances | map(attribute='name')
+        fail_msg: >-
+          Укажите -e coop_remove=ИМЯ одного из coop_extra_instances
+          ({{ all_instances | map(attribute='name') | join(', ') or 'список пуст' }}).
+          Основной кооператив ({{ app_user }}) так не удаляется.
+        quiet: true
+
+    - name: Что удаляем
+      ansible.builtin.set_fact:
+        gone: "{{ all_instances | selectattr('name', 'equalto', coop_remove) | first }}"
+        archive_name: "{{ coop_remove }}-{{ now(fmt='%Y%m%d-%H%M%S') }}.tar.gz"
+
+    - name: "[{{ gone.name }}] Пользователь на сервере"
+      ansible.builtin.getent:
+        database: passwd
+        key: "{{ gone.user }}"
+        fail_key: false
+
+    - name: "[{{ gone.name }}] Факт: есть ли пользователь"
+      ansible.builtin.set_fact:
+        gone_user_exists: "{{ (ansible_facts.getent_passwd | default({})).get(gone.user) is not none }}"
+
+    # --- остановить -------------------------------------------------------------
+
+    - name: "[{{ gone.name }}] crontab пользователя"
+      ansible.builtin.command: crontab -r -u {{ gone.user }}
+      register: gone_cron
+      changed_when: gone_cron.rc == 0
+      failed_when: gone_cron.rc != 0 and 'no crontab' not in gone_cron.stderr
+      when: gone_user_exists
+
+    - name: "[{{ gone.name }}] Юнит службы"
+      ansible.builtin.stat:
+        path: "/etc/systemd/system/{{ gone.service }}.service"
+      register: gone_unit
+
+    - name: "[{{ gone.name }}] Служба остановлена и выключена"
+      ansible.builtin.systemd_service:
+        name: "{{ gone.service }}"
+        state: stopped
+        enabled: false
+      when: gone_unit.stat.exists
+
+    - name: "[{{ gone.name }}] Юнит удалён"
+      ansible.builtin.file:
+        path: "/etc/systemd/system/{{ gone.service }}.service"
+        state: absent
+      register: gone_unit_removed
+
+    - name: "[{{ gone.name }}] systemd перечитал юниты"
+      ansible.builtin.systemd_service:
+        daemon_reload: true
+      when: gone_unit_removed is changed
+
+    # Скрипт cron мог стартовать до crontab -r — дописать в БД после архива
+    # он не должен.
+    - name: "[{{ gone.name }}] Процессов пользователя не осталось"
+      ansible.builtin.command: pkill -KILL -u {{ gone.user }}
+      register: gone_kill
+      changed_when: gone_kill.rc == 0
+      failed_when: gone_kill.rc > 1
+      when: gone_user_exists
+
+    # --- nginx, сертификат, sudo --------------------------------------------------
+
+    - name: "[{{ gone.name }}] vhost удалён"
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "/etc/nginx/sites-enabled/{{ gone.service }}"
+        - "/etc/nginx/sites-available/{{ gone.service }}"
+      register: gone_vhost
+
+    - name: "[{{ gone.name }}] Конфиг nginx валиден"
+      ansible.builtin.command: nginx -t
+      changed_when: false
+      when: gone_vhost is changed
+
+    - name: "[{{ gone.name }}] nginx перечитал конфиг"
+      ansible.builtin.systemd_service:
+        name: nginx
+        state: reloaded
+      when: gone_vhost is changed
+
+    - name: "[{{ gone.name }}] Сертификат"
+      ansible.builtin.stat:
+        path: "/etc/letsencrypt/renewal/{{ gone.domain }}.conf"
+      register: gone_cert
+
+    - name: "[{{ gone.name }}] Сертификат удалён (certbot больше не продлевает)"
+      ansible.builtin.command: certbot delete --cert-name {{ gone.domain }} --non-interactive
+      when: gone_cert.stat.exists
+
+    - name: "[{{ gone.name }}] Правило sudo для deploy.sh удалено"
+      ansible.builtin.file:
+        path: "/etc/sudoers.d/{{ gone.service }}-deploy"
+        state: absent
+
+    # --- данные ---------------------------------------------------------------------
+
+    - name: "[{{ gone.name }}] Домашний каталог"
+      ansible.builtin.stat:
+        path: "{{ gone.home }}"
+      register: gone_home
+
+    - name: "[{{ gone.name }}] Архив данных"
+      when: gone_home.stat.exists and not coop_keep_data | bool
+      block:
+        - name: "[{{ gone.name }}] Каталог архивов — только root"
+          ansible.builtin.file:
+            path: "{{ coop_archive_dir }}"
+            state: directory
+            mode: "0700"
+
+        - name: "[{{ gone.name }}] Домашний каталог упакован (БД, файлы, coop.env)"
+          ansible.builtin.command:
+            argv: [tar, -czf, "{{ coop_archive_dir }}/{{ archive_name }}", -C, "{{ gone.home | dirname }}", "{{ gone.home | basename }}"]
+            creates: "{{ coop_archive_dir }}/{{ archive_name }}"
+
+        - name: "[{{ gone.name }}] Архив проверен"
+          ansible.builtin.command:
+            argv: [tar, -tzf, "{{ coop_archive_dir }}/{{ archive_name }}", "{{ gone.home | basename }}/instance/coop.db"]
+          changed_when: false
+          when: not ansible_check_mode
+
+        - name: "[{{ gone.name }}] Размер архива"
+          ansible.builtin.stat:
+            path: "{{ coop_archive_dir }}/{{ archive_name }}"
+          register: gone_archive
+
+        - name: "[{{ gone.name }}] Копия архива на этом компьютере"
+          ansible.builtin.fetch:
+            src: "{{ coop_archive_dir }}/{{ archive_name }}"
+            dest: "{{ coop_archive_local_dir }}/"
+            flat: true
+          register: gone_fetched
+          when:
+            - coop_archive_fetch | bool
+            - gone_archive.stat.exists | default(false)
+            - gone_archive.stat.size < coop_archive_fetch_max_mb | int * 1024 * 1024
+
+        - name: "[{{ gone.name }}] Пользователь удалён вместе с домашним каталогом"
+          ansible.builtin.user:
+            name: "{{ gone.user }}"
+            state: absent
+            remove: true
+          when: gone_user_exists
+
+    - name: "[{{ gone.name }}] Данные остаются, вход под пользователем закрыт"
+      ansible.builtin.user:
+        name: "{{ gone.user }}"
+        password_lock: true
+        shell: /usr/sbin/nologin
+      when: gone_user_exists and coop_keep_data | bool
+
+    # --- deploy.conf на этом компьютере --------------------------------------------
+
+    - name: Без удалённого кооператива
+      ansible.builtin.set_fact:
+        extra_instances: "{{ all_instances | rejectattr('name', 'equalto', coop_remove) | list }}"
+
+    - name: Конфиг deploy.sh на этом компьютере
+      ansible.builtin.import_tasks: tasks/deploy_conf.yml
+
+    - name: "[{{ gone.name }}] Итог"
+      ansible.builtin.debug:
+        msg: "{{ summary | select | list }}"
+      vars:
+        archive_path: "{{ coop_archive_dir }}/{{ archive_name }}"
+        summary:
+          - "{{ gone.service }} остановлена, vhost {{ gone.domain }} и сертификат удалены, cron и sudo — тоже."
+          - "{{ ('Данные оставлены в ' + gone.home + ' (пользователь заблокирован).') if coop_keep_data | bool else '' }}"
+          - "{{ ('Архив на сервере: ' + archive_path) if not coop_keep_data | bool and gone_home.stat.exists else '' }}"
+          - "{{ ('Копия здесь: ' + coop_archive_local_dir + '/' + archive_name) if gone_fetched is defined and gone_fetched is not skipped else '' }}"
+          - "{{ ('Архив больше ' + coop_archive_fetch_max_mb | string + ' МБ — заберите сами: scp сервер:' + archive_path + ' .')
+                if gone_fetched is defined and gone_fetched is skipped and coop_archive_fetch | bool and gone_archive.stat.exists | default(false) else '' }}"
+          - "Осталось руками: A-записи {{ ([gone.domain] + gone.aliases) | join(', ') }}, домен в консоли reCAPTCHA, агенты бэкапа/ЭЗП на компьютере председателя этого кооператива."

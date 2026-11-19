@@ -2,3 +2,4 @@
 pytest>=8.0
 pytest-xdist>=3.5  # -n auto в pytest.ini
 xlrd>=2.0  # только для тестов — чтение .xls, сгенерированного xlwt (tests/test_postal_letters.py)
+PyYAML>=6.0  # только для тестов — deployment/coop_vars.py (tests/test_coop_vars.py)

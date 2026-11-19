@@ -50,8 +50,8 @@ certbot_email: ""
 #       restore_db_file: ""                  # перенос БД/файлов, как restore_* ниже
 #       restore_source_instance_dir: ""
 #
-# Убрать кооператив плейбук не умеет (данные не удаляются автоматически):
-# остановить службу, удалить её юнит, vhost и crontab пользователя руками.
+# Добавить — deployment/add-coop.sh, убрать — deployment/remove-coop.sh
+# (remove_coop.yml: данные сначала в архив; README.md «Удаление кооператива»).
 coop_extra_instances: []
 # Общая блокировка cron всех кооперативов (scripts/_common.sh): на сервере
 # в 1 ГБ одновременно выполняется не больше одного скрипта. Ставится, только

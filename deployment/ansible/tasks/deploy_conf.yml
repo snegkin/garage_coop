@@ -1,0 +1,38 @@
+# Конфиг deploy.sh на этом компьютере — из site.yml и remove_coop.yml.
+# Список кооперативов берётся из факта extra_instances.
+
+- name: Каталог конфига deploy.sh на этом компьютере
+  ansible.builtin.file:
+    path: "{{ deploy_conf_path | dirname }}"
+    state: directory
+    mode: "0700"
+  delegate_to: localhost
+  become: false
+
+- name: Конфиг deploy.sh на этом компьютере
+  ansible.builtin.template:
+    src: deploy.conf.j2
+    dest: "{{ deploy_conf_path }}"
+    mode: "0600"
+    force: false
+  delegate_to: localhost
+  become: false
+  register: deploy_conf_created
+
+# deploy.conf создаётся один раз (force: false) и дальше правится руками,
+# но список кооперативов в нём — от плейбука: добавленный или удалённый
+# кооператив попадает в SERVICES, HEALTH_URLS и BACKUP_ENV_FILES (или
+# уходит из них), остальные строки не трогаются.
+- name: deploy.conf знает все кооперативы
+  ansible.builtin.lineinfile:
+    path: "{{ deploy_conf_path }}"
+    regexp: "^{{ item | regex_replace('=.*$', '') }}="
+    line: "{{ item }}"
+  loop: "{{ lookup('ansible.builtin.template', 'deploy.conf.j2')
+            | regex_findall('(?m)^(?:SERVICES|HEALTH_URLS|BACKUP_ENV_FILES)=.*$') }}"
+  loop_control:
+    label: "{{ item | regex_replace('=.*$', '') }}"
+  delegate_to: localhost
+  become: false
+  # В --check на чистом компьютере файла ещё нет — сравнивать не с чем.
+  when: not (ansible_check_mode and deploy_conf_created is changed)

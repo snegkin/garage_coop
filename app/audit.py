@@ -20,6 +20,7 @@ COALESCE_WINDOW после своей же правки (или создания
 (create/delete/прочее) всегда пишутся отдельными записями.
 """
 import datetime as dt
+import re
 from decimal import Decimal
 
 from flask import g, url_for
@@ -217,7 +218,31 @@ _BANK_ACCOUNT_PAGES = (
 )
 
 
-def _entity_link(action: str | None, entity_type: str | None, entity_id: int | None) -> str | None:
+# Период выписки из текста записи: «за ДД.ММ.ГГГГ—ДД.ММ.ГГГГ» (загрузка
+# выписки) или одна дата «от ДД.ММ.ГГГГ» (операция выписки). Период в
+# запись отдельным полем не пишется, а без него ссылка открывала выписку
+# за последние 30 дней — нужной загрузки или операции там могло не быть.
+_STATEMENT_RANGE_RE = re.compile(r"(\d{2}\.\d{2}\.\d{4})\s*[—–-]\s*(\d{2}\.\d{2}\.\d{4})")
+_STATEMENT_DAY_RE = re.compile(r"\bот (\d{2}\.\d{2}\.\d{4})")
+
+
+def _statement_period(summary: str | None) -> dict:
+    if not summary:
+        return {}
+    parse = lambda value: dt.datetime.strptime(value, "%d.%m.%Y").date().isoformat()
+    try:
+        if match := _STATEMENT_RANGE_RE.search(summary):
+            return {"date_from": parse(match.group(1)), "date_to": parse(match.group(2))}
+        if match := _STATEMENT_DAY_RE.search(summary):
+            day = parse(match.group(1))
+            return {"date_from": day, "date_to": day}
+    except ValueError:
+        pass
+    return {}
+
+
+def _entity_link(action: str | None, entity_type: str | None, entity_id: int | None,
+                 summary: str | None = None) -> str | None:
     """Ссылки на сущности, которых нет в entity_url: им нужен код действия
     (счёт банка — выписка или реестр) или запрос в БД."""
     if entity_id is None:
@@ -226,7 +251,8 @@ def _entity_link(action: str | None, entity_type: str | None, entity_id: int | N
     if entity_type == "bank_account":
         for prefix, endpoint in _BANK_ACCOUNT_PAGES:
             if action and action.startswith(prefix):
-                return url_for(endpoint, account_id=entity_id)
+                period = _statement_period(summary) if endpoint == "bank_sync.statement" else {}
+                return url_for(endpoint, account_id=entity_id, **period)
         return url_for("finance.bank_accounts")
     if entity_type == "user":
         user = database.db_session.get(User, entity_id)
@@ -258,11 +284,13 @@ def _entity_link(action: str | None, entity_type: str | None, entity_id: int | N
     return None
 
 
-def link_for(action: str | None, entity_type: str | None, entity_id: int | None) -> str | None:
+def link_for(action: str | None, entity_type: str | None, entity_id: int | None,
+             summary: str | None = None) -> str | None:
     """Ссылка из записи журнала: на карточку сущности, иначе — на раздел,
-    к которому относится действие (_ACTION_PAGES)."""
+    к которому относится действие (_ACTION_PAGES). summary нужен выписке
+    счёта банка — из него берётся период (_statement_period)."""
     try:
-        link = entity_url(entity_type, entity_id) or _entity_link(action, entity_type, entity_id)
+        link = entity_url(entity_type, entity_id) or _entity_link(action, entity_type, entity_id, summary)
     except Exception:
         link = None  # удалённая сущность/маршрут — без ссылки, журнал не должен падать
     if link or not action:

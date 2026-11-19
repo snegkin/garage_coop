@@ -30,7 +30,7 @@
       </td>
       <td>
         {{ summaries_html[entry.id] }}
-        {% set link = audit_link_for(entry.action, entry.entity_type, entry.entity_id) %}
+        {% set link = audit_link_for(entry.action, entry.entity_type, entry.entity_id, entry.summary) %}
         {% if link %}<a href="{{ link }}" title="{{ _('Открыть') }}"><i class="bi bi-box-arrow-up-right" aria-hidden="true"></i></a>{% endif %}
       </td>
     </tr>

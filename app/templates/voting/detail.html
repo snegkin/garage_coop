@@ -31,6 +31,10 @@
 <div class="card bg-body mb-3">
   <div class="card-body">
     <h6 class="card-title">{{ _("Явка / кворум") }}</h6>
+    <p class="mb-1 small text-muted">{{ _("Подсчёт голосов") }}:
+      {% if vote.status.value == 'draft' %}{{ _("определится при открытии по настройке кооператива") }} ({{ _("сейчас") }}: {{ _("один член — один голос") if coop_one_member_one_vote else _("по долям владения гаражами") }})
+      {% elif vote.one_member_one_vote %}{{ _("один член — один голос") }}{% else %}{{ _("по долям владения гаражами") }}{% endif %}
+    </p>
     <p class="mb-1">{{ _("Проголосовало (по весу)") }}: <strong>{{ fmt2(participation) }}</strong> {{ _("из") }} {{ fmt2(total_weight) }}
       {% if total_weight > 0 %}({{ fmt2(participation / total_weight * 100) }}%){% endif %}</p>
     <p class="mb-0">{{ _("Кворум (>50% голосов кооператива)") }}:

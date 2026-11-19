@@ -2640,6 +2640,15 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Платёж не удалось отнести ни на один лицевой счёт (номер счёта не распознан, плательщика нет среди членов — напр. оплата с чужой карты). Кнопка «Кандидаты» оставит в таблице ниже только гаражи, у которых за выбранный год долг по какому-то виду взноса или итого ровно равен сумме платежа.":
             "The payment could not be matched to any account (account number not recognized, payer is not a member — e.g. paid from someone else's card). The “Candidates” button leaves only the garages whose debt for the selected year, for some fee type or in total, exactly equals the payment amount.",
         "Кандидаты": "Candidates",
+        # режим голосования «один член — один голос»
+        "Один член — один голос": "One member, one vote",
+        "Выключено — вес голоса равен сумме долей владения гаражами (1 гараж — 1 голос, совладельцы делят голос по долям). Включено — у каждого собственника ровно один голос, сколько бы гаражей у него ни было. Режим фиксируется в голосовании при его открытии: уже открытые и закрытые голосования не пересчитываются.": "Off — vote weight equals the sum of garage ownership shares (1 garage — 1 vote, co-owners split it by shares). On — every owner has exactly one vote regardless of how many garages they own. The mode is fixed in a vote when it is opened: already open and closed votes are not recalculated.",
+        "Подсчёт — один член, один голос: ваш голос весит 1 независимо от числа гаражей.": "Counting — one member, one vote: your vote weighs 1 regardless of the number of garages.",
+        "Подсчёт голосов": "Vote counting",
+        "определится при открытии по настройке кооператива": "set on opening from the cooperative setting",
+        "сейчас": "now",
+        "один член — один голос": "one member, one vote",
+        "по долям владения гаражами": "by garage ownership shares",
         # выдвижение на выборы (cabinet/candidacy.html, governance/view.html)
         "Выдвижение на выборы": "Running for office",
         "Председатель кооператива": "Chairman of the cooperative",

@@ -52,7 +52,7 @@ from .auth import login_required, roles_required
 from .permissions import is_board, is_chairman
 from .models import (
     Vote, VoteQuestion, VoteBallot, VoteType, VoteStatus, VoteChoice, QUORUM_THRESHOLD,
-    GarageOwnership, Person, GeneralMeeting, Document, DocumentType, RoleEnum,
+    GarageOwnership, Person, GeneralMeeting, Document, DocumentType, RoleEnum, Cooperative,
 )
 from .uploads import save_upload
 
@@ -63,13 +63,30 @@ bp = Blueprint("voting", __name__, url_prefix="/voting")
 # Вес голоса и подсчёт результатов
 # ---------------------------------------------------------------------------
 
-def person_voting_weight(person_id: int) -> Decimal:
-    """Вес голоса человека — сумма его долей владения по всем гаражам (текущая, на сейчас)."""
+def one_member_one_vote(vote: Vote | None = None) -> bool:
+    """Режим «один член — один голос»: у открытого/закрытого голосования —
+    зафиксированный в нём при открытии (Vote.one_member_one_vote), у
+    черновика и вне голосования — текущая настройка кооператива."""
+    if vote is not None and vote.status != VoteStatus.DRAFT:
+        return bool(vote.one_member_one_vote)
+    coop = database.db_session.query(Cooperative).first()
+    return bool(coop and coop.one_member_one_vote)
+
+
+def _share_to_weight(share_sum: Decimal, per_member: bool) -> Decimal:
+    if per_member:
+        return Decimal("1") if share_sum > 0 else Decimal("0")
+    return share_sum
+
+
+def person_voting_weight(person_id: int, vote: Vote | None = None) -> Decimal:
+    """Вес голоса человека — сумма его долей владения по всем гаражам
+    (текущая, на сейчас), либо 1 в режиме «один член — один голос»."""
     ownerships = database.db_session.query(GarageOwnership).filter_by(person_id=person_id).all()
-    return sum((o.share for o in ownerships), Decimal("0"))
+    return _share_to_weight(sum((o.share for o in ownerships), Decimal("0")), one_member_one_vote(vote))
 
 
-def total_cooperative_weight() -> Decimal:
+def total_cooperative_weight(vote: Vote | None = None) -> Decimal:
     """
     Суммарный вес голосов всех членов кооператива — сумма долей всех
     гаражей. По инварианту (доли одного гаража в сумме = 1) численно равно
@@ -77,6 +94,8 @@ def total_cooperative_weight() -> Decimal:
     сумму долей напрямую — устойчиво даже если у какого-то гаража сумма
     долей отличается от 1 из-за ошибки в данных.
     """
+    if one_member_one_vote(vote):
+        return Decimal(len(vote_ledger.registry_snapshot(per_member=True)))
     ownerships = database.db_session.query(GarageOwnership).all()
     return sum((o.share for o in ownerships), Decimal("0"))
 
@@ -90,7 +109,7 @@ def effective_total_weight(vote: Vote) -> Decimal:
     """
     if vote.final_total_weight is not None:
         return vote.final_total_weight
-    return total_cooperative_weight()
+    return total_cooperative_weight(vote)
 
 
 def is_accepting_ballots(vote: Vote) -> bool:
@@ -197,7 +216,7 @@ def cast_ballots(
     кто подал (сам член / председатель за него), entered_by_user_id — чья
     учётная запись это сделала.
     """
-    weight = person_voting_weight(person.id)
+    weight = person_voting_weight(person.id, vote)
     comments = comments or {}
     now = dt.datetime.now()
     question_ids = {q.id: q for q in vote.questions}
@@ -392,7 +411,7 @@ def detail(vote_id):
         return redirect(url_for("voting.list_votes"))
 
     person = database.db_session.get(Person, g.user.person_id) if g.user.person_id else None
-    my_weight = person_voting_weight(person.id) if person else Decimal("0")
+    my_weight = person_voting_weight(person.id, vote) if person else Decimal("0")
     my_ballots = person_ballots_by_question(vote, person.id) if person else {}
 
     results = {q.id: question_results(q) for q in vote.questions} if (is_board() or vote.status == VoteStatus.CLOSED) else {}
@@ -402,10 +421,10 @@ def detail(vote_id):
     show_manual_ballots = is_chairman() and vote.voting_type == VoteType.IN_PERSON_AND_ABSENTEE and vote.status == VoteStatus.OPEN
     voters = eligible_voters() if show_manual_ballots else []
     voter_ballots = {p.id: person_ballots_by_question(vote, p.id) for p in voters} if show_manual_ballots else {}
-    voter_weights = {p.id: person_voting_weight(p.id) for p in voters} if show_manual_ballots else {}
+    voter_weights = {p.id: person_voting_weight(p.id, vote) for p in voters} if show_manual_ballots else {}
 
     return render_template(
-        "voting/detail.html", vote=vote, results=results,
+        "voting/detail.html", vote=vote, results=results, coop_one_member_one_vote=one_member_one_vote(),
         my_weight=my_weight, my_ballots=my_ballots,
         is_accepting=is_accepting_ballots(vote),
         quorum=quorum_met(vote), participation=vote_participation_weight(vote) if is_board() else None,
@@ -482,6 +501,7 @@ def open_vote(vote_id):
     if not vote.questions:
         flash(_("Нельзя открыть голосование без вопросов повестки."), "danger")
         return redirect(url_for("voting.detail", vote_id=vote_id))
+    vote.one_member_one_vote = one_member_one_vote()  # до смены статуса — берётся из настройки кооператива
     vote.status = VoteStatus.OPEN
     vote_ledger.seal_on_open(vote)
     audit.record(
@@ -512,7 +532,7 @@ def close_vote(vote_id):
         return redirect(url_for("voting.detail", vote_id=vote_id))
     vote.status = VoteStatus.CLOSED
     vote.closed_at = dt.datetime.now()
-    vote_ledger.seal_on_close(vote, total_cooperative_weight())
+    vote_ledger.seal_on_close(vote, total_cooperative_weight(vote))
     hash_note = f", итоговый хеш {vote.final_hash}" if vote.final_hash else ""
     audit.record(
         "vote.close", f"Закрыто голосование «{vote.title}», результаты зафиксированы{hash_note}",
@@ -580,7 +600,7 @@ def ballot(vote_id):
         flash(_("Ваша учётная запись не привязана к карточке члена кооператива — обратитесь в правление."), "warning")
         return redirect(url_for("voting.detail", vote_id=vote_id))
 
-    weight = person_voting_weight(person.id)
+    weight = person_voting_weight(person.id, vote)
     if weight <= 0:
         flash(_("Голосовать могут только собственники гаражей — у вас нет доли ни в одном гараже."), "warning")
         return redirect(url_for("voting.detail", vote_id=vote_id))
@@ -640,7 +660,7 @@ def set_ballot_for_person(vote_id, person_id):
         flash(_("Человек не найден."), "warning")
         return redirect(url_for("voting.detail", vote_id=vote_id))
 
-    weight = person_voting_weight(person.id)
+    weight = person_voting_weight(person.id, vote)
     if weight <= 0:
         flash(_("У этого человека нет доли ни в одном гараже — голосовать он не может."), "warning")
         return redirect(url_for("voting.detail", vote_id=vote_id))

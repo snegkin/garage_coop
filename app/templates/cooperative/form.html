@@ -126,6 +126,16 @@
       <div class="form-text mb-2">{{ _("Единая по уставу дата в году, после которой на неоплаченные взносы начинает начисляться пеня.") }}</div>
     </div>
 
+    <div class="col-12"><hr></div>
+    <div class="col-12"><h5>{{ _("Голосования") }}</h5></div>
+    <div class="col-12">
+      <div class="form-check">
+        <input class="form-check-input" type="checkbox" name="one_member_one_vote" id="oneMemberOneVote" {{ "checked" if coop.one_member_one_vote }}>
+        <label class="form-check-label" for="oneMemberOneVote">{{ _("Один член — один голос") }}</label>
+      </div>
+      <div class="form-text">{{ _("Выключено — вес голоса равен сумме долей владения гаражами (1 гараж — 1 голос, совладельцы делят голос по долям). Включено — у каждого собственника ровно один голос, сколько бы гаражей у него ни было. Режим фиксируется в голосовании при его открытии: уже открытые и закрытые голосования не пересчитываются.") }}</div>
+    </div>
+
     <div class="col-12">
       <label class="form-label">{{ _("Комментарий") }}</label>
       <textarea class="form-control" name="comment">{{ coop.comment or '' }}</textarea>

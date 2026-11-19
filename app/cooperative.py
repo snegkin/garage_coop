@@ -159,9 +159,13 @@ def edit():
         coop.dues_due_day = int(f["dues_due_day"]) if f.get("dues_due_day") else None
         coop.dues_due_month = int(f["dues_due_month"]) if f.get("dues_due_month") else None
         coop.comment = f.get("comment") or None
+        voting_mode_changed = coop.one_member_one_vote != bool(f.get("one_member_one_vote"))
+        coop.one_member_one_vote = bool(f.get("one_member_one_vote"))
         audit.record(
             "cooperative.settings_edit",
-            f"Изменены реквизиты/настройки кооператива: ставка налога — {coop.land_tax_rate_percent}%",
+            f"Изменены реквизиты/настройки кооператива: ставка налога — {coop.land_tax_rate_percent}%"
+            + ((", голосования: " + ("один член — один голос" if coop.one_member_one_vote else "по долям владения"))
+               if voting_mode_changed else ""),
         )
         database.db_session.commit()
         flash(_("Информация о кооперативе сохранена."), "success")

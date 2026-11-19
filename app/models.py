@@ -93,6 +93,14 @@ class Cooperative(Base):
     dues_due_day: Mapped[int | None] = mapped_column(Integer)    # 1-31
     dues_due_month: Mapped[int | None] = mapped_column(Integer)  # 1-12
 
+    # Режим подсчёта голосов в электронных голосованиях: False (по
+    # умолчанию) — вес = сумма долей владения гаражами (1 гараж — 1 голос);
+    # True — «один член — один голос» (как в п. 4.2.3 устава ГМ «Восход»:
+    # голос не зависит от величины пая). Применяется к голосованию в момент
+    # его открытия и запоминается в нём (Vote.one_member_one_vote) — смена
+    # настройки не меняет веса в уже идущих/закрытых голосованиях.
+    one_member_one_vote: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+
     # Судебный участок по месту нахождения САМОГО кооператива — фолбэк для
     # исков/госпошлины (app/legal_docs.py: resolve_court_section), когда у
     # конкретного должника (Person.court_section_id) участок не заполнен —
@@ -1040,6 +1048,11 @@ class Vote(Base):
     final_hash: Mapped[str | None] = mapped_column(String(64))
     final_hash_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
     final_total_weight: Mapped[Decimal | None] = mapped_column(Numeric(10, 5))
+    # Режим «один член — один голос» (вес каждого собственника = 1 вместо
+    # суммы долей) — копируется из Cooperative.one_member_one_vote при
+    # открытии и дальше не меняется; входит в genesis-хеш (только когда
+    # True — чтобы хеши старых голосований не поменялись).
+    one_member_one_vote: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
 
     meeting: Mapped["GeneralMeeting | None"] = relationship()
     created_by: Mapped["Person | None"] = relationship()

@@ -117,20 +117,28 @@ def final_hash_of(head_hash: str, results: dict) -> str:
 # Работа с моделями
 # ---------------------------------------------------------------------------
 
-def registry_snapshot() -> dict[int, Decimal]:
-    """Текущий реестр голосующих: person_id → сумма долей (как person_voting_weight)."""
+def registry_snapshot(per_member: bool = False) -> dict[int, Decimal]:
+    """Текущий реестр голосующих: person_id → сумма долей (как
+    person_voting_weight); per_member — у каждого вес 1 («один член — один
+    голос», Vote.one_member_one_vote)."""
     weights: dict[int, Decimal] = {}
     for o in database.db_session.query(GarageOwnership).all():
         if o.share and o.share > 0:
             weights[o.person_id] = weights.get(o.person_id, Decimal("0")) + o.share
+    if per_member:
+        return {pid: Decimal("1") for pid in weights}
     return weights
 
 
 def _vote_fields(vote: Vote) -> dict:
-    return {
+    fields = {
         "id": vote.id, "title": vote.title, "description": vote.description or None,
         "voting_type": vote.voting_type.value, "opens_at": ts(vote.opens_at), "closes_at": ts(vote.closes_at),
     }
+    # Только когда режим включён — хеши голосований до его появления не меняются.
+    if vote.one_member_one_vote:
+        fields["one_member_one_vote"] = True
+    return fields
 
 
 def _question_fields(vote: Vote) -> list[dict]:
@@ -147,7 +155,7 @@ def compute_genesis(vote: Vote) -> str:
 def seal_on_open(vote: Vote) -> None:
     """Фиксирует реестр голосующих и повестку — вызывать при draft → open, до commit."""
     database.db_session.flush()  # id вопросов нужны в хеше
-    vote.registry_hash = registry_hash_of(registry_snapshot())
+    vote.registry_hash = registry_hash_of(registry_snapshot(per_member=bool(vote.one_member_one_vote)))
     vote.genesis_hash = compute_genesis(vote)
 
 

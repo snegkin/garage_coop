@@ -686,7 +686,8 @@ def allocate_statement_line(account_id, line_id):
     line.matched_payment_id = payment.id
     audit.record(
         "bank_api.statement_line_allocate", entity_type="bank_account", entity_id=account.id,
-        summary=f"Операция выписки ({resolved_number}, {audit.format_amount(line.amount)}) разнесена платежом вручную",
+        summary=f"Операция выписки ({resolved_number}, {audit.format_amount(line.amount)} "
+                f"от {audit.format_date(line.operation_date)}) разнесена платежом вручную",
     )
     database.db_session.commit()
     return respond(True, _("Платёж разнесён."), account_number=resolved_number)

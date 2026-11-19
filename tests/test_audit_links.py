@@ -28,6 +28,26 @@ def test_bank_account_links_to_statement(app, db):
         assert audit.link_for("bank_api.payment_registry_upload", "bank_account", account.id).endswith("/registry/payments")
 
 
+def test_statement_link_opens_period_from_summary(app, db):
+    account = BankAccount(bank_name="Банк", checking_account="40703", bik="0", correspondent_account="301")
+    db.add(account)
+    db.commit()
+    with app.test_request_context():
+        sync = audit.link_for(
+            "bank_api.statement_sync", "bank_account", account.id,
+            "Загружена выписка счёта Банк 40703 за 12.09.2026—19.09.2026: 2 новых операций, 1 разнесено автоматически",
+        )
+        assert sync.endswith(f"/{account.id}/statement?date_from=2026-09-12&date_to=2026-09-19")
+        unallocate = audit.link_for(
+            "bank_api.statement_line_unallocate", "bank_account", account.id,
+            "Отменено разнесение операции выписки (1 000,00 ₽ от 03.08.2026) на 12",
+        )
+        assert unallocate.endswith("?date_from=2026-08-03&date_to=2026-08-03")
+        # Реестр — без периода, даже если в тексте есть даты.
+        registry = audit.link_for("bank_api.payment_registry_upload", "bank_account", account.id, "за 01.09.2026—30.09.2026")
+        assert registry.endswith("/registry/payments")
+
+
 def test_document_and_user_links(app, db):
     person = make_person(db, "Документов Д.")
     user = make_user(db, "docs", "pw", person=person)

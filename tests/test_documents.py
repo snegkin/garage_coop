@@ -346,6 +346,9 @@ def test_notary_letter_about_heirs(db, client):
     page = client.get(f"/documents/new?template_id={letter.id}&owner={owner.id}:{garage.id}").get_data(as_text=True)
     assert "к имуществу Петровой Анны Ивановны" in page and "гаража (бокса) № 42" in page
     assert "ст. 63 Основ законодательства" in page and "заказным" in page
+    # Подсказка — где искать нотариуса — на странице, но не на бланке.
+    assert "notariat.ru/ru-ru/help/probate-cases/" in page
+    assert "notariat.ru" not in page.split('id="docAddressee"')[1]
     assert "{{" not in page.split('id="docAddressee"')[1]
 
 

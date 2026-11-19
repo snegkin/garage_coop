@@ -1114,6 +1114,13 @@ DEFAULT_TEMPLATES = [
         # наследников обязан (ст. 63 Основ) — просим и то, и другое.
         # Адресат — умерший собственник гаража из реестра; нотариус — от руки.
         "name": "Письмо нотариусу о наследниках умершего члена кооператива",
+        "hint": (
+            "Нотариуса, который ведёт наследственное дело, и номер дела можно найти по ФИО умершего и "
+            "дате смерти в <a href=\"https://notariat.ru/ru-ru/help/probate-cases/\" target=\"_blank\" "
+            "rel=\"noopener\">реестре наследственных дел</a> Федеральной нотариальной палаты. Параллельно "
+            "стоит отправить заказное письмо «Наследникам …» на последний адрес умершего и сфотографировать "
+            "объявление на воротах гаража — это пригодится в суде."
+        ),
         "title": "ПРЕТЕНЗИЯ кредитора наследодателя",
         "recipient": "garage",
         "signer_role": "Председатель правления",
@@ -1285,7 +1292,18 @@ def add_default_templates() -> int:
     return added
 
 
+def template_hint(template: DocumentTemplate | None) -> Markup | None:
+    """Подсказка правлению к стандартному шаблону («hint» в DEFAULT_TEMPLATES,
+    по названию или коду) — на странице составления, не на бланке."""
+    if template is None:
+        return None
+    hint = next((d["hint"] for d in DEFAULT_TEMPLATES if "hint" in d and (
+        d["name"] == template.name or (d.get("code") and d.get("code") == template.code))), None)
+    return Markup(hint) if hint else None
+
+
 def _default_template(order: int, data: dict) -> DocumentTemplate:
+    data = {k: v for k, v in data.items() if k != "hint"}
     return DocumentTemplate(**{
         "show_number": True, "show_signature": True, "signer_role": "Председатель", "addressee_html": "",
         "chairman_only": False, "is_public": False, "for_members": False, "sort_order": order * 10, **data,
@@ -1745,6 +1763,7 @@ def _render_create(template, source, recipient, person, garage, coop, chairman, 
         keep = {"template_id": template.id}
     return render_template(
         "documents/create.html", template=template, source=source, recipient=recipient, keep=keep,
+        hint=template_hint(template),
         cert_application=cert_application, person=person, garage=garage, coop=coop, chairman=chairman,
         need_recipient=need_recipient, title=title or "", addressee_html=addressee_html or "",
         body_html=body_html or "", issued_at=issued_at,

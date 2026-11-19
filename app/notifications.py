@@ -501,8 +501,8 @@ BOARD_EVENT_GROUPS = {
         "actions": ("counterparty.*", "counterparty_payment.*", "expense.*", "counterparty_api.*"),
     },
     "governance": {
-        "label": "Собрания, голосования, предложения, заявления, состав правления",
-        "actions": ("meeting.*", "vote.*", "proposal.*", "application.*", "board_term.*", "revision_commission.*"),
+        "label": "Собрания, голосования, предложения, заявления, состав правления, кандидаты",
+        "actions": ("meeting.*", "vote.*", "proposal.*", "application.*", "board_term.*", "revision_commission.*", "candidacy.*"),
     },
     "settings": {
         "label": "Почта и настройки",

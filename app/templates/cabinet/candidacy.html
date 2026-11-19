@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Выдвижение на выборы") }}{% endblock %}
+{% block content %}
+<h3 class="mb-3">{{ _("Выдвижение на выборы") }}</h3>
+
+{% if person is none %}
+<p class="text-muted">{{ _("Ваша учётная запись пока не привязана к карточке члена кооператива. Обратитесь в правление.") }}</p>
+{% elif not eligible %}
+<p class="text-muted">{{ _("Выдвигаться в правление, ревизионную комиссию и председатели могут только собственники гаражей на территории кооператива. За вами такого гаража не числится.") }}</p>
+{% else %}
+<p class="text-muted small">{{ _("Как собственник гаража на территории кооператива вы можете выдвинуть свою кандидатуру. Список кандидатов виден членам кооператива на странице «Правление», правление учитывает его при подготовке выборов; избрание оформляется решением общего собрания. Кандидатуру можно снять в любой момент.") }}</p>
+<p class="text-muted small">{{ _("Обычно член ревизионной комиссии не может одновременно входить в правление — уточните по уставу кооператива.") }}</p>
+
+<div class="row g-3">
+  {% for position in positions %}
+  {% set c = mine.get(position) %}
+  <div class="col-md-4">
+    <div class="card h-100">
+      <div class="card-body d-flex flex-column">
+        <h5 class="card-title">
+          {{ _(position_labels[position]) }}
+          {% if c %}<span class="badge bg-success ms-1">{{ _("вы кандидат") }}</span>{% endif %}
+        </h5>
+        <form method="post" action="{{ url_for('cabinet.candidacy_submit') }}" class="d-flex flex-column flex-grow-1">
+          <input type="hidden" name="position" value="{{ position.value }}">
+          <label class="form-label small text-muted" for="statement-{{ position.value }}">{{ _("О себе (необязательно)") }}</label>
+          <textarea class="form-control form-control-sm mb-2 flex-grow-1" rows="4" name="statement" id="statement-{{ position.value }}" maxlength="2000">{{ c.statement if c and c.statement else "" }}</textarea>
+          <button class="btn btn-sm btn-primary">{{ _("Сохранить текст") if c else _("Выдвинуть кандидатуру") }}</button>
+        </form>
+        {% if c %}
+        <form method="post" action="{{ url_for('cabinet.candidacy_withdraw') }}" class="mt-2" onsubmit="return confirm('{{ _('Снять свою кандидатуру?') }}')">
+          <input type="hidden" name="position" value="{{ position.value }}">
+          <button class="btn btn-sm btn-outline-danger w-100">{{ _("Снять кандидатуру") }}</button>
+        </form>
+        <div class="small text-muted mt-2">{{ _("Выдвинута") }} {{ fmt_date(c.created_at.date()) }}</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+{% endblock %}

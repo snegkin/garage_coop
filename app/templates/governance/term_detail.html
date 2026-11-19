@@ -71,7 +71,7 @@
             <select class="form-select" name="person_id" data-searchable required>
               <option value=""></option>
               {% for p in persons %}
-              <option value="{{ p.id }}">{{ p.full_name }}</option>
+              <option value="{{ p.id }}">{{ p.full_name }}{% if p.id in chairman_candidate_ids %} — {{ _("кандидат в председатели") }}{% elif p.id in board_candidate_ids %} — {{ _("кандидат в правление") }}{% endif %}</option>
               {% endfor %}
             </select>
           </div>

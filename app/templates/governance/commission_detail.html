@@ -70,7 +70,7 @@
             <select class="form-select" name="person_id" data-searchable required>
               <option value=""></option>
               {% for p in persons %}
-              <option value="{{ p.id }}">{{ p.full_name }}{% if p.id in current_board_ids %} — {{ _("сейчас в правлении") }}{% endif %}</option>
+              <option value="{{ p.id }}">{{ p.full_name }}{% if p.id in current_board_ids %} — {{ _("сейчас в правлении") }}{% endif %}{% if p.id in commission_candidate_ids %} — {{ _("кандидат в комиссию") }}{% endif %}</option>
               {% endfor %}
             </select>
             <div class="form-text">{{ _("По уставу ревизионная комиссия обычно должна быть независима от правления.") }}</div>

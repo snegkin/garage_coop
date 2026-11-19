@@ -1779,6 +1779,10 @@ function enhanceSearchableSelect(select) {
   // поле растягивалось бы на всю ширину флекс-контейнера (w-100) и сталкивало
   // остальные поля/кнопку на следующую строку.
   if (select.style.maxWidth) wrapper.style.maxWidth = select.style.maxWidth;
+  // То же с flex (напр. «flex:1 1 12rem» в формах с переносом строк на
+  // телефоне — лица для связи гаража): без него обёртка в строке flex
+  // сжималась почти до нуля, и в поле было не попасть пальцем.
+  if (select.style.flex) wrapper.style.flex = select.style.flex;
   select.parentNode.insertBefore(wrapper, select);
   wrapper.appendChild(select);
   select.style.display = "none";

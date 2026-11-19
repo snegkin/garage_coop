@@ -13,6 +13,7 @@
       <p class="card-text mb-1"><strong>{{ _("Доля") }}:</strong> {{ fmt2(share) }}</p>
       {% endif %}
       <p class="card-text mb-3"><strong>{{ _("Кадастровый номер гаража") }}:</strong> {{ garage.cadastral_number or "—" }}</p>
+      <div class="d-flex flex-wrap gap-2">
       <a class="btn btn-sm btn-primary" href="{{ url_for('garages.detail', garage_id=garage.id) }}">{{ _("Открыть и обновить данные") }}</a>
       {% if share is not none %}
       {# Справку о владении тоже просят заявлением в правление — вид
@@ -26,6 +27,7 @@
         </ul>
       </div>
       {% endif %}
+      </div>
 
       {% set my_accounts = member_accounts_by_garage.get(garage.id, []) %}
       {% set elec = electricity_by_garage.get(garage.id) %}

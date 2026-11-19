@@ -13,7 +13,8 @@
 #
 # Настройки — как в ansible/README.md: ~/.config/garage-coop/{inventory.ini,vars.yml};
 # если их там нет, берутся ansible/inventory.ini и ansible/vars.yml.
-# COOP_VARS и -i в аргументах имеют приоритет.
+# COOP_VARS и -i в аргументах имеют приоритет. COOP_PLAYBOOK — другой
+# плейбук из ansible/ вместо site.yml (remove-coop.sh: remove_coop.yml).
 
 set -u
 
@@ -56,6 +57,7 @@ esac
 # сразу проверяется через sudo и передаётся в ansible файлом (0600, удаляется
 # по выходу).
 VARS_FILE="${COOP_VARS:-$CONF_DIR/vars.yml}"
+PLAYBOOK="${COOP_PLAYBOOK:-site.yml}"
 BECOME=""
 PASS_FILE=""
 cleanup() { if [ -n "$PASS_FILE" ]; then rm -f "$PASS_FILE"; fi; }
@@ -67,6 +69,8 @@ trap 'exit 130' INT TERM HUP
 # или --skip-tags local он пустой и sudo здесь не нужен — пароль не спрашиваем.
 # Так же для режимов, которые ничего не выполняют (--list-tasks и т.п.).
 local_play_runs() {
+    # Агенты ставит только site.yml.
+    [ "$PLAYBOOK" = site.yml ] || return 1
     tags="" skip="" prev=""
     for arg in "$@"; do
         case "$prev" in
@@ -118,13 +122,13 @@ if [ -f "$VARS_FILE" ] && grep -Eq '^local_(backup|ezp)_agent:[[:space:]]*(true|
     esac
 fi
 
-echo "Плейбук: $ANSIBLE_DIR/site.yml"
+echo "Плейбук: $ANSIBLE_DIR/$PLAYBOOK"
 echo "Настройки: ${COOP_VARS:-$CONF_DIR/vars.yml}"
 echo "Инвентарь: ${INVENTORY:-по ansible.cfg ($CONF_DIR/inventory.ini) или из аргументов}"
 echo
 
 if [ -n "$INVENTORY" ]; then
-    ansible-playbook -i "$INVENTORY" $BECOME site.yml "$@"
+    ansible-playbook -i "$INVENTORY" $BECOME "$PLAYBOOK" "$@"
 else
-    ansible-playbook $BECOME site.yml "$@"
+    ansible-playbook $BECOME "$PLAYBOOK" "$@"
 fi

@@ -811,6 +811,34 @@ def test_lawsuit_does_not_presuppose_defendant_is_cooperative_member(db, client)
     assert "не являющихся его членами" in body
 
 
+def test_lawsuit_draft_against_heirs_of_deceased_debtor(db, client):
+    """Иск к наследникам: ответчик — наследники умершего, просьба
+    истребовать наследственное дело, солидарно в пределах наследства,
+    полная госпошлина (не приказ)."""
+    _make_coop(db)
+    _board_login(db, client)
+    person = make_person(db, full_name="Умершев Иван Петрович")
+    garage = make_garage(db, number="47")
+    make_ownership(db, garage, person)
+    _make_debt(db, person, garage, amount="50000.00")
+    db.commit()
+
+    body = client.post("/legal-docs/lawsuit/draft", data={
+        "person_id": [str(person.id)], "proceeding_type": "heirs",
+    }).get_data(as_text=True)
+    assert "наследники Умершева Ивана Петровича" in body
+    assert "последнее место жительства наследодателя" in body
+    assert "Истребовать у нотариуса" in body and "ст. 1175" in body
+    assert "Взыскать солидарно с наследников Умершева Ивана Петровича" in body
+    assert "4000,00" in body and "судебного приказа" not in body
+    assert "пересчитайте её вручную" in body
+
+    body = client.post("/legal-docs/lawsuit/print", data={
+        "person_id": [str(person.id)], "proceeding_type": "heirs", f"text_{person.id}": "текст",
+    }).get_data(as_text=True)
+    assert "о взыскании с наследников" in body and 'name="proceeding_type" value="heirs"' in body
+
+
 def test_lawsuit_print_carries_proceeding_type_through_to_pdf_resubmit(db, client):
     _make_coop(db)
     _board_login(db, client)

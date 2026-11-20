@@ -762,7 +762,12 @@ def test_source_toggle_bank_only(app, db, client):
 
     with app.test_request_context("/year-report/?year=2026"):
         from app.year_report import _income, _spending
-        assert _income(2026)["total"]["received"] == Decimal("1700")
+        income = _income(2026)
+        assert income["total"]["received"] == Decimal("1700")
+        # Раскрытие вида взноса: платежи с гаражом, плательщиком и пометкой «наличными».
+        row = next(r for r in income["rows"] if r["code"] == "membership")
+        assert [(p["payment"].amount, p["cash"], p["garage"].id, p["person"].id) for p in row["payments"]] == [
+            (Decimal("1000"), False, garage.id, person.id), (Decimal("700"), True, garage.id, person.id)]
         assert _spending(2026)["total"] == Decimal("500")
     with app.test_request_context("/year-report/?year=2026&source=bank"):
         from app.year_report import _income, _spending

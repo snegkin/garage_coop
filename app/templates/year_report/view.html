@@ -1,0 +1,371 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Финансы за {year} год", year=year) }}{% endblock %}
+{% block content %}
+<style>
+  .yr-swatch { display:inline-block; width:.8em; height:.8em; border-radius:2px; margin-right:.4em; vertical-align:baseline; }
+  .yr-chart { position:relative; height:240px; max-width:240px; margin:0 auto; }
+  .yr-tile .value { font-size:1.35rem; font-weight:600; font-variant-numeric: tabular-nums; }
+  .yr-table td, .yr-table th { font-variant-numeric: tabular-nums; }
+  .yr-gaps .form-select, .yr-gaps .form-control { min-width: 9rem; }
+</style>
+
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+  <h3 class="mb-0">{{ _("Финансы за {year} год", year=year) }}</h3>
+  <form method="get" class="d-flex align-items-center gap-2">
+    <label class="form-label mb-0 small text-muted" for="yearSelect">{{ _("Год") }}</label>
+    <select class="form-select form-select-sm" style="width:auto" id="yearSelect" name="year" onchange="this.form.submit()">
+      {% for y in years %}<option value="{{ y }}" {{ "selected" if y == year }}>{{ y }}</option>{% endfor %}
+    </select>
+  </form>
+</div>
+
+{% set balance = income.total.received - spending.total %}
+<div class="row g-3 mb-4">
+  <div class="col-6 col-lg">
+    <div class="card h-100 yr-tile"><div class="card-body">
+      <div class="small text-muted">{{ _("Начислено за год") }}</div>
+      <div class="value">{{ fmt2(income.total.charged) }} ₽</div>
+      <div class="small text-muted">{{ _("план поступлений") }}</div>
+    </div></div>
+  </div>
+  <div class="col-6 col-lg">
+    <div class="card h-100 yr-tile"><div class="card-body">
+      <div class="small text-muted">{{ _("Получено") }}</div>
+      <div class="value">{{ fmt2(income.total.received) }} ₽</div>
+      <div class="small text-muted">{% if income.total.rate is not none %}{{ _("{rate}% от начисленного", rate=income.total.rate) }}{% else %}&nbsp;{% endif %}</div>
+    </div></div>
+  </div>
+  <div class="col-6 col-lg">
+    <div class="card h-100 yr-tile"><div class="card-body">
+      <div class="small text-muted">{{ _("По смете") }}</div>
+      <div class="value">{% if budget.total %}{{ fmt2(budget.total) }} ₽{% else %}—{% endif %}</div>
+      <div class="small text-muted">{{ _("план расходов") }}</div>
+    </div></div>
+  </div>
+  <div class="col-6 col-lg">
+    <div class="card h-100 yr-tile"><div class="card-body">
+      <div class="small text-muted">{{ _("Потрачено") }}</div>
+      <div class="value">{{ fmt2(spending.total) }} ₽</div>
+      <div class="small text-muted">{% if budget.total %}{{ _("{rate}% сметы", rate=((spending.total / budget.total * 100) | round(1))) }}{% else %}&nbsp;{% endif %}</div>
+    </div></div>
+  </div>
+  <div class="col-12 col-lg">
+    <div class="card h-100 yr-tile"><div class="card-body">
+      <div class="small text-muted">{{ _("Получено минус потрачено") }}</div>
+      <div class="value {{ 'text-danger' if balance < 0 else 'text-success' }}">{{ fmt2(balance) }} ₽</div>
+      <div class="small text-muted">{{ _("за год, без остатка прошлых лет") }}</div>
+    </div></div>
+  </div>
+</div>
+
+{% if gaps %}
+<div class="alert alert-warning d-flex justify-content-between align-items-center flex-wrap gap-2">
+  <span>{{ _("В выписке банка за этот год есть списания без расхода у контрагента: {count} на {amount} ₽ — в «Потрачено» они пока не входят.", count=gaps|length, amount=fmt2(gaps_total)) }}</span>
+  <a class="btn btn-sm btn-outline-dark" href="#gaps">{{ _("Разобрать") }}</a>
+</div>
+{% endif %}
+
+<div class="row g-3 mb-4">
+  {# --- Поступления --- #}
+  <div class="col-12">
+    <div class="card h-100"><div class="card-body">
+      <h5 class="card-title">{{ _("Поступления по видам взноса") }}</h5>
+      {% if income.rows %}
+      <div class="row g-3 align-items-center">
+        <div class="col-12 col-md-4"><div class="yr-chart"><canvas id="incomeChart" aria-label="{{ _('Поступления по видам взноса') }}"></canvas></div></div>
+        <div class="col-12 col-md-8">
+          <div class="table-responsive">
+          <table class="table table-sm mb-0 yr-table">
+            <thead><tr><th>{{ _("Вид") }}</th><th class="text-end">{{ _("Начислено") }}</th><th class="text-end">{{ _("Получено") }}</th><th class="text-end">%</th></tr></thead>
+            <tbody>
+              {% for r in income.rows %}
+              <tr>
+                <td><span class="yr-swatch" data-chart="incomeChart" data-label="{{ r.name }}"></span>{{ r.name }}</td>
+                <td class="text-end">{{ fmt2(r.charged) }}</td>
+                <td class="text-end">{{ fmt2(r.received) }}</td>
+                <td class="text-end">{{ r.rate if r.rate is not none else "—" }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+            <tfoot><tr class="fw-bold border-top">
+              <td>{{ _("Итого") }}</td>
+              <td class="text-end">{{ fmt2(income.total.charged) }}</td>
+              <td class="text-end">{{ fmt2(income.total.received) }}</td>
+              <td class="text-end">{{ income.total.rate if income.total.rate is not none else "—" }}</td>
+            </tr></tfoot>
+          </table>
+          </div>
+        </div>
+      </div>
+      <p class="text-muted small mb-0 mt-2">{{ _("Начислено — начисления за этот год; получено — платежи, поступившие в этом году (в том числе долги прошлых лет). Без зачётов между счетами и списаний пени.") }}</p>
+      {% else %}
+      <p class="text-muted mb-0">{{ _("За этот год нет ни начислений, ни платежей.") }}</p>
+      {% endif %}
+    </div></div>
+  </div>
+
+  {# --- Траты --- #}
+  <div class="col-12">
+    <div class="card h-100"><div class="card-body">
+      <h5 class="card-title">{{ _("На что потрачено") }}</h5>
+      {% if spending.groups %}
+      <div class="row g-3 align-items-center">
+        <div class="col-12 col-md-4"><div class="yr-chart"><canvas id="spendingChart" aria-label="{{ _('На что потрачено') }}"></canvas></div></div>
+        <div class="col-12 col-md-8">
+          <div class="table-responsive">
+          <table class="table table-sm mb-0 yr-table">
+            <thead><tr><th>{{ _("Статья") }}</th><th class="text-end">{{ _("Сумма") }}</th><th class="text-end">%</th></tr></thead>
+            <tbody>
+              {% for g in spending.groups %}
+              <tr>
+                <td>
+                  <details>
+                    <summary><span class="yr-swatch" data-chart="spendingChart" data-label="{{ g.name }}"></span>{{ g.name }} <span class="text-muted small">({{ g.expenses|length }})</span></summary>
+                    <ul class="list-unstyled small mt-1 mb-0">
+                      {% for e in g.expenses %}
+                      <li class="d-flex justify-content-between gap-2">
+                        <span>{{ fmt_date(e.date) }} · <a href="{{ url_for('counterparties.detail', counterparty_id=e.counterparty_id) }}">{{ e.counterparty.name }}</a>{% if e.description %} — {{ e.description|truncate(80) }}{% endif %}</span>
+                        <span class="text-nowrap">{{ fmt2(e.amount) }}</span>
+                      </li>
+                      {% endfor %}
+                    </ul>
+                  </details>
+                </td>
+                <td class="text-end align-top">{{ fmt2(g.amount) }}</td>
+                <td class="text-end align-top">{{ g.share if g.share is not none else "—" }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+            <tfoot><tr class="fw-bold border-top">
+              <td>{{ _("Итого") }}</td>
+              <td class="text-end">{{ fmt2(spending.total) }}</td>
+              <td></td>
+            </tr></tfoot>
+          </table>
+          </div>
+        </div>
+      </div>
+      <p class="text-muted small mb-0 mt-2">
+        {{ _("Расходы у контрагентов с датой в этом году (у электроэнергии — месяц потребления).") }}
+        {% if spending.not_via_bank %}{{ _("Из них оплачено не через банк: {amount} ₽.", amount=fmt2(spending.not_via_bank)) }}{% endif %}
+        {% if spending.unpaid %}<span class="text-danger">{{ _("Ещё не оплачено: {amount} ₽.", amount=fmt2(spending.unpaid)) }}</span>{% endif %}
+      </p>
+      {% else %}
+      <p class="text-muted mb-0">{{ _("Расходов с датой в этом году нет.") }}</p>
+      {% endif %}
+    </div></div>
+  </div>
+</div>
+
+{# --- План и факт --- #}
+<div class="card mb-4"><div class="card-body">
+  <h5 class="card-title">{{ _("План и факт") }}</h5>
+  <div class="table-responsive">
+  <table class="table table-sm mb-0 yr-table align-middle">
+    <thead><tr><th></th><th class="text-end">{{ _("План") }}</th><th class="text-end">{{ _("Факт") }}</th><th class="text-end">{{ _("Разница") }}</th><th style="width:30%"></th></tr></thead>
+    <tbody>
+      {% for label, plan, fact in [(_("Поступления"), income.total.charged, income.total.received), (_("Расходы"), budget.total, spending.total)] %}
+      <tr>
+        <td>{{ label }}</td>
+        <td class="text-end">{{ fmt2(plan) if plan else "—" }}</td>
+        <td class="text-end">{{ fmt2(fact) }}</td>
+        <td class="text-end">{{ fmt2(fact - plan) if plan else "—" }}</td>
+        <td>
+          {% if plan %}
+          {% set pct = (fact / plan * 100) | float %}
+          <div class="progress" role="progressbar" aria-label="{{ label }}" aria-valuenow="{{ pct|round(0) }}" aria-valuemin="0" aria-valuemax="100" style="height:.6rem">
+            <div class="progress-bar {{ 'bg-danger' if loop.index == 2 and pct > 100 }}" style="width: {{ [pct, 100]|min }}%"></div>
+          </div>
+          <div class="small text-muted text-end">{{ pct|round(1) }}%</div>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div></div>
+
+{# --- Смета --- #}
+<div class="card mb-4"><div class="card-body">
+  <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
+    <h5 class="card-title">{{ _("Смета на {year} год", year=year) }}</h5>
+    <form method="post" action="{{ url_for('year_report.import_budget') }}" enctype="multipart/form-data" class="d-flex gap-2 align-items-center">
+      <input type="hidden" name="year" value="{{ year }}">
+      <input class="form-control form-control-sm" type="file" name="file" accept=".csv,text/csv" required aria-label="{{ _('CSV-файл сметы') }}">
+      <button class="btn btn-sm btn-outline-primary text-nowrap" type="submit"
+        {% if budget.sections %}onclick="return confirm({{ _('Смета этого года будет заменена содержимым файла. Продолжить?')|tojson }})"{% endif %}>
+        {{ _("Загрузить CSV") }}</button>
+    </form>
+  </div>
+  {% if budget.sections %}
+  <div class="row g-3 align-items-center mt-1">
+    <div class="col-12 col-md-4"><div class="yr-chart"><canvas id="budgetChart" aria-label="{{ _('Смета по разделам') }}"></canvas></div></div>
+    <div class="col-12 col-md-8">
+      <div class="table-responsive">
+      <table class="table table-sm mb-0 yr-table">
+        <thead><tr><th>{{ _("Раздел") }}</th><th class="text-end">{{ _("Сумма") }}</th><th class="text-end">%</th></tr></thead>
+        <tbody>
+          {% for s in budget.sections %}
+          <tr>
+            <td>
+              <details>
+                <summary><span class="yr-swatch" data-chart="budgetChart" data-label="{{ s.name }}"></span>{{ s.name }} <span class="text-muted small">({{ s.lines|length }})</span></summary>
+                <ul class="list-unstyled small mt-1 mb-0">
+                  {% for i in s.lines %}
+                  <li class="d-flex justify-content-between gap-2">
+                    <span>{{ i.name }}{% if i.qty_text %} <span class="text-muted">({{ i.qty_text }} × {{ fmt2(i.price) }})</span>{% endif %}</span>
+                    <span class="text-nowrap">{{ fmt2(i.amount) }}</span>
+                  </li>
+                  {% endfor %}
+                </ul>
+              </details>
+            </td>
+            <td class="text-end align-top">{{ fmt2(s.amount) }}</td>
+            <td class="text-end align-top">{{ s.share if s.share is not none else "—" }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot><tr class="fw-bold border-top"><td>{{ _("Итого") }}</td><td class="text-end">{{ fmt2(budget.total) }}</td><td></td></tr></tfoot>
+      </table>
+      </div>
+    </div>
+  </div>
+  {% else %}
+  <p class="text-muted mb-0">{{ _("Смета на этот год не загружена. CSV — выгрузка таблицы сметы: столбцы «Наименование, Кол-во, Цена, Сумма», строка с одним наименованием — раздел.") }}</p>
+  {% endif %}
+</div></div>
+
+{# --- Списания без расхода --- #}
+<div class="card mb-4" id="gaps"><div class="card-body">
+  <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
+    <h5 class="card-title">{{ _("Списания из выписки без расхода") }}</h5>
+    {% if gaps|selectattr("confident")|list %}
+    <form method="post" action="{{ url_for('year_report.book_all_statement_lines') }}">
+      <input type="hidden" name="year" value="{{ year }}">
+      <button class="btn btn-sm btn-primary" type="submit"
+        onclick="return confirm({{ _('Завести расходы по всем списаниям с подобранной статьёй ({count})?', count=gaps|selectattr('confident')|list|length)|tojson }})">
+        {{ _("Завести все с подобранной статьёй") }}</button>
+    </form>
+    {% endif %}
+  </div>
+  {% if gaps %}
+  <p class="text-muted small">{{ _("Если есть «Отчёт по тратам» в CSV, сначала импортируйте его (ниже): в нём позиции заказов и статьи подробнее, и списания, найденные в отчёте, отсюда уйдут.") }}
+  {{ _("Расход и платёж заводятся у контрагента задним числом: платёж привязывается к строке выписки, баланс счёта не меняется. Перевод между своими счетами, возврат члену и т.п. — «Не трата».") }}</p>
+  <div class="table-responsive yr-gaps">
+  <table class="table table-sm align-middle yr-table">
+    <thead><tr>
+      <th>{{ _("Дата") }}</th><th class="text-end">{{ _("Сумма") }}</th><th>{{ _("Получатель и назначение") }}</th>
+      <th>{{ _("Контрагент") }}</th><th>{{ _("Статья") }}</th><th></th>
+    </tr></thead>
+    <tbody>
+      {% for g in gaps %}
+      {% set line = g.line %}
+      <tr>
+        <td class="text-nowrap">{{ fmt_date(line.operation_date) }}</td>
+        <td class="text-end text-nowrap">{{ fmt2(line.amount) }}</td>
+        <td class="small" style="max-width:22rem">
+          <div class="fw-semibold">{{ line.counterparty_name or "—" }}</div>
+          <div class="text-muted">{{ (line.payment_purpose or "")|truncate(140) }}</div>
+        </td>
+        <td>
+          <form id="book{{ line.id }}" method="post" action="{{ url_for('year_report.book_statement_line', line_id=line.id) }}"></form>
+          <select class="form-select form-select-sm js-cp-select" name="counterparty_id" form="book{{ line.id }}" data-new-input="newName{{ line.id }}" aria-label="{{ _('Контрагент') }}">
+            <option value="new" {{ "selected" if not g.counterparty }}>{{ _("+ новый") }}</option>
+            {% for cp in counterparties %}
+            <option value="{{ cp.id }}" {{ "selected" if g.counterparty and g.counterparty.id == cp.id }}>{{ cp.name }}</option>
+            {% endfor %}
+          </select>
+          <input class="form-control form-control-sm mt-1 {{ 'd-none' if g.counterparty }}" id="newName{{ line.id }}" name="new_name" form="book{{ line.id }}" value="{{ g.new_name }}" aria-label="{{ _('Название нового контрагента') }}">
+          <input type="hidden" name="description" form="book{{ line.id }}" value="{{ g.description }}">
+        </td>
+        <td>
+          <select class="form-select form-select-sm {{ 'border-warning' if not g.confident }}" name="category" form="book{{ line.id }}" aria-label="{{ _('Статья') }}">
+            {% for c in categories %}<option {{ "selected" if c == g.category }}>{{ c }}</option>{% endfor %}
+          </select>
+        </td>
+        <td class="text-nowrap">
+          <button class="btn btn-sm btn-outline-primary" type="submit" form="book{{ line.id }}">{{ _("Завести") }}</button>
+          <form method="post" action="{{ url_for('year_report.mark_not_expense', line_id=line.id) }}" class="d-inline">
+            <button class="btn btn-sm btn-outline-secondary" type="submit" title="{{ _('Не трата: перевод между своими счетами, возврат и т.п.') }}">{{ _("Не трата") }}</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <p class="text-muted mb-0">{{ _("Все списания из выписки за этот год уже разнесены по контрагентам.") }}</p>
+  {% endif %}
+</div></div>
+
+{# --- Импорт отчёта по тратам --- #}
+<div class="card mb-4"><div class="card-body">
+  <h5 class="card-title">{{ _("Импорт отчёта по тратам (CSV)") }}</h5>
+  <p class="text-muted small">{{ _("Выгрузка таблицы «Отчёт по тратам»: блоки «Наименование (раздел), , Дата, Кол-во, Цена, Сумма». Перед записью покажем, что из отчёта уже заведено, что найдено в выписке банка и что будет заведено как оплаченное не через банк.") }}
+    {{ _("Заказы с маркетплейса: впишите номер заказа (как в назначении платежа, например 0161382282-0005) во второй, пустой столбец у каждой позиции — позиции заказа сведутся к одной оплате, суммы подгонятся под фактически списанное. Позиции, купленные с личного аккаунта, оставьте без номера.") }}</p>
+  <form method="post" action="{{ url_for('year_report.import_spending_preview') }}" enctype="multipart/form-data" class="d-flex gap-2 align-items-center flex-wrap">
+    <input type="hidden" name="year" value="{{ year }}">
+    <input class="form-control form-control-sm" style="max-width:24rem" type="file" name="file" accept=".csv,text/csv" required aria-label="{{ _('CSV-файл отчёта по тратам') }}">
+    <button class="btn btn-sm btn-outline-primary" type="submit">{{ _("Проверить файл") }}</button>
+  </form>
+</div></div>
+
+<script src="{{ vendor_url('chart.js', 'chart.umd.js') }}"></script>
+<script>
+(function () {
+  // Категориальная палитра — фиксированный порядок, восьмой цвет — серый
+  // для «Остальное»; отдельные шаги для тёмной темы.
+  var dark = document.documentElement.getAttribute("data-bs-theme") === "dark";
+  var palette = dark
+    ? ["#3987e5", "#d95926", "#199e70", "#c98500", "#d55181", "#0ca30c", "#9085e9"]
+    : ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#6250d6"];
+  var otherColor = dark ? "#6b6b66" : "#a3a29d";
+  var surface = getComputedStyle(document.body).getPropertyValue("--bs-card-bg").trim()
+    || getComputedStyle(document.body).backgroundColor;
+  var money = new Intl.NumberFormat("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  function draw(id, slices) {
+    var canvas = document.getElementById(id);
+    if (!canvas || !slices.length) return;
+    var colors = slices.map(function (s, i) { return s.other ? otherColor : palette[i % palette.length]; });
+    var byLabel = {};
+    slices.forEach(function (s, i) { byLabel[s.label] = colors[i]; });
+    // Цвет у строк таблицы — тот же, что у куска диаграммы; строки, ушедшие
+    // в «Остальное», получают серый.
+    document.querySelectorAll('.yr-swatch[data-chart="' + id + '"]').forEach(function (el) {
+      el.style.backgroundColor = byLabel[el.dataset.label] || otherColor;
+    });
+    var total = slices.reduce(function (a, s) { return a + s.value; }, 0);
+    new Chart(canvas.getContext("2d"), {
+      type: "doughnut",
+      data: {
+        labels: slices.map(function (s) { return s.label; }),
+        datasets: [{ data: slices.map(function (s) { return s.value; }), backgroundColor: colors,
+                     borderColor: surface || "#fff", borderWidth: 2, hoverOffset: 6 }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false, cutout: "55%",
+        plugins: {
+          legend: { display: false },
+          tooltip: { callbacks: { label: function (ctx) {
+            var pct = total ? (ctx.parsed / total * 100).toFixed(1).replace(".", ",") : "0";
+            return " " + ctx.label + ": " + money.format(ctx.parsed) + " ₽ (" + pct + "%)";
+          } } },
+        },
+      },
+    });
+  }
+  draw("incomeChart", {{ income_chart|tojson }});
+  draw("spendingChart", {{ spending_chart|tojson }});
+  draw("budgetChart", {{ budget_chart|tojson }});
+
+  document.querySelectorAll(".js-cp-select").forEach(function (sel) {
+    sel.addEventListener("change", function () {
+      document.getElementById(sel.dataset.newInput).classList.toggle("d-none", sel.value !== "new");
+    });
+  });
+})();
+</script>
+{% endblock %}

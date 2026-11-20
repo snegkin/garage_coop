@@ -137,6 +137,7 @@
             <li><a class="dropdown-item" href="{{ url_for('finance.dues_by_garage') }}">{{ _("Оплата взносов по гаражам") }}</a></li>
             {% endif %}
             {% if is_chairman() %}
+            <li><a class="dropdown-item" href="{{ url_for('year_report.view') }}">{{ _("Финансы за год") }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('finance.mass_charge') }}">{{ _("Массовое начисление") }}</a></li>
             {% endif %}
             <li><hr class="dropdown-divider"></li>

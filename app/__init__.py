@@ -287,6 +287,7 @@ def create_app(config_class=Config):
     from .legal_docs import bp as legal_docs_bp
     from .postal_letters import bp as postal_letters_bp, agent_bp as postal_agent_bp
     from .annual_reports import bp as annual_reports_bp
+    from .year_report import bp as year_report_bp
     from .system_logs import bp as system_logs_bp
 
     app.register_blueprint(main_bp)
@@ -335,6 +336,7 @@ def create_app(config_class=Config):
     csrf.exempt(postal_agent_bp)
     app.register_blueprint(postal_agent_bp)
     app.register_blueprint(annual_reports_bp)
+    app.register_blueprint(year_report_bp)
     app.register_blueprint(system_logs_bp)
 
     return app

@@ -1,0 +1,1014 @@
+"""
+«Финансы за год» (`/year-report/`, только председатель) — сводка в духе
+годового бухгалтерского отчёта: сколько планировалось получить
+(начислено) и сколько получено, сколько планировалось потратить (смета —
+BudgetItem) и сколько потрачено и на что (расходы у контрагентов —
+Expense, сгруппированные по статьям).
+
+Здесь же — инструменты, чтобы данные о тратах были полными:
+- «Списания без расхода» — строки выписки банка (списания), к которым ещё
+  не заведён платёж контрагенту: одной кнопкой заводятся расход и платёж,
+  привязанный к этой строке (adjusts_bank_balance=False — деньги уже
+  списаны, баланс счёта их не содержит), контрагент и статья подбираются
+  по ИНН/названию/назначению платежа;
+- загрузка сметы из CSV (выгрузка таблицы председателя — разделы и статьи);
+- импорт «Отчёта по тратам» из CSV с предпросмотром: строки сопоставляются
+  с уже заведёнными расходами и со списаниями из выписки, остальное
+  заводится как «оплачено не через банк» (наличными, за свой счёт).
+
+Статьи расходов — Expense.category, свободный текст; для сводки он
+приводится к одному из CATEGORIES (normalize_category) — исторические
+«электротовары»/«Хостинг»/«штраф» и т.п. попадают в общие статьи.
+"""
+import csv
+import datetime as dt
+import io
+import re
+from decimal import Decimal, InvalidOperation
+
+from flask import Blueprint, abort, flash, redirect, render_template, request, url_for
+from sqlalchemy.orm import selectinload
+
+from . import audit, database
+from .accounting import available_statement_lines, pay_counterparty, reallocate_counterparty_expenses
+from .auth import roles_required
+from .i18n import translate as _
+from .models import (
+    BankAccount, BankStatementLine, BudgetItem, Charge, Counterparty, CounterpartyPayment, Expense,
+    ExpenseKind, FeeType, MemberAccount, Payment, RoleEnum,
+)
+
+bp = Blueprint("year_report", __name__, url_prefix="/year-report")
+
+# Статьи расходов (хранятся в Expense.category как есть, по-русски — это
+# данные кооператива, как и названия контрагентов, не строки интерфейса).
+CATEGORIES = [
+    "Электроэнергия",
+    "Электрика",
+    "Видеонаблюдение",
+    "Хоз. работы",
+    "Сайт и связь",
+    "Канцелярия",
+    "Земельный налог",
+    "Налоги, штрафы, пени",
+    "Отчётность и ЭДО",
+    "Оплата труда",
+    "Банковское обслуживание",
+    "Почтовые расходы",
+    "Юридические расходы",
+    "Прочее",
+]
+OTHER_CATEGORY = "Прочее"
+
+# Названия разделов «Отчёта по тратам» и старые категории расходов → статья.
+_CATEGORY_ALIASES = {
+    "электроэнергия": "Электроэнергия",
+    "электрика": "Электрика",
+    "электротовары": "Электрика",
+    "видеонаблюдение": "Видеонаблюдение",
+    "хоз. работы": "Хоз. работы",
+    "хоз.работы": "Хоз. работы",
+    "хозработы": "Хоз. работы",
+    "уборка снега": "Хоз. работы",
+    "сайт": "Сайт и связь",
+    "хостинг": "Сайт и связь",
+    "смс": "Сайт и связь",
+    "коммуникации": "Сайт и связь",
+    "связь": "Сайт и связь",
+    "канцелярия": "Канцелярия",
+    "штраф": "Налоги, штрафы, пени",
+    "штрафы": "Налоги, штрафы, пени",
+    "налоги": "Налоги, штрафы, пени",
+}
+for _c in CATEGORIES:
+    _CATEGORY_ALIASES.setdefault(_c.lower(), _c)
+
+# Ключевые слова в названии/назначении → статья. Порядок важен: первое
+# совпадение побеждает (земельный налог раньше общего «налог», комиссия
+# банка раньше всего остального и т.п.).
+_KEYWORD_RULES = [
+    (("земельн", "единый налоговый платеж", "единый налоговый платёж"), "Земельный налог"),
+    (("комисси",), "Банковское обслуживание"),
+    (("фонд оплаты труда", " фот ", "документооборот", "оплата труда"), "Оплата труда"),
+    (("сбис", "нулевк", "отчетност", "отчётност", "скзи", "кэп ", "тензор", "крипто-про"), "Отчётность и ЭДО"),
+    (("штраф", "пени", "пеня", "налог"), "Налоги, штрафы, пени"),
+    (("госпошлин", "исков", "юр. помощь", "юридич"), "Юридические расходы"),
+    (("почтов", "уфпс", "почта росс"), "Почтовые расходы"),
+    (("электроэнерг", "тнс энерго"), "Электроэнергия"),
+    (("домен", "хостинг", "vps", "бегет", "рег.ру", "смс", "sms", "мобильн", "связь", "интернет-услуг"), "Сайт и связь"),
+    (("снег", "покос", "спил", "кустар", "кустов", "субботник", "мусор", "гербиц", "подсыпк", "крошк", "транспортн"), "Хоз. работы"),
+    (("камер", "видеонабл", "wi-fi мост", "ubiquiti", "litebeam", "poe", "витая пара", "коммутатор", "powerline"), "Видеонаблюдение"),
+    (("провод", "кабел", "гильз", "сжим", "клемм", "изолент", " щит", "din-рейк", "фонар", " опор", "sonoff", "автоматическ"), "Электрика"),
+    (("бумаг", "степлер", "скоб", "картридж", "резак", "трафарет", "магнит"), "Канцелярия"),
+]
+
+# Контрагент для трат, оплаченных не со счёта кооператива (наличными,
+# председателем за свой счёт и т.п.) — заводится при импорте отчёта по
+# тратам, если такого ещё нет (ищется по названию).
+CASH_COUNTERPARTY_NAME = "Оплачено не через банк (наличные, за свой счёт)"
+
+# Технические проводки — не реальные деньги, а перенос сальдо между
+# лицевыми счетами (зачёт, выбытие/смена собственника) и списание пени:
+# в «получено»/«начислено» не входят. Комментарии пишутся при создании
+# проводки (accounting.py/finance.py/penalty.py) на языке кооператива.
+_TECH_PAYMENT_PREFIXES = (
+    "Долг передан", "Зачёт со счёта", "Списание пени", "Переплата, унаследованная", "Доля переплаты",
+)
+_TECH_CHARGE_PREFIXES = (
+    "Зачёт на счёт", "Долг, унаследованный", "Переплата передана", "Доля долга",
+)
+
+
+def normalize_category(raw: str | None) -> str:
+    """Свободный текст Expense.category → одна из CATEGORIES (или сам
+    текст, если он ни на что не похож — тогда статья показывается как есть)."""
+    if not raw or not raw.strip():
+        return OTHER_CATEGORY
+    text = raw.strip()
+    alias = _CATEGORY_ALIASES.get(text.lower())
+    if alias:
+        return alias
+    by_keyword = _category_by_keywords(text)
+    return by_keyword or text
+
+
+def _category_by_keywords(text: str) -> str | None:
+    low = f" {text.lower()} "
+    for keywords, category in _KEYWORD_RULES:
+        if any(k in low for k in keywords):
+            return category
+    return None
+
+
+def guess_category(text: str, section_hint: str | None = None) -> str:
+    """Статья для новой траты: раздел отчёта, если он сам по себе статья
+    («видеонаблюдение» — даже щит в этом разделе относится к нему), иначе
+    по ключевым словам, иначе «Прочее»."""
+    if section_hint:
+        alias = _CATEGORY_ALIASES.get(section_hint.strip().lower())
+        if alias and alias != OTHER_CATEGORY:
+            return alias
+    return _category_by_keywords(text) or OTHER_CATEGORY
+
+
+# --- Деньги и даты из CSV --------------------------------------------------
+
+def parse_money(value: str | None) -> Decimal | None:
+    """« р. 4 103,50 » / «2 500,00» / « р. -   » → Decimal или None."""
+    if value is None:
+        return None
+    text = value.replace("р.", "").replace("₽", "").replace("\xa0", "").replace(" ", "").strip()
+    if not text or text in ("-", "—"):
+        return None
+    text = text.replace(",", ".")
+    try:
+        return Decimal(text)
+    except InvalidOperation:
+        return None
+
+
+def _parse_ru_date(value: str | None) -> dt.date | None:
+    match = re.fullmatch(r"\s*(\d{1,2})\.(\d{1,2})\.(\d{4})\s*", value or "")
+    if not match:
+        return None
+    day, month, year = (int(g) for g in match.groups())
+    try:
+        return dt.date(year, month, day)
+    except ValueError:
+        return None
+
+
+def _read_csv_rows(text: str, width: int) -> list[list[str]]:
+    rows = []
+    for row in csv.reader(io.StringIO(text.lstrip("﻿"))):
+        rows.append([cell.strip() for cell in row] + [""] * (width - len(row)))
+    return rows
+
+
+def _decode_upload(file_storage) -> str | None:
+    if not file_storage or not file_storage.filename:
+        return None
+    raw = file_storage.read()
+    for encoding in ("utf-8-sig", "cp1251"):
+        try:
+            return raw.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+    return None
+
+
+# --- Смета -------------------------------------------------------------------
+
+def parse_budget_csv(text: str) -> list[dict]:
+    """
+    Смета из CSV (выгрузка таблицы: «Наименование, Кол-во, Цена, Сумма»):
+    строка с одним только наименованием — раздел, строка с суммой —
+    статья, строка без наименования — подытог раздела (пропускается).
+    Хвост с итогами («Количество гаражей», «Целевая сумма»…) не читается.
+    """
+    items = []
+    section = None
+    for row in _read_csv_rows(text, 4):
+        name, qty, price, amount = row[:4]
+        if name.startswith("Наименование"):
+            continue
+        if name.startswith("Количество гаражей") or name.startswith("Целевая сумма"):
+            break
+        if not name:
+            continue
+        amount_value = parse_money(amount)
+        if amount_value is None and not qty and not price:
+            section = name
+            continue
+        if amount_value is None or amount_value <= 0:
+            continue
+        items.append({
+            "section": section or OTHER_CATEGORY,
+            "name": name,
+            "quantity": parse_money(qty),
+            "price": parse_money(price),
+            "amount": amount_value,
+        })
+    return items
+
+
+# --- Отчёт по тратам ------------------------------------------------------
+
+_MONTHS = ["янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"]
+
+
+def _month_end(year: int, month: int) -> dt.date:
+    if month == 12:
+        return dt.date(year, 12, 31)
+    return dt.date(year, month + 1, 1) - dt.timedelta(days=1)
+
+
+def parse_spending_csv(text: str) -> list[dict]:
+    """
+    «Отчёт по тратам» из CSV: блоки «Наименование (раздел), , Дата, Кол-во,
+    Цена, Сумма» со строками трат, «Итого» в конце блока. У блока
+    электроэнергии второй столбец — месяц потребления: дата траты тогда —
+    последний день этого месяца (как дата счёта ТНС), а дата в строке —
+    день оплаты (paid_on, по ней ищется списание в выписке). Во втором
+    столбце остальных блоков (там он пустой) можно указать номер заказа
+    маркетплейса — по нему позиции заказа сводятся к одной оплате. Читается до
+    «Легенды». Пустые/нулевые строки (субботник силами членов) пропускаются.
+    """
+    rows = []
+    section = None
+    monthly = False
+    for index, row in enumerate(_read_csv_rows(text, 6)):
+        name, month_col, date_col, qty, price, amount = row[:6]
+        if name.startswith("Легенда"):
+            break
+        if date_col == "Дата" and name:
+            header = re.search(r"\(([^)]*)\)", name)
+            section = header.group(1).strip() if header else name
+            monthly = month_col == "Месяц"
+            continue
+        paid_on = _parse_ru_date(date_col)
+        amount_value = parse_money(amount)
+        if paid_on is None or amount_value is None or amount_value <= 0:
+            continue
+        date = paid_on
+        if monthly and month_col.lower()[:3] in _MONTHS:
+            month = _MONTHS.index(month_col.lower()[:3]) + 1
+            year = paid_on.year if month <= paid_on.month else paid_on.year - 1
+            date = _month_end(year, month)
+            name = f"{section.capitalize() if section else 'Электроэнергия'} за {month_col.lower()} {year}"
+        if not name:
+            continue
+        quantity = parse_money(qty)
+        price_value = parse_money(price)
+        description = name
+        if quantity is not None and price_value is not None and quantity != 1:
+            description = f"{name} ({_fmt_number(quantity)} × {_fmt_number(price_value)})"
+        order = month_col if not monthly and re.fullmatch(r"\d{6,}-\d{1,6}", month_col) else None
+        rows.append({
+            "index": index,
+            "order": order,
+            "section": section,
+            "name": name,
+            "description": description,
+            "date": date,
+            "paid_on": paid_on,
+            "amount": amount_value,
+            "category": guess_category(name, section),
+        })
+    return rows
+
+
+def _fmt_money(value: Decimal) -> str:
+    return f"{value:,.2f}".replace(",", " ").replace(".", ",")
+
+
+def _fmt_number(value: Decimal) -> str:
+    text = f"{value:,.3f}".rstrip("0").rstrip(".").replace(",", " ").replace(".", ",")
+    return text
+
+
+# --- Списания из выписки --------------------------------------------------
+
+_LEGAL_FORMS = re.compile(
+    r"общество с ограниченной ответственностью|публичное акционерное общество|акционерное общество"
+    r"|\bооо\b|\bпао\b|\bоао\b|\bао\b|\bип\b|компания",
+)
+
+
+def _norm_name(name: str | None) -> str:
+    text = (name or "").lower().replace("ё", "е")
+    text = re.sub(r"[\"'«»“”„()]", " ", text)
+    text = _LEGAL_FORMS.sub(" ", text)
+    text = re.sub(r"[,.]", " ", text)
+    return " ".join(text.split())
+
+
+def _digits(value: str | None) -> str:
+    return re.sub(r"\D", "", value or "")
+
+
+def clean_counterparty_name(line: BankStatementLine) -> str:
+    """Название нового контрагента по строке выписки: у перевода по СБП
+    физлицу — имя получателя из назначения, иначе название из выписки без
+    лишних кавычек по краям (Сбер иногда отдаёт «'ООО "..."'»)."""
+    purpose = line.payment_purpose or ""
+    sbp = re.search(r"Перевод СБП ФЛ\s+(.+?)\s+по\s", purpose)
+    if sbp:
+        return sbp.group(1).strip()
+    name = (line.counterparty_name or "").strip()
+    if len(name) > 1 and name[0] == name[-1] and name[0] in "'\"":
+        name = name[1:-1].strip()
+    name = re.sub(r"(?i)^общество с ограниченной ответственностью", "ООО", name)
+    name = re.sub(r"(?i)^публичное акционерное общество", "ПАО", name)
+    name = re.sub(r"(?i)^акционерное общество", "АО", name)
+    return name or _("Без названия")
+
+
+def match_counterparty(line: BankStatementLine, counterparties: list[Counterparty]) -> Counterparty | None:
+    """Контрагент из справочника для строки выписки: по ИНН, иначе по
+    названию (одно содержит другое после отбрасывания ООО/ПАО/кавычек —
+    «ФНС» ↔ «Казначейство России (ФНС России)»). Перевод по СБП физлицу
+    идёт через Сбербанк с его ИНН — по ИНН такой не сопоставляется."""
+    purpose = line.payment_purpose or ""
+    is_sbp_person = "Перевод СБП ФЛ" in purpose
+    inn = _digits(line.counterparty_inn)
+    if inn and not is_sbp_person:
+        for cp in counterparties:
+            if _digits(cp.inn) == inn:
+                return cp
+    target = _norm_name(clean_counterparty_name(line))
+    if not target:
+        return None
+    for cp in counterparties:
+        cp_name = _norm_name(cp.name)
+        if cp_name and len(cp_name) >= 3 and (cp_name in target or target in cp_name):
+            return cp
+    return None
+
+
+def bill_date(line: BankStatementLine) -> dt.date:
+    """Дата расхода по строке выписки — дата счёта из назначения платежа
+    («По счету №… от 31.01.26»), если она не позже дня оплаты и не раньше
+    чем за 4 месяца до него (иначе это не дата счёта), иначе день оплаты.
+    Для ТНС это последний день месяца потребления — и электроэнергия за
+    декабрь попадает в декабрь, а не в январь, когда её оплатили."""
+    purpose = line.payment_purpose or ""
+    candidates = []
+    for d, m, y in re.findall(r"от\s+(\d{1,2})\.(\d{1,2})\.(\d{2,4})", purpose):
+        year = int(y) + (2000 if len(y) == 2 else 0)
+        candidates.append((year, int(m), int(d)))
+    for y, m, d in re.findall(r"от\s+(\d{4})-(\d{2})-(\d{2})", purpose):
+        candidates.append((int(y), int(m), int(d)))
+    for year, month, day in candidates:
+        try:
+            date = dt.date(year, month, day)
+        except ValueError:
+            continue
+        if 0 <= (line.operation_date - date).days <= 120:
+            return date
+    return line.operation_date
+
+
+def _own_account_digits() -> set[str]:
+    return {_digits(a.checking_account) for a in database.db_session.query(BankAccount).all() if a.checking_account}
+
+
+def unaccounted_debits(year: int | None = None) -> list[BankStatementLine]:
+    """Списания из выписки без платежа контрагенту, кроме отмеченных «не
+    трата» и переводов между своими счетами кооператива."""
+    own = _own_account_digits()
+    lines = [
+        line for line in available_statement_lines()
+        if line.direction == "debit" and not line.not_expense
+        and _digits(line.counterparty_account) not in own
+    ]
+    if year is not None:
+        lines = [line for line in lines if line.operation_date.year == year]
+    return sorted(lines, key=lambda line: (line.operation_date, line.id))
+
+
+def suggest_for_line(line: BankStatementLine, counterparties: list[Counterparty]) -> dict:
+    counterparty = match_counterparty(line, counterparties)
+    text = " ".join(filter(None, [line.counterparty_name, line.payment_purpose]))
+    category = _category_by_keywords(text)
+    if category is None and counterparty is not None and counterparty.category:
+        alias = normalize_category(counterparty.category)
+        category = alias if alias in CATEGORIES else None
+    confident = category is not None
+    if category is None and counterparty is not None:
+        # Как уже разнесены прошлые расходы этого контрагента — самая частая
+        # статья. Только подсказка в списке, не «уверенная»: у маркетплейса
+        # (Озон) прошлые заказы ничего не говорят о следующем, и «Завести
+        # все» такую строку не берёт.
+        counts: dict[str, int] = {}
+        for e in counterparty.expenses:
+            c = normalize_category(e.category)
+            counts[c] = counts.get(c, 0) + 1
+        if counts:
+            category = max(counts, key=counts.get)
+    return {
+        "line": line,
+        "counterparty": counterparty,
+        "new_name": clean_counterparty_name(line),
+        "category": category or OTHER_CATEGORY,
+        "confident": confident,
+        "description": (line.payment_purpose or "").strip()[:500],
+        "date": bill_date(line),
+    }
+
+
+def _get_or_create_counterparty(counterparty_id: str | None, line: BankStatementLine | None, new_name: str | None,
+                                record: bool = True) -> Counterparty:
+    """Контрагент из формы или новый по строке выписки. record=False — при
+    массовом заведении/импорте: новые контрагенты упоминаются в одной
+    сводной записи журнала, а не каждый отдельной (и отдельным
+    уведомлением правлению)."""
+    if counterparty_id and counterparty_id != "new":
+        cp = database.db_session.get(Counterparty, int(counterparty_id))
+        if cp is None:
+            abort(400)
+        return cp
+    name = (new_name or "").strip() or (clean_counterparty_name(line) if line else _("Без названия"))
+    inn = None
+    if line is not None and "Перевод СБП ФЛ" not in (line.payment_purpose or ""):
+        inn = _digits(line.counterparty_inn) or None
+    cp = Counterparty(name=name, inn=inn)
+    database.db_session.add(cp)
+    database.db_session.flush()
+    if record:
+        audit.record("counterparty.create", entity_type="counterparty", entity_id=cp.id,
+                     summary=f"Контрагент «{name}» заведён по строке выписки банка")
+    return cp
+
+
+def _cash_counterparty() -> Counterparty:
+    cp = database.db_session.query(Counterparty).filter(Counterparty.name == CASH_COUNTERPARTY_NAME).first()
+    if cp is None:
+        cp = Counterparty(name=CASH_COUNTERPARTY_NAME, comment=_(
+            "Траты, оплаченные не со счёта кооператива: наличными, за свой счёт с последующим возмещением и т.п."
+        ))
+        database.db_session.add(cp)
+        database.db_session.flush()
+    return cp
+
+
+def book_line(line: BankStatementLine, counterparty: Counterparty, category: str, description: str | None,
+              date: dt.date | None = None) -> Expense:
+    """Расход на всю сумму строки выписки + платёж, привязанный к ней."""
+    expense = Expense(
+        counterparty_id=counterparty.id, date=date or bill_date(line), amount=line.amount,
+        category=category, description=description or None, kind=ExpenseKind.CHARGE,
+    )
+    database.db_session.add(expense)
+    database.db_session.flush()
+    pay_counterparty(
+        counterparty, line.operation_date, line.amount, bank_account=line.bank_account,
+        comment=(line.payment_purpose or "").strip()[:500] or None, adjust_balance=False,
+        bank_statement_line_id=line.id,
+    )
+    return expense
+
+
+# --- Сводка за год -------------------------------------------------------
+
+def _is_tech(comment: str | None, prefixes: tuple[str, ...]) -> bool:
+    return bool(comment) and comment.startswith(prefixes)
+
+
+def _available_years() -> list[int]:
+    years = {y for (y,) in database.db_session.query(Charge.year).distinct()}
+    years |= {d.year for (d,) in database.db_session.query(Expense.date).all()}
+    years |= {y for (y,) in database.db_session.query(BudgetItem.year).distinct()}
+    years |= {d.year for (d,) in database.db_session.query(BankStatementLine.operation_date).all()}
+    years.add(dt.date.today().year)
+    return sorted(years)
+
+
+def _income(year: int) -> dict:
+    """Начислено за год и получено в течение года (по дате платежа) — по
+    видам взноса; пеня — одной строкой «Пеня» на все виды."""
+    fee_types = {ft.id: ft for ft in database.db_session.query(FeeType).all()}
+    electricity = next((ft for ft in fee_types.values() if ft.code == "electricity"), None)
+    electricity_name = electricity.name if electricity else _("Электроэнергия")
+    penalty_name = _("Пеня")
+
+    def _name_for(fee_type: FeeType | None, garage_level: bool) -> str:
+        if fee_type is None:
+            return electricity_name if garage_level else OTHER_CATEGORY
+        return penalty_name if fee_type.is_penalty else fee_type.name
+
+    rows: dict[str, dict] = {}
+
+    def _row(name: str) -> dict:
+        return rows.setdefault(name, {"name": name, "charged": Decimal("0"), "received": Decimal("0")})
+
+    charges = (
+        database.db_session.query(Charge)
+        .options(selectinload(Charge.account).selectinload(MemberAccount.fee_type), selectinload(Charge.fee_type))
+        .filter(Charge.year == year)
+        .all()
+    )
+    for charge in charges:
+        if charge.related_person_id is not None or _is_tech(charge.comment, _TECH_CHARGE_PREFIXES):
+            continue
+        fee_type = charge.account.fee_type if charge.account is not None else charge.fee_type
+        _row(_name_for(fee_type, charge.account is None))["charged"] += charge.amount
+
+    payments = (
+        database.db_session.query(Payment)
+        .options(selectinload(Payment.account).selectinload(MemberAccount.fee_type))
+        .filter(Payment.date >= dt.date(year, 1, 1), Payment.date <= dt.date(year, 12, 31))
+        .all()
+    )
+    for payment in payments:
+        if (payment.related_person_id is not None or payment.offset_charge_id is not None
+                or payment.amnesty_for_charge_id is not None
+                or _is_tech(payment.comment, _TECH_PAYMENT_PREFIXES)):
+            continue
+        fee_type = payment.account.fee_type if payment.account is not None else None
+        _row(_name_for(fee_type, payment.account is None))["received"] += payment.amount
+
+    ordered = sorted(rows.values(), key=lambda r: (-r["received"], -r["charged"]))
+    for r in ordered:
+        r["rate"] = _percent(r["received"], r["charged"])
+    total = {
+        "charged": sum((r["charged"] for r in ordered), Decimal("0")),
+        "received": sum((r["received"] for r in ordered), Decimal("0")),
+    }
+    total["rate"] = _percent(total["received"], total["charged"])
+    return {"rows": ordered, "total": total}
+
+
+def _percent(part: Decimal, whole: Decimal) -> float | None:
+    if not whole:
+        return None
+    return float((part / whole * 100).quantize(Decimal("0.1")))
+
+
+def _spending(year: int) -> dict:
+    """Расходы (начисления контрагентов, kind=CHARGE — счета на предоплату
+    тратой не являются, тратой станут акты по ним) с датой в этом году, по
+    статьям. paid — сколько из них уже оплачено (разнесено платежами)."""
+    expenses = (
+        database.db_session.query(Expense)
+        .options(selectinload(Expense.counterparty), selectinload(Expense.allocations))
+        .filter(Expense.date >= dt.date(year, 1, 1), Expense.date <= dt.date(year, 12, 31),
+                Expense.kind == ExpenseKind.CHARGE)
+        .order_by(Expense.date, Expense.id)
+        .all()
+    )
+    groups: dict[str, dict] = {}
+    unpaid = Decimal("0")
+    not_via_bank = Decimal("0")
+    for expense in expenses:
+        category = normalize_category(expense.category)
+        group = groups.setdefault(category, {"name": category, "amount": Decimal("0"), "expenses": []})
+        group["amount"] += expense.amount
+        group["expenses"].append(expense)
+        paid = sum((a.amount for a in expense.allocations), Decimal("0"))
+        unpaid += max(expense.amount - paid, Decimal("0"))
+        if expense.counterparty.name == CASH_COUNTERPARTY_NAME:
+            not_via_bank += expense.amount
+    ordered = sorted(groups.values(), key=lambda g: -g["amount"])
+    total = sum((g["amount"] for g in ordered), Decimal("0"))
+    for g in ordered:
+        g["share"] = _percent(g["amount"], total)
+    return {"groups": ordered, "total": total, "unpaid": unpaid, "not_via_bank": not_via_bank}
+
+
+def _budget(year: int) -> dict:
+    items = (
+        database.db_session.query(BudgetItem)
+        .filter(BudgetItem.year == year)
+        .order_by(BudgetItem.position, BudgetItem.id)
+        .all()
+    )
+    sections: dict[str, dict] = {}
+    for item in items:
+        section = sections.setdefault(item.section, {"name": item.section, "amount": Decimal("0"), "lines": []})
+        section["amount"] += item.amount
+        section["lines"].append({
+            "name": item.name, "amount": item.amount, "price": item.price,
+            "qty_text": _fmt_number(item.quantity) if item.quantity is not None and item.price is not None else None,
+        })
+    ordered = list(sections.values())
+    total = sum((s["amount"] for s in ordered), Decimal("0"))
+    for s in ordered:
+        s["share"] = _percent(s["amount"], total)
+    return {"sections": ordered, "total": total}
+
+
+def _chart_slices(rows: list[dict], key: str, limit: int = 7) -> list[dict]:
+    """Доли для круговой диаграммы: крупнейшие `limit` как есть, хвост —
+    одним куском «Остальное» (больше 8 цветов не различить)."""
+    positive = [r for r in rows if r[key] > 0]
+    positive.sort(key=lambda r: -r[key])
+    slices = [{"label": r["name"], "value": float(r[key])} for r in positive[:limit]]
+    rest = sum((r[key] for r in positive[limit:]), Decimal("0"))
+    if rest > 0:
+        slices.append({"label": _("Остальное"), "value": float(rest), "other": True})
+    return slices
+
+
+@bp.route("/")
+@roles_required(RoleEnum.CHAIRMAN)
+def view():
+    years = _available_years()
+    year = request.args.get("year", type=int)
+    if year not in years:
+        year = dt.date.today().year
+
+    income = _income(year)
+    spending = _spending(year)
+    budget = _budget(year)
+    counterparties = database.db_session.query(Counterparty).order_by(Counterparty.name).all()
+    gaps = [suggest_for_line(line, counterparties) for line in unaccounted_debits(year)]
+    gaps_total = sum((g["line"].amount for g in gaps), Decimal("0"))
+
+    return render_template(
+        "year_report/view.html",
+        year=year, years=years,
+        income=income, spending=spending, budget=budget,
+        gaps=gaps, gaps_total=gaps_total,
+        counterparties=counterparties, categories=CATEGORIES,
+        income_chart=_chart_slices(income["rows"], "received"),
+        spending_chart=_chart_slices(spending["groups"], "amount"),
+        budget_chart=_chart_slices(budget["sections"], "amount"),
+    )
+
+
+def _redirect_back(year: int | None):
+    return redirect(url_for("year_report.view", year=year) + "#gaps")
+
+
+@bp.route("/lines/<int:line_id>/book", methods=["POST"])
+@roles_required(RoleEnum.CHAIRMAN)
+def book_statement_line(line_id):
+    line = database.db_session.get(BankStatementLine, line_id)
+    if line is None or line.direction != "debit":
+        abort(404)
+    if line not in available_statement_lines():
+        flash(_("Эта строка выписки уже привязана к платежу контрагенту."), "warning")
+        return _redirect_back(line.operation_date.year)
+    f = request.form
+    counterparty = _get_or_create_counterparty(f.get("counterparty_id"), line, f.get("new_name"))
+    category = f.get("category") or OTHER_CATEGORY
+    expense = book_line(line, counterparty, category, f.get("description"))
+    audit.record(
+        "expense.create", entity_type="counterparty", entity_id=counterparty.id,
+        summary=f"Расход {audit.format_amount(expense.amount)} — {counterparty.name}, "
+                f"{audit.format_date(expense.date)} (по выписке банка, статья «{category}»)",
+    )
+    database.db_session.commit()
+    flash(_("Расход и платёж заведены."), "success")
+    return _redirect_back(line.operation_date.year)
+
+
+@bp.route("/lines/book-all", methods=["POST"])
+@roles_required(RoleEnum.CHAIRMAN)
+def book_all_statement_lines():
+    """Все списания года с уверенной подсказкой статьи — одной кнопкой
+    (контрагент — из справочника или новый по названию из выписки)."""
+    year = request.form.get("year", type=int)
+    counterparties = database.db_session.query(Counterparty).order_by(Counterparty.name).all()
+    booked = 0
+    total = Decimal("0")
+    new_names = []
+    for suggestion in [suggest_for_line(line, counterparties) for line in unaccounted_debits(year)]:
+        if not suggestion["confident"]:
+            continue
+        line = suggestion["line"]
+        counterparty = suggestion["counterparty"]
+        if counterparty is None:
+            counterparty = _get_or_create_counterparty(None, line, suggestion["new_name"], record=False)
+            counterparties.append(counterparty)
+            new_names.append(counterparty.name)
+        book_line(line, counterparty, suggestion["category"], suggestion["description"], suggestion["date"])
+        booked += 1
+        total += line.amount
+    if booked:
+        summary = f"По выписке банка заведено расходов: {booked} на {audit.format_amount(total)} ({year} г.)"
+        if new_names:
+            summary += "; новые контрагенты: " + ", ".join(f"«{n}»" for n in new_names)
+        audit.record("expense.bulk_from_statement", summary=summary)
+    database.db_session.commit()
+    flash(_("Заведено расходов по выписке: {count}.", count=booked), "success")
+    return _redirect_back(year)
+
+
+@bp.route("/lines/<int:line_id>/not-expense", methods=["POST"])
+@roles_required(RoleEnum.CHAIRMAN)
+def mark_not_expense(line_id):
+    line = database.db_session.get(BankStatementLine, line_id)
+    if line is None or line.direction != "debit":
+        abort(404)
+    line.not_expense = True
+    audit.record("statement_line.not_expense", entity_type="bank_statement_line", entity_id=line.id,
+                 summary=f"Списание {audit.format_amount(line.amount)} от {audit.format_date(line.operation_date)} "
+                         f"({line.counterparty_name or '—'}) отмечено как «не трата»")
+    database.db_session.commit()
+    flash(_("Списание отмечено как «не трата»."), "success")
+    return _redirect_back(line.operation_date.year)
+
+
+@bp.route("/budget/import", methods=["POST"])
+@roles_required(RoleEnum.CHAIRMAN)
+def import_budget():
+    year = request.form.get("year", type=int)
+    if year is None:
+        abort(400)
+    text = _decode_upload(request.files.get("file"))
+    items = parse_budget_csv(text) if text else []
+    if not items:
+        flash(_("В файле не найдено ни одной статьи сметы — нужен CSV со столбцами «Наименование, Кол-во, Цена, Сумма»."), "danger")
+        return redirect(url_for("year_report.view", year=year))
+    database.db_session.query(BudgetItem).filter(BudgetItem.year == year).delete()
+    for position, item in enumerate(items):
+        database.db_session.add(BudgetItem(year=year, position=position, **item))
+    total = sum((i["amount"] for i in items), Decimal("0"))
+    audit.record("budget.import", summary=f"Загружена смета на {year} год: {len(items)} статей на {audit.format_amount(total)}")
+    database.db_session.commit()
+    flash(_("Смета загружена: статей — {count}.", count=len(items)), "success")
+    return redirect(url_for("year_report.view", year=year))
+
+
+# --- Импорт отчёта по тратам ----------------------------------------------
+
+def _match_spending_rows(rows: list[dict]) -> None:
+    """
+    Подбирает каждой строке отчёта действие по умолчанию (row["action"]):
+    - "expense:<id>" — такой расход уже заведён (та же сумма, дата в
+      пределах 45 дней) — не заводить повторно, только проставить статью;
+    - "line:<id>" — найдено списание в выписке на ту же сумму (оплата от
+      10 дней до до 60 дней после даты строки) или на сумму нескольких
+      строк одной даты (заказ из нескольких позиций одной оплатой);
+    - "cash" — в выписке нет: оплачено не через банк.
+    """
+    expenses = (
+        database.db_session.query(Expense)
+        .filter(Expense.kind == ExpenseKind.CHARGE)
+        .all()
+    )
+    used_expenses: set[int] = set()
+    lines = [line for line in available_statement_lines() if line.direction == "debit" and not line.not_expense]
+    used_lines: set[int] = set()
+
+    # Номер заказа маркетплейса во втором столбце отчёта — точное
+    # сопоставление: все позиции заказа идут на ту оплату, в назначении
+    # которой этот номер («Оплата по заказу 0161382282-0005»). Сумма
+    # позиций может не совпасть с оплатой (скидки, баллы, доставка) — при
+    # импорте подгоняется (_fit_to_payment), в предпросмотре видна разница.
+    by_order: dict[str, list[dict]] = {}
+    for row in rows:
+        row["action"] = "cash"
+        if row.get("order"):
+            by_order.setdefault(row["order"], []).append(row)
+    for order, group in by_order.items():
+        line = next((l for l in lines if l.id not in used_lines and order in (l.payment_purpose or "")), None)
+        if line is None:
+            continue
+        diff = line.amount - sum((r["amount"] for r in group), Decimal("0"))
+        for r in group:
+            r["action"] = f"line:{line.id}"
+            r["approx_diff"] = diff
+        used_lines.add(line.id)
+
+    for row in rows:
+        if row["action"] != "cash":
+            continue
+        for e in expenses:
+            if e.id in used_expenses or e.amount != row["amount"]:
+                continue
+            if abs((e.date - row["date"]).days) <= 45 or abs((e.date - row["paid_on"]).days) <= 45:
+                row["action"] = f"expense:{e.id}"
+                used_expenses.add(e.id)
+                break
+        if row["action"] != "cash":
+            continue
+        for line in lines:
+            if line.id in used_lines or line.amount != row["amount"]:
+                continue
+            if -10 <= (line.operation_date - row["paid_on"]).days <= 60:
+                row["action"] = f"line:{line.id}"
+                used_lines.add(line.id)
+                break
+
+    # Несколько позиций одной даты одной оплатой.
+    by_date: dict[dt.date, list[dict]] = {}
+    for row in rows:
+        if row["action"] == "cash":
+            by_date.setdefault(row["paid_on"], []).append(row)
+    for paid_on, group in by_date.items():
+        if len(group) < 2:
+            continue
+        group_sum = sum((r["amount"] for r in group), Decimal("0"))
+        for line in lines:
+            if line.id in used_lines or line.amount != group_sum:
+                continue
+            if -10 <= (line.operation_date - paid_on).days <= 60:
+                for r in group:
+                    r["action"] = f"line:{line.id}"
+                used_lines.add(line.id)
+                break
+
+    # Заказ, оформленный в разные дни (позиции отчёта датированы днём
+    # покупки, оплата — одна): ищем комбинацию ещё не сопоставленных строк
+    # за 60 дней до оплаты (и 10 после), дающую сумму оплаты точно.
+    for line in lines:
+        if line.id in used_lines:
+            continue
+        candidates = [
+            r for r in rows
+            if r["action"] == "cash" and -10 <= (line.operation_date - r["paid_on"]).days <= 60
+        ][:18]
+        subset = _exact_subset(candidates, line.amount)
+        if subset:
+            for r in subset:
+                r["action"] = f"line:{line.id}"
+            used_lines.add(line.id)
+
+
+def _fit_to_payment(rows: list[dict], paid: Decimal) -> list[Decimal]:
+    """Суммы позиций, пропорционально подогнанные под фактическую оплату
+    (копеечный остаток округления — на самую крупную позицию)."""
+    listed = sum((r["amount"] for r in rows), Decimal("0"))
+    if not listed or listed == paid:
+        return [r["amount"] for r in rows]
+    amounts = [(r["amount"] * paid / listed).quantize(Decimal("0.01")) for r in rows]
+    biggest = max(range(len(rows)), key=lambda i: rows[i]["amount"])
+    amounts[biggest] += paid - sum(amounts, Decimal("0"))
+    return amounts
+
+
+def _exact_subset(rows: list[dict], target: Decimal) -> list[dict] | None:
+    """Подмножество строк (2 и больше) с суммой ровно target — перебор
+    сумм по копейкам, без повторов; None, если такого нет."""
+    goal = int(target * 100)
+    sums: dict[int, tuple[int, ...]] = {0: ()}
+    for i, row in enumerate(rows):
+        cents = int(row["amount"] * 100)
+        for s, chosen in list(sums.items()):
+            total = s + cents
+            if total <= goal and total not in sums:
+                sums[total] = chosen + (i,)
+        if goal in sums and len(sums[goal]) >= 2:
+            return [rows[j] for j in sums[goal]]
+        if len(sums) > 300_000:
+            break
+    return None
+
+
+@bp.route("/spending/import", methods=["POST"])
+@roles_required(RoleEnum.CHAIRMAN)
+def import_spending_preview():
+    year = request.form.get("year", type=int)
+    text = _decode_upload(request.files.get("file"))
+    rows = parse_spending_csv(text) if text else []
+    if not rows:
+        flash(_("В файле не найдено ни одной траты — нужен CSV «Отчёта по тратам» (блоки «Наименование (раздел), , Дата, Кол-во, Цена, Сумма»)."), "danger")
+        return redirect(url_for("year_report.view", year=year))
+    _match_spending_rows(rows)
+    line_ids = {int(r["action"].split(":")[1]) for r in rows if r["action"].startswith("line:")}
+    expense_ids = {int(r["action"].split(":")[1]) for r in rows if r["action"].startswith("expense:")}
+    lines = {line.id: line for line in database.db_session.query(BankStatementLine).filter(BankStatementLine.id.in_(line_ids))} if line_ids else {}
+    expenses = {e.id: e for e in database.db_session.query(Expense).filter(Expense.id.in_(expense_ids))} if expense_ids else {}
+    # Для ручной привязки — все ещё свободные списания (выписка может не
+    # совпасть с отчётом копейка в копейку: скидка на маркетплейсе и т.п.).
+    free_lines = [line for line in unaccounted_debits() if abs(line.operation_date.year - (year or line.operation_date.year)) <= 1]
+    # И уже заведённые расходы рядом по дате — строку отчёта можно отнести к
+    # одному из них («уже учтено»: Русский Свет, оплаченный одним счётом на
+    # другую сумму, чем позиции в отчёте).
+    all_expenses = (
+        database.db_session.query(Expense)
+        .options(selectinload(Expense.counterparty))
+        .filter(Expense.kind == ExpenseKind.CHARGE)
+        .all()
+    )
+    for row in rows:
+        near = [e for e in all_expenses if abs((e.date - row["date"]).days) <= 60]
+        near.sort(key=lambda e: (abs((e.date - row["date"]).days), e.id))
+        row["nearby_expenses"] = near[:6]
+        # Подсказка для строки «не через банк»: рядом (±7 дней) уже есть
+        # расход той же статьи — вероятно, позиция оплачена им (счёт
+        # поставщика одной суммой на весь заказ).
+        row["hint_expense"] = next(
+            (e for e in near if abs((e.date - row["date"]).days) <= 7
+             and normalize_category(e.category) == row["category"]), None,
+        ) if row["action"] == "cash" else None
+        if row["action"].startswith("expense:"):
+            current = int(row["action"].split(":")[1])
+            if current not in {e.id for e in row["nearby_expenses"]} and current in expenses:
+                row["nearby_expenses"].insert(0, expenses[current])
+    return render_template(
+        "year_report/import_spending.html",
+        year=year, rows=rows, csv_text=text, lines=lines, expenses=expenses,
+        free_lines=free_lines, categories=CATEGORIES,
+        total=sum((r["amount"] for r in rows), Decimal("0")),
+    )
+
+
+@bp.route("/spending/import/apply", methods=["POST"])
+@roles_required(RoleEnum.CHAIRMAN)
+def import_spending_apply():
+    f = request.form
+    year = f.get("year", type=int)
+    rows = parse_spending_csv(f.get("csv_text") or "")
+    by_index = {r["index"]: r for r in rows}
+    counterparties = database.db_session.query(Counterparty).order_by(Counterparty.name).all()
+    available = {line.id: line for line in available_statement_lines()}
+
+    to_line: dict[int, list[dict]] = {}
+    new_names: list[str] = []
+    created = updated = 0
+    total = Decimal("0")
+    touched: dict[int, Counterparty] = {}
+    for index, row in by_index.items():
+        action = f.get(f"action_{index}") or "skip"
+        category = f.get(f"category_{index}") or row["category"]
+        if action == "skip":
+            continue
+        if action.startswith("expense:"):
+            expense = database.db_session.get(Expense, int(action.split(":")[1]))
+            if expense is not None and expense.category != category:
+                expense.category = category
+                updated += 1
+            continue
+        row["category"] = category
+        if action.startswith("line:"):
+            line_id = int(action.split(":")[1])
+            if line_id in available:
+                to_line.setdefault(line_id, []).append(row)
+                continue
+            action = "cash"
+        if action == "cash":
+            cp = _cash_counterparty()
+            database.db_session.add(Expense(
+                counterparty_id=cp.id, date=row["date"], amount=row["amount"],
+                category=category, description=row["description"], kind=ExpenseKind.CHARGE,
+            ))
+            database.db_session.flush()
+            pay_counterparty(cp, row["paid_on"], row["amount"], comment=_("Оплачено не через банк"), adjust_balance=False)
+            created += 1
+            total += row["amount"]
+
+    for line_id, line_rows in to_line.items():
+        line = available[line_id]
+        counterparty = match_counterparty(line, counterparties)
+        if counterparty is None:
+            counterparty = _get_or_create_counterparty(None, line, None, record=False)
+            counterparties.append(counterparty)
+            new_names.append(counterparty.name)
+        # Сумма позиций не сошлась с оплатой (скидка, баллы, доставка;
+        # строка вручную привязана к оплате на другую сумму) — расходы
+        # подгоняются под реально списанное, цена из отчёта остаётся в
+        # описании.
+        fitted = _fit_to_payment(line_rows, line.amount)
+        for row, amount in zip(line_rows, fitted):
+            description = row["description"]
+            if amount != row["amount"]:
+                description = f"{description} — " + _("по отчёту {amount} ₽", amount=_fmt_money(row["amount"]))
+            database.db_session.add(Expense(
+                counterparty_id=counterparty.id, date=row["date"], amount=amount,
+                category=row["category"], description=description, kind=ExpenseKind.CHARGE,
+            ))
+            created += 1
+            total += amount
+        database.db_session.flush()
+        pay_counterparty(
+            counterparty, line.operation_date, line.amount, bank_account=line.bank_account,
+            comment=(line.payment_purpose or "").strip()[:500] or None, adjust_balance=False,
+            bank_statement_line_id=line.id,
+        )
+        touched[counterparty.id] = counterparty
+    for counterparty in touched.values():
+        reallocate_counterparty_expenses(counterparty)
+
+    summary = (f"Импорт отчёта по тратам за {year} г.: заведено расходов {created} на "
+               f"{audit.format_amount(total)}, уточнена статья у {updated}")
+    if new_names:
+        summary += "; новые контрагенты: " + ", ".join(f"«{n}»" for n in new_names)
+    audit.record("expense.import_spending_report", summary=summary)
+    database.db_session.commit()
+    flash(_("Отчёт по тратам импортирован: заведено расходов — {created}, уточнена статья — {updated}.",
+            created=created, updated=updated), "success")
+    return redirect(url_for("year_report.view", year=year))

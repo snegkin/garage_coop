@@ -344,6 +344,11 @@ class BankStatementLine(Base):
     account_number: Mapped[str | None] = mapped_column(String(20))  # лицевой счёт, распознанный в назначении платежа
     matched_payment_id: Mapped[int | None] = mapped_column(ForeignKey("payment.id", ondelete="SET NULL"))
     imported_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.utcnow)
+    # Только для списаний: председатель отметил строку как «не трата» —
+    # перевод между своими счетами, возврат переплаты члену и т.п. Такая
+    # строка не предлагается в «Списаниях без расхода» на странице
+    # «Финансы за год» (см. app/year_report.py) и не считается тратой.
+    not_expense: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("0"))
 
     bank_account: Mapped["BankAccount"] = relationship()
     matched_payment: Mapped["Payment | None"] = relationship()
@@ -971,6 +976,24 @@ class FeeRate(Base):
 
     annual_report: Mapped["AnnualReport"] = relationship(back_populates="fee_rates")
     fee_type: Mapped["FeeType"] = relationship()
+
+
+class BudgetItem(Base):
+    """Строка сметы на год (доходов и расходов кооператива) — раздел
+    («Содержание кооператива», «Замена общей проводки»…) и статья в нём.
+    Загружается из CSV целиком на год (см. app/year_report.py:
+    import_budget — повторная загрузка заменяет смету этого года), на
+    странице «Финансы за год» сравнивается с фактическими расходами."""
+    __tablename__ = "budget_item"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    year: Mapped[int] = mapped_column(Integer, index=True)
+    section: Mapped[str] = mapped_column(String(255))
+    name: Mapped[str] = mapped_column(Text)
+    quantity: Mapped[Decimal | None] = mapped_column(Numeric(14, 3))
+    price: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    position: Mapped[int] = mapped_column(Integer, default=0)
 
 
 # ---------------------------------------------------------------------------

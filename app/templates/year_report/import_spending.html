@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Импорт отчёта по тратам") }}{% endblock %}
+{% block content %}
+<a href="{{ url_for('year_report.view', year=year) }}" class="d-inline-block mb-3">&larr; {{ _("К финансам за {year} год", year=year) }}</a>
+<h3>{{ _("Импорт отчёта по тратам") }}</h3>
+<p class="text-muted">
+  {{ _("Строк в файле: {count} на {amount} ₽.", count=rows|length, amount=fmt2(total)) }}
+  {{ _("Проверьте, что сделать с каждой строкой: «уже заведён» — расход есть, у него только уточнится статья; строка выписки — расход заведётся у получателя платежа и платёж привяжется к этой строке (несколько строк отчёта можно привязать к одной оплате — если сумма не совпадёт, расходы пропорционально подгонятся под оплату); «не через банк» — наличными, за свой счёт, с личного аккаунта.") }}
+</p>
+
+<form method="post" action="{{ url_for('year_report.import_spending_apply') }}">
+  <input type="hidden" name="year" value="{{ year }}">
+  <textarea name="csv_text" hidden>{{ csv_text }}</textarea>
+  <div class="table-responsive">
+  <table class="table table-sm align-middle" style="font-variant-numeric: tabular-nums">
+    <thead><tr>
+      <th>{{ _("Дата") }}</th><th>{{ _("Раздел") }}</th><th>{{ _("Наименование") }}</th><th class="text-end">{{ _("Сумма") }}</th>
+      <th>{{ _("Статья") }}</th><th>{{ _("Что сделать") }}</th>
+    </tr></thead>
+    <tbody>
+      {% for r in rows %}
+      {% set kind = r.action.split(":")[0] %}
+      <tr class="{{ 'table-warning' if kind == 'cash' or (r.approx_diff is defined and r.approx_diff) }}">
+        <td class="text-nowrap">{{ fmt_date(r.paid_on) }}</td>
+        <td class="small text-muted">{{ r.section }}</td>
+        <td class="small" style="max-width:24rem">{{ r.description }}
+          {% if r.hint_expense %}{% set e = r.hint_expense %}
+          <div class="text-warning-emphasis">{{ _("Рядом уже заведён расход: {date}, {amount} ₽ — {name}. Если позиция из него — выберите его.", date=fmt_date(e.date), amount=fmt2(e.amount), name=e.counterparty.name) }}</div>
+          {% endif %}
+        </td>
+        <td class="text-end text-nowrap">{{ fmt2(r.amount) }}
+          {% if r.approx_diff is defined and r.approx_diff %}<div class="small text-warning-emphasis" title="{{ _('Сумма позиций не совпала с оплатой — при импорте суммы будут пропорционально подогнаны под оплату') }}">≈ {{ _("разница") }} {{ fmt2(r.approx_diff) }}</div>{% endif %}
+        </td>
+        <td>
+          <select class="form-select form-select-sm" name="category_{{ r.index }}" aria-label="{{ _('Статья') }}">
+            {% for c in categories %}<option {{ "selected" if c == r.category }}>{{ c }}</option>{% endfor %}
+          </select>
+        </td>
+        <td style="min-width:18rem">
+          <select class="form-select form-select-sm" name="action_{{ r.index }}" aria-label="{{ _('Что сделать') }}">
+            <optgroup label="{{ _('Уже заведённые расходы') }}">
+              {% for e in r.nearby_expenses %}
+              <option value="expense:{{ e.id }}" {{ "selected" if r.action == "expense:" ~ e.id }}>{{ _("уже заведён") }}: {{ fmt_date(e.date) }}, {{ fmt2(e.amount) }} — {{ e.counterparty.name }}</option>
+              {% endfor %}
+            </optgroup>
+            <optgroup label="{{ _('Списания из выписки') }}">
+              {% if kind == "line" and lines[r.action.split(":")[1]|int] not in free_lines %}
+              {% set l = lines[r.action.split(":")[1]|int] %}
+              <option value="line:{{ l.id }}" selected>{{ fmt_date(l.operation_date) }}, {{ fmt2(l.amount) }} — {{ l.counterparty_name }}</option>
+              {% endif %}
+              {% for l in free_lines %}
+              <option value="line:{{ l.id }}" {{ "selected" if r.action == "line:" ~ l.id }}>{{ fmt_date(l.operation_date) }}, {{ fmt2(l.amount) }} — {{ l.counterparty_name }}</option>
+              {% endfor %}
+            </optgroup>
+            <option value="cash" {{ "selected" if kind == "cash" }}>{{ _("Оплачено не через банк") }}</option>
+            <option value="skip">{{ _("Пропустить") }}</option>
+          </select>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  <div class="d-flex gap-2">
+    <button class="btn btn-primary" type="submit">{{ _("Импортировать") }}</button>
+    <a class="btn btn-outline-secondary" href="{{ url_for('year_report.view', year=year) }}">{{ _("Отмена") }}</a>
+  </div>
+</form>
+{% endblock %}

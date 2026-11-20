@@ -142,6 +142,27 @@
   </div>
 </div>
 
+{% if owed %}
+<div class="card mb-4 border-warning" id="owed"><div class="card-body">
+  <h5 class="card-title">{{ _("К выплате людям: {amount} ₽", amount=fmt2(owed|sum(attribute="owed"))) }}</h5>
+  <p class="small text-muted">{{ _("Кооператив должен: начисленная оплата труда и траты за свой счёт к возмещению. Чтобы не путать деньги кооператива и свои, такие траты заводятся долгом человеку; когда выплата пройдёт по выписке, разнесите её как «оплата начисленного» — долг погасится.") }}</p>
+  <ul class="list-unstyled mb-0">
+    {% for row in owed %}
+    <li class="py-1 border-bottom">
+      <div class="d-flex justify-content-between gap-2">
+        <span class="fw-semibold">{% if row.person %}<a href="{{ url_for('persons.detail', person_id=row.person.id) }}">{{ row.person.full_name }}</a>{% else %}{{ row.counterparty.name }}{% endif %}</span>
+        <span class="text-nowrap fw-semibold">{{ fmt2(row.owed) }} ₽</span>
+      </div>
+      <ul class="list-unstyled small text-muted ms-3 mb-0">
+        {% for u in row.unpaid %}<li>{{ fmt_date(u.expense.date) }} · {{ u.expense.category or "—" }}{% if u.expense.description %} — {{ u.expense.description|truncate(80) }}{% endif %} — {{ fmt2(u.left) }}</li>{% endfor %}
+      </ul>
+      <a class="small" href="{{ url_for('counterparties.detail', counterparty_id=row.counterparty.id) }}">{{ _("расчёты с ним (выплата наличными — платёж там)") }}</a>
+    </li>
+    {% endfor %}
+  </ul>
+</div></div>
+{% endif %}
+
 {% if gaps %}
 <div class="alert alert-warning d-flex justify-content-between align-items-center flex-wrap gap-2">
   <span>{{ _("В выписке банка за этот год есть списания без расхода у контрагента: {count} на {amount} ₽ — в «Потрачено» они пока не входят.", count=gaps|length, amount=fmt2(gaps_total)) }}</span>
@@ -662,7 +683,7 @@
           <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{{ _('Закрыть') }}"></button>
         </div>
         <div class="modal-body">
-          <p class="small text-muted">{{ _("Для трат, которых нет в выписке: наличными, за свой счёт — или начисления к выплате (оплата труда), которое оплатят позже со счёта: тогда в «Списаниях без расхода» перевод этому человеку разносится как «оплата начисленного», без второго расхода.") }}</p>
+          <p class="small text-muted">{{ _("Для трат, которых нет в выписке: наличными / не через банк; за свой счёт — к возмещению человеку; начисление к выплате (оплата труда), которое оплатят позже со счёта. Для двух последних, когда в выписке появится перевод этому человеку, в «Списаниях без расхода» он разносится как «оплата начисленного», без второго расхода.") }}</p>
           <input type="hidden" name="budget_item_id" value="">
           <div class="row g-2">
             <div class="col-6 col-md-4">
@@ -691,6 +712,8 @@
               <label class="form-label small">{{ _("Как оплачено") }}</label>
               <div class="form-check"><input class="form-check-input" type="radio" name="mode" value="cash" id="modeCash" checked>
                 <label class="form-check-label" for="modeCash">{{ _("наличными / не через банк") }}</label></div>
+              <div class="form-check"><input class="form-check-input" type="radio" name="mode" value="own" id="modeOwn">
+                <label class="form-check-label" for="modeOwn">{{ _("за свой счёт — к возмещению (кто платил — в «Кому»)") }}</label></div>
               <div class="form-check"><input class="form-check-input" type="radio" name="mode" value="accrued" id="modeAccrued">
                 <label class="form-check-label" for="modeAccrued">{{ _("начислено, оплата позже со счёта") }}</label></div>
             </div>

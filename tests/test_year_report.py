@@ -892,3 +892,40 @@ def test_add_expense_cash_and_accrued_salary_then_bank_payment(app, db, client):
     # «Кому» у расхода можно поменять/снять.
     client.post(f"/year-report/expenses/{mowing.id}/person", data={"person_id": ""})
     assert db.get(Expense, mowing.id).person_id is None
+
+
+def test_own_funds_expense_is_owed_until_reimbursed(app, db, client):
+    from app import attention
+    from app.models import User
+    from app.year_report import CASH_COUNTERPARTY_NAME, owed_people
+    from tests.conftest import make_person
+    _chairman(db, client)
+    account = _bank(db)
+    chairman = make_person(db, full_name="Снежкин Иван Петрович")
+    db.commit()
+    # Наличными (не за свой счёт) — не долг; контрагент без «за свой счёт».
+    client.post("/year-report/expenses/new", data={"date": "2026-06-10", "amount": "500", "category": "Хоз. работы",
+                                                   "mode": "cash", "description": "Покос"})
+    assert CASH_COUNTERPARTY_NAME == "Оплачено наличными / не через банк"
+    # За свой счёт — без «кого» нельзя; с ним — долг кооператива человеку.
+    client.post("/year-report/expenses/new", data={"date": "2026-07-25", "amount": "905", "category": "Прочее",
+                                                   "mode": "own", "description": "Диоды"})
+    assert db.query(Expense).count() == 1
+    client.post("/year-report/expenses/new", data={"date": "2026-07-25", "amount": "905", "category": "Прочее",
+                                                   "mode": "own", "description": "Диоды", "person_id": str(chairman.id)})
+    own = db.query(Expense).filter(Expense.description.like("Диоды%")).one()
+    assert "за свой счёт, к возмещению" in own.description and own.person_id == chairman.id
+    with app.test_request_context():
+        rows = owed_people()
+        assert [(r["person"].id, r["owed"]) for r in rows] == [(chairman.id, Decimal("905"))]
+        user = db.query(User).filter_by(username="chair").one()
+        assert attention.counts(user)["owed"] == 1
+    assert "К выплате людям: 905,00 ₽" in client.get("/year-report/?year=2026").get_data(as_text=True)
+
+    # Возмещение по выписке — «оплата начисленного», долг погашен.
+    line = _debit(db, account, dt.date(2026, 8, 1), "905", "Снежкин Иван Петрович", None, "Возмещение затрат", "u1")
+    db.commit()
+    client.post(f"/year-report/lines/{line.id}/book", data={"counterparty_id": str(own.counterparty_id),
+                                                            "category": "Прочее", "mode": "accrued"})
+    with app.test_request_context():
+        assert owed_people() == []

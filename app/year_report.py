@@ -777,10 +777,21 @@ def _section_funding(year: int, sections: list[dict], total_plan: Decimal) -> di
     начисления ЭТОГО года по нетранзитным видам взноса (членский, целевой и
     т.п.; без земельного налога, электричества, возмещений и пени) и
     оплаченная их часть (ChargeAllocation — платежом любой даты, в т.ч. уже
-    в следующем году). На разделы делятся ПРОПОРЦИОНАЛЬНО ПЛАНУ раздела в
-    смете: человек платит одной суммой, и указать, на какой раздел пошёл
-    его рубль, нельзя — только пропорция сметы. Если за год начислялись
-    отдельные целевые взносы — это всё равно доли одной сметы.
+    в следующем году).
+
+    На разделы деньги делятся ПРОПОРЦИОНАЛЬНО ПЛАНУ раздела: человек платит
+    одной суммой, и указать, на какой раздел пошёл его рубль, нельзя.
+    Два режима:
+    - раздельный («split») — целевой взнос (is_target_fee) делится только
+      между целевыми разделами сметы, членский — между членскими. Так,
+      когда целевой взнос начислен по смете: одной суммой на все целевые
+      мероприятия года;
+    - общий котёл («pool») — всё вместе на всю смету пропорционально плану.
+      Так, когда целевых начислений почти нет, а смета с целевыми разделами
+      собиралась одним членским взносом (иначе целевым разделам досталось
+      бы почти ничего, а членским — ложный остаток).
+    Раздельный — если целевых начислений за год не меньше половины плана
+    целевых разделов (SPLIT_THRESHOLD) и в смете есть и те, и другие разделы.
     """
     charges = (
         database.db_session.query(Charge)
@@ -789,7 +800,8 @@ def _section_funding(year: int, sections: list[dict], total_plan: Decimal) -> di
         .filter(Charge.year == year, Charge.account_id.isnot(None))
         .all()
     )
-    charged = paid = Decimal("0")
+    pools = {"membership": {"charged": Decimal("0"), "paid": Decimal("0")},
+             "target": {"charged": Decimal("0"), "paid": Decimal("0")}}
     by_fee: dict[str, dict] = {}
     for charge in charges:
         fee_type = charge.account.fee_type
@@ -801,18 +813,33 @@ def _section_funding(year: int, sections: list[dict], total_plan: Decimal) -> di
             if a.payment.related_person_id is None and a.payment.offset_charge_id is None
             and a.payment.amnesty_for_charge_id is None and not _is_tech(a.payment.comment, _TECH_PAYMENT_PREFIXES)
         ), Decimal("0"))
-        charged += charge.amount
-        paid += charge_paid
-        row = by_fee.setdefault(fee_type.name, {"name": fee_type.name, "charged": Decimal("0"), "paid": Decimal("0")})
+        pool = pools["target" if is_target_fee(fee_type) else "membership"]
+        pool["charged"] += charge.amount
+        pool["paid"] += charge_paid
+        row = by_fee.setdefault(fee_type.name, {"name": fee_type.name, "charged": Decimal("0"), "paid": Decimal("0"),
+                                                "is_target": is_target_fee(fee_type)})
         row["charged"] += charge.amount
         row["paid"] += charge_paid
+    charged = pools["membership"]["charged"] + pools["target"]["charged"]
+    paid = pools["membership"]["paid"] + pools["target"]["paid"]
+
+    target_plan = sum((s["amount"] for s in sections if s["is_target"]), Decimal("0"))
+    membership_plan = total_plan - target_plan
+    split = bool(target_plan and membership_plan
+                 and pools["target"]["charged"] >= target_plan * SPLIT_THRESHOLD)
 
     per_section = {}
     for section in sections:
-        share = section["amount"] / total_plan if total_plan else Decimal("0")
+        if split:
+            pool = pools["target" if section["is_target"] else "membership"]
+            base = target_plan if section["is_target"] else membership_plan
+            pool_charged, pool_paid = pool["charged"], pool["paid"]
+        else:
+            base, pool_charged, pool_paid = total_plan, charged, paid
+        share = section["amount"] / base if base else Decimal("0")
         per_section[section["name"]] = {
-            "funded_charged": (charged * share).quantize(Decimal("0.01")),
-            "collected": (paid * share).quantize(Decimal("0.01")),
+            "funded_charged": (pool_charged * share).quantize(Decimal("0.01")),
+            "collected": (pool_paid * share).quantize(Decimal("0.01")),
         }
     target_collected = sum((per_section[s["name"]]["collected"] for s in sections if s["is_target"]), Decimal("0"))
     return {
@@ -823,7 +850,19 @@ def _section_funding(year: int, sections: list[dict], total_plan: Decimal) -> di
         "target_collected": target_collected,
         "membership_collected": paid - target_collected if sections else Decimal("0"),
         "rate": _percent(paid, charged),
+        "split": split,
+        "target_charged": pools["target"]["charged"],
+        "target_plan": target_plan,
     }
+
+
+SPLIT_THRESHOLD = Decimal("0.5")
+
+
+def is_target_fee(fee_type: FeeType) -> bool:
+    """Целевой взнос — код "target" (так он заведён по умолчанию) или
+    «целев» в названии (если председатель завёл ещё один целевой вид)."""
+    return fee_type.code == "target" or "целев" in (fee_type.name or "").lower()
 
 
 # Постоянные цвета диаграмм — по смыслу, а не по месту в рейтинге: цвет

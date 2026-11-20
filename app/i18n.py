@@ -3822,6 +3822,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "ID приложения": "App ID",
         "Очистите поле ID, чтобы выключить вход через провайдера.": "Clear the ID field to turn off sign-in with that provider.",
         # «Финансы за год» (app/year_report.py)
+        "Сводка": "Summary",
+        "Импорт": "Import",
+        "Списания без расхода": "Debits without an expense",
         "К выплате людям (оплата труда, возмещение)": "Owed to people (salary, reimbursement)",
         "К выплате людям: {amount} ₽": "Owed to people: {amount} ₽",
         "Кооператив должен: начисленная оплата труда и траты за свой счёт к возмещению. Чтобы не путать деньги кооператива и свои, такие траты заводятся долгом человеку; когда выплата пройдёт по выписке, разнесите её как «оплата начисленного» — долг погасится.": "The cooperative owes: accrued salary and own-funds expenses to be reimbursed. To keep the cooperative's money separate from personal money, such expenses are recorded as a debt to the person; when the payment goes through the statement, book it as “payment of accrued amount” and the debt will be settled.",

@@ -17,10 +17,17 @@
   /* У последнего расхода в раскрытом списке своей нижней линии нет — под
      ним и так граница строки таблицы, иначе линия двойная. */
   ul.list-unstyled > li.border-bottom:last-child { border-bottom: 0 !important; }
+  /* Текст строки расхода: дата и контрагент целиком, описание обрезается
+     многоточием ровно по доступной ширине (полностью — в подсказке). */
+  .yr-exp-text { display:flex; align-items:baseline; gap:.3rem; min-width:0; flex:1 1 auto; }
+  .yr-exp-text > .yr-exp-head, .yr-exp-text > .text-nowrap { flex:none; white-space:nowrap; }
+  .yr-exp-desc { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .yr-exp-right .form-select { width:100%; min-width:0; }
   .yr-exp-right .yr-amount { text-align:right; white-space:nowrap; font-variant-numeric: tabular-nums; }
   @media (max-width: 767.98px) {
     .yr-exp-right, .yr-exp-right.wide { grid-template-columns: minmax(0, 1fr) auto 1.25rem; width:100%; }
+    .yr-exp-text { display:block; }
+    .yr-exp-text > .yr-exp-head, .yr-exp-desc { white-space:normal; }
   }
   .yr-meter-row { display:grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) 19rem; gap:.75rem; align-items:center; padding:.25rem 0; }
   summary.yr-meter-row { list-style:none; cursor:pointer; }
@@ -47,7 +54,14 @@
   .yr-pf .yr-meter { margin-top:.3rem; height:.4rem; }
   .yr-pf-detail { background: var(--bs-tertiary-bg); }
   .yr-pf-detail .yr-pf-row { border-bottom-style:dashed; }
+  .yr-tabs { flex-wrap:nowrap; overflow-x:auto; overflow-y:hidden; scrollbar-width:none; }
+  .yr-tabs::-webkit-scrollbar { display:none; }
+  .yr-tabs .nav-link { white-space:nowrap; }
   .yr-pf-total { border-bottom:0; border-top:2px solid var(--bs-border-color); }
+  /* Позиция без расходов — не раскрывается, но отступ под стрелку тот же. */
+  .yr-pf-detail > .yr-pf-row .yr-pf-name::before { content:""; display:inline-block; width:1em; }
+  /* Длинное название позиции переносится под текст, а не под стрелку. */
+  .yr-pf-detail .yr-pf-name { padding-left: calc(1rem + 1em) !important; text-indent:-1em; }
   @media (max-width: 767.98px) {
     .yr-pf-row { grid-template-columns: minmax(0, 1fr) auto auto; }
     .yr-pf-row > span:nth-child(4), .yr-pf-row > span:nth-child(5) { display:none; }
@@ -67,6 +81,14 @@
   {% if e.person %} · <i class="bi bi-person" aria-hidden="true"></i> <a href="{{ url_for('persons.detail', person_id=e.person_id) }}">{{ e.person.full_name }}</a>{% endif %}
   <button type="button" class="btn btn-link btn-sm p-0 ms-1 text-secondary align-baseline" data-bs-toggle="modal" data-bs-target="#personModal"
           data-expense="{{ e.id }}" data-person="{{ e.person_id or '' }}" title="{{ _('Кому начислено / выплачено') }}" aria-label="{{ _('Кому начислено / выплачено') }}"><i class="bi bi-person-plus" aria-hidden="true"></i></button>
+</span>
+{% endmacro %}
+
+{% macro expense_text(e, suggested=False) %}
+<span class="yr-exp-text">
+  <span class="yr-exp-head">{% if suggested %}<span class="text-warning-emphasis" title="{{ _('Подобрано автоматически') }}">≈</span> {% endif %}{{ fmt_date(e.date) }} · <a href="{{ url_for('counterparties.detail', counterparty_id=e.counterparty_id) }}">{{ e.counterparty.name }}</a></span>
+  {% if e.description %}<span class="yr-exp-desc" title="{{ e.description }}">— {{ e.description }}</span>{% endif %}
+  {{ person_tag(e) }}
 </span>
 {% endmacro %}
 
@@ -169,6 +191,21 @@
   <a class="btn btn-sm btn-outline-dark" href="#gaps">{{ _("Разобрать") }}</a>
 </div>
 {% endif %}
+
+{# Вкладки: отчёт большой — сводка, смета и факт, смета, выписка, импорт.
+   Активная вкладка запоминается (sessionStorage) и переживает AJAX-подмену. #}
+<ul class="nav nav-tabs yr-tabs mb-3" role="tablist">
+  {% for key, label in [("overview", _("Сводка")), ("plan", _("Смета и факт")), ("budget", _("Смета")), ("bank", _("Выписка")), ("import", _("Импорт"))] %}
+  <li class="nav-item" role="presentation">
+    <button class="nav-link {{ 'active' if loop.first }}" type="button" role="tab" data-bs-toggle="tab"
+            data-bs-target="#yrTab-{{ key }}" data-tab="{{ key }}" aria-controls="yrTab-{{ key }}" aria-selected="{{ 'true' if loop.first else 'false' }}">{{ label }}
+      {% if key == "bank" and gaps %}<span class="badge rounded-pill text-bg-warning ms-1" title="{{ _('Списания без расхода') }}">{{ gaps|length }}</span>{% endif %}
+    </button>
+  </li>
+  {% endfor %}
+</ul>
+<div class="tab-content">
+<div class="tab-pane fade show active" id="yrTab-overview" role="tabpanel">
 
 <div class="row g-3 mb-4">
   {# --- Поступления --- #}
@@ -291,7 +328,7 @@
                     <ul class="list-unstyled small mt-1 mb-0">
                       {% for e in g.expenses %}
                       <li class="d-flex flex-wrap flex-md-nowrap justify-content-between align-items-center gap-2 py-1 border-bottom">
-                        <span>{{ fmt_date(e.date) }} · <a href="{{ url_for('counterparties.detail', counterparty_id=e.counterparty_id) }}">{{ e.counterparty.name }}</a>{% if e.description %} — {{ e.description|truncate(80) }}{% endif %}{{ person_tag(e) }}</span>
+                        {{ expense_text(e) }}
                         <span class="yr-exp-right">
                           <form method="post" action="{{ url_for('year_report.set_expense_category', expense_id=e.id) }}" data-ajax>
                             <select class="form-select form-select-sm py-0 js-autosubmit" name="category" aria-label="{{ _('Статья') }}" title="{{ _('Перенести в другую статью') }}">
@@ -356,6 +393,9 @@
 </form>
 {% endmacro %}
 
+</div>{# /overview #}
+
+<div class="tab-pane fade" id="yrTab-plan" role="tabpanel">
 <div class="card mb-4"><div class="card-body">
   <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
     <h5 class="card-title">{{ _("Смета и факт") }}</h5>
@@ -413,24 +453,25 @@
       </summary>
       <div class="yr-pf-detail">
         {% for row in sec["items"] %}
-        <div class="yr-pf-row small {{ 'text-muted' if not row.expenses }}">
-          <span class="yr-pf-name ps-3">{{ row.item.name }}{% if not row.expenses %} — {{ _("не потрачено") }}{% endif %}
+        {% if row.expenses %}<details data-key="plan:{{ sec.name }}:{{ row.item.id }}"><summary{% else %}<div{% endif %} class="yr-pf-row small {{ 'text-muted' if not row.expenses }}">
+          <span class="yr-pf-name ps-3">{{ row.item.name }}{% if row.expenses %} <span class="text-muted">({{ row.expenses|length }})</span>{% else %} — {{ _("не потрачено") }}{% endif %}
             <button type="button" class="btn btn-link btn-sm p-0 ms-1 align-baseline" data-bs-toggle="modal" data-bs-target="#addExpenseModal"
                     data-budget-item="{{ row.item.id }}" data-description="{{ row.item.name }}"
                     data-category="{{ (row.item_categories or [''])[0] }}">+ {{ _("трата") }}</button>
             {% if row.meter.over_amount %}<span class="text-muted">({{ _("сверх плана позиции {amount}", amount=fmt2(row.meter.over_amount)) }})</span>{% endif %}</span>
           <span>{{ fmt2(row.plan) }}</span><span>{{ fmt2(row.fact) if row.expenses else "—" }}</span>
           <span>{{ row.meter.rate if row.expenses and row.meter.rate is not none else "" }}</span><span></span><span></span>
-        </div>
+        {% if row.expenses %}</summary>{% else %}</div>{% endif %}
         {% if row.expenses %}
         <ul class="list-unstyled small ms-4 mb-2">
           {% for entry in row.expenses %}{% set e = entry.expense %}
           <li class="d-flex flex-wrap flex-md-nowrap justify-content-between align-items-center gap-2 py-1 border-bottom">
-            <span>{% if entry.suggested %}<span class="text-warning-emphasis" title="{{ _('Подобрано автоматически') }}">≈</span> {% endif %}{{ fmt_date(e.date) }} · <a href="{{ url_for('counterparties.detail', counterparty_id=e.counterparty_id) }}">{{ e.counterparty.name }}</a>{% if e.description %} — {{ e.description|truncate(70) }}{% endif %}{{ person_tag(e) }}</span>
+            {{ expense_text(e, entry.suggested) }}
             <span class="yr-exp-right wide">{{ budget_select(e, "auto" if entry.suggested else e.budget_item_id) }}<span class="yr-amount">{{ fmt2(e.amount) }}</span>{{ unbook_button(e) }}</span>
           </li>
           {% endfor %}
         </ul>
+        </details>
         {% endif %}
         {% endfor %}
       </div>
@@ -457,7 +498,7 @@
     <ul class="list-unstyled small ms-3 mb-1">
       {% for e in g.expenses %}
       <li class="d-flex flex-wrap flex-md-nowrap justify-content-between align-items-center gap-2 py-1 border-bottom">
-        <span>{{ fmt_date(e.date) }} · <a href="{{ url_for('counterparties.detail', counterparty_id=e.counterparty_id) }}">{{ e.counterparty.name }}</a>{% if e.description %} — {{ e.description|truncate(70) }}{% endif %}{{ person_tag(e) }}</span>
+        {{ expense_text(e) }}
         <span class="yr-exp-right wide">{% if plan_fact["items"] %}{{ budget_select(e, "off" if e.off_budget else "auto", _("не подобрано — выберите позицию")) }}{% else %}<span></span>{% endif %}<span class="yr-amount">{{ fmt2(e.amount) }}</span>{{ unbook_button(e) }}</span>
       </li>
       {% endfor %}
@@ -468,7 +509,10 @@
 
 </div></div>
 
+</div>{# /plan #}
+
 {# --- Смета --- #}
+<div class="tab-pane fade" id="yrTab-budget" role="tabpanel">
 <div class="card mb-4"><div class="card-body">
   <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
     <h5 class="card-title">{{ _("Смета на {year} год", year=year) }}</h5>
@@ -536,7 +580,10 @@
   {% endif %}
 </div></div>
 
+</div>{# /budget #}
+
 {# --- Списания без расхода --- #}
+<div class="tab-pane fade" id="yrTab-bank" role="tabpanel">
 <div class="card mb-4" id="gaps"><div class="card-body">
   <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
     <h5 class="card-title">{{ _("Списания из выписки без расхода") }}</h5>
@@ -661,7 +708,10 @@
 </div></div>
 {% endif %}
 
+</div>{# /bank #}
+
 {# --- Импорт отчёта по тратам --- #}
+<div class="tab-pane fade" id="yrTab-import" role="tabpanel">
 <div class="card mb-4"><div class="card-body">
   <h5 class="card-title">{{ _("Импорт отчёта по тратам (CSV)") }}</h5>
   <p class="text-muted small">{{ _("Выгрузка таблицы «Отчёт по тратам»: блоки «Наименование (раздел), , Дата, Кол-во, Цена, Сумма». Перед записью покажем, что из отчёта уже заведено, что найдено в выписке банка и что будет заведено как оплаченное не через банк.") }}
@@ -673,6 +723,8 @@
   </form>
   {{ csv_format_line(spending_format, "spending") }}
 </div></div>
+</div>{# /import #}
+</div>{# /tab-content #}
 
 <div class="modal fade" id="addExpenseModal" tabindex="-1">
   <div class="modal-dialog modal-lg">
@@ -782,6 +834,49 @@
       var keys = Array.from(document.querySelectorAll("details[data-key]"))
         .filter(function (d) { return d.open; }).map(function (d) { return d.dataset.key; });
       try { sessionStorage.setItem(OPEN_KEY, JSON.stringify(keys)); } catch (e) {}
+    });
+  });
+  // Вкладки. Ссылка/адрес с якорем (#gaps, #booked, #owed из колокольчика)
+  // открывает вкладку, где этот якорь, иначе — последняя открытая.
+  var TAB_KEY = "yearReportTab";
+  // Переключаем сами, без bootstrap.Tab: при полной загрузке этот скрипт
+  // выполняется раньше, чем подключён bootstrap.bundle (конец base.html).
+  // Клики по вкладкам обрабатывает сам Bootstrap (делегированно).
+  function showTab(name) {
+    var pane = document.getElementById("yrTab-" + name);
+    if (!pane) return false;
+    document.querySelectorAll(".yr-tabs .nav-link").forEach(function (b) {
+      var on = b.dataset.tab === name;
+      b.classList.toggle("active", on); b.setAttribute("aria-selected", on ? "true" : "false");
+    });
+    document.querySelectorAll(".tab-content > .tab-pane").forEach(function (p) {
+      p.classList.toggle("active", p === pane); p.classList.toggle("show", p === pane);
+    });
+    try { sessionStorage.setItem(TAB_KEY, name); } catch (e) {}
+    return true;
+  }
+  function showAnchor(hash) {
+    var target = hash && hash.length > 1 ? document.getElementById(hash.slice(1)) : null;
+    if (!target) return false;
+    var pane = target.closest(".tab-pane");
+    if (pane) showTab(pane.id.replace("yrTab-", ""));
+    setTimeout(function () { target.scrollIntoView({ block: "start" }); }, 50);
+    return true;
+  }
+  document.querySelectorAll(".yr-tabs [data-tab]").forEach(function (btn) {
+    btn.addEventListener("shown.bs.tab", function () {
+      try { sessionStorage.setItem(TAB_KEY, btn.dataset.tab); } catch (e) {}
+    });
+  });
+  if (!showAnchor(location.hash)) {
+    var savedTab = null;
+    try { savedTab = sessionStorage.getItem(TAB_KEY); } catch (e) {}
+    if (savedTab) showTab(savedTab);
+  }
+  document.querySelectorAll('#mainContent a[href^="#"]').forEach(function (a) {
+    if (a.getAttribute("href").length < 2 || a.dataset.bsToggle) return;
+    a.addEventListener("click", function (ev) {
+      if (showAnchor(a.getAttribute("href"))) ev.preventDefault();
     });
   });
   // «+ трата» у позиции сметы — подставить позицию, описание и статью.

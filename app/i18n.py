@@ -3822,6 +3822,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "ID приложения": "App ID",
         "Очистите поле ID, чтобы выключить вход через провайдера.": "Clear the ID field to turn off sign-in with that provider.",
         # «Финансы за год» (app/year_report.py)
+        "Средства сметы — начисления этого года по членским, целевым и прочим взносам на нужды кооператива (без земельного налога, электроэнергии, возмещений и пени) и оплаченная их часть, в том числе оплаченная позже.": "Budget funds are this year's membership, targeted and other fees for the cooperative's needs (excluding land tax, electricity, reimbursements and penalties) and the paid part of them, including payments made later.",
+        "Целевой взнос распределён только по целевым разделам, членский — по членским, внутри — пропорционально плану сметы.": "The targeted fee is distributed only across targeted sections and the membership fee across membership sections, each in proportion to the budget plan.",
+        "Целевых начислений за год — {charged} ₽ при плане целевых разделов {plan} ₽, меньше половины: смета собиралась в основном членским взносом, поэтому все средства распределены по всей смете пропорционально плану. Если начислить целевой взнос по смете (на все целевые разделы одной суммой), целевые деньги будут распределяться только по целевым разделам.": "Targeted charges for the year are {charged} ₽ against a targeted-sections plan of {plan} ₽ — less than half: the budget was collected mostly through the membership fee, so all funds are distributed across the whole budget in proportion to the plan. If a targeted fee is charged per the budget (one amount for all targeted sections), targeted money will be distributed only across targeted sections.",
+        "Все средства распределены по разделам пропорционально плану сметы.": "All funds are distributed across sections in proportion to the budget plan.",
         "Собрано на смету — по разделам": "Budget funds collected — by section",
         "Средства сметы": "Budget funds",
         "собрано из начисленного за год{rate}": "collected of the year's charges{rate}",
@@ -3833,7 +3837,6 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Раздел сметы": "Budget section",
         "целевой": "targeted",
         "членский": "membership",
-        "Средства сметы — начисления этого года по членским, целевым и прочим взносам на нужды кооператива (без земельного налога, электроэнергии, возмещений и пени) и оплаченная их часть, в том числе оплаченная позже. На разделы они делятся пропорционально плану сметы: взнос платят одной суммой, поэтому точнее разделить нельзя. Точно — если начислять отдельные целевые взносы на мероприятия.": "Budget funds are this year's membership, targeted and other fees for the cooperative's needs (excluding land tax, electricity, reimbursements and penalties) and the paid part of them, including payments made later. They are split across sections in proportion to the budget plan: the fee is paid as one amount, so a more precise split is impossible. For an exact split, charge separate targeted fees for projects.",
         "собрано на смету {collected}, потрачено по смете {spent}: {sign} {amount}": "collected for the budget {collected}, spent per budget {spent}: {sign} {amount}",
         "остаток": "surplus",
         "дефицит": "shortfall",

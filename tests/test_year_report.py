@@ -550,3 +550,41 @@ def test_section_funding_pro_rata_and_kinds(app, db, client):
     assert db.query(BudgetSection).filter_by(year=2026, name="Замена общей проводки").one().is_target is False
     body = client.get("/year-report/?year=2026").get_data(as_text=True)
     assert "Собрано на смету — по разделам" in body
+
+
+def test_section_funding_split_when_target_fee_charged(app, db):
+    from app.models import Charge, ChargeAllocation, FeeType, MemberAccount, Payment
+    from app.year_report import _budget
+    from tests.conftest import make_garage, make_person
+    db.add_all([
+        BudgetItem(year=2027, section="Содержание кооператива", name="Уборка снега", amount=Decimal("30000"), position=0),
+        BudgetItem(year=2027, section="Замена общей проводки", name="Провод", amount=Decimal("6000"), position=1),
+        BudgetItem(year=2027, section="Установка опор освещения", name="Опоры", amount=Decimal("4000"), position=2),
+    ])
+    membership = db.query(FeeType).filter_by(code="membership").one_or_none() or FeeType(code="membership", name="Членский взнос")
+    target = db.query(FeeType).filter_by(code="target").one_or_none() or FeeType(code="target", name="Целевой взнос")
+    db.add_all([membership, target])
+    person, garage = make_person(db), make_garage(db)
+    m_acc = MemberAccount(person_id=person.id, garage_id=garage.id, fee_type=membership, account_number="10010")
+    t_acc = MemberAccount(person_id=person.id, garage_id=garage.id, fee_type=target, account_number="00010")
+    db.add_all([m_acc, t_acc])
+    db.flush()
+    m_charge = Charge(account_id=m_acc.id, year=2027, amount=Decimal("30000"))
+    t_charge = Charge(account_id=t_acc.id, year=2027, amount=Decimal("10000"))  # целевой по смете: 6000 + 4000
+    t_pay = Payment(account_id=t_acc.id, date=dt.date(2027, 3, 1), amount=Decimal("5000"))
+    db.add_all([m_charge, t_charge, t_pay])
+    db.flush()
+    db.add(ChargeAllocation(charge_id=t_charge.id, payment_id=t_pay.id, amount=Decimal("5000")))
+    db.commit()
+
+    with app.test_request_context():
+        budget = _budget(2027)
+    fund = budget["funding"]
+    assert fund["split"] is True
+    by_name = {s["name"]: s for s in budget["sections"]}
+    # Целевые 5000 — только на целевые разделы, 60/40 по плану; членские не оплачены.
+    assert by_name["Замена общей проводки"]["collected"] == Decimal("3000.00")
+    assert by_name["Установка опор освещения"]["collected"] == Decimal("2000.00")
+    assert by_name["Содержание кооператива"]["collected"] == Decimal("0.00")
+    assert by_name["Содержание кооператива"]["funded_charged"] == Decimal("30000.00")
+    assert fund["target_collected"] == Decimal("5000.00")

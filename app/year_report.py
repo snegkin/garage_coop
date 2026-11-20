@@ -90,10 +90,11 @@ for _c in CATEGORIES:
 # банка раньше всего остального и т.п.).
 _KEYWORD_RULES = [
     (("земельн", "единый налоговый платеж", "единый налоговый платёж"), "Земельный налог"),
-    (("комисси",), "Банковское обслуживание"),
+    (("комисси", "платежные поручения", "платёжные поручения"), "Банковское обслуживание"),
     (("фонд оплаты труда", " фот ", "документооборот", "оплата труда"), "Оплата труда"),
     (("сбис", "нулевк", "отчетност", "отчётност", "скзи", "кэп ", "тензор", "крипто-про"), "Отчётность и ЭДО"),
-    (("штраф", "пени", "пеня", "налог"), "Налоги, штрафы, пени"),
+    # «налог» — отдельным словом: «нулевая отчётность в налоговую» — не налог.
+    (("штраф", "пени", "пеня", " налог ", " налог,", " налог.", "налоги", "налога ", "налогам"), "Налоги, штрафы, пени"),
     (("госпошлин", "исков", "юр. помощь", "юридич"), "Юридические расходы"),
     (("почтов", "уфпс", "почта росс"), "Почтовые расходы"),
     (("электроэнерг", "тнс энерго"), "Электроэнергия"),
@@ -723,6 +724,7 @@ def view():
         income_chart=_chart_slices(income["rows"], "received"),
         spending_chart=_chart_slices(spending["groups"], "amount"),
         budget_chart=_chart_slices(budget["sections"], "amount"),
+        plan_fact=_plan_fact(year),
         budget_format=csv_format_context("budget"),
         spending_format=csv_format_context("spending"),
     )
@@ -838,9 +840,26 @@ def import_budget():
     if not items:
         flash(_("В файле не найдено ни одной статьи сметы — проверьте формат CSV (какие столбцы в каком порядке)."), "danger")
         return redirect(url_for("year_report.view", year=year))
-    database.db_session.query(BudgetItem).filter(BudgetItem.year == year).delete()
+    # Расходы, уже привязанные к позициям сметы этого года, — после замены
+    # сметы привязываются к позиции с тем же разделом и наименованием.
+    old_items = database.db_session.query(BudgetItem).filter(BudgetItem.year == year).all()
+    links: dict[tuple[str, str], list[Expense]] = {}
+    if old_items:
+        for expense in database.db_session.query(Expense).filter(
+                Expense.budget_item_id.in_([i.id for i in old_items])):
+            item = expense.budget_item
+            links.setdefault((item.section, item.name), []).append(expense)
+            expense.budget_item_id = None
+        database.db_session.flush()
+    for old in old_items:
+        database.db_session.delete(old)
+    database.db_session.flush()
     for position, item in enumerate(items):
-        database.db_session.add(BudgetItem(year=year, position=position, **item))
+        new_item = BudgetItem(year=year, position=position, **item)
+        database.db_session.add(new_item)
+        database.db_session.flush()
+        for expense in links.pop((new_item.section, new_item.name), []):
+            expense.budget_item_id = new_item.id
     total = sum((i["amount"] for i in items), Decimal("0"))
     audit.record("budget.import", summary=f"Загружена смета на {year} год: {len(items)} статей на {audit.format_amount(total)}")
     database.db_session.commit()
@@ -1178,3 +1197,193 @@ def csv_template(kind):
     filename = "budget_template.csv" if kind == "budget" else "spending_template.csv"
     return Response(buf.getvalue(), mimetype="text/csv",
                     headers={"Content-Disposition": f"attachment; filename={filename}"})
+
+
+# --- Смета и факт ---------------------------------------------------------
+
+LAND_TAX_CATEGORY = "Земельный налог"
+_NARROW_CATEGORIES = {
+    "Банковское обслуживание", "Электроэнергия", "Налоги, штрафы, пени", "Почтовые расходы", "Отчётность и ЭДО",
+}
+_MATCH_STOP_STEMS = {"оплат", "счету", "числе", "рубле", "товар", "услуг", "работ", "резер", "проче", "налог",
+                     "общий", "счетч"}
+
+
+def _stems(text: str | None) -> set[str]:
+    words = re.findall(r"[а-яa-z]{4,}", (text or "").lower().replace("ё", "е"))
+    return {w[:5] for w in words} - _MATCH_STOP_STEMS
+
+
+def _item_categories(item: BudgetItem) -> set[str]:
+    """Все статьи расходов, на которые похожа позиция сметы («Резерв на
+    оплату электроэнергии (+ штрафы…)» — и электроэнергия, и штрафы)."""
+    low = f" {item.name.lower()} {item.section.lower()} "
+    return {category for keywords, category in _KEYWORD_RULES if any(k in low for k in keywords)}
+
+
+def suggest_budget_item(expense: Expense, items: list[BudgetItem], item_cats: dict[int, set[str]]) -> BudgetItem | None:
+    """Позиция сметы для расхода: больше всего общих слов (по первым 5
+    буквам) в описании/контрагенте и наименовании позиции, плюс балл за
+    совпадение статьи; нужно хотя бы 2 балла. Иначе — для узких статей
+    (_NARROW_CATEGORIES), если статье расхода в смете соответствует ровно
+    одна позиция (комиссии банка → «платёжные поручения»), она."""
+    category = normalize_category(expense.category)
+    expense_stems = _stems(" ".join(filter(None, [expense.description, expense.counterparty.name])))
+    best, best_score = None, 0
+    for item in items:
+        score = len(expense_stems & _stems(item.name)) + (1 if category in item_cats[item.id] else 0)
+        if score > best_score:
+            best, best_score = item, score
+    if best_score >= 2:
+        return best
+    # Только для узких статей: комиссия банка — это и есть «платёжные
+    # поручения», а вот единственная в смете позиция хоз. работ («уборка
+    # снега») ещё не значит, что подсыпка дороги заложена в смету.
+    if category not in _NARROW_CATEGORIES:
+        return None
+    same = [item for item in items if category in item_cats[item.id]]
+    return same[0] if len(same) == 1 else None
+
+
+def _plan_fact(year: int) -> dict:
+    """
+    Смета против факта за год. Каждый расход года (kind=CHARGE):
+    - привязан к позиции сметы явно (budget_item_id) или подобран
+      автоматически (suggested=True — показывается со значком «≈», можно
+      закрепить или поменять);
+    - вне сметы — нецелевые траты (явно отмечен off_budget или подбор не
+      нашёл позицию);
+    - земельный налог — отдельно: собирается отдельным взносом и уходит в
+      ФНС транзитом, в смету не входит (если явно не привязан к позиции).
+    """
+    items = (
+        database.db_session.query(BudgetItem)
+        .filter(BudgetItem.year == year)
+        .order_by(BudgetItem.position, BudgetItem.id)
+        .all()
+    )
+    item_cats = {item.id: _item_categories(item) for item in items}
+    by_item: dict[int, dict] = {
+        item.id: {"item": item, "plan": item.amount, "fact": Decimal("0"), "expenses": []} for item in items
+    }
+    expenses = (
+        database.db_session.query(Expense)
+        .options(selectinload(Expense.counterparty))
+        .filter(Expense.date >= dt.date(year, 1, 1), Expense.date <= dt.date(year, 12, 31),
+                Expense.kind == ExpenseKind.CHARGE)
+        .order_by(Expense.date, Expense.id)
+        .all()
+    )
+    off: dict[str, dict] = {}
+    land = {"total": Decimal("0"), "expenses": []}
+    suggested_count = 0
+    for expense in expenses:
+        target = None
+        suggested = False
+        if expense.budget_item_id in by_item:
+            target = by_item[expense.budget_item_id]
+        elif not expense.off_budget and items and normalize_category(expense.category) != LAND_TAX_CATEGORY:
+            match = suggest_budget_item(expense, items, item_cats)
+            if match is not None:
+                target, suggested = by_item[match.id], True
+                suggested_count += 1
+        if target is not None:
+            target["fact"] += expense.amount
+            target["expenses"].append({"expense": expense, "suggested": suggested})
+        elif normalize_category(expense.category) == LAND_TAX_CATEGORY and not expense.off_budget:
+            land["total"] += expense.amount
+            land["expenses"].append(expense)
+        else:
+            category = normalize_category(expense.category)
+            group = off.setdefault(category, {"name": category, "total": Decimal("0"), "expenses": []})
+            group["total"] += expense.amount
+            group["expenses"].append(expense)
+
+    sections: list[dict] = []
+    for row in by_item.values():
+        section_name = row["item"].section
+        if not sections or sections[-1]["name"] != section_name:
+            sections.append({"name": section_name, "plan": Decimal("0"), "fact": Decimal("0"), "items": []})
+        sections[-1]["plan"] += row["plan"]
+        sections[-1]["fact"] += row["fact"]
+        sections[-1]["items"].append(row)
+    for block in [*sections, *[r for sec in sections for r in sec["items"]]]:
+        block["meter"] = _meter(block["plan"], block["fact"])
+    plan = sum((sec["plan"] for sec in sections), Decimal("0"))
+    fact = sum((sec["fact"] for sec in sections), Decimal("0"))
+    off_groups = sorted(off.values(), key=lambda g: -g["total"])
+    off_total = sum((g["total"] for g in off_groups), Decimal("0"))
+    return {
+        "items": items,
+        "sections": sections,
+        "plan": plan,
+        "fact": fact,
+        "meter": _meter(plan, fact),
+        "unspent": max(plan - fact, Decimal("0")),
+        "off_groups": off_groups,
+        "off_total": off_total,
+        "off_count": sum(len(g["expenses"]) for g in off_groups),
+        "land": land,
+        "suggested_count": suggested_count,
+        "in_budget_share": _percent(fact, fact + off_total),
+    }
+
+
+def _meter(plan: Decimal, fact: Decimal) -> dict:
+    """Полоса «потрачено из запланированного»: шкала — большее из плана и
+    факта; в пределах плана — синяя часть, сверх плана — красная, отметка
+    плана — тонкая черта."""
+    scale = max(plan, fact)
+    if not scale:
+        return {"within": 0, "over": 0, "plan_at": 0, "rate": None, "over_amount": Decimal("0")}
+    within = min(plan, fact)
+    return {
+        "within": float(within / scale * 100),
+        "over": float(max(fact - plan, Decimal("0")) / scale * 100),
+        "plan_at": float(plan / scale * 100),
+        "rate": _percent(fact, plan),
+        "over_amount": max(fact - plan, Decimal("0")),
+    }
+
+
+@bp.route("/expenses/<int:expense_id>/budget", methods=["POST"])
+@roles_required(RoleEnum.CHAIRMAN)
+def set_expense_budget_item(expense_id):
+    """Позиция сметы для расхода: id позиции, «off» — вне сметы, «auto» —
+    снова подбирать автоматически."""
+    expense = database.db_session.get(Expense, expense_id)
+    if expense is None:
+        abort(404)
+    value = request.form.get("budget_item") or "auto"
+    if value == "off":
+        expense.budget_item_id, expense.off_budget = None, True
+    elif value == "auto":
+        expense.budget_item_id, expense.off_budget = None, False
+    else:
+        item = database.db_session.get(BudgetItem, int(value))
+        if item is None:
+            abort(400)
+        expense.budget_item_id, expense.off_budget = item.id, False
+    database.db_session.commit()
+    return _redirect_back(expense.date.year)
+
+
+@bp.route("/plan-fact/confirm", methods=["POST"])
+@roles_required(RoleEnum.CHAIRMAN)
+def confirm_budget_suggestions():
+    """Закрепить автоматический подбор позиций сметы за год — дальше
+    привязка не меняется при правке описаний или сметы."""
+    year = request.form.get("year", type=int)
+    if year is None:
+        abort(400)
+    plan_fact = _plan_fact(year)
+    confirmed = 0
+    for section in plan_fact["sections"]:
+        for row in section["items"]:
+            for entry in row["expenses"]:
+                if entry["suggested"]:
+                    entry["expense"].budget_item_id = row["item"].id
+                    confirmed += 1
+    database.db_session.commit()
+    flash(_("Подбор закреплён: расходов — {count}.", count=confirmed), "success")
+    return _redirect_back(year)

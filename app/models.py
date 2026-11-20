@@ -655,8 +655,15 @@ class Expense(Base):
     category: Mapped[str | None] = mapped_column(String(100))
     description: Mapped[str | None] = mapped_column(Text)
     kind: Mapped[ExpenseKind] = mapped_column(Enum(ExpenseKind), default=ExpenseKind.CHARGE, server_default=ExpenseKind.CHARGE.value)
+    # Позиция сметы, по которой прошёл расход (см. «Смета и факт» на
+    # странице «Финансы за год», app/year_report.py). Пока не задана —
+    # позиция подбирается автоматически при показе; off_budget=True —
+    # председатель явно отметил расход как «вне сметы», не подбирать.
+    budget_item_id: Mapped[int | None] = mapped_column(ForeignKey("budget_item.id", ondelete="SET NULL"), index=True)
+    off_budget: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("0"))
 
     counterparty: Mapped["Counterparty"] = relationship(back_populates="expenses")
+    budget_item: Mapped["BudgetItem | None"] = relationship()
     documents: Mapped[list["Document"]] = relationship(back_populates="expense", order_by="Document.id")
     allocations: Mapped[list["ExpenseAllocation"]] = relationship(
         back_populates="expense", cascade="all, delete-orphan"

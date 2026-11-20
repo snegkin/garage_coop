@@ -39,7 +39,7 @@ from .auth import roles_required
 from .i18n import translate as _
 from .models import (
     BankAccount, BankStatementLine, BudgetItem, Charge, Counterparty, CounterpartyPayment, CsvImportProfile, Expense,
-    BudgetSection, ChargeAllocation, ExpenseCategory, MasterMeterReading, ExpenseKind, FeeType, MemberAccount, Payment, RoleEnum,
+    BudgetSection, ChargeAllocation, ExpenseCategory, MasterMeterReading, PaymentRegistryEntry, ExpenseKind, FeeType, MemberAccount, Payment, RoleEnum,
 )
 
 bp = Blueprint("year_report", __name__, url_prefix="/year-report")
@@ -645,6 +645,51 @@ def _available_years() -> list[int]:
     return sorted(years)
 
 
+# --- Источник: все операции или только расчётный счёт ------------------------
+#
+# Налоговая видит только движение по расчётному счёту; наличные взносы
+# (председатель вписывает платёж на лицевой счёт вручную) и траты наличными
+# / за свой счёт в выписке не видны. Переключатель «Только р/с» (?source=bank)
+# считает по выписке: поступления — платежи, пришедшие через банк (строка
+# выписки или запись реестра платежей банка ссылается на платёж), траты —
+# без расходов, оплаченных не со счёта. По умолчанию — все операции.
+
+SOURCES = ("all", "bank")
+
+
+def current_source() -> str:
+    try:
+        source = request.args.get("source")
+    except RuntimeError:
+        return "all"
+    return source if source in SOURCES else "all"
+
+
+def bank_payment_ids() -> set[int]:
+    """Платежи членов, пришедшие через банк (раз на запрос)."""
+    cached = getattr(g, "_bank_payment_ids", None)
+    if cached is None:
+        cached = {
+            pid for (pid,) in database.db_session.query(BankStatementLine.matched_payment_id)
+            .filter(BankStatementLine.matched_payment_id.isnot(None))
+        } | {
+            pid for (pid,) in database.db_session.query(PaymentRegistryEntry.matched_payment_id)
+            .filter(PaymentRegistryEntry.matched_payment_id.isnot(None))
+        }
+        g._bank_payment_ids = cached
+    return cached
+
+
+def is_cash_expense(expense: Expense) -> bool:
+    """Трата не через расчётный счёт: у контрагента «Оплачено не через
+    банк» или оплачена только платежами без банковского счёта и строки
+    выписки. Неоплаченный расход — не наличный (он ещё не оплачен вовсе)."""
+    if expense.counterparty.name == CASH_COUNTERPARTY_NAME:
+        return True
+    payments = [a.payment for a in expense.allocations]
+    return bool(payments) and all(p.bank_account_id is None and p.bank_statement_line_id is None for p in payments)
+
+
 def _income(year: int) -> dict:
     """Начислено за год и получено в течение года (по дате платежа) — по
     видам взноса; пеня — одной строкой «Пеня» на все виды."""
@@ -697,11 +742,18 @@ def _income(year: int) -> dict:
         .filter(Payment.date >= dt.date(year, 1, 1), Payment.date <= dt.date(year, 12, 31))
         .all()
     )
+    bank_only = current_source() == "bank"
+    via_bank = bank_payment_ids()
+    cash_received = Decimal("0")
     for payment in payments:
         if (payment.related_person_id is not None or payment.offset_charge_id is not None
                 or payment.amnesty_for_charge_id is not None
                 or _is_tech(payment.comment, _TECH_PAYMENT_PREFIXES)):
             continue
+        if payment.id not in via_bank:
+            cash_received += payment.amount
+            if bank_only:
+                continue
         fee_type = payment.account.fee_type if payment.account is not None else None
         _row(_name_for(fee_type, payment.account is None), _code_for(fee_type, payment.account is None),
              _color_for(fee_type, payment.account is None))["received"] += payment.amount
@@ -714,7 +766,7 @@ def _income(year: int) -> dict:
         "received": sum((r["received"] for r in ordered), Decimal("0")),
     }
     total["rate"] = _percent(total["received"], total["charged"])
-    return {"rows": ordered, "total": total}
+    return {"rows": ordered, "total": total, "cash_received": cash_received}
 
 
 def _percent(part: Decimal, whole: Decimal) -> float | None:
@@ -738,15 +790,18 @@ def _spending(year: int) -> dict:
     groups: dict[str, dict] = {}
     unpaid = Decimal("0")
     not_via_bank = Decimal("0")
+    bank_only = current_source() == "bank"
     for expense in expenses:
+        if is_cash_expense(expense):
+            not_via_bank += expense.amount
+            if bank_only:
+                continue
         category = normalize_category(expense.category)
         group = groups.setdefault(category, {"name": category, "amount": Decimal("0"), "expenses": []})
         group["amount"] += expense.amount
         group["expenses"].append(expense)
         paid = sum((a.amount for a in expense.allocations), Decimal("0"))
         unpaid += max(expense.amount - paid, Decimal("0"))
-        if expense.counterparty.name == CASH_COUNTERPARTY_NAME:
-            not_via_bank += expense.amount
     ordered = sorted(groups.values(), key=lambda g: -g["amount"])
     total = sum((g["amount"] for g in ordered), Decimal("0"))
     for g in ordered:
@@ -834,6 +889,8 @@ def _section_funding(year: int, sections: list[dict], total_plan: Decimal) -> di
         .filter(Charge.year == year, Charge.account_id.isnot(None))
         .all()
     )
+    bank_only = current_source() == "bank"
+    via_bank = bank_payment_ids()
     pools = {"membership": {"charged": Decimal("0"), "paid": Decimal("0")},
              "target": {"charged": Decimal("0"), "paid": Decimal("0")}}
     by_fee: dict[str, dict] = {}
@@ -846,6 +903,7 @@ def _section_funding(year: int, sections: list[dict], total_plan: Decimal) -> di
             a.amount for a in charge.allocations
             if a.payment.related_person_id is None and a.payment.offset_charge_id is None
             and a.payment.amnesty_for_charge_id is None and not _is_tech(a.payment.comment, _TECH_PAYMENT_PREFIXES)
+            and (not bank_only or a.payment_id in via_bank)
         ), Decimal("0"))
         pool = pools["target" if is_target_fee(fee_type) else "membership"]
         pool["charged"] += charge.amount
@@ -1002,6 +1060,7 @@ def view():
         budget_chart=_chart_slices(budget["sections"], "amount",
                                    lambda r, colors=_budget_colors(budget["sections"]): colors[r["name"]]),
         plan_fact=_with_funding(_plan_fact(year), budget),
+        source=current_source(),
         funding_chart=_chart_slices(budget["sections"], "collected",
                                     lambda r, colors=_budget_colors(budget["sections"]): colors[r["name"]]),
         budget_format=csv_format_context("budget"),
@@ -1561,7 +1620,10 @@ def _plan_fact(year: int) -> dict:
     off: dict[str, dict] = {}
     land = {"total": Decimal("0"), "expenses": []}
     suggested_count = 0
+    bank_only = current_source() == "bank"
     for expense in expenses:
+        if bank_only and is_cash_expense(expense):
+            continue
         target = None
         suggested = False
         if expense.budget_item_id in by_item:

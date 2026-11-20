@@ -60,8 +60,18 @@
     <select class="form-select form-select-sm" style="width:auto" id="yearSelect" name="year" onchange="this.form.submit()">
       {% for y in years %}<option value="{{ y }}" {{ "selected" if y == year }}>{{ y }}</option>{% endfor %}
     </select>
+    <input type="hidden" name="source" value="{{ source }}">
+    <div class="btn-group btn-group-sm" role="group" aria-label="{{ _('Какие операции считать') }}">
+      <a class="btn {{ 'btn-secondary' if source == 'all' else 'btn-outline-secondary' }}" href="{{ url_for('year_report.view', year=year, source='all') }}"
+         title="{{ _('Все операции: и по расчётному счёту, и наличные (платежи, вписанные вручную, траты «не через банк»)') }}">{{ _("Все операции") }}</a>
+      <a class="btn {{ 'btn-secondary' if source == 'bank' else 'btn-outline-secondary' }}" href="{{ url_for('year_report.view', year=year, source='bank') }}"
+         title="{{ _('Только движение по расчётному счёту — то, что видит налоговая') }}">{{ _("Только р/с") }}</a>
+    </div>
   </form>
 </div>
+{% if source == "bank" %}
+<div class="alert alert-info py-2">{{ _("Показано только движение по расчётному счёту (как видит налоговая): поступления, пришедшие через банк (выписка, реестр платежей), и траты, оплаченные со счёта. Не учтены наличные: поступления {received} ₽ и траты {spent} ₽.", received=fmt2(income.cash_received), spent=fmt2(spending.not_via_bank)) }}</div>
+{% endif %}
 
 {% set balance = income.total.received - spending.total %}
 <div class="row g-3 mb-4">
@@ -76,7 +86,8 @@
     <div class="card h-100 yr-tile"><div class="card-body">
       <div class="small text-muted">{{ _("Получено") }}</div>
       <div class="value">{{ fmt2(income.total.received) }} ₽</div>
-      <div class="small text-muted">{% if income.total.rate is not none %}{{ _("{rate}% от начисленного", rate=income.total.rate) }}{% else %}&nbsp;{% endif %}</div>
+      <div class="small text-muted">{% if income.total.rate is not none %}{{ _("{rate}% от начисленного", rate=income.total.rate) }}{% else %}&nbsp;{% endif %}
+        {% if source == "all" and income.cash_received %}<br>{{ _("из них наличными {amount} ₽", amount=fmt2(income.cash_received)) }}{% endif %}</div>
     </div></div>
   </div>
   <div class="col-6 col-lg">
@@ -90,7 +101,8 @@
     <div class="card h-100 yr-tile"><div class="card-body">
       <div class="small text-muted">{{ _("Потрачено") }}</div>
       <div class="value">{{ fmt2(spending.total) }} ₽</div>
-      <div class="small text-muted">{% if plan_fact.land.total %}{{ _("из них вне сметы по своей природе ({names}): {amount} ₽", names=plan_fact.outside_label, amount=fmt2(plan_fact.land.total)) }}{% else %}&nbsp;{% endif %}</div>
+      <div class="small text-muted">{% if plan_fact.land.total %}{{ _("из них вне сметы по своей природе ({names}): {amount} ₽", names=plan_fact.outside_label, amount=fmt2(plan_fact.land.total)) }}{% else %}&nbsp;{% endif %}
+        {% if source == "all" and spending.not_via_bank %}<br>{{ _("наличными / не со счёта {amount} ₽", amount=fmt2(spending.not_via_bank)) }}{% endif %}</div>
     </div></div>
   </div>
   <div class="col-12 col-lg">
@@ -257,7 +269,7 @@
       </div>
       <p class="text-muted small mb-0 mt-2">
         {{ _("Расходы у контрагентов с датой в этом году (у электроэнергии — месяц потребления).") }}
-        {% if spending.not_via_bank %}{{ _("Из них оплачено не через банк: {amount} ₽.", amount=fmt2(spending.not_via_bank)) }}{% endif %}
+        {% if source == "all" and spending.not_via_bank %}{{ _("Из них оплачено не через банк: {amount} ₽.", amount=fmt2(spending.not_via_bank)) }}{% endif %}
         {% if spending.unpaid %}<span class="text-danger">{{ _("Ещё не оплачено: {amount} ₽.", amount=fmt2(spending.unpaid)) }}</span>{% endif %}
       </p>
       {% else %}

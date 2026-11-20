@@ -727,3 +727,48 @@ def test_order_links_only_for_marketplace_inn(app, db, client):
     db.commit()
     body = client.get("/year-report/?year=2026").get_data(as_text=True)
     assert "ozon.ru/my/orderdetails/?order=0161382282-0010" in body
+
+
+def test_source_toggle_bank_only(app, db, client):
+    """«Только р/с»: поступления — только пришедшие через банк (строка
+    выписки ссылается на платёж), траты — без оплаченных не со счёта."""
+    from app.accounting import pay_counterparty
+    from app.models import FeeType, MemberAccount, Payment
+    from tests.conftest import make_garage, make_person
+    _chairman(db, client)
+    account = _bank(db)
+    membership = db.query(FeeType).filter_by(code="membership").one_or_none() or FeeType(code="membership", name="Членский взнос")
+    db.add(membership)
+    person, garage = make_person(db), make_garage(db)
+    acc = MemberAccount(person_id=person.id, garage_id=garage.id, fee_type=membership, account_number="10010")
+    db.add(acc)
+    db.flush()
+    bank_pay = Payment(account_id=acc.id, date=dt.date(2026, 3, 1), amount=Decimal("1000"))
+    cash_pay = Payment(account_id=acc.id, date=dt.date(2026, 3, 2), amount=Decimal("700"))  # вписан вручную
+    db.add_all([bank_pay, cash_pay])
+    db.flush()
+    db.add(BankStatementLine(bank_account_id=account.id, external_uid="c1", operation_date=dt.date(2026, 3, 1),
+                             direction="credit", amount=Decimal("1000"), matched_payment_id=bank_pay.id))
+    cp = Counterparty(name="Подрядчик")
+    db.add(cp)
+    db.flush()
+    db.add(Expense(counterparty_id=cp.id, date=dt.date(2026, 4, 1), amount=Decimal("300"), category="Хоз. работы"))
+    db.flush()
+    pay_counterparty(cp, dt.date(2026, 4, 1), Decimal("300"), bank_account=account, adjust_balance=False)
+    from app.year_report import _cash_counterparty
+    cash_cp = _cash_counterparty()
+    db.add(Expense(counterparty_id=cash_cp.id, date=dt.date(2026, 5, 1), amount=Decimal("200"), category="Хоз. работы"))
+    db.commit()
+
+    with app.test_request_context("/year-report/?year=2026"):
+        from app.year_report import _income, _spending
+        assert _income(2026)["total"]["received"] == Decimal("1700")
+        assert _spending(2026)["total"] == Decimal("500")
+    with app.test_request_context("/year-report/?year=2026&source=bank"):
+        from app.year_report import _income, _spending
+        income = _income(2026)
+        assert income["total"]["received"] == Decimal("1000") and income["cash_received"] == Decimal("700")
+        spending = _spending(2026)
+        assert spending["total"] == Decimal("300") and spending["not_via_bank"] == Decimal("200")
+    body = client.get("/year-report/?year=2026&source=bank").get_data(as_text=True)
+    assert "Показано только движение по расчётному счёту" in body

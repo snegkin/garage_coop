@@ -10,7 +10,7 @@ from .auth import roles_required
 from .models import Counterparty, ElectricityTariff, ElectricityTariffKind, MasterMeterReading, Document, DocumentType, RoleEnum, Expense, BankAccount
 from .accounting import (
     get_electricity_settings, current_tariff, outside_territory_rate, member_rate_below_floor, pay_counterparty, reallocate_counterparty_expenses, expense_paid_amount,
-    counterparty_balance, available_statement_lines, resolve_statement_line, lighting_watts, parse_lighting,
+    counterparty_balance, available_statement_lines, resolve_statement_line, lighting_watts, parse_lighting, parse_latitude, format_latitude_dms,
 )
 from .uploads import save_upload
 
@@ -159,6 +159,7 @@ def view():
         supplier_balance=supplier_balance,
         referenceable_statement_lines=available_statement_lines(),
         lighting_w=lighting_watts(settings.outdoor_lighting),
+        latitude_dms=format_latitude_dms(settings.latitude),
         today=today,
     )
 
@@ -242,12 +243,9 @@ def save_outdoor_lighting():
     except ValueError as exc:
         flash(_("Не разобрать «{part}»: пишите «кол-во×Вт» через запятую, например «3×50, 5×8».", part=str(exc)), "danger")
         return redirect(url_for("power.view"))
-    try:
-        latitude = parse_decimal(request.form.get("latitude", ""))
-    except (InvalidOperation, ValueError):
-        latitude = None
+    latitude = parse_latitude(request.form.get("latitude"))
     if latitude is None or not (Decimal("-66") <= latitude <= Decimal("66")):
-        flash(_("Укажите широту в градусах, от −66 до 66 (Ярославль — 57,6)."), "danger")
+        flash(_("Укажите широту: в градусах (57,625) или в градусах, минутах и секундах (57°37′30″), от −66° до 66°."), "danger")
         return redirect(url_for("power.view"))
     settings = get_electricity_settings()
     settings.outdoor_lighting = ", ".join(f"{c}×{w.normalize():f}" for c, w in parts)[:200] or None

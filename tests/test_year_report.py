@@ -332,3 +332,95 @@ def test_csv_format_rejects_missing_required_and_duplicate_positions(app, db, cl
     assert get_csv_columns("budget") == ["amount", "name"]
     items = parse_budget_csv("Сумма,Наименование\n,Раздел\n100,Статья\n", get_csv_columns("budget"))
     assert [(i["section"], i["name"], i["amount"]) for i in items] == [("Раздел", "Статья", Decimal("100"))]
+
+
+# --- Смета и факт -----------------------------------------------------------
+
+def _plan_fact_fixture(db):
+    from app.models import BudgetItem as BI
+    items = [
+        BI(year=2026, section="Содержание кооператива", name="Операционная деятельность, платежные поручения", amount=Decimal("4000"), position=0),
+        BI(year=2026, section="Содержание кооператива", name="Механизированная уборка снега", amount=Decimal("15000"), position=1),
+        BI(year=2026, section="Взыскание задолженности", name="Почтовые расходы", amount=Decimal("1500"), position=2),
+    ]
+    db.add_all(items)
+    cp = Counterparty(name="Подрядчик")
+    bank = Counterparty(name="ПАО Сбербанк")
+    db.add_all([cp, bank])
+    db.flush()
+
+    def exp(counterparty, amount, category, description, **kw):
+        e = Expense(counterparty_id=counterparty.id, date=dt.date(2026, 3, 1), amount=Decimal(amount),
+                    category=category, description=description, **kw)
+        db.add(e)
+        return e
+    snow = exp(cp, "5000", "Хоз. работы", "Механизированная уборка снега (2 × 2 500)")
+    fee = exp(bank, "103", "Банковское обслуживание", "Комиссия за перевод СБП")
+    post = exp(cp, "2000", "Почтовые расходы", "Аванс Почте России")
+    road = exp(cp, "21000", "Хоз. работы", "Транспортные услуги по счету №317")
+    land = exp(cp, "58000", "Земельный налог", "Единый налоговый платеж")
+    db.commit()
+    return items, {"snow": snow, "fee": fee, "post": post, "road": road, "land": land}
+
+
+def test_plan_fact_suggests_items_separates_land_tax_and_off_budget(app, db):
+    from app.year_report import _plan_fact
+    items, e = _plan_fact_fixture(db)
+    pf = _plan_fact(2026)
+    by_item = {row["item"].name: row for sec in pf["sections"] for row in sec["items"]}
+    assert by_item["Механизированная уборка снега"]["fact"] == Decimal("5000")
+    # Комиссия банка — единственная позиция с этой статьёй в смете.
+    assert by_item["Операционная деятельность, платежные поручения"]["fact"] == Decimal("103")
+    post = by_item["Почтовые расходы"]
+    assert post["meter"]["over_amount"] == Decimal("500") and post["meter"]["rate"] == 133.3
+    assert all(x["suggested"] for row in by_item.values() for x in row["expenses"])
+    assert pf["suggested_count"] == 3
+    # Подсыпка дороги — вне сметы, земельный налог — отдельно.
+    assert pf["off_total"] == Decimal("21000")
+    assert pf["land"]["total"] == Decimal("58000")
+    assert pf["plan"] == Decimal("20500") and pf["fact"] == Decimal("7103")
+
+
+def test_budget_item_select_and_confirm_routes(app, db, client):
+    from app.year_report import _plan_fact
+    _chairman(db, client)
+    items, e = _plan_fact_fixture(db)
+    # Снег явно «вне сметы», подсыпку — к позиции «уборка снега» (пусть так).
+    client.post(f"/year-report/expenses/{e['snow'].id}/budget", data={"budget_item": "off"})
+    client.post(f"/year-report/expenses/{e['road'].id}/budget", data={"budget_item": str(items[1].id)})
+    pf = _plan_fact(2026)
+    assert pf["off_total"] == Decimal("5000")
+    snow_row = next(r for sec in pf["sections"] for r in sec["items"] if r["item"].id == items[1].id)
+    assert snow_row["fact"] == Decimal("21000") and snow_row["expenses"][0]["suggested"] is False
+    # Закрепить подбор — оставшиеся автоматические привязки сохраняются.
+    resp = client.post("/year-report/plan-fact/confirm", data={"year": "2026"})
+    assert resp.status_code == 302
+    assert db.get(Expense, e["fee"].id).budget_item_id == items[0].id
+    assert db.get(Expense, e["post"].id).budget_item_id == items[2].id
+    assert _plan_fact(2026)["suggested_count"] == 0
+    # «auto» снимает и явную привязку, и отметку «вне сметы».
+    client.post(f"/year-report/expenses/{e['snow'].id}/budget", data={"budget_item": "auto"})
+    snow = db.get(Expense, e["snow"].id)
+    assert snow.off_budget is False and snow.budget_item_id is None
+    body = client.get("/year-report/?year=2026").get_data(as_text=True)
+    assert "Смета и факт" in body and "перерасход" in body
+
+
+def test_budget_reimport_keeps_expense_links(app, db, client):
+    _chairman(db, client)
+    client.post("/year-report/budget/import", data={
+        "year": "2026", "file": (io.BytesIO(BUDGET_CSV.encode("utf-8")), "smeta.csv"),
+    }, content_type="multipart/form-data")
+    item = db.query(BudgetItem).filter(BudgetItem.name == "Механизированная уборка снега").one()
+    cp = Counterparty(name="Подрядчик")
+    db.add(cp)
+    db.flush()
+    expense = Expense(counterparty_id=cp.id, date=dt.date(2026, 2, 1), amount=Decimal("100"), budget_item_id=item.id)
+    db.add(expense)
+    db.commit()
+    client.post("/year-report/budget/import", data={
+        "year": "2026", "file": (io.BytesIO(BUDGET_CSV.encode("utf-8")), "smeta.csv"),
+    }, content_type="multipart/form-data")
+    db.expire_all()
+    new_item = db.query(BudgetItem).filter(BudgetItem.name == "Механизированная уборка снега").one()
+    assert db.get(Expense, expense.id).budget_item_id == new_item.id

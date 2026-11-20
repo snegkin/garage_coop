@@ -7,6 +7,16 @@
   .yr-tile .value { font-size:1.35rem; font-weight:600; font-variant-numeric: tabular-nums; }
   .yr-table td, .yr-table th { font-variant-numeric: tabular-nums; }
   .yr-gaps .form-select, .yr-gaps .form-control { min-width: 9rem; }
+  .yr-meter-row { display:grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) 19rem; gap:.75rem; align-items:center; padding:.25rem 0; }
+  summary.yr-meter-row { list-style:none; cursor:pointer; }
+  summary.yr-meter-row::-webkit-details-marker { display:none; }
+  .yr-meter { position:relative; height:.65rem; border-radius:4px; background: var(--bs-secondary-bg); overflow:hidden; }
+  .yr-meter-within { position:absolute; inset:0 auto 0 0; background:#2a78d6; border-radius:4px 0 0 4px; }
+  .yr-meter-over { position:absolute; top:0; bottom:0; background: var(--bs-danger); }
+  .yr-meter-plan { position:absolute; top:-2px; bottom:-2px; width:2px; background: var(--bs-body-color); }
+  .yr-meter-fig { text-align:right; }
+  @media (max-width: 767.98px) { .yr-meter-row { grid-template-columns: 1fr; gap:.2rem; } .yr-meter-fig { text-align:left; } }
+  [data-bs-theme="dark"] .yr-meter-within { background:#3987e5; }
 </style>
 
 {% macro csv_format_line(fmt, kind) %}
@@ -54,7 +64,7 @@
     <div class="card h-100 yr-tile"><div class="card-body">
       <div class="small text-muted">{{ _("Потрачено") }}</div>
       <div class="value">{{ fmt2(spending.total) }} ₽</div>
-      <div class="small text-muted">{% if budget.total %}{{ _("{rate}% сметы", rate=((spending.total / budget.total * 100) | round(1))) }}{% else %}&nbsp;{% endif %}</div>
+      <div class="small text-muted">{% if plan_fact.land.total %}{{ _("из них земельный налог {amount} ₽", amount=fmt2(plan_fact.land.total)) }}{% else %}&nbsp;{% endif %}</div>
     </div></div>
   </div>
   <div class="col-12 col-lg">
@@ -131,11 +141,11 @@
                     <summary><span class="yr-swatch" data-chart="spendingChart" data-label="{{ g.name }}"></span>{{ g.name }} <span class="text-muted small">({{ g.expenses|length }})</span></summary>
                     <ul class="list-unstyled small mt-1 mb-0">
                       {% for e in g.expenses %}
-                      <li class="d-flex justify-content-between align-items-start gap-2 py-1 border-bottom">
+                      <li class="d-flex flex-wrap flex-md-nowrap justify-content-between align-items-start gap-2 py-1 border-bottom">
                         <span>{{ fmt_date(e.date) }} · <a href="{{ url_for('counterparties.detail', counterparty_id=e.counterparty_id) }}">{{ e.counterparty.name }}</a>{% if e.description %} — {{ e.description|truncate(80) }}{% endif %}</span>
-                        <span class="d-flex align-items-center gap-2">
+                        <span class="d-flex align-items-center gap-2 ms-auto">
                           <form method="post" action="{{ url_for('year_report.set_expense_category', expense_id=e.id) }}" data-ajax>
-                            <select class="form-select form-select-sm py-0 js-autosubmit" name="category" style="min-width:10rem" aria-label="{{ _('Статья') }}" title="{{ _('Перенести в другую статью') }}">
+                            <select class="form-select form-select-sm py-0 js-autosubmit" name="category" style="min-width:9rem;max-width:100%" aria-label="{{ _('Статья') }}" title="{{ _('Перенести в другую статью') }}">
                               {% for c in categories %}<option {{ "selected" if c == g.name }}>{{ c }}</option>{% endfor %}
                               {% if g.name not in categories %}<option selected>{{ g.name }}</option>{% endif %}
                             </select>
@@ -173,30 +183,124 @@
   </div>
 </div>
 
-{# --- План и факт --- #}
+{# --- Смета и факт --- #}
+{% macro meter(m, label) %}
+<div class="yr-meter" role="img" aria-label="{{ label }}: {{ m.rate if m.rate is not none else '—' }}%">
+  <div class="yr-meter-within" style="width: {{ m.within }}%"></div>
+  <div class="yr-meter-over" style="left: {{ m.within }}%; width: {{ m.over }}%"></div>
+  {% if m.over %}<div class="yr-meter-plan" style="left: {{ m.plan_at }}%"></div>{% endif %}
+</div>
+{% endmacro %}
+{% macro meter_figures(row) %}
+<span class="text-nowrap">{{ fmt2(row.fact) }} / {{ fmt2(row.plan) }}</span>
+{% if row.meter.rate is not none %}<span class="text-nowrap {{ 'text-danger fw-semibold' if row.meter.over_amount else 'text-muted' }}">· {{ row.meter.rate }}%{% if row.meter.over_amount %} · {{ _("перерасход {amount}", amount=fmt2(row.meter.over_amount)) }}{% endif %}</span>{% endif %}
+{% endmacro %}
+{% macro budget_select(e, current, auto_label=none) %}
+<form method="post" action="{{ url_for('year_report.set_expense_budget_item', expense_id=e.id) }}" data-ajax>
+  <select class="form-select form-select-sm py-0 js-autosubmit-plain" name="budget_item" style="min-width:10rem;max-width:18rem;width:100%" aria-label="{{ _('Позиция сметы') }}">
+    <option value="auto" {{ "selected" if current == "auto" }}>{{ auto_label or _("подобрано автоматически") }}</option>
+    <option value="off" {{ "selected" if current == "off" }}>{{ _("вне сметы") }}</option>
+    {% for item in plan_fact["items"] %}
+    <option value="{{ item.id }}" {{ "selected" if current == item.id }}>{{ item.section|truncate(25) }} → {{ item.name|truncate(45) }}</option>
+    {% endfor %}
+  </select>
+</form>
+{% endmacro %}
+
 <div class="card mb-4"><div class="card-body">
-  <h5 class="card-title">{{ _("План и факт") }}</h5>
-  <div class="table-responsive">
-  <table class="table table-sm mb-0 yr-table align-middle">
-    <thead><tr><th></th><th class="text-end">{{ _("План") }}</th><th class="text-end">{{ _("Факт") }}</th><th class="text-end">{{ _("Разница") }}</th><th style="width:30%"></th></tr></thead>
-    <tbody>
-      {% for label, plan, fact in [(_("Поступления"), income.total.charged, income.total.received), (_("Расходы"), budget.total, spending.total)] %}
-      <tr>
-        <td>{{ label }}</td>
-        <td class="text-end">{{ fmt2(plan) if plan else "—" }}</td>
-        <td class="text-end">{{ fmt2(fact) }}</td>
-        <td class="text-end">{{ fmt2(fact - plan) if plan else "—" }}</td>
-        <td>
-          {% if plan %}
-          {% set pct = (fact / plan * 100) | float %}
-          <div class="progress" role="progressbar" aria-label="{{ label }}" aria-valuenow="{{ pct|round(0) }}" aria-valuemin="0" aria-valuemax="100" style="height:.6rem">
-            <div class="progress-bar {{ 'bg-danger' if loop.index == 2 and pct > 100 }}" style="width: {{ [pct, 100]|min }}%"></div>
-          </div>
-          <div class="small text-muted text-end">{{ pct|round(1) }}%</div>
-          {% endif %}
-        </td>
-      </tr>
+  <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
+    <h5 class="card-title">{{ _("Смета и факт") }}</h5>
+    {% if plan_fact.suggested_count %}
+    <form method="post" action="{{ url_for('year_report.confirm_budget_suggestions') }}" data-ajax>
+      <input type="hidden" name="year" value="{{ year }}">
+      <button class="btn btn-sm btn-outline-primary" type="submit" title="{{ _('Закрепить автоматически подобранные позиции сметы — дальше они не будут меняться') }}">{{ _("Закрепить подбор ({count})", count=plan_fact.suggested_count) }}</button>
+    </form>
+    {% endif %}
+  </div>
+
+  <div class="row g-3 mb-3">
+    <div class="col-6 col-lg-3"><div class="border rounded p-2 h-100">
+      <div class="small text-muted">{{ _("По смете") }}</div>
+      <div class="fw-semibold">{{ fmt2(plan_fact.fact) }} {{ _("из") }} {{ fmt2(plan_fact.plan) if plan_fact.plan else "—" }} ₽</div>
+      <div class="small text-muted">{% if plan_fact.meter.rate is not none %}{{ _("{rate}% сметы освоено", rate=plan_fact.meter.rate) }}{% else %}{{ _("смета не загружена") }}{% endif %}</div>
+    </div></div>
+    <div class="col-6 col-lg-3"><div class="border rounded p-2 h-100">
+      <div class="small text-muted">{{ _("Вне сметы") }}</div>
+      <div class="fw-semibold {{ 'text-danger' if plan_fact.off_total }}">{{ fmt2(plan_fact.off_total) }} ₽</div>
+      <div class="small text-muted">{{ _("расходов: {count}", count=plan_fact.off_count) }}{% if plan_fact.in_budget_share is not none %} · {{ _("по смете — {rate}% трат", rate=plan_fact.in_budget_share) }}{% endif %}</div>
+    </div></div>
+    <div class="col-6 col-lg-3"><div class="border rounded p-2 h-100">
+      <div class="small text-muted">{{ _("Не освоено из сметы") }}</div>
+      <div class="fw-semibold">{{ fmt2(plan_fact.unspent) }} ₽</div>
+      <div class="small text-muted">{{ _("запас на конец года или недовыполненный план") }}</div>
+    </div></div>
+    <div class="col-6 col-lg-3"><div class="border rounded p-2 h-100">
+      <div class="small text-muted">{{ _("Земельный налог") }}</div>
+      <div class="fw-semibold">{{ fmt2(plan_fact.land.total) }} ₽</div>
+      <div class="small text-muted">{{ _("отдельный взнос, в смету не входит") }}</div>
+    </div></div>
+  </div>
+
+  {% if plan_fact.sections %}
+  <div class="yr-meter-list">
+    {% for sec in plan_fact.sections %}
+    <details class="mb-2" data-key="plan:{{ sec.name }}">
+      <summary class="yr-meter-row">
+        <span class="yr-meter-name fw-semibold">{{ sec.name }}</span>
+        {{ meter(sec.meter, sec.name) }}
+        <span class="yr-meter-fig small">{{ meter_figures(sec) }}</span>
+      </summary>
+      <div class="ps-3 pt-1">
+        {% for row in sec["items"] %}
+        <div class="yr-meter-row small">
+          <span class="yr-meter-name">{{ row.item.name }}{% if not row.expenses %} <span class="text-muted">— {{ _("не потрачено") }}</span>{% endif %}</span>
+          {{ meter(row.meter, row.item.name) }}
+          <span class="yr-meter-fig">{{ meter_figures(row) }}</span>
+        </div>
+        {% if row.expenses %}
+        <ul class="list-unstyled small ms-3 mb-2">
+          {% for entry in row.expenses %}{% set e = entry.expense %}
+          <li class="d-flex flex-wrap flex-md-nowrap justify-content-between align-items-start gap-2 py-1 border-bottom">
+            <span>{% if entry.suggested %}<span class="text-warning-emphasis" title="{{ _('Подобрано автоматически') }}">≈</span> {% endif %}{{ fmt_date(e.date) }} · <a href="{{ url_for('counterparties.detail', counterparty_id=e.counterparty_id) }}">{{ e.counterparty.name }}</a>{% if e.description %} — {{ e.description|truncate(70) }}{% endif %}</span>
+            <span class="d-flex align-items-center gap-2 ms-auto">{{ budget_select(e, "auto" if entry.suggested else e.budget_item_id) }}<span class="text-nowrap">{{ fmt2(e.amount) }}</span></span>
+          </li>
+          {% endfor %}
+        </ul>
+        {% endif %}
+        {% endfor %}
+      </div>
+    </details>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="text-muted">{{ _("Смета на этот год не загружена — загрузите её ниже, чтобы сравнить траты с планом.") }}</p>
+  {% endif %}
+
+  {% if plan_fact.off_groups %}
+  <details class="mt-3" data-key="plan:off">
+    <summary class="fw-semibold">{{ _("Вне сметы (нецелевые траты): {amount} ₽", amount=fmt2(plan_fact.off_total)) }}</summary>
+    <p class="small text-muted mt-1 mb-2">{{ _("Траты, которых не было в смете. Если трата на самом деле по смете — выберите позицию; если её стоит заложить в смету следующего года — это подсказка для планирования.") }}</p>
+    {% for g in plan_fact.off_groups %}
+    <div class="small fw-semibold mt-2">{{ g.name }} — {{ fmt2(g.total) }} ₽</div>
+    <ul class="list-unstyled small ms-3 mb-1">
+      {% for e in g.expenses %}
+      <li class="d-flex flex-wrap flex-md-nowrap justify-content-between align-items-start gap-2 py-1 border-bottom">
+        <span>{{ fmt_date(e.date) }} · <a href="{{ url_for('counterparties.detail', counterparty_id=e.counterparty_id) }}">{{ e.counterparty.name }}</a>{% if e.description %} — {{ e.description|truncate(70) }}{% endif %}</span>
+        <span class="d-flex align-items-center gap-2 ms-auto">{% if plan_fact["items"] %}{{ budget_select(e, "off" if e.off_budget else "auto", _("не подобрано — выберите позицию")) }}{% endif %}<span class="text-nowrap">{{ fmt2(e.amount) }}</span></span>
+      </li>
       {% endfor %}
+    </ul>
+    {% endfor %}
+  </details>
+  {% endif %}
+
+  <div class="table-responsive mt-3">
+  <table class="table table-sm mb-0 yr-table align-middle">
+    <thead><tr><th></th><th class="text-end">{{ _("План") }}</th><th class="text-end">{{ _("Факт") }}</th><th class="text-end">{{ _("Разница") }}</th></tr></thead>
+    <tbody>
+      <tr><td>{{ _("Поступления") }}</td><td class="text-end">{{ fmt2(income.total.charged) }}</td><td class="text-end">{{ fmt2(income.total.received) }}</td><td class="text-end">{{ fmt2(income.total.received - income.total.charged) }}</td></tr>
+      <tr><td>{{ _("Расходы по смете") }}</td><td class="text-end">{{ fmt2(plan_fact.plan) if plan_fact.plan else "—" }}</td><td class="text-end">{{ fmt2(plan_fact.fact) }}</td><td class="text-end">{{ fmt2(plan_fact.fact - plan_fact.plan) if plan_fact.plan else "—" }}</td></tr>
+      <tr><td>{{ _("Расходы вне сметы") }}</td><td class="text-end">—</td><td class="text-end">{{ fmt2(plan_fact.off_total) }}</td><td></td></tr>
     </tbody>
   </table>
   </div>
@@ -357,6 +461,9 @@
         .filter(function (d) { return d.open; }).map(function (d) { return d.dataset.key; });
       try { sessionStorage.setItem(OPEN_KEY, JSON.stringify(keys)); } catch (e) {}
     });
+  });
+  document.querySelectorAll(".js-autosubmit-plain").forEach(function (sel) {
+    sel.addEventListener("change", function () { sel.form.requestSubmit(); });
   });
   document.querySelectorAll(".js-autosubmit").forEach(function (sel) {
     sel.addEventListener("change", function () {

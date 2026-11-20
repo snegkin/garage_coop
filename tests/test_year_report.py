@@ -588,3 +588,20 @@ def test_section_funding_split_when_target_fee_charged(app, db):
     assert by_name["Содержание кооператива"]["collected"] == Decimal("0.00")
     assert by_name["Содержание кооператива"]["funded_charged"] == Decimal("30000.00")
     assert fund["target_collected"] == Decimal("5000.00")
+
+
+def test_mass_charge_offers_budget_totals(app, db, client):
+    from app.models import BudgetSection
+    from app.year_report import budget_totals_by_kind
+    _chairman(db, client)
+    db.add_all([
+        BudgetItem(year=2027, section="Содержание кооператива", name="Уборка снега", amount=Decimal("30000"), position=0),
+        BudgetItem(year=2027, section="Замена общей проводки", name="Провод", amount=Decimal("6000"), position=1),
+        BudgetItem(year=2027, section="Прочее", name="Wi-Fi мост", amount=Decimal("4000"), position=2),
+        BudgetSection(year=2027, name="Прочее", is_target=True),  # председатель отметил целевым
+    ])
+    db.commit()
+    with app.test_request_context():
+        assert budget_totals_by_kind()[2027] == {"membership": 30000.0, "target": 10000.0, "total": 40000.0}
+    body = client.get("/finance/mass-charge").get_data(as_text=True)
+    assert 'id="budgetHint"' in body and '"2027": {"membership": 30000.0' in body

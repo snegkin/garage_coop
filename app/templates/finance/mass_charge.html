@@ -48,6 +48,21 @@
 
         <div class="col-12"><hr></div>
 
+        {# Сумма из сметы года: членские разделы / целевые / вся смета — см.
+           year_report.budget_totals_by_kind. Кнопка выбирает вид взноса
+           (членский/целевой) и заполняет поле суммы выбранного способа. #}
+        <div class="col-12 d-none" id="budgetHint">
+          <div class="border rounded p-2 bg-body-tertiary">
+            <div class="small mb-1">{{ _("Сумма из сметы на этот год:") }}</div>
+            <div class="d-flex flex-wrap gap-2">
+              <button type="button" class="btn btn-sm btn-outline-primary js-budget-fill" data-kind="membership" data-fee="membership"></button>
+              <button type="button" class="btn btn-sm btn-outline-primary js-budget-fill" data-kind="target" data-fee="target"></button>
+              <button type="button" class="btn btn-sm btn-outline-secondary js-budget-fill" data-kind="total" data-fee=""></button>
+            </div>
+            <div class="form-text" id="budgetHintNote">{{ _("Подставится в поле суммы выбранного способа расчёта (по коэффициенту — разделится на сумму коэффициентов выбранных гаражей). Остаток прошлого года и комиссию банка учтите сами, поправив сумму.") }}</div>
+          </div>
+        </div>
+
         <div class="col-12">
           <div class="form-check">
             <input class="form-check-input" type="radio" name="strategy" value="coefficient" id="strategyCoefficient" checked>
@@ -148,7 +163,10 @@ var coopData = {
   }
   radios.forEach(function (r) { r.addEventListener("change", sync); });
   feeTypeSelect.addEventListener("change", sync);
-  sync();
+  // parseDecimalInput (её вызывает updatePreview из sync) объявлена в
+  // base.html НИЖЕ этого шаблона — первый пересчёт только после загрузки
+  // документа, иначе скрипт падал на ReferenceError и дальше не шёл.
+  document.addEventListener("DOMContentLoaded", sync);
 })();
 
 function roundUp(value, step) {
@@ -319,8 +337,77 @@ function updatePreview() {
     el.addEventListener("change", updatePreview);
   });
 
-  // Initial preview
-  updatePreview();
+  // Initial preview — после загрузки документа (см. sync выше).
+  document.addEventListener("DOMContentLoaded", updatePreview);
+})();
+</script>
+<script>
+// «Сумма из сметы» — см. #budgetHint выше. Отдельный <script>: ошибка в
+// соседнем коде страницы не должна отключать эти кнопки.
+(function () {
+  var hints = {{ (budget_hints or {})|tojson }};
+  var labels = {
+    membership: {{ _("Членские разделы: {amount} ₽")|tojson }},
+    target: {{ _("Целевые разделы: {amount} ₽")|tojson }},
+    total: {{ _("Вся смета: {amount} ₽")|tojson }},
+  };
+  var box = document.getElementById("budgetHint");
+  var yearInput = document.querySelector("input[name='year']");
+  var feeSelect = document.getElementById("feeTypeSelect");
+  var money = new Intl.NumberFormat("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  if (!box || !yearInput) return;
+
+  function refresh() {
+    var row = hints[yearInput.value];
+    box.classList.toggle("d-none", !row);
+    if (!row) return;
+    box.querySelectorAll(".js-budget-fill").forEach(function (btn) {
+      var amount = row[btn.dataset.kind] || 0;
+      btn.textContent = labels[btn.dataset.kind].replace("{amount}", money.format(amount));
+      btn.disabled = !amount;
+    });
+  }
+
+  box.addEventListener("click", function (e) {
+    var btn = e.target.closest(".js-budget-fill");
+    if (!btn) return;
+    var row = hints[yearInput.value];
+    if (!row) return;
+    var amount = row[btn.dataset.kind] || 0;
+    // Вид взноса — членский или целевой (по коду), если такой есть в списке.
+    if (btn.dataset.fee) {
+      var option = Array.from(feeSelect.options).find(function (o) { return o.dataset.code === btn.dataset.fee; });
+      if (option) { feeSelect.value = option.value; feeSelect.dispatchEvent(new Event("change")); }
+    }
+    var strategyInput = document.querySelector("input[name='strategy']:checked");
+    if (!strategyInput || strategyInput.value === "land_tax") {
+      document.getElementById("strategyArea").checked = true;
+      document.getElementById("strategyArea").dispatchEvent(new Event("change", { bubbles: true }));
+      strategyInput = document.getElementById("strategyArea");
+    }
+    if (strategyInput.value === "total_area") {
+      var totalField = document.querySelector("input[name='total_amount']");
+      totalField.value = amount.toFixed(2);
+      totalField.dispatchEvent(new Event("input"));
+    } else {
+      // По коэффициенту: сумма на гараж = сумма сметы / Σ коэффициентов
+      // гаражей, которым этот взнос начисляется (как в предпросмотре).
+      var feeId = parseInt(feeSelect.value, 10);
+      var picked = garageData.filter(function (g) {
+        var cb = document.getElementById("garageCheck" + g.id);
+        return cb && cb.checked;
+      });
+      if (!picked.length) picked = garageData;
+      var coefficients = picked.filter(function (g) { return g.excluded.indexOf(feeId) === -1; })
+        .reduce(function (sum, g) { return sum + g.coefficient; }, 0);
+      var baseField = document.querySelector("input[name='base_amount']");
+      baseField.value = coefficients ? (amount / coefficients).toFixed(2) : "";
+      baseField.dispatchEvent(new Event("input"));
+    }
+  });
+
+  yearInput.addEventListener("input", refresh);
+  refresh();
 })();
 </script>
 

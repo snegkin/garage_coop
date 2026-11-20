@@ -1773,6 +1773,10 @@ def mass_charge():
         for garage in all_garages
     }
     results = None
+    # Суммы смет по годам (членские / целевые разделы) — кнопки «сумма из
+    # сметы» над полями суммы, см. finance/mass_charge.html.
+    from .year_report import budget_totals_by_kind
+    budget_hints = budget_totals_by_kind()
 
     if request.method == "POST":
         f = request.form
@@ -1794,14 +1798,14 @@ def mass_charge():
             fee_type = database.db_session.query(FeeType).filter_by(code="land_tax").first()
             if fee_type is None:
                 flash(_("Не найден вид взноса «land_tax» — проверьте справочник видов взносов."), "danger")
-                return render_template("finance/mass_charge.html", fee_types=fee_types_list, results=None, coop=coop, garages=all_garages, person_names=person_names, primary_bank_account=primary_bank_account)
+                return render_template("finance/mass_charge.html", fee_types=fee_types_list, results=None, coop=coop, garages=all_garages, person_names=person_names, primary_bank_account=primary_bank_account, budget_hints=budget_hints)
 
             garage_amounts = compute_land_tax(year)
             if garage_amounts is None:
                 flash(_(
                     "Недостаточно данных для расчёта: заполните текущую площадь и кадастровую стоимость кооператива в его карточке.",
                 ), "danger")
-                return render_template("finance/mass_charge.html", fee_types=fee_types_list, results=None, coop=coop, garages=all_garages, person_names=person_names, primary_bank_account=primary_bank_account)
+                return render_template("finance/mass_charge.html", fee_types=fee_types_list, results=None, coop=coop, garages=all_garages, person_names=person_names, primary_bank_account=primary_bank_account, budget_hints=budget_hints)
         elif strategy == "coefficient":
             fee_type_id = int(f["fee_type_id"])
             fee_type = database.db_session.get(FeeType, fee_type_id)
@@ -1924,4 +1928,4 @@ def mass_charge():
                 n=len(skipped_rows),
             ), "warning")
 
-    return render_template("finance/mass_charge.html", fee_types=fee_types_list, results=results, coop=coop, garages=all_garages, person_names=person_names, primary_bank_account=primary_bank_account)
+    return render_template("finance/mass_charge.html", fee_types=fee_types_list, results=results, coop=coop, garages=all_garages, person_names=person_names, primary_bank_account=primary_bank_account, budget_hints=budget_hints)

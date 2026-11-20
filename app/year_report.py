@@ -730,7 +730,7 @@ def _income(year: int) -> dict:
 
     def _row(name: str, code: str | None = None, color: str | None = None) -> dict:
         row = rows.setdefault(name, {"name": name, "code": code, "color": None,
-                                     "charged": Decimal("0"), "received": Decimal("0")})
+                                     "charged": Decimal("0"), "received": Decimal("0"), "payments": []})
         row["color"] = row["color"] or color
         return row
 
@@ -754,8 +754,12 @@ def _income(year: int) -> dict:
 
     payments = (
         database.db_session.query(Payment)
-        .options(selectinload(Payment.account).selectinload(MemberAccount.fee_type))
+        .options(selectinload(Payment.account).selectinload(MemberAccount.fee_type),
+                 selectinload(Payment.account).selectinload(MemberAccount.person),
+                 selectinload(Payment.account).selectinload(MemberAccount.garage),
+                 selectinload(Payment.garage), selectinload(Payment.payer))
         .filter(Payment.date >= dt.date(year, 1, 1), Payment.date <= dt.date(year, 12, 31))
+        .order_by(Payment.date, Payment.id)
         .all()
     )
     bank_only = current_source() == "bank"
@@ -771,8 +775,16 @@ def _income(year: int) -> dict:
             if bank_only:
                 continue
         fee_type = payment.account.fee_type if payment.account is not None else None
-        _row(_name_for(fee_type, payment.account is None), _code_for(fee_type, payment.account is None),
-             _color_for(fee_type, payment.account is None))["received"] += payment.amount
+        row = _row(_name_for(fee_type, payment.account is None), _code_for(fee_type, payment.account is None),
+                   _color_for(fee_type, payment.account is None))
+        row["received"] += payment.amount
+        # Для раскрытия строки: кто и когда заплатил (гараж, счёт, плательщик).
+        account = payment.account
+        row["payments"].append({
+            "payment": payment, "cash": payment.id not in via_bank,
+            "garage": payment.garage or (account.garage if account is not None else None),
+            "person": payment.payer or (account.person if account is not None else None),
+        })
 
     ordered = sorted(rows.values(), key=lambda r: (-r["received"], -r["charged"]))
     for r in ordered:
@@ -1006,16 +1018,26 @@ def _section_funding(year: int, sections: list[dict], total_plan: Decimal) -> di
     per_section = {}
     for section in sections:
         if split:
-            pool = pools["target" if section["is_target"] else "membership"]
+            pool_name = "target" if section["is_target"] else "membership"
+            pool = pools[pool_name]
             base = target_plan if section["is_target"] else membership_plan
             pool_charged, pool_paid = pool["charged"], pool["paid"]
         else:
+            pool_name = "all"
             base, pool_charged, pool_paid = total_plan, charged, paid
         share = section["amount"] / base if base else Decimal("0")
+        collected = (pool_paid * share).quantize(Decimal("0.01"))
         per_section[section["name"]] = {
             "funded_charged": (pool_charged * share).quantize(Decimal("0.01")),
-            "collected": (pool_paid * share).quantize(Decimal("0.01")),
+            "collected": collected,
+            # Для раскрытия строки: как получена доля раздела.
+            "funding_calc": {"pool": pool_name, "base": base, "share": _percent(section["amount"], base),
+                             "pool_charged": pool_charged, "pool_paid": pool_paid},
         }
+        # Собранное раздела — по его позициям, тоже пропорционально плану.
+        for line in section.get("lines", []):
+            line["collected"] = ((collected * line["amount"] / section["amount"]).quantize(Decimal("0.01"))
+                                 if section["amount"] else Decimal("0"))
     target_collected = sum((per_section[s["name"]]["collected"] for s in sections if s["is_target"]), Decimal("0"))
     return {
         "charged": charged,

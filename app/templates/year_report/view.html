@@ -57,6 +57,13 @@
   .yr-tabs { flex-wrap:nowrap; overflow-x:auto; overflow-y:hidden; scrollbar-width:none; }
   .yr-tabs::-webkit-scrollbar { display:none; }
   .yr-tabs .nav-link { white-space:nowrap; }
+  .yr-scroll-list { max-height: 22rem; overflow-y: auto; }
+  .yr-table td { vertical-align: top; }
+  .yr-item-row { display:grid; grid-template-columns: minmax(0, 1fr) 6.5rem 6.5rem; gap:.75rem; align-items:baseline; padding:.25rem 0; }
+  /* На телефоне таблица прокручивается вбок — раскрытый список держим в
+     видимой ширине экрана, а не по всей ширине таблицы. */
+  @media (max-width: 767.98px) { .yr-item-row { grid-template-columns: minmax(0, 1fr) auto auto; gap:.5rem; } .yr-detail-row > td > * { position:sticky; left:0; max-width: calc(100vw - 5rem); } }
+  .yr-detail-row > td { background: var(--bs-tertiary-bg); padding: .25rem .75rem .5rem 1.75rem; }
   .yr-num { text-align:right; white-space:nowrap; font-variant-numeric: tabular-nums; }
   .yr-stack { display:flex; height:.75rem; border-radius:4px; overflow:hidden; background: var(--bs-secondary-bg); }
   .yr-stack > div { height:100%; }
@@ -219,7 +226,7 @@
     <div class="card h-100"><div class="card-body">
       <h5 class="card-title">{{ _("Поступления по видам взноса") }}</h5>
       {% if income.rows %}
-      <div class="row g-3 align-items-center">
+      <div class="row g-3 align-items-start">
         <div class="col-12 col-md-4"><div class="yr-chart"><canvas id="incomeChart" aria-label="{{ _('Поступления по видам взноса') }}"></canvas></div></div>
         <div class="col-12 col-md-8">
           <div class="table-responsive">
@@ -228,11 +235,37 @@
             <tbody>
               {% for r in income.rows %}
               <tr>
-                <td><span class="yr-swatch" data-chart="incomeChart" data-label="{{ r.name }}"></span>{{ r.name }}</td>
+                <td>
+                  {% if r.payments %}
+                  <details data-key="income:{{ r.name }}" data-row-toggle>
+                    <summary><span class="yr-swatch" data-chart="incomeChart" data-label="{{ r.name }}"></span>{{ r.name }} <span class="text-muted small">({{ r.payments|length }})</span></summary></details>
+                  {% else %}
+                  <span class="yr-swatch" data-chart="incomeChart" data-label="{{ r.name }}"></span>{{ r.name }}
+                  {% endif %}
+                </td>
                 <td class="text-end">{{ fmt2(r.charged) }}</td>
                 <td class="text-end">{{ fmt2(r.received) }}</td>
                 <td class="text-end">{{ r.rate if r.rate is not none else "—" }}</td>
               </tr>
+              {% if r.payments %}
+              <tr class="yr-detail-row" hidden><td colspan="4">
+                    {% if r.payments|length > 10 %}
+                    <input type="search" class="form-control form-control-sm mt-1 js-list-filter" placeholder="{{ _('Гараж, счёт или фамилия') }}" aria-label="{{ _('Фильтр платежей') }}">
+                    {% endif %}
+                    <ul class="list-unstyled small mt-1 mb-0 yr-scroll-list">
+                      {% for p in r.payments %}{% set pay = p.payment %}
+                      <li class="d-flex justify-content-between align-items-baseline gap-2 py-1 border-bottom">
+                        <span class="yr-exp-text">
+                          <span class="yr-exp-head">{{ fmt_date(pay.date) }}{% if p.garage %} · <a href="{{ url_for('garages.detail', garage_id=p.garage.id) }}">№{{ p.garage.number }}</a>{% endif %}{% if pay.account %} · <a href="{{ url_for('finance.member_account_detail', account_id=pay.account_id) }}">{{ pay.account.account_number }}</a>{% endif %}</span>
+                          {% if p.person %}<span class="yr-exp-desc" title="{{ p.person.full_name }}">{{ p.person.full_name }}</span>{% endif %}
+                          {% if p.cash %}<span class="badge text-bg-light border fw-normal" title="{{ _('Не через банк: вписан вручную') }}">{{ _("наличными") }}</span>{% endif %}
+                        </span>
+                        <span class="yr-num">{{ fmt2(pay.amount) }}</span>
+                      </li>
+                      {% endfor %}
+                    </ul>
+              </td></tr>
+              {% endif %}
               {% endfor %}
             </tbody>
             <tfoot><tr class="fw-bold border-top">
@@ -271,7 +304,7 @@
           {% for f in fund.fees %}<div class="small">{{ f.name }}: {{ fmt2(f.charged) }}</div>{% endfor %}
         </div></div>
       </div>
-      <div class="row g-3 align-items-center">
+      <div class="row g-3 align-items-start">
         <div class="col-12 col-md-4"><div class="yr-chart"><canvas id="fundingChart" aria-label="{{ _('Собрано на смету — по разделам') }}"></canvas></div></div>
         <div class="col-12 col-md-8">
           <div class="table-responsive">
@@ -280,12 +313,29 @@
             <tbody>
               {% for sec in budget.sections %}
               <tr>
-                <td><span class="yr-swatch" data-chart="fundingChart" data-label="{{ sec.name }}"></span>{{ sec.name }}</td>
+                <td>
+                  <details data-key="funding:{{ sec.name }}" data-row-toggle>
+                    <summary><span class="yr-swatch" data-chart="fundingChart" data-label="{{ sec.name }}"></span>{{ sec.name }} <span class="text-muted small">({{ sec.lines|length }})</span></summary></details>
+                </td>
                 <td><span class="badge {{ 'text-bg-warning' if sec.is_target else 'text-bg-light border' }}">{{ _("целевой") if sec.is_target else _("членский") }}</span></td>
                 <td class="text-end">{{ fmt2(sec.amount) }}</td>
                 <td class="text-end">{{ fmt2(sec.funded_charged) }}</td>
                 <td class="text-end">{{ fmt2(sec.collected) }}</td>
               </tr>
+              <tr class="yr-detail-row" hidden><td colspan="5">
+                    {% set c = sec.funding_calc %}
+                    <p class="small text-muted mt-1 mb-1">{{ _("Доля раздела: {plan} из {base} ₽ плана {pool} = {share}% — столько же от начисленного ({charged}) и собранного ({paid}).", plan=fmt2(sec.amount), base=fmt2(c.base), share=c.share if c.share is not none else "—", charged=fmt2(c.pool_charged), paid=fmt2(c.pool_paid), pool=(_("целевых разделов") if c.pool == "target" else (_("членских разделов") if c.pool == "membership" else _("всей сметы")))) }}</p>
+                    <ul class="list-unstyled small mb-0">
+                      <li class="yr-item-row text-muted border-bottom"><span>{{ _("Позиция") }}</span><span class="yr-num">{{ _("по смете") }}</span><span class="yr-num">{{ _("собрано") }}</span></li>
+                      {% for i in sec.lines %}
+                      <li class="yr-item-row border-bottom">
+                        <span>{{ i.name }}</span>
+                        <span class="yr-num text-muted">{{ fmt2(i.amount) }}</span>
+                        <span class="yr-num">{{ fmt2(i.collected) }}</span>
+                      </li>
+                      {% endfor %}
+                    </ul>
+              </td></tr>
               {% endfor %}
             </tbody>
             <tfoot><tr class="fw-bold border-top"><td>{{ _("Итого") }}</td><td></td><td class="text-end">{{ fmt2(budget.total) }}</td><td class="text-end">{{ fmt2(fund.charged) }}</td><td class="text-end">{{ fmt2(fund.paid) }}</td></tr></tfoot>
@@ -319,7 +369,7 @@
           <i class="bi bi-plus-lg" aria-hidden="true"></i> {{ _("Добавить трату") }}</button>
       </div>
       {% if spending.groups %}
-      <div class="row g-3 align-items-center">
+      <div class="row g-3 align-items-start">
         <div class="col-12 col-md-4"><div class="yr-chart"><canvas id="spendingChart" aria-label="{{ _('На что потрачено') }}"></canvas></div></div>
         <div class="col-12 col-md-8">
           <div class="table-responsive">
@@ -926,6 +976,23 @@
       if (showAnchor(a.getAttribute("href"))) ev.preventDefault();
     });
   });
+  // Раскрытие строки таблицы — список в следующей строке на всю ширину
+  // (внутри первой ячейки он растягивал бы колонку и таблицу вбок).
+  document.querySelectorAll("details[data-row-toggle]").forEach(function (d) {
+    var row = d.closest("tr").nextElementSibling;
+    function sync() { if (row) row.hidden = !d.open; }
+    d.addEventListener("toggle", sync);
+    sync();
+  });
+  // Поиск внутри раскрытого вида взноса — по тексту строки (гараж, счёт, фамилия).
+  document.querySelectorAll(".js-list-filter").forEach(function (input) {
+    input.addEventListener("input", function () {
+      var q = input.value.trim().toLowerCase();
+      input.parentElement.querySelectorAll("li").forEach(function (li) {
+        li.classList.toggle("d-none", q !== "" && li.textContent.toLowerCase().indexOf(q) === -1);
+      });
+    });
+  });
   // «+ трата» у позиции сметы — подставить позицию, описание и статью.
   var addModal = document.getElementById("addExpenseModal");
   if (addModal) addModal.addEventListener("show.bs.modal", function (ev) {
@@ -989,6 +1056,20 @@
       },
       options: {
         responsive: true, maintainAspectRatio: false, cutout: "55%", animation: firstRender ? {} : false,
+        // Клик по куску — раскрыть ту же строку в таблице рядом.
+        onClick: function (_ev, elements) {
+          if (!elements.length) return;
+          var label = slices[elements[0].index].label;
+          var swatch = Array.from(document.querySelectorAll('.yr-swatch[data-chart="' + id + '"]'))
+            .find(function (el) { return el.dataset.label === label; });
+          var details = swatch && swatch.closest("details");
+          if (!details) return;
+          details.open = true;
+          details.scrollIntoView({ block: "nearest", behavior: "smooth" });
+        },
+        onHover: function (ev, elements) {
+          ev.native.target.style.cursor = elements.length ? "pointer" : "default";
+        },
         plugins: {
           legend: { display: false },
           tooltip: { callbacks: { label: function (ctx) {

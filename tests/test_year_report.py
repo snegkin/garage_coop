@@ -929,3 +929,42 @@ def test_own_funds_expense_is_owed_until_reimbursed(app, db, client):
                                                             "category": "Прочее", "mode": "accrued"})
     with app.test_request_context():
         assert owed_people() == []
+
+
+def test_electricity_breakdown_losses_and_meter_self_consumption(app, db):
+    """Состав оплаты поставщику электроэнергии: потери (процент из
+    настроек, уже внутри суммы счёта) и собственное потребление счётчиков
+    (гаражи со счётчиком × Вт × часы с 1 января по дату просмотра × текущий
+    тариф поставщика) — только расчёт, без новых расходов."""
+    from app.models import (
+        ElectricityMeter, ElectricitySettings, ElectricityTariff, ElectricityTariffKind, ExpenseKind, Garage,
+    )
+    from app.year_report import _electricity_breakdown
+
+    tns = Counterparty(name="ТНС Энерго")
+    db.add(tns)
+    db.flush()
+    db.add(ElectricitySettings(supplier_id=tns.id, outside_line_loss_percent=Decimal("2.33"),
+                               meter_self_consumption_w=Decimal("2")))
+    db.add(ElectricityTariff(kind=ElectricityTariffKind.SUPPLIER, rate=Decimal("6.30"), effective_date=dt.date(2026, 1, 1)))
+    for n, outside in (("1", False), ("2", False), ("3", True)):
+        garage = Garage(number=n, area_sqm=Decimal("24"), outside_territory=outside)
+        db.add(garage)
+        db.flush()
+        db.add(ElectricityMeter(garage_id=garage.id, meter_number=f"m{n}"))
+    db.add(Garage(number="4", area_sqm=Decimal("24")))  # без счётчика — не считается
+    db.add(Expense(counterparty_id=tns.id, date=dt.date(2026, 3, 31), amount=Decimal("10233.00"),
+                   category="Электроэнергия", kind=ExpenseKind.CHARGE))
+    db.commit()
+
+    with app.test_request_context("/year-report/"):
+        el = _electricity_breakdown(2026, today=dt.date(2026, 1, 10))
+    assert el["total"] == Decimal("10233.00")
+    assert el["losses"] == Decimal("233.00")          # 10233 × 2,33 / 102,33
+    assert el["garages"] == 3 and el["outside"] == 1
+    assert el["hours"] == 240                          # 10 дней
+    assert el["kwh"] == Decimal("1.44")                # 3 × 2 Вт × 240 ч
+    assert el["meters"] == Decimal("9.07")             # 1,44 × 6,30
+    assert el["rest"] == Decimal("10233.00") - Decimal("233.00") - Decimal("9.07")
+    with app.test_request_context("/year-report/"):
+        assert _electricity_breakdown(2025, today=dt.date(2026, 1, 10)) is None  # счетов за год нет

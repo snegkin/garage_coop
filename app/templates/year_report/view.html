@@ -57,6 +57,12 @@
   .yr-tabs { flex-wrap:nowrap; overflow-x:auto; overflow-y:hidden; scrollbar-width:none; }
   .yr-tabs::-webkit-scrollbar { display:none; }
   .yr-tabs .nav-link { white-space:nowrap; }
+  .yr-num { text-align:right; white-space:nowrap; font-variant-numeric: tabular-nums; }
+  .yr-stack { display:flex; height:.75rem; border-radius:4px; overflow:hidden; background: var(--bs-secondary-bg); }
+  .yr-stack > div { height:100%; }
+  .yr-el-row { display:grid; grid-template-columns: minmax(0, 1fr) 7rem 3.5rem; gap:.75rem; align-items:baseline; padding:.4rem 0; }
+  @media (max-width: 575.98px) { .yr-el-row { grid-template-columns: minmax(0, 1fr) auto auto; gap:.5rem; } }
+  .yr-el-rest { background:#3987e5; } .yr-el-meters { background:#1baf7a; } .yr-el-losses { background:#e8813a; }
   .yr-pf-total { border-bottom:0; border-top:2px solid var(--bs-border-color); }
   /* Позиция без расходов — не раскрывается, но отступ под стрелку тот же. */
   .yr-pf-detail > .yr-pf-row .yr-pf-name::before { content:""; display:inline-block; width:1em; }
@@ -367,6 +373,41 @@
       {% endif %}
     </div></div>
   </div>
+
+  {# --- Электроэнергия: из чего состоит оплата поставщику (только для наглядности) --- #}
+  {% if electricity %}{% set el = electricity %}
+  <div class="col-12">
+    <div class="card"><div class="card-body">
+      <h5 class="card-title">{{ _("Электроэнергия: из чего состоит оплата {supplier}", supplier=el.supplier.name) }}</h5>
+      <div class="d-flex justify-content-between flex-wrap gap-2 mb-2">
+        <span>{{ _("Счета за год") }}</span><span class="fw-semibold yr-num">{{ fmt2(el.total) }} ₽</span>
+      </div>
+      <div class="yr-stack mb-3" role="img" aria-label="{{ _('Состав оплаты за электроэнергию') }}">
+        <div class="yr-el-rest" style="width: {{ el.shares.rest or 0 }}%"></div>
+        <div class="yr-el-meters" style="width: {{ el.shares.meters or 0 }}%"></div>
+        <div class="yr-el-losses" style="width: {{ el.shares.losses or 0 }}%"></div>
+      </div>
+      <ul class="list-unstyled small mb-2">
+        <li class="yr-el-row border-bottom">
+          <span><span class="yr-swatch yr-el-rest"></span>{{ _("Потребление гаражей по счётчикам и общее освещение") }}
+            <span class="text-muted d-block">{{ _("остальное") }}</span></span>
+          <span class="yr-num">{{ fmt2(el.rest) }}</span><span class="yr-num text-muted">{{ el.shares.rest }}%</span>
+        </li>
+        <li class="yr-el-row border-bottom">
+          <span><span class="yr-swatch yr-el-meters"></span>{{ _("Собственное потребление счётчиков") }}
+            <span class="text-muted d-block">{{ _("гаражей со счётчиком: {garages} × {watts} Вт × {hours} ч (с 1 января по {until}) = {kwh} кВт·ч × {tariff} ₽ (текущий тариф поставщика)", garages=el.garages, watts=el.text.watts, hours=el.hours, until=fmt_date(el.until), kwh=el.text.kwh, tariff=el.text.tariff) }}{% if el.outside %}; {{ _("из них за территорией: {count} — им это начисляется, возмещает владелец", count=el.outside) }}{% endif %}</span></span>
+          <span class="yr-num">{{ fmt2(el.meters) }}</span><span class="yr-num text-muted">{{ el.shares.meters }}%</span>
+        </li>
+        <li class="yr-el-row border-bottom">
+          <span><span class="yr-swatch yr-el-losses"></span>{{ _("Потери в линии") }}
+            <span class="text-muted d-block">{{ _("{percent} % сверх объёма, энергосбыт добавляет их в счёт: сумма × {percent} / (100 + {percent})", percent=el.text.percent) }}</span></span>
+          <span class="yr-num">{{ fmt2(el.losses) }}</span><span class="yr-num text-muted">{{ el.shares.losses }}%</span>
+        </li>
+      </ul>
+      <p class="text-muted small mb-0">{{ _("Расчёт на дату просмотра по настройкам электроэнергии (процент потерь, Вт на счётчик) и текущему тарифу — только для наглядности: это часть тех же счетов, отдельно нигде не учитывается.") }}</p>
+    </div></div>
+  </div>
+  {% endif %}
 </div>
 
 {# --- Смета и факт --- #}

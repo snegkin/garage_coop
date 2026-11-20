@@ -34,13 +34,16 @@ from flask import Blueprint, Response, abort, flash, g, redirect, render_templat
 from sqlalchemy.orm import selectinload
 
 from . import audit, database
-from .accounting import available_statement_lines, counterparty_balance, pay_counterparty, reallocate_counterparty_expenses
+from .accounting import (
+    available_statement_lines, counterparty_balance, current_tariff, get_electricity_settings, pay_counterparty,
+    reallocate_counterparty_expenses,
+)
 from .auth import roles_required
 from .i18n import translate as _
 from .models import (
     BankAccount, BankStatementLine, BudgetItem, BudgetSection, Charge, ChargeAllocation, Counterparty,
-    CounterpartyPayment, CsvImportProfile, Expense, ExpenseCategory, ExpenseKind, FeeType, MasterMeterReading,
-    MemberAccount, Payment, PaymentRegistryEntry, Person, RoleEnum,
+    CounterpartyPayment, CsvImportProfile, ElectricityMeter, ElectricityTariffKind, Expense, ExpenseCategory, ExpenseKind,
+    FeeType, Garage, MasterMeterReading, MemberAccount, Payment, PaymentRegistryEntry, Person, RoleEnum,
 )
 
 bp = Blueprint("year_report", __name__, url_prefix="/year-report")
@@ -821,6 +824,61 @@ def _spending(year: int) -> dict:
     return {"groups": ordered, "total": total, "unpaid": unpaid, "not_via_bank": not_via_bank}
 
 
+def _electricity_breakdown(year: int, today: dt.date | None = None) -> dict | None:
+    """Из чего складывается оплата поставщику электроэнергии за год — только
+    для наглядности, ничего не заводится и в смету не закладывается.
+    Считается на дату просмотра по текущим настройкам (ElectricitySettings):
+    - потери в линии — процент, который энергосбыт добавляет к объёму:
+      из суммы счетов это amount × p / (100 + p);
+    - собственное потребление счётчиков — гаражи со счётчиком × Вт × часы с
+      1 января по дату просмотра (прошлый год — целиком) × текущий тариф
+      поставщика: приборы учёта его не считают, а энергосбыт выставляет;
+    - остальное — потребление гаражей по счётчикам и общее освещение.
+    None — поставщик не указан или расходов на него за год нет."""
+    today = today or dt.date.today()
+    settings = get_electricity_settings()
+    if settings.supplier_id is None:
+        return None
+    expenses = (
+        database.db_session.query(Expense)
+        .filter(Expense.counterparty_id == settings.supplier_id, Expense.kind == ExpenseKind.CHARGE,
+                Expense.date >= dt.date(year, 1, 1), Expense.date <= dt.date(year, 12, 31))
+        .all()
+    )
+    if current_source() == "bank":
+        expenses = [e for e in expenses if not is_cash_expense(e)]
+    total = sum((e.amount for e in expenses), Decimal("0"))
+    if not total:
+        return None
+    percent = settings.outside_line_loss_percent or Decimal("0")
+    losses = (total * percent / (Decimal("100") + percent)).quantize(Decimal("0.01"))
+
+    start, end = dt.date(year, 1, 1), min(today, dt.date(year, 12, 31))
+    hours = max((end - start).days + 1, 0) * 24
+    garages = (
+        database.db_session.query(Garage.id, Garage.outside_territory)
+        .join(ElectricityMeter, ElectricityMeter.garage_id == Garage.id)
+        .filter((ElectricityMeter.installed_date.is_(None)) | (ElectricityMeter.installed_date <= end))
+        .distinct().all()
+    )
+    watts = settings.meter_self_consumption_w or Decimal("0")
+    tariff = current_tariff(ElectricityTariffKind.SUPPLIER, today)
+    kwh = (len(garages) * watts * hours / Decimal("1000")).quantize(Decimal("0.01"))
+    meters = (kwh * tariff.rate).quantize(Decimal("0.01")) if tariff is not None else Decimal("0")
+    rest = total - losses - meters
+    return {
+        "supplier": settings.supplier, "total": total,
+        "losses": losses, "percent": percent,
+        "meters": meters, "garages": len(garages), "outside": sum(1 for g in garages if g.outside_territory),
+        "watts": watts, "hours": hours, "kwh": kwh, "tariff": tariff.rate if tariff else None, "until": end,
+        "rest": rest,
+        "text": {"watts": _fmt_number(watts), "kwh": _fmt_number(kwh), "percent": _fmt_number(percent),
+                 "tariff": _fmt_number(tariff.rate) if tariff and tariff.rate != tariff.rate.quantize(Decimal("0.01"))
+                 else (f"{tariff.rate:.2f}".replace(".", ",") if tariff else "—")},
+        "shares": {k: _percent(v, total) for k, v in (("losses", losses), ("meters", meters), ("rest", rest))},
+    }
+
+
 def _budget(year: int) -> dict:
     items = (
         database.db_session.query(BudgetItem)
@@ -1074,6 +1132,7 @@ def view():
         plan_fact=_with_funding(_plan_fact(year), budget),
         source=current_source(),
         owed=owed_people(),
+        electricity=_electricity_breakdown(year),
         today=dt.date.today(),
         persons=database.db_session.query(Person).filter(Person.is_archived.is_(False)).order_by(Person.full_name).all(),
         funding_chart=_chart_slices(budget["sections"], "collected",

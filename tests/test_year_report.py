@@ -670,3 +670,43 @@ def test_restore_not_expense_line(app, db, client):
     assert "Отмечено «не трата»: 1" in client.get("/year-report/?year=2026").get_data(as_text=True)
     client.post(f"/year-report/lines/{line.id}/restore")
     assert db.get(BankStatementLine, line.id).not_expense is False
+
+
+def test_unbook_legacy_booking_without_link(app, db, client):
+    """Разнесения, сделанные до появления booked_payment_id, узнаются по
+    смыслу (та же сумма рядом по дате / набор позиций на сумму оплаты), а
+    расход с документом — нет."""
+    from app.accounting import available_statement_lines, pay_counterparty
+    from app.models import Document, DocumentType
+    from app.year_report import booked_payments
+    _chairman(db, client)
+    account = _bank(db)
+    ozon = Counterparty(name="Озон", inn="7704217370")
+    beget = Counterparty(name="Бегет")
+    db.add_all([ozon, beget])
+    db.flush()
+    line = _debit(db, account, dt.date(2026, 7, 31), "11000", "Озон", "7704217370", "Оплата по заказу 1-5", "u1")
+    doc_line = _debit(db, account, dt.date(2026, 8, 21), "199", "Бегет", None, "Домен", "u2")
+    for amount in ("6000.00", "5000.00"):
+        db.add(Expense(counterparty_id=ozon.id, date=dt.date(2026, 7, 29), amount=Decimal(amount), category="Электрика"))
+    manual = Expense(counterparty_id=beget.id, date=dt.date(2026, 8, 21), amount=Decimal("199"), category="Сайт и связь")
+    db.add(manual)
+    db.flush()
+    db.add(Document(doc_type=DocumentType.INVOICE, date=dt.date(2026, 8, 21), title="Счёт", expense_id=manual.id))
+    pay_counterparty(ozon, line.operation_date, line.amount, bank_account=account, adjust_balance=False,
+                     bank_statement_line_id=line.id)
+    pay_counterparty(beget, doc_line.operation_date, doc_line.amount, bank_account=account, adjust_balance=False,
+                     bank_statement_line_id=doc_line.id)
+    db.commit()
+
+    with app.test_request_context():
+        rows = {r["payment"].amount: r for r in booked_payments(2026)}
+    assert rows[Decimal("11000")]["can_unbook"] and len(rows[Decimal("11000")]["expenses"]) == 2
+    assert not rows[Decimal("199")]["can_unbook"]  # с документом — только у контрагента
+
+    payment_id = rows[Decimal("11000")]["payment"].id
+    client.post(f"/year-report/payments/{payment_id}/unbook")
+    db.expire_all()
+    assert db.query(Expense).filter_by(counterparty_id=ozon.id).count() == 0
+    assert db.get(BankStatementLine, line.id) in available_statement_lines()
+    assert db.get(Expense, manual.id) is not None

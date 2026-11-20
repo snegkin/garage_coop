@@ -37,7 +37,7 @@ from .auth import roles_required
 from .i18n import translate as _
 from .models import (
     BankAccount, BankStatementLine, BudgetItem, Charge, Counterparty, CounterpartyPayment, CsvImportProfile, Expense,
-    BudgetSection, ChargeAllocation, ExpenseCategory, ExpenseKind, FeeType, MemberAccount, Payment, RoleEnum,
+    BudgetSection, ChargeAllocation, ExpenseCategory, MasterMeterReading, ExpenseKind, FeeType, MemberAccount, Payment, RoleEnum,
 )
 
 bp = Blueprint("year_report", __name__, url_prefix="/year-report")
@@ -947,6 +947,7 @@ def view():
     counterparties = database.db_session.query(Counterparty).order_by(Counterparty.name).all()
     gaps = [suggest_for_line(line, counterparties) for line in unaccounted_debits(year)]
     gaps_total = sum((g["line"].amount for g in gaps), Decimal("0"))
+    booked = booked_payments(year)
     not_expense_lines = (
         database.db_session.query(BankStatementLine)
         .filter(BankStatementLine.not_expense.is_(True), BankStatementLine.direction == "debit",
@@ -961,6 +962,7 @@ def view():
         year=year, years=years,
         income=income, spending=spending, budget=budget,
         gaps=gaps, gaps_total=gaps_total, not_expense_lines=not_expense_lines,
+        booked=booked, undoable_ids={e.id for row in booked if row["can_unbook"] for e in row["expenses"]},
         counterparties=counterparties, categories=category_rules().names,
         income_chart=_chart_slices(income["rows"], "received", _income_colors(income["rows"])),
         spending_chart=_chart_slices(spending["groups"], "amount"),
@@ -1560,7 +1562,9 @@ def _plan_fact(year: int) -> dict:
         block["meter"] = _meter(block["plan"], block["fact"])
     plan = sum((sec["plan"] for sec in sections), Decimal("0"))
     fact = sum((sec["fact"] for sec in sections), Decimal("0"))
-    off_groups = sorted(off.values(), key=lambda g: -g["total"])
+    # Сметы на год нет — «вне сметы» ничего не значит: не показываем всё
+    # подряд красным как незапланированное.
+    off_groups = sorted(off.values(), key=lambda g: -g["total"]) if items else []
     off_total = sum((g["total"] for g in off_groups), Decimal("0"))
     return {
         "items": items,
@@ -1821,33 +1825,60 @@ def budget_totals_by_kind() -> dict[int, dict[str, float]]:
 
 # --- Отмена разнесения ---------------------------------------------------------
 
-@bp.route("/expenses/<int:expense_id>/unbook", methods=["POST"])
-@roles_required(RoleEnum.CHAIRMAN)
-def unbook_expense(expense_id):
+def payment_batch(payment: CounterpartyPayment, claimed: set[int] | None = None) -> list[Expense]:
     """
-    Отменить разнесение, сделанное на этой странице: удалить всю пачку —
-    расходы, заведённые вместе с одним платежом (позиции одного заказа), и
-    сам платёж. Строка выписки снова свободна и появляется в «Списаниях без
-    расхода». Платёж таких разнесений баланс счёта не менял
-    (adjusts_bank_balance=False), поэтому деньги никуда не двигаются.
-    Прикреплённые к расходам документы остаются у контрагента (Document.
-    expense_id → NULL).
+    Расходы, заведённые вместе с этим платежом одним разнесением, — их и
+    удаляет «Отменить разнесение». Если расходы помнят платёж
+    (booked_payment_id) — по нему. Разнесения, сделанные до появления этой
+    связи, узнаём по смыслу (не по FIFO-разнесению денег — у контрагента
+    оно перемешивает оплаты и расходы): среди расходов того же контрагента
+    без своей оплаты-пачки — расход на ту же сумму, ближайший по дате к
+    оплате (до 4 месяцев раньше), иначе набор расходов, точно дающий сумму
+    оплаты (позиции заказа подгонялись под оплату копейка в копейку).
+    claimed — расходы, уже отнесённые к другим оплатам (две одинаковые
+    оплаты не должны делить один расход). Расходы с прикреплёнными
+    документами и созданные показанием общего счётчика не берём — они
+    заведены не разнесением. Пустой список — отменить здесь нельзя.
     """
-    expense = database.db_session.get(Expense, expense_id)
-    if expense is None:
-        abort(404)
-    payment = expense.booked_payment
-    if payment is None:
-        flash(_("Этот расход заведён не разнесением на этой странице — удалите его на странице контрагента."), "warning")
-        return _redirect_back(expense.date.year)
-    if payment.adjusts_bank_balance or payment.reversed_by:
-        flash(_("Платёж по этому расходу менял баланс счёта или сторнирован — отмените его на странице контрагента."), "warning")
-        return _redirect_back(expense.date.year)
-    counterparty = expense.counterparty
-    batch = database.db_session.query(Expense).filter(Expense.booked_payment_id == payment.id).all()
+    if payment.adjusts_bank_balance or payment.reversed_by or payment.reverses_payment_id is not None:
+        return []
+    booked = database.db_session.query(Expense).filter(Expense.booked_payment_id == payment.id).all()
+    if booked:
+        return booked
+    claimed = claimed or set()
+    meter_expense_ids = {
+        expense_id for (expense_id,) in database.db_session.query(MasterMeterReading.expense_id)
+        .filter(MasterMeterReading.expense_id.isnot(None))
+    }
+    candidates = [
+        e for e in database.db_session.query(Expense).filter(
+            Expense.counterparty_id == payment.counterparty_id, Expense.booked_payment_id.is_(None),
+            Expense.kind == ExpenseKind.CHARGE,
+        )
+        if e.id not in claimed and e.id not in meter_expense_ids and not e.documents
+        and -10 <= (payment.date - e.date).days <= 120
+    ]
+    candidates.sort(key=lambda e: (abs((payment.date - e.date).days), e.id))
+    single = next((e for e in candidates if e.amount == payment.amount), None)
+    if single is not None:
+        return [single]
+    rows = [{"amount": e.amount, "expense": e} for e in candidates[:18]]
+    subset = _exact_subset(rows, payment.amount)
+    return sorted((r["expense"] for r in subset), key=lambda e: e.id) if subset else []
+
+
+def _unbook_payment(payment: CounterpartyPayment) -> int | None:
+    """Удалить разнесение: расходы пачки и сам платёж (баланс счёта он не
+    менял — adjusts_bank_balance=False). None — отменить нельзя. Пачка — та
+    же, что показана в «Разнесённых списаниях» (с учётом расходов, уже
+    отнесённых к другим оплатам того же года)."""
+    row = next((r for r in booked_payments(payment.date.year) if r["payment"].id == payment.id), None)
+    batch = row["expenses"] if row is not None and row["can_unbook"] else payment_batch(payment)
+    if not batch:
+        return None
+    counterparty = payment.counterparty
     total = sum((e.amount for e in batch), Decimal("0"))
     line = payment.bank_statement_line
-    year = expense.date.year
     for item in batch:
         database.db_session.delete(item)
     database.db_session.delete(payment)
@@ -1858,9 +1889,79 @@ def unbook_expense(expense_id):
     audit.record("expense.unbook", entity_type="counterparty", entity_id=counterparty.id,
                  summary=f"Отменено разнесение: {counterparty.name}, расходов {len(batch)} на "
                          f"{audit.format_amount(total)} ({where})")
-    database.db_session.commit()
-    flash(_("Разнесение отменено: удалено расходов — {count}.", count=len(batch)), "success")
+    return len(batch)
+
+
+def _unbook_response(count: int | None, year: int):
+    if count is None:
+        flash(_("Это разнесение здесь отменить нельзя: расход заведён вручную, с документами или показанием счётчика, либо платёж менял баланс счёта — исправьте на странице контрагента."), "warning")
+    else:
+        database.db_session.commit()
+        flash(_("Разнесение отменено: удалено расходов — {count}.", count=count), "success")
     return _redirect_back(year)
+
+
+@bp.route("/expenses/<int:expense_id>/unbook", methods=["POST"])
+@roles_required(RoleEnum.CHAIRMAN)
+def unbook_expense(expense_id):
+    """Отменить разнесение, в которое входит этот расход (вся пачка — все
+    позиции той же оплаты и сам платёж), см. payment_batch."""
+    expense = database.db_session.get(Expense, expense_id)
+    if expense is None:
+        abort(404)
+    year = expense.date.year
+    payment = expense.booked_payment
+    if payment is None:
+        # Старое разнесение — ищем оплату, к которой этот расход отнесён в
+        # «Разнесённых списаниях» (за год расхода и следующий: декабрьский
+        # счёт оплачивают в январе).
+        payment = next((
+            r["payment"] for y in (year, year + 1) for r in booked_payments(y)
+            if r["can_unbook"] and any(e.id == expense.id for e in r["expenses"])
+        ), None)
+    return _unbook_response(_unbook_payment(payment) if payment is not None else None, year)
+
+
+@bp.route("/payments/<int:payment_id>/unbook", methods=["POST"])
+@roles_required(RoleEnum.CHAIRMAN)
+def unbook_payment(payment_id):
+    """«Отменить разнесение» из карточки «Разнесённые списания»."""
+    payment = database.db_session.get(CounterpartyPayment, payment_id)
+    if payment is None:
+        abort(404)
+    return _unbook_response(_unbook_payment(payment), payment.date.year)
+
+
+def booked_payments(year: int) -> list[dict]:
+    """Разнесённые за год оплаты — для карточки «Разнесённые списания»:
+    платежи контрагентам по строкам выписки и «оплачено не через банк»
+    (без сторно), с их расходами и признаком, можно ли отменить здесь."""
+    cash = database.db_session.query(Counterparty).filter(Counterparty.name == CASH_COUNTERPARTY_NAME).first()
+    payments = (
+        database.db_session.query(CounterpartyPayment)
+        .options(selectinload(CounterpartyPayment.counterparty), selectinload(CounterpartyPayment.bank_statement_line),
+                 selectinload(CounterpartyPayment.allocations))
+        .filter(CounterpartyPayment.date >= dt.date(year, 1, 1), CounterpartyPayment.date <= dt.date(year, 12, 31),
+                CounterpartyPayment.reverses_payment_id.is_(None))
+        .order_by(CounterpartyPayment.date, CounterpartyPayment.id)
+        .all()
+    )
+    rows = []
+    claimed: set[int] = set()
+    # Сначала оплаты с запомненной пачкой — их расходы точно заняты.
+    for payment in payments:
+        claimed.update(e.id for e in database.db_session.query(Expense).filter(Expense.booked_payment_id == payment.id))
+    for payment in payments:
+        if payment.bank_statement_line_id is None and (cash is None or payment.counterparty_id != cash.id):
+            continue
+        if payment.reversed_by:
+            continue
+        batch = payment_batch(payment, claimed)
+        claimed.update(e.id for e in batch)
+        expenses = batch or sorted({a.expense for a in payment.allocations}, key=lambda e: e.id)
+        rows.append({"payment": payment, "line": payment.bank_statement_line, "expenses": expenses,
+                     "can_unbook": bool(batch)})
+    return rows
 
 
 @bp.route("/lines/<int:line_id>/restore", methods=["POST"])

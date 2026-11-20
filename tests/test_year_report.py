@@ -225,7 +225,9 @@ def test_mark_not_expense_hides_line(app, db, client):
     db.commit()
     client.post(f"/year-report/lines/{line.id}/not-expense")
     assert db.get(BankStatementLine, line.id).not_expense is True
-    assert "Возврат переплаты" not in client.get("/year-report/?year=2026").get_data(as_text=True)
+    body = client.get("/year-report/?year=2026").get_data(as_text=True)
+    # Из «Списаний без расхода» ушла, видна в свёрнутом «Отмечено «не трата»».
+    assert f'id="book{line.id}"' not in body and "Отмечено «не трата»: 1" in body
 
 
 # --- Импорт отчёта по тратам ------------------------------------------------
@@ -605,3 +607,66 @@ def test_mass_charge_offers_budget_totals(app, db, client):
         assert budget_totals_by_kind()[2027] == {"membership": 30000.0, "target": 10000.0, "total": 40000.0}
     body = client.get("/finance/mass-charge").get_data(as_text=True)
     assert 'id="budgetHint"' in body and '"2027": {"membership": 30000.0' in body
+
+
+# --- Отмена разнесения --------------------------------------------------------
+
+def test_unbook_statement_line_frees_line(app, db, client):
+    from app.accounting import available_statement_lines
+    _chairman(db, client)
+    account = _bank(db)
+    line = _debit(db, account, dt.date(2026, 10, 22), "21000", "РОДИНСКИЙ АЛЕКСАНДР ИГОРЕВИЧ", "761003454844",
+                  "Транспортные услуги по счету №317", "u1")
+    db.commit()
+    client.post(f"/year-report/lines/{line.id}/book", data={"counterparty_id": "new", "new_name": "Родинский",
+                                                            "category": "Хоз. работы"})
+    expense = db.query(Expense).one()
+    assert expense.booked_payment_id is not None
+    assert line not in available_statement_lines()
+
+    resp = client.post(f"/year-report/expenses/{expense.id}/unbook")
+    assert resp.status_code == 302
+    db.expire_all()
+    assert db.query(Expense).count() == 0 and db.query(CounterpartyPayment).count() == 0
+    assert db.get(BankStatementLine, line.id) in available_statement_lines()
+
+
+def test_unbook_removes_whole_order_and_refuses_manual_expense(app, db, client):
+    _chairman(db, client)
+    account = _bank(db)
+    order_line = _debit(db, account, dt.date(2026, 7, 31), "11000", 'ООО "ИНТЕРНЕТ РЕШЕНИЯ"', "7704217370",
+                        "Оплата по заказу 0161382282-0005", "u2")
+    db.commit()
+    rows = parse_spending_csv(SPENDING_CSV)
+    form = {"year": "2026", "csv_text": SPENDING_CSV}
+    for r in rows:
+        form[f"category_{r['index']}"] = r["category"]
+        form[f"action_{r['index']}"] = f"line:{order_line.id}" if r.get("order") else "skip"
+    client.post("/year-report/spending/import/apply", data=form)
+    order_expenses = db.query(Expense).all()
+    assert len(order_expenses) == 2
+    client.post(f"/year-report/expenses/{order_expenses[0].id}/unbook")
+    db.expire_all()
+    assert db.query(Expense).count() == 0  # обе позиции заказа
+    assert db.query(CounterpartyPayment).count() == 0
+
+    # Расход, заведённый вручную (без booked_payment), не трогаем.
+    cp = Counterparty(name="Подрядчик")
+    db.add(cp)
+    db.flush()
+    manual = Expense(counterparty_id=cp.id, date=dt.date(2026, 5, 1), amount=Decimal("100"), category="Прочее")
+    db.add(manual)
+    db.commit()
+    client.post(f"/year-report/expenses/{manual.id}/unbook")
+    assert db.get(Expense, manual.id) is not None
+
+
+def test_restore_not_expense_line(app, db, client):
+    _chairman(db, client)
+    account = _bank(db)
+    line = _debit(db, account, dt.date(2026, 5, 1), "300", "Иванов И.И.", None, "Возврат переплаты", "u1")
+    db.commit()
+    client.post(f"/year-report/lines/{line.id}/not-expense")
+    assert "Отмечено «не трата»: 1" in client.get("/year-report/?year=2026").get_data(as_text=True)
+    client.post(f"/year-report/lines/{line.id}/restore")
+    assert db.get(BankStatementLine, line.id).not_expense is False

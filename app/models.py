@@ -664,9 +664,18 @@ class Expense(Base):
     # председатель явно отметил расход как «вне сметы», не подбирать.
     budget_item_id: Mapped[int | None] = mapped_column(ForeignKey("budget_item.id", ondelete="SET NULL"), index=True)
     off_budget: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("0"))
+    # Платёж, заведённый ВМЕСТЕ с этим расходом при разнесении на странице
+    # «Финансы за год» (по строке выписки или «оплачено не через банк»).
+    # По нему «Отменить разнесение» удаляет всю пачку — все расходы с тем же
+    # платежом (позиции одного заказа) и сам платёж, и строка выписки снова
+    # свободна. У расходов, заведённых вручную, — пусто.
+    booked_payment_id: Mapped[int | None] = mapped_column(
+        ForeignKey("counterparty_payment.id", ondelete="SET NULL"), index=True,
+    )
 
     counterparty: Mapped["Counterparty"] = relationship(back_populates="expenses")
     budget_item: Mapped["BudgetItem | None"] = relationship()
+    booked_payment: Mapped["CounterpartyPayment | None"] = relationship(foreign_keys=[booked_payment_id])
     documents: Mapped[list["Document"]] = relationship(back_populates="expense", order_by="Document.id")
     allocations: Mapped[list["ExpenseAllocation"]] = relationship(
         back_populates="expense", cascade="all, delete-orphan"

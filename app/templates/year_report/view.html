@@ -14,6 +14,9 @@
                   gap:.5rem; align-items:center; flex-shrink:0; margin-left:auto; }
   .yr-exp-right.wide { --yr-select-w: 15rem; }
   .yr-exp-right form { margin:0; }
+  /* У последнего расхода в раскрытом списке своей нижней линии нет — под
+     ним и так граница строки таблицы, иначе линия двойная. */
+  ul.list-unstyled > li.border-bottom:last-child { border-bottom: 0 !important; }
   .yr-exp-right .form-select { width:100%; min-width:0; }
   .yr-exp-right .yr-amount { text-align:right; white-space:nowrap; font-variant-numeric: tabular-nums; }
   @media (max-width: 767.98px) {

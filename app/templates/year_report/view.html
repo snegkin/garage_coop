@@ -62,6 +62,14 @@
 </div>
 {% endmacro %}
 
+{% macro person_tag(e) %}
+<span class="text-nowrap">
+  {% if e.person %} · <i class="bi bi-person" aria-hidden="true"></i> <a href="{{ url_for('persons.detail', person_id=e.person_id) }}">{{ e.person.full_name }}</a>{% endif %}
+  <button type="button" class="btn btn-link btn-sm p-0 ms-1 text-secondary align-baseline" data-bs-toggle="modal" data-bs-target="#personModal"
+          data-expense="{{ e.id }}" data-person="{{ e.person_id or '' }}" title="{{ _('Кому начислено / выплачено') }}" aria-label="{{ _('Кому начислено / выплачено') }}"><i class="bi bi-person-plus" aria-hidden="true"></i></button>
+</span>
+{% endmacro %}
+
 {% macro unbook_button(e) %}
 {% if e.id in undoable_ids %}
 <form method="post" action="{{ url_for('year_report.unbook_expense', expense_id=e.id) }}"
@@ -241,7 +249,11 @@
   {# --- Траты --- #}
   <div class="col-12">
     <div class="card h-100"><div class="card-body">
-      <h5 class="card-title">{{ _("На что потрачено") }}</h5>
+      <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
+        <h5 class="card-title">{{ _("На что потрачено") }}</h5>
+        <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#addExpenseModal">
+          <i class="bi bi-plus-lg" aria-hidden="true"></i> {{ _("Добавить трату") }}</button>
+      </div>
       {% if spending.groups %}
       <div class="row g-3 align-items-center">
         <div class="col-12 col-md-4"><div class="yr-chart"><canvas id="spendingChart" aria-label="{{ _('На что потрачено') }}"></canvas></div></div>
@@ -258,7 +270,7 @@
                     <ul class="list-unstyled small mt-1 mb-0">
                       {% for e in g.expenses %}
                       <li class="d-flex flex-wrap flex-md-nowrap justify-content-between align-items-center gap-2 py-1 border-bottom">
-                        <span>{{ fmt_date(e.date) }} · <a href="{{ url_for('counterparties.detail', counterparty_id=e.counterparty_id) }}">{{ e.counterparty.name }}</a>{% if e.description %} — {{ e.description|truncate(80) }}{% endif %}</span>
+                        <span>{{ fmt_date(e.date) }} · <a href="{{ url_for('counterparties.detail', counterparty_id=e.counterparty_id) }}">{{ e.counterparty.name }}</a>{% if e.description %} — {{ e.description|truncate(80) }}{% endif %}{{ person_tag(e) }}</span>
                         <span class="yr-exp-right">
                           <form method="post" action="{{ url_for('year_report.set_expense_category', expense_id=e.id) }}" data-ajax>
                             <select class="form-select form-select-sm py-0 js-autosubmit" name="category" aria-label="{{ _('Статья') }}" title="{{ _('Перенести в другую статью') }}">
@@ -382,6 +394,9 @@
         {% for row in sec["items"] %}
         <div class="yr-pf-row small {{ 'text-muted' if not row.expenses }}">
           <span class="yr-pf-name ps-3">{{ row.item.name }}{% if not row.expenses %} — {{ _("не потрачено") }}{% endif %}
+            <button type="button" class="btn btn-link btn-sm p-0 ms-1 align-baseline" data-bs-toggle="modal" data-bs-target="#addExpenseModal"
+                    data-budget-item="{{ row.item.id }}" data-description="{{ row.item.name }}"
+                    data-category="{{ (row.item_categories or [''])[0] }}">+ {{ _("трата") }}</button>
             {% if row.meter.over_amount %}<span class="text-muted">({{ _("сверх плана позиции {amount}", amount=fmt2(row.meter.over_amount)) }})</span>{% endif %}</span>
           <span>{{ fmt2(row.plan) }}</span><span>{{ fmt2(row.fact) if row.expenses else "—" }}</span>
           <span>{{ row.meter.rate if row.expenses and row.meter.rate is not none else "" }}</span><span></span><span></span>
@@ -390,7 +405,7 @@
         <ul class="list-unstyled small ms-4 mb-2">
           {% for entry in row.expenses %}{% set e = entry.expense %}
           <li class="d-flex flex-wrap flex-md-nowrap justify-content-between align-items-center gap-2 py-1 border-bottom">
-            <span>{% if entry.suggested %}<span class="text-warning-emphasis" title="{{ _('Подобрано автоматически') }}">≈</span> {% endif %}{{ fmt_date(e.date) }} · <a href="{{ url_for('counterparties.detail', counterparty_id=e.counterparty_id) }}">{{ e.counterparty.name }}</a>{% if e.description %} — {{ e.description|truncate(70) }}{% endif %}</span>
+            <span>{% if entry.suggested %}<span class="text-warning-emphasis" title="{{ _('Подобрано автоматически') }}">≈</span> {% endif %}{{ fmt_date(e.date) }} · <a href="{{ url_for('counterparties.detail', counterparty_id=e.counterparty_id) }}">{{ e.counterparty.name }}</a>{% if e.description %} — {{ e.description|truncate(70) }}{% endif %}{{ person_tag(e) }}</span>
             <span class="yr-exp-right wide">{{ budget_select(e, "auto" if entry.suggested else e.budget_item_id) }}<span class="yr-amount">{{ fmt2(e.amount) }}</span>{{ unbook_button(e) }}</span>
           </li>
           {% endfor %}
@@ -421,7 +436,7 @@
     <ul class="list-unstyled small ms-3 mb-1">
       {% for e in g.expenses %}
       <li class="d-flex flex-wrap flex-md-nowrap justify-content-between align-items-center gap-2 py-1 border-bottom">
-        <span>{{ fmt_date(e.date) }} · <a href="{{ url_for('counterparties.detail', counterparty_id=e.counterparty_id) }}">{{ e.counterparty.name }}</a>{% if e.description %} — {{ e.description|truncate(70) }}{% endif %}</span>
+        <span>{{ fmt_date(e.date) }} · <a href="{{ url_for('counterparties.detail', counterparty_id=e.counterparty_id) }}">{{ e.counterparty.name }}</a>{% if e.description %} — {{ e.description|truncate(70) }}{% endif %}{{ person_tag(e) }}</span>
         <span class="yr-exp-right wide">{% if plan_fact["items"] %}{{ budget_select(e, "off" if e.off_budget else "auto", _("не подобрано — выберите позицию")) }}{% else %}<span></span>{% endif %}<span class="yr-amount">{{ fmt2(e.amount) }}</span>{{ unbook_button(e) }}</span>
       </li>
       {% endfor %}
@@ -547,6 +562,12 @@
           <select class="form-select form-select-sm {{ 'border-warning' if not g.confident }}" name="category" form="book{{ line.id }}" aria-label="{{ _('Статья') }}">
             {% for c in categories %}<option {{ "selected" if c == g.category }}>{{ c }}</option>{% endfor %}
           </select>
+          {% if g.owed %}
+          <select class="form-select form-select-sm mt-1" name="mode" form="book{{ line.id }}" aria-label="{{ _('Что это за списание') }}">
+            <option value="new" {{ "selected" if not g.pays_accrued }}>{{ _("новый расход") }}</option>
+            <option value="accrued" {{ "selected" if g.pays_accrued }}>{{ _("оплата начисленного (долг {amount})", amount=fmt2(g.owed)) }}</option>
+          </select>
+          {% endif %}
         </td>
         <td class="text-nowrap">
           <button class="btn btn-sm btn-outline-primary" type="submit" form="book{{ line.id }}">{{ _("Завести") }}</button>
@@ -632,6 +653,86 @@
   {{ csv_format_line(spending_format, "spending") }}
 </div></div>
 
+<div class="modal fade" id="addExpenseModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <form method="post" action="{{ url_for('year_report.add_expense') }}">
+        <div class="modal-header">
+          <h5 class="modal-title">{{ _("Добавить трату") }}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{{ _('Закрыть') }}"></button>
+        </div>
+        <div class="modal-body">
+          <p class="small text-muted">{{ _("Для трат, которых нет в выписке: наличными, за свой счёт — или начисления к выплате (оплата труда), которое оплатят позже со счёта: тогда в «Списаниях без расхода» перевод этому человеку разносится как «оплата начисленного», без второго расхода.") }}</p>
+          <input type="hidden" name="budget_item_id" value="">
+          <div class="row g-2">
+            <div class="col-6 col-md-4">
+              <label class="form-label small">{{ _("Дата") }}</label>
+              <input class="form-control" type="date" name="date" required
+                     value="{{ (today if today.year == year else ((year ~ '-12-31') if year < today.year else (year ~ '-01-01'))) }}">
+            </div>
+            <div class="col-6 col-md-4">
+              <label class="form-label small">{{ _("Сумма, ₽") }}</label>
+              <input class="form-control" name="amount" inputmode="decimal" required>
+            </div>
+            <div class="col-12 col-md-4">
+              <label class="form-label small">{{ _("Статья") }}</label>
+              <select class="form-select" name="category">
+                {% for c in categories %}<option>{{ c }}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="col-12 col-md-6">
+              <label class="form-label small">{{ _("Кому (из людей)") }}</label>
+              <select class="form-select" name="person_id" data-searchable data-placeholder="{{ _('— не указано —') }}">
+                <option value="">{{ _("— не указано —") }}</option>
+                {% for p in persons %}<option value="{{ p.id }}">{{ p.full_name }}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="col-12 col-md-6">
+              <label class="form-label small">{{ _("Как оплачено") }}</label>
+              <div class="form-check"><input class="form-check-input" type="radio" name="mode" value="cash" id="modeCash" checked>
+                <label class="form-check-label" for="modeCash">{{ _("наличными / не через банк") }}</label></div>
+              <div class="form-check"><input class="form-check-input" type="radio" name="mode" value="accrued" id="modeAccrued">
+                <label class="form-check-label" for="modeAccrued">{{ _("начислено, оплата позже со счёта") }}</label></div>
+            </div>
+            <div class="col-12">
+              <label class="form-label small">{{ _("Описание") }}</label>
+              <input class="form-control" name="description" maxlength="500">
+            </div>
+            <div class="col-12 small text-muted js-budget-item-note"></div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+          <button class="btn btn-primary">{{ _("Добавить") }}</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="personModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" action="{{ url_for('year_report.set_expense_person', expense_id=0) }}" data-action-template="{{ url_for('year_report.set_expense_person', expense_id=0) }}">
+        <div class="modal-header">
+          <h5 class="modal-title">{{ _("Кому начислено / выплачено") }}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{{ _('Закрыть') }}"></button>
+        </div>
+        <div class="modal-body">
+          <select class="form-select" name="person_id" data-searchable data-placeholder="{{ _('— не указано —') }}">
+            <option value="">{{ _("— не указано —") }}</option>
+            {% for p in persons %}<option value="{{ p.id }}">{{ p.full_name }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+          <button class="btn btn-primary">{{ _("Сохранить") }}</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
 {% with modal_id=budget_format.modal_id, format_action=budget_format.format_action, catalog=budget_format.catalog,
         active_keys=budget_format.active_keys, positions=budget_format.positions, modal_title=_("Формат CSV сметы") %}
 {% include "setup/_csv_format_modal.html" %}
@@ -659,6 +760,26 @@
         .filter(function (d) { return d.open; }).map(function (d) { return d.dataset.key; });
       try { sessionStorage.setItem(OPEN_KEY, JSON.stringify(keys)); } catch (e) {}
     });
+  });
+  // «+ трата» у позиции сметы — подставить позицию, описание и статью.
+  var addModal = document.getElementById("addExpenseModal");
+  if (addModal) addModal.addEventListener("show.bs.modal", function (ev) {
+    var btn = ev.relatedTarget, form = addModal.querySelector("form");
+    var itemId = btn && btn.dataset.budgetItem ? btn.dataset.budgetItem : "";
+    form.querySelector("[name=budget_item_id]").value = itemId;
+    form.querySelector("[name=description]").value = btn && btn.dataset.description ? btn.dataset.description : "";
+    if (btn && btn.dataset.category) form.querySelector("[name=category]").value = btn.dataset.category;
+    addModal.querySelector(".js-budget-item-note").textContent = itemId
+      ? {{ _("Трата будет отнесена к позиции сметы: ")|tojson }} + btn.dataset.description : "";
+  });
+  // «Кому» у расхода — адрес формы под конкретный расход и текущий выбор.
+  var personModal = document.getElementById("personModal");
+  if (personModal) personModal.addEventListener("show.bs.modal", function (ev) {
+    var btn = ev.relatedTarget, form = personModal.querySelector("form");
+    form.action = form.dataset.actionTemplate.replace("/0/", "/" + btn.dataset.expense + "/");
+    var sel = form.querySelector("[name=person_id]");
+    sel.value = btn.dataset.person || "";
+    sel.dispatchEvent(new Event("change"));
   });
   document.querySelectorAll(".js-autosubmit-plain").forEach(function (sel) {
     sel.addEventListener("change", function () { sel.form.requestSubmit(); });

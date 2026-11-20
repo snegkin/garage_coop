@@ -672,10 +672,16 @@ class Expense(Base):
     booked_payment_id: Mapped[int | None] = mapped_column(
         ForeignKey("counterparty_payment.id", ondelete="SET NULL"), index=True,
     )
+    # Кому из людей начислена/выплачена сумма (оплата труда председателю,
+    # наличные исполнителю за покос и т.п.) — необязательно; контрагент при
+    # этом остаётся (наличные — «Оплачено не через банк», начисление к
+    # выплате — контрагент на имя человека).
+    person_id: Mapped[int | None] = mapped_column(ForeignKey("person.id", ondelete="SET NULL"), index=True)
 
     counterparty: Mapped["Counterparty"] = relationship(back_populates="expenses")
     budget_item: Mapped["BudgetItem | None"] = relationship()
     booked_payment: Mapped["CounterpartyPayment | None"] = relationship(foreign_keys=[booked_payment_id])
+    person: Mapped["Person | None"] = relationship(foreign_keys=[person_id])
     documents: Mapped[list["Document"]] = relationship(back_populates="expense", order_by="Document.id")
     allocations: Mapped[list["ExpenseAllocation"]] = relationship(
         back_populates="expense", cascade="all, delete-orphan"

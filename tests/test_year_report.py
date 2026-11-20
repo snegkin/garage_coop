@@ -837,3 +837,58 @@ def test_next_year_available_and_budget_copy(app, db, client):
     # Повторно — не затирает.
     client.post("/year-report/budget/copy", data={"year": str(next_year)})
     assert db.query(BudgetItem).filter_by(year=next_year).count() == 2
+
+
+def test_add_expense_cash_and_accrued_salary_then_bank_payment(app, db, client):
+    """ФОТ председателю: начислено (оплата позже) → перевод по выписке
+    разносится как «оплата начисленного» (только платёж, без второго
+    расхода), отмена убирает только платёж. Покос наличными — сразу
+    оплачено не через банк, с получателем-человеком."""
+    from app.accounting import available_statement_lines, counterparty_balance
+    from app.year_report import CASH_COUNTERPARTY_NAME
+    from tests.conftest import make_person
+    _chairman(db, client)
+    account = _bank(db)
+    chairman = make_person(db, full_name="Снежкин Иван Петрович")
+    mower = make_person(db, full_name="Косарев Пётр")
+    item = BudgetItem(year=2026, section="Содержание кооператива", name="Фонд оплаты труда", amount=Decimal("24000"))
+    db.add(item)
+    db.commit()
+
+    client.post("/year-report/expenses/new", data={
+        "date": "2026-12-31", "amount": "24 000,00", "category": "Оплата труда", "person_id": str(chairman.id),
+        "mode": "accrued", "description": "ФОТ председателя за 2026", "budget_item_id": str(item.id),
+    })
+    client.post("/year-report/expenses/new", data={
+        "date": "2026-06-10", "amount": "1000", "category": "Хоз. работы", "person_id": str(mower.id),
+        "mode": "cash", "description": "Покос травы",
+    })
+    salary = db.query(Expense).filter_by(description="ФОТ председателя за 2026").one()
+    mowing = db.query(Expense).filter_by(description="Покос травы").one()
+    assert salary.person_id == chairman.id and salary.budget_item_id == item.id
+    assert salary.counterparty.name == "Снежкин Иван Петрович" and salary.booked_payment_id is None
+    assert mowing.counterparty.name == CASH_COUNTERPARTY_NAME and mowing.booked_payment_id is not None
+    assert counterparty_balance(salary.counterparty) == Decimal("-24000")
+
+    # Перевод председателю по выписке — по умолчанию «оплата начисленного».
+    line = _debit(db, account, dt.date(2027, 1, 15), "24000", "Снежкин Иван Петрович", None,
+                  "Оплата труда за 2026", "u1")
+    db.commit()
+    body = client.get("/year-report/?year=2027").get_data(as_text=True)
+    assert 'value="accrued" selected' in body
+    client.post(f"/year-report/lines/{line.id}/book", data={"counterparty_id": str(salary.counterparty_id),
+                                                            "category": "Оплата труда", "mode": "accrued"})
+    db.expire_all()
+    assert db.query(Expense).filter_by(counterparty_id=salary.counterparty_id).count() == 1  # без второго расхода
+    assert counterparty_balance(salary.counterparty) == Decimal("0")
+
+    # Отмена — удаляется только платёж, начисление остаётся.
+    payment = db.query(CounterpartyPayment).filter_by(bank_statement_line_id=line.id).one()
+    client.post(f"/year-report/payments/{payment.id}/unbook")
+    db.expire_all()
+    assert db.get(Expense, salary.id) is not None
+    assert db.get(BankStatementLine, line.id) in available_statement_lines()
+
+    # «Кому» у расхода можно поменять/снять.
+    client.post(f"/year-report/expenses/{mowing.id}/person", data={"person_id": ""})
+    assert db.get(Expense, mowing.id).person_id is None

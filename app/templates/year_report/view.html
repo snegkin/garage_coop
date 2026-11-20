@@ -490,6 +490,13 @@
   </div>
   {% else %}
   <p class="text-muted mb-0">{{ _("Смета на этот год не загружена. CSV — выгрузка таблицы сметы, строка с одним наименованием — раздел.") }}</p>
+  {% if previous_budget_year %}
+  <form method="post" action="{{ url_for('year_report.copy_budget') }}" class="mt-2">
+    <input type="hidden" name="year" value="{{ year }}">
+    <button class="btn btn-sm btn-outline-primary" type="submit">{{ _("Взять за основу смету {prev} года", prev=previous_budget_year) }}</button>
+    <span class="small text-muted ms-2">{{ _("скопируются позиции и типы разделов (членский/целевой)") }}</span>
+  </form>
+  {% endif %}
   {% endif %}
 </div></div>
 

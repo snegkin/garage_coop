@@ -3822,6 +3822,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "ID приложения": "App ID",
         "Очистите поле ID, чтобы выключить вход через провайдера.": "Clear the ID field to turn off sign-in with that provider.",
         # «Финансы за год» (app/year_report.py)
+        "Взять за основу смету {prev} года": "Use the {prev} budget as a basis",
+        "скопируются позиции и типы разделов (членский/целевой)": "items and section types (membership/targeted) will be copied",
+        "Смета на {year} год создана по образцу {prev} года — поправьте её и при необходимости загрузите CSV.": "The {year} budget was created from the {prev} one — adjust it and upload a CSV if needed.",
+        "Смета на {year} год уже есть — чтобы заменить её, загрузите CSV.": "A {year} budget already exists — upload a CSV to replace it.",
         "Относится к уже заведённому расходу: {date}, {amount} ₽ — {name}. Позиции этого заказа в отчёте на {listed} ₽ — расход разобьётся на них, суммы подгонятся под оплаченные {amount} ₽. Если позиция не из него — выберите «Оплачено не через банк».": "Belongs to an already recorded expense: {date}, {amount} ₽ — {name}. This order's items in the report total {listed} ₽ — the expense will be split into them and the amounts scaled to the {amount} ₽ actually paid. If the item is not part of it, select “Paid not via the bank”.",
         "Остаток": "Balance",
         "сверх плана позиции {amount}": "over the item plan by {amount}",

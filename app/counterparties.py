@@ -18,7 +18,7 @@ from .accounting import (
     reallocate_counterparty_expenses, pay_counterparty,
     expense_paid_amount, edit_counterparty_payment, edit_counterparty_payment_details,
     reverse_counterparty_payment, delete_counterparty_payment_reversal,
-    available_statement_lines, resolve_statement_line,
+    available_statement_lines, resolve_statement_line, compact_requisite,
 )
 from .uploads import save_upload
 from .bank_api import crypto
@@ -160,8 +160,8 @@ def create():
     f = request.form
     counterparty = Counterparty(
         name=f["name"],
-        inn=f.get("inn") or None,
-        kpp=f.get("kpp") or None,
+        inn=compact_requisite(f.get("inn")),
+        kpp=compact_requisite(f.get("kpp")),
         category=f.get("category") or None,
         phone=f.get("phone") or None,
         email=f.get("email") or None,
@@ -190,8 +190,8 @@ def edit(counterparty_id):
 
     f = request.form
     counterparty.name = f["name"]
-    counterparty.inn = f.get("inn") or None
-    counterparty.kpp = f.get("kpp") or None
+    counterparty.inn = compact_requisite(f.get("inn"))
+    counterparty.kpp = compact_requisite(f.get("kpp"))
     counterparty.category = f.get("category") or None
     counterparty.phone = f.get("phone") or None
     counterparty.email = f.get("email") or None

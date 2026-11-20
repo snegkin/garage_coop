@@ -67,6 +67,8 @@ def create_app(config_class=Config):
 
     run_migrations(app.config["SQLALCHEMY_DATABASE_URI"])  # накатывает схему через Alembic, не трогая данные
     engine, _db_session = init_engine(app.config["SQLALCHEMY_DATABASE_URI"])
+    from . import database as _database
+    _database.STRICT_STRING_LENGTHS = bool(app.config.get("STRICT_STRING_LENGTHS"))
     init_db_lifecycle(app)
 
     from . import auth, i18n, theme, news_format, contact_format, comment_format, audit, mail_client, name_declension, accounting, vendor, chat_emoji

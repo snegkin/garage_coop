@@ -12,7 +12,9 @@ from . import notifications
 from .i18n import translate as _, parse_optional_decimal as _parse_decimal
 from .auth import login_required, roles_required
 from .models import Cooperative, BankAccount, BankApiProvider, RoleEnum, Document, DocumentType, Person, Counterparty, PostalDispatch
-from .accounting import bank_accounts_with_history, cooperative_balance, get_primary_bank_account
+from .accounting import (
+    bank_accounts_with_history, compact_requisite, cooperative_balance, get_primary_bank_account, tidy_account_number,
+)
 from .uploads import save_upload
 from .permissions import is_board
 
@@ -136,9 +138,9 @@ def edit():
         f = request.form
         coop.full_name = f["full_name"]
         coop.short_name = f.get("short_name") or None
-        coop.inn = f["inn"]
-        coop.kpp = f["kpp"]
-        coop.ogrn = f["ogrn"]
+        coop.inn = compact_requisite(f["inn"]) or ""
+        coop.kpp = compact_requisite(f["kpp"]) or ""
+        coop.ogrn = compact_requisite(f["ogrn"]) or ""
         coop.legal_address = f.get("legal_address") or None
         coop.postal_address = f.get("postal_address") or None
         coop.email = f.get("email") or None
@@ -198,9 +200,9 @@ def create_bank_account():
 
     database.db_session.add(BankAccount(
         bank_name=f["bank_name"],
-        bik=f.get("bik") or None,
-        checking_account=f["checking_account"],
-        correspondent_account=f.get("correspondent_account") or None,
+        bik=compact_requisite(f.get("bik")),
+        checking_account=tidy_account_number(f["checking_account"]) or "",
+        correspondent_account=tidy_account_number(f.get("correspondent_account")),
         is_primary=is_primary,
         comment=f.get("comment") or None,
         balance=_parse_decimal(f.get("balance")),
@@ -231,9 +233,9 @@ def edit_bank_account(account_id):
         database.db_session.query(BankAccount).filter(BankAccount.id != account.id).update({"is_primary": False})
 
     account.bank_name = f["bank_name"]
-    account.bik = f.get("bik") or None
-    account.checking_account = f["checking_account"]
-    account.correspondent_account = f.get("correspondent_account") or None
+    account.bik = compact_requisite(f.get("bik"))
+    account.checking_account = tidy_account_number(f["checking_account"]) or ""
+    account.correspondent_account = tidy_account_number(f.get("correspondent_account"))
     account.is_primary = is_primary
     account.comment = f.get("comment") or None
     account.balance = _parse_decimal(f.get("balance"))

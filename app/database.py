@@ -13,6 +13,34 @@ logger = logging.getLogger(__name__)
 engine = None
 db_session = None
 
+# Длина строковых колонок (String(n)): SQLite её не проверяет и молча
+# сохраняет строку любой длины — так в базе оказывались, например, р/с с
+# пробелами (24 символа в String(20)) и КПП с пробелом впереди. На другой
+# СУБД такая запись упала бы. Проверяем сами перед каждым flush: в тестах
+# (STRICT_STRING_LENGTHS = True, см. tests/conftest.py) превышение — ошибка,
+# в работе — предупреждение в лог (данные не теряем, но узнаём о проблеме).
+STRICT_STRING_LENGTHS = False
+
+
+class StringTooLongError(ValueError):
+    pass
+
+
+def _check_string_lengths(session, _flush_context, _instances):
+    for obj in list(session.new) + list(session.dirty):
+        mapper = inspect(obj).mapper
+        for column in mapper.columns:
+            length = getattr(column.type, "length", None)
+            if not length:
+                continue
+            value = getattr(obj, mapper.get_property_by_column(column).key, None)
+            if isinstance(value, str) and len(value) > length:
+                message = (f"{mapper.class_.__name__}.{column.key}: строка длиной {len(value)} "
+                           f"не помещается в колонку на {length} символов: {value[:60]!r}")
+                if STRICT_STRING_LENGTHS:
+                    raise StringTooLongError(message)
+                logger.warning(message)
+
 
 def init_engine(database_uri: str):
     global engine, db_session
@@ -42,6 +70,7 @@ def init_engine(database_uri: str):
     from . import notifications
     event.listen(session_factory, "after_commit", notifications.on_session_commit)
     event.listen(session_factory, "after_rollback", notifications.on_session_rollback)
+    event.listen(session_factory, "before_flush", _check_string_lengths)
     db_session = scoped_session(session_factory)
     return engine, db_session
 

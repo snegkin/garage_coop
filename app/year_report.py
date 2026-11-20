@@ -122,6 +122,16 @@ _TECH_CHARGE_PREFIXES = (
 )
 
 
+def cap(value: str | None, column) -> str | None:
+    """Обрезать строку по длине колонки модели (String(n)) — значения из
+    форм и CSV не должны выходить за размер поля (см. app/database.py:
+    _check_string_lengths)."""
+    if value is None:
+        return None
+    length = getattr(column.type, "length", None)
+    return value[:length] if length else value
+
+
 def normalize_category(raw: str | None) -> str:
     """Свободный текст Expense.category → одна из CATEGORIES (или сам
     текст, если он ни на что не похож — тогда статья показывается как есть)."""
@@ -289,7 +299,7 @@ def parse_budget_csv(text: str, columns: list[str] | None = None) -> list[dict]:
         if amount_value is None or amount_value <= 0:
             continue
         items.append({
-            "section": section or OTHER_CATEGORY,
+            "section": cap(section or OTHER_CATEGORY, BudgetItem.__table__.c.section),
             "name": name,
             "quantity": parse_money(qty),
             "price": parse_money(price),
@@ -404,7 +414,7 @@ def clean_counterparty_name(line: BankStatementLine) -> str:
     purpose = line.payment_purpose or ""
     sbp = re.search(r"Перевод СБП ФЛ\s+(.+?)\s+по\s", purpose)
     if sbp:
-        return sbp.group(1).strip()
+        return cap(sbp.group(1).strip(), Counterparty.__table__.c.name)
     name = (line.counterparty_name or "").strip()
     if len(name) > 1 and name[0] == name[-1] and name[0] in "'\"":
         name = name[1:-1].strip()
@@ -518,7 +528,8 @@ def _get_or_create_counterparty(counterparty_id: str | None, line: BankStatement
         if cp is None:
             abort(400)
         return cp
-    name = (new_name or "").strip() or (clean_counterparty_name(line) if line else _("Без названия"))
+    name = cap((new_name or "").strip() or (clean_counterparty_name(line) if line else _("Без названия")),
+               Counterparty.__table__.c.name)
     inn = None
     if line is not None and "Перевод СБП ФЛ" not in (line.payment_purpose or ""):
         inn = _digits(line.counterparty_inn) or None
@@ -751,7 +762,7 @@ def set_expense_category(expense_id):
     expense = database.db_session.get(Expense, expense_id)
     if expense is None:
         abort(404)
-    category = (request.form.get("category") or "").strip()
+    category = cap((request.form.get("category") or "").strip(), Expense.__table__.c.category)
     if not category:
         abort(400)
     expense.category = category
@@ -770,7 +781,7 @@ def book_statement_line(line_id):
         return _redirect_back(line.operation_date.year)
     f = request.form
     counterparty = _get_or_create_counterparty(f.get("counterparty_id"), line, f.get("new_name"))
-    category = f.get("category") or OTHER_CATEGORY
+    category = cap(f.get("category") or OTHER_CATEGORY, Expense.__table__.c.category)
     expense = book_line(line, counterparty, category, f.get("description"))
     audit.record(
         "expense.create", entity_type="counterparty", entity_id=counterparty.id,
@@ -1059,7 +1070,7 @@ def import_spending_apply():
     touched: dict[int, Counterparty] = {}
     for index, row in by_index.items():
         action = f.get(f"action_{index}") or "skip"
-        category = f.get(f"category_{index}") or row["category"]
+        category = cap(f.get(f"category_{index}") or row["category"], Expense.__table__.c.category)
         if action == "skip":
             continue
         if action.startswith("expense:"):

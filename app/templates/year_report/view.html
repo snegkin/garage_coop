@@ -9,6 +9,14 @@
   .yr-gaps .form-select, .yr-gaps .form-control { min-width: 9rem; }
 </style>
 
+{% macro csv_format_line(fmt, kind) %}
+<div class="small text-muted mt-2 d-flex flex-wrap align-items-center gap-2">
+  <span>{{ _("Столбцы файла:") }} {% for pos, label in fmt.summary %}{{ pos }} — {{ _(label) }}{{ "; " if not loop.last }}{% endfor %}</span>
+  <button type="button" class="btn btn-link btn-sm p-0" data-bs-toggle="modal" data-bs-target="#{{ fmt.modal_id }}">{{ _("Настроить формат") }}</button>
+  <a class="btn btn-link btn-sm p-0" href="{{ url_for('year_report.csv_template', kind=kind) }}">{{ _("Образец CSV") }}</a>
+</div>
+{% endmacro %}
+
 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
   <h3 class="mb-0">{{ _("Финансы за {year} год", year=year) }}</h3>
   <form method="get" class="d-flex align-items-center gap-2">
@@ -119,13 +127,21 @@
               {% for g in spending.groups %}
               <tr>
                 <td>
-                  <details>
+                  <details data-key="spending:{{ g.name }}">
                     <summary><span class="yr-swatch" data-chart="spendingChart" data-label="{{ g.name }}"></span>{{ g.name }} <span class="text-muted small">({{ g.expenses|length }})</span></summary>
                     <ul class="list-unstyled small mt-1 mb-0">
                       {% for e in g.expenses %}
-                      <li class="d-flex justify-content-between gap-2">
+                      <li class="d-flex justify-content-between align-items-start gap-2 py-1 border-bottom">
                         <span>{{ fmt_date(e.date) }} · <a href="{{ url_for('counterparties.detail', counterparty_id=e.counterparty_id) }}">{{ e.counterparty.name }}</a>{% if e.description %} — {{ e.description|truncate(80) }}{% endif %}</span>
-                        <span class="text-nowrap">{{ fmt2(e.amount) }}</span>
+                        <span class="d-flex align-items-center gap-2">
+                          <form method="post" action="{{ url_for('year_report.set_expense_category', expense_id=e.id) }}" data-ajax>
+                            <select class="form-select form-select-sm py-0 js-autosubmit" name="category" style="min-width:10rem" aria-label="{{ _('Статья') }}" title="{{ _('Перенести в другую статью') }}">
+                              {% for c in categories %}<option {{ "selected" if c == g.name }}>{{ c }}</option>{% endfor %}
+                              {% if g.name not in categories %}<option selected>{{ g.name }}</option>{% endif %}
+                            </select>
+                          </form>
+                          <span class="text-nowrap">{{ fmt2(e.amount) }}</span>
+                        </span>
                       </li>
                       {% endfor %}
                     </ul>
@@ -198,6 +214,7 @@
         {{ _("Загрузить CSV") }}</button>
     </form>
   </div>
+  {{ csv_format_line(budget_format, "budget") }}
   {% if budget.sections %}
   <div class="row g-3 align-items-center mt-1">
     <div class="col-12 col-md-4"><div class="yr-chart"><canvas id="budgetChart" aria-label="{{ _('Смета по разделам') }}"></canvas></div></div>
@@ -209,7 +226,7 @@
           {% for s in budget.sections %}
           <tr>
             <td>
-              <details>
+              <details data-key="budget:{{ s.name }}">
                 <summary><span class="yr-swatch" data-chart="budgetChart" data-label="{{ s.name }}"></span>{{ s.name }} <span class="text-muted small">({{ s.lines|length }})</span></summary>
                 <ul class="list-unstyled small mt-1 mb-0">
                   {% for i in s.lines %}
@@ -232,7 +249,7 @@
     </div>
   </div>
   {% else %}
-  <p class="text-muted mb-0">{{ _("Смета на этот год не загружена. CSV — выгрузка таблицы сметы: столбцы «Наименование, Кол-во, Цена, Сумма», строка с одним наименованием — раздел.") }}</p>
+  <p class="text-muted mb-0">{{ _("Смета на этот год не загружена. CSV — выгрузка таблицы сметы, строка с одним наименованием — раздел.") }}</p>
   {% endif %}
 </div></div>
 
@@ -241,10 +258,10 @@
   <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
     <h5 class="card-title">{{ _("Списания из выписки без расхода") }}</h5>
     {% if gaps|selectattr("confident")|list %}
-    <form method="post" action="{{ url_for('year_report.book_all_statement_lines') }}">
+    <form method="post" action="{{ url_for('year_report.book_all_statement_lines') }}"
+      onsubmit="return confirm({{ _('Завести расходы по всем списаниям с подобранной статьёй ({count})?', count=gaps|selectattr('confident')|list|length)|tojson }})">
       <input type="hidden" name="year" value="{{ year }}">
-      <button class="btn btn-sm btn-primary" type="submit"
-        onclick="return confirm({{ _('Завести расходы по всем списаниям с подобранной статьёй ({count})?', count=gaps|selectattr('confident')|list|length)|tojson }})">
+      <button class="btn btn-sm btn-primary" type="submit">
         {{ _("Завести все с подобранной статьёй") }}</button>
     </form>
     {% endif %}
@@ -269,7 +286,7 @@
           <div class="text-muted">{{ (line.payment_purpose or "")|truncate(140) }}</div>
         </td>
         <td>
-          <form id="book{{ line.id }}" method="post" action="{{ url_for('year_report.book_statement_line', line_id=line.id) }}"></form>
+          <form id="book{{ line.id }}" method="post" action="{{ url_for('year_report.book_statement_line', line_id=line.id) }}" data-ajax></form>
           <select class="form-select form-select-sm js-cp-select" name="counterparty_id" form="book{{ line.id }}" data-new-input="newName{{ line.id }}" aria-label="{{ _('Контрагент') }}">
             <option value="new" {{ "selected" if not g.counterparty }}>{{ _("+ новый") }}</option>
             {% for cp in counterparties %}
@@ -286,7 +303,7 @@
         </td>
         <td class="text-nowrap">
           <button class="btn btn-sm btn-outline-primary" type="submit" form="book{{ line.id }}">{{ _("Завести") }}</button>
-          <form method="post" action="{{ url_for('year_report.mark_not_expense', line_id=line.id) }}" class="d-inline">
+          <form method="post" action="{{ url_for('year_report.mark_not_expense', line_id=line.id) }}" class="d-inline" data-ajax>
             <button class="btn btn-sm btn-outline-secondary" type="submit" title="{{ _('Не трата: перевод между своими счетами, возврат и т.п.') }}">{{ _("Не трата") }}</button>
           </form>
         </td>
@@ -304,17 +321,55 @@
 <div class="card mb-4"><div class="card-body">
   <h5 class="card-title">{{ _("Импорт отчёта по тратам (CSV)") }}</h5>
   <p class="text-muted small">{{ _("Выгрузка таблицы «Отчёт по тратам»: блоки «Наименование (раздел), , Дата, Кол-во, Цена, Сумма». Перед записью покажем, что из отчёта уже заведено, что найдено в выписке банка и что будет заведено как оплаченное не через банк.") }}
-    {{ _("Заказы с маркетплейса: впишите номер заказа (как в назначении платежа, например 0161382282-0005) во второй, пустой столбец у каждой позиции — позиции заказа сведутся к одной оплате, суммы подгонятся под фактически списанное. Позиции, купленные с личного аккаунта, оставьте без номера.") }}</p>
+    {{ _("Заказы с маркетплейса: впишите номер заказа (как в назначении платежа, например 0161382282-0005) в столбец «Номер заказа или месяц потребления» у каждой позиции — позиции заказа сведутся к одной оплате, суммы подгонятся под фактически списанное. Позиции, купленные с личного аккаунта, оставьте без номера.") }}</p>
   <form method="post" action="{{ url_for('year_report.import_spending_preview') }}" enctype="multipart/form-data" class="d-flex gap-2 align-items-center flex-wrap">
     <input type="hidden" name="year" value="{{ year }}">
     <input class="form-control form-control-sm" style="max-width:24rem" type="file" name="file" accept=".csv,text/csv" required aria-label="{{ _('CSV-файл отчёта по тратам') }}">
     <button class="btn btn-sm btn-outline-primary" type="submit">{{ _("Проверить файл") }}</button>
   </form>
+  {{ csv_format_line(spending_format, "spending") }}
 </div></div>
 
-<script src="{{ vendor_url('chart.js', 'chart.umd.js') }}"></script>
+{% with modal_id=budget_format.modal_id, format_action=budget_format.format_action, catalog=budget_format.catalog,
+        active_keys=budget_format.active_keys, positions=budget_format.positions, modal_title=_("Формат CSV сметы") %}
+{% include "setup/_csv_format_modal.html" %}
+{% endwith %}
+{% with modal_id=spending_format.modal_id, format_action=spending_format.format_action, catalog=spending_format.catalog,
+        active_keys=spending_format.active_keys, positions=spending_format.positions, modal_title=_("Формат CSV отчёта по тратам") %}
+{% include "setup/_csv_format_modal.html" %}
+{% endwith %}
+
 <script>
 (function () {
+  // Действия на странице («Завести», «Не трата», смена статьи) идут через
+  // data-ajax (base.html: submitFormAjax) — подменяется только
+  // #mainContent, и этот скрипт выполняется заново. Анимацию диаграмм
+  // показываем только при первой загрузке, раскрытые статьи — запоминаем.
+  var firstRender = !window.__yrRendered;
+  window.__yrRendered = true;
+  var OPEN_KEY = "yearReportOpen";
+  var open = [];
+  try { open = JSON.parse(sessionStorage.getItem(OPEN_KEY) || "[]"); } catch (e) {}
+  document.querySelectorAll("details[data-key]").forEach(function (el) {
+    if (open.indexOf(el.dataset.key) !== -1) el.open = true;
+    el.addEventListener("toggle", function () {
+      var keys = Array.from(document.querySelectorAll("details[data-key]"))
+        .filter(function (d) { return d.open; }).map(function (d) { return d.dataset.key; });
+      try { sessionStorage.setItem(OPEN_KEY, JSON.stringify(keys)); } catch (e) {}
+    });
+  });
+  document.querySelectorAll(".js-autosubmit").forEach(function (sel) {
+    sel.addEventListener("change", function () {
+      // Статья, куда перенесли расход, тоже остаётся раскрытой.
+      try {
+        var keys = JSON.parse(sessionStorage.getItem(OPEN_KEY) || "[]");
+        keys.push("spending:" + sel.value);
+        sessionStorage.setItem(OPEN_KEY, JSON.stringify(keys));
+      } catch (e) {}
+      sel.form.requestSubmit();
+    });
+  });
+
   // Категориальная палитра — фиксированный порядок, восьмой цвет — серый
   // для «Остальное»; отдельные шаги для тёмной темы.
   var dark = document.documentElement.getAttribute("data-bs-theme") === "dark";
@@ -338,7 +393,7 @@
       el.style.backgroundColor = byLabel[el.dataset.label] || otherColor;
     });
     var total = slices.reduce(function (a, s) { return a + s.value; }, 0);
-    new Chart(canvas.getContext("2d"), {
+    window.__yrCharts.push(new Chart(canvas.getContext("2d"), {
       type: "doughnut",
       data: {
         labels: slices.map(function (s) { return s.label; }),
@@ -346,7 +401,7 @@
                      borderColor: surface || "#fff", borderWidth: 2, hoverOffset: 6 }],
       },
       options: {
-        responsive: true, maintainAspectRatio: false, cutout: "55%",
+        responsive: true, maintainAspectRatio: false, cutout: "55%", animation: firstRender ? {} : false,
         plugins: {
           legend: { display: false },
           tooltip: { callbacks: { label: function (ctx) {
@@ -355,11 +410,28 @@
           } } },
         },
       },
-    });
+    }));
   }
-  draw("incomeChart", {{ income_chart|tojson }});
-  draw("spendingChart", {{ spending_chart|tojson }});
-  draw("budgetChart", {{ budget_chart|tojson }});
+  function drawAll() {
+    // Диаграммы прошлой отрисовки (до AJAX-подмены) — их canvas уже убраны
+    // из DOM, но сами экземпляры Chart.js остались бы висеть в памяти.
+    (window.__yrCharts || []).forEach(function (c) { c.destroy(); });
+    window.__yrCharts = [];
+    draw("incomeChart", {{ income_chart|tojson }});
+    draw("spendingChart", {{ spending_chart|tojson }});
+    draw("budgetChart", {{ budget_chart|tojson }});
+  }
+  // Chart.js подгружаем сами и только один раз: обычный <script src> в
+  // #mainContent после каждой AJAX-подмены вставлялся бы заново и
+  // перезагружал библиотеку.
+  if (window.Chart) {
+    drawAll();
+  } else {
+    var lib = document.createElement("script");
+    lib.src = {{ vendor_url('chart.js', 'chart.umd.js')|tojson }};
+    lib.onload = drawAll;
+    document.head.appendChild(lib);
+  }
 
   document.querySelectorAll(".js-cp-select").forEach(function (sel) {
     sel.addEventListener("change", function () {

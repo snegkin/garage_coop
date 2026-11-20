@@ -279,3 +279,56 @@ def test_spending_import_matches_statement_orders_and_cash(app, db, client):
         "year": "2026", "file": (io.BytesIO(SPENDING_CSV.encode("utf-8")), "report.csv"),
     }, content_type="multipart/form-data")
     assert resp.get_data(as_text=True).count("selected>уже заведён") >= 3
+
+
+def test_set_expense_category_returns_to_same_page(app, db, client):
+    _chairman(db, client)
+    cp = Counterparty(name="Подрядчик")
+    db.add(cp)
+    db.flush()
+    expense = Expense(counterparty_id=cp.id, date=dt.date(2026, 5, 1), amount=Decimal("100"), category="Прочее")
+    db.add(expense)
+    db.commit()
+    resp = client.post(f"/year-report/expenses/{expense.id}/category", data={"category": "Хоз. работы"},
+                       headers={"Referer": "http://localhost/year-report/?year=2026"})
+    assert resp.status_code == 302
+    assert resp.headers["Location"].endswith("/year-report/?year=2026")
+    assert db.get(Expense, expense.id).category == "Хоз. работы"
+    body = client.get("/year-report/?year=2026").get_data(as_text=True)
+    assert 'data-key="spending:Хоз. работы"' in body
+
+
+def test_custom_csv_format_with_skipped_column(app, db, client):
+    """Формат с пропуском столбца: дата в 1-м, сумма в 2-м, 3-й не читается,
+    наименование в 4-м — позиции абсолютные, пропуск не сдвигает остальные."""
+    _chairman(db, client)
+    resp = client.post("/year-report/format/spending", data={
+        "col_name": "1", "pos_name": "4", "col_date": "1", "pos_date": "1",
+        "col_amount": "1", "pos_amount": "2",
+    })
+    assert resp.status_code == 302
+    from app.year_report import get_csv_columns
+    assert get_csv_columns("spending") == ["date", "amount", "", "name"]
+    text = "Дата,Сумма,Комментарий,Наименование (хоз. работы)\n20.01.2026,5000,что угодно,Уборка снега\n"
+    rows = parse_spending_csv(text, get_csv_columns("spending"))
+    assert [(r["name"], r["amount"], r["section"], r["category"]) for r in rows] == [
+        ("Уборка снега", Decimal("5000"), "хоз. работы", "Хоз. работы"),
+    ]
+    template = client.get("/year-report/format/spending/template.csv").get_data(as_text=True)
+    assert template.splitlines()[0].count(",") == 3
+
+
+def test_csv_format_rejects_missing_required_and_duplicate_positions(app, db, client):
+    _chairman(db, client)
+    from app.year_report import get_csv_columns
+    client.post("/year-report/format/budget", data={"col_name": "1", "pos_name": "1"})
+    client.post("/year-report/format/budget", data={
+        "col_name": "1", "pos_name": "1", "col_amount": "1", "pos_amount": "1",
+    })
+    assert get_csv_columns("budget") == ["name", "quantity", "price", "amount"]
+    client.post("/year-report/format/budget", data={
+        "col_name": "1", "pos_name": "2", "col_amount": "1", "pos_amount": "1",
+    })
+    assert get_csv_columns("budget") == ["amount", "name"]
+    items = parse_budget_csv("Сумма,Наименование\n,Раздел\n100,Статья\n", get_csv_columns("budget"))
+    assert [(i["section"], i["name"], i["amount"]) for i in items] == [("Раздел", "Статья", Decimal("100"))]

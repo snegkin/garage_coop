@@ -23,10 +23,12 @@ Expense, сгруппированные по статьям).
 import csv
 import datetime as dt
 import io
+import json
 import re
 from decimal import Decimal, InvalidOperation
+from urllib.parse import urlsplit
 
-from flask import Blueprint, abort, flash, redirect, render_template, request, url_for
+from flask import Blueprint, Response, abort, flash, redirect, render_template, request, url_for
 from sqlalchemy.orm import selectinload
 
 from . import audit, database
@@ -34,7 +36,7 @@ from .accounting import available_statement_lines, pay_counterparty, reallocate_
 from .auth import roles_required
 from .i18n import translate as _
 from .models import (
-    BankAccount, BankStatementLine, BudgetItem, Charge, Counterparty, CounterpartyPayment, Expense,
+    BankAccount, BankStatementLine, BudgetItem, Charge, Counterparty, CounterpartyPayment, CsvImportProfile, Expense,
     ExpenseKind, FeeType, MemberAccount, Payment, RoleEnum,
 )
 
@@ -199,25 +201,88 @@ def _decode_upload(file_storage) -> str | None:
 
 # --- Смета -------------------------------------------------------------------
 
-def parse_budget_csv(text: str) -> list[dict]:
+# Настраиваемые столбцы CSV — как в импорте людей и гаражей мастера
+# настройки (CsvImportProfile, общая модалка setup/_csv_format_modal.html),
+# но позиция здесь — абсолютный номер столбца в файле: в выгрузке отчёта
+# по тратам между наименованием и датой есть второй столбец, который в
+# одних блоках пустой, в других — месяц потребления, и пропуск столбца не
+# должен сдвигать остальные. Профиль хранит список ключей по порядку
+# столбцов файла, "" — столбец, который не читается.
+# Каталог: (ключ, подпись, обязателен ли).
+BUDGET_COLUMN_CATALOG = [
+    ("name", "Наименование", True),
+    ("quantity", "Кол-во", False),
+    ("price", "Цена", False),
+    ("amount", "Сумма", True),
+]
+SPENDING_COLUMN_CATALOG = [
+    ("name", "Наименование", True),
+    ("extra", "Номер заказа или месяц потребления", False),
+    ("date", "Дата", True),
+    ("quantity", "Кол-во", False),
+    ("price", "Цена", False),
+    ("amount", "Сумма", True),
+]
+CSV_FORMATS = {
+    "budget": ("year_budget", BUDGET_COLUMN_CATALOG),
+    "spending": ("year_spending", SPENDING_COLUMN_CATALOG),
+}
+_EXAMPLE_ROWS = {
+    "budget": [
+        {"name": "Содержание кооператива"},
+        {"name": "Механизированная уборка снега", "quantity": "6", "price": "2 500,00", "amount": "15 000,00"},
+        {"name": "Фонд оплаты труда", "quantity": "12", "price": "2 000,00", "amount": "24 000,00"},
+    ],
+    "spending": [
+        {"name": "Наименование (электроэнергия)", "date": "Дата", "amount": "Сумма"},
+        {"name": "", "extra": "янв", "date": "13.02.2026", "quantity": "725", "price": "5,66", "amount": "4 103,50"},
+        {"name": "Наименование (видеонаблюдение)", "date": "Дата", "amount": "Сумма"},
+        {"name": "Wi-Fi мост", "extra": "0161382282-0005", "date": "29.07.2026", "quantity": "3", "price": "3 653,00", "amount": "10 959,00"},
+        {"name": "Механизированная уборка снега", "date": "20.01.2026", "quantity": "2", "price": "2 500,00", "amount": "5 000,00"},
+    ],
+}
+
+
+def get_csv_columns(kind: str) -> list[str]:
+    """Ключи по порядку столбцов файла ("" — пропускаемый столбец). По
+    умолчанию — каталог по порядку (формат таблиц председателя)."""
+    import_type, catalog = CSV_FORMATS[kind]
+    valid = {k for k, _l, _r in catalog}
+    profile = database.db_session.query(CsvImportProfile).filter_by(import_type=import_type).first()
+    if profile:
+        try:
+            cols = [c if c in valid else "" for c in json.loads(profile.columns)]
+        except (ValueError, TypeError):
+            cols = []
+        if any(cols):
+            return cols
+    return [k for k, _l, _r in catalog]
+
+
+def _row_values(row: list[str], columns: list[str]) -> dict[str, str]:
+    return {key: (row[i].strip() if i < len(row) else "") for i, key in enumerate(columns) if key}
+
+
+def parse_budget_csv(text: str, columns: list[str] | None = None) -> list[dict]:
     """
-    Смета из CSV (выгрузка таблицы: «Наименование, Кол-во, Цена, Сумма»):
-    строка с одним только наименованием — раздел, строка с суммой —
-    статья, строка без наименования — подытог раздела (пропускается).
+    Смета из CSV: строка с одним только наименованием (без количества,
+    цены и суммы) — раздел, строка с суммой — статья, строка без
+    наименования — подытог раздела (пропускается), строка заголовков
+    («Наименование, Кол-во, …» — в столбцах текст вместо чисел) тоже.
     Хвост с итогами («Количество гаражей», «Целевая сумма»…) не читается.
     """
+    columns = columns or [k for k, _l, _r in BUDGET_COLUMN_CATALOG]
     items = []
     section = None
-    for row in _read_csv_rows(text, 4):
-        name, qty, price, amount = row[:4]
-        if name.startswith("Наименование"):
-            continue
+    for row in _read_csv_rows(text, len(columns)):
+        v = _row_values(row, columns)
+        name, qty, price, amount = v.get("name", ""), v.get("quantity", ""), v.get("price", ""), v.get("amount", "")
         if name.startswith("Количество гаражей") or name.startswith("Целевая сумма"):
             break
         if not name:
             continue
         amount_value = parse_money(amount)
-        if amount_value is None and not qty and not price:
+        if not amount and not qty and not price:
             section = name
             continue
         if amount_value is None or amount_value <= 0:
@@ -243,47 +308,51 @@ def _month_end(year: int, month: int) -> dt.date:
     return dt.date(year, month + 1, 1) - dt.timedelta(days=1)
 
 
-def parse_spending_csv(text: str) -> list[dict]:
+def parse_spending_csv(text: str, columns: list[str] | None = None) -> list[dict]:
     """
-    «Отчёт по тратам» из CSV: блоки «Наименование (раздел), , Дата, Кол-во,
-    Цена, Сумма» со строками трат, «Итого» в конце блока. У блока
-    электроэнергии второй столбец — месяц потребления: дата траты тогда —
-    последний день этого месяца (как дата счёта ТНС), а дата в строке —
-    день оплаты (paid_on, по ней ищется списание в выписке). Во втором
-    столбце остальных блоков (там он пустой) можно указать номер заказа
-    маркетплейса — по нему позиции заказа сводятся к одной оплате. Читается до
-    «Легенды». Пустые/нулевые строки (субботник силами членов) пропускаются.
+    «Отчёт по тратам» из CSV: блоки трат, каждый начинается строкой
+    заголовка «Наименование (раздел), , Дата, …» (наименование есть, а в
+    столбцах даты и суммы — не дата и не сумма), в конце блока — «Итого»
+    (без даты, пропускается). Столбец «номер заказа или месяц»: месяц
+    («янв») — строка электроэнергии, дата траты тогда последний день этого
+    месяца (как дата счёта ТНС), а дата в строке — день оплаты (paid_on, по
+    ней ищется списание в выписке); номер заказа маркетплейса — по нему
+    позиции заказа сводятся к одной оплате. Читается до «Легенды».
+    Пустые/нулевые строки (субботник силами членов) пропускаются.
     """
+    columns = columns or [k for k, _l, _r in SPENDING_COLUMN_CATALOG]
     rows = []
     section = None
-    monthly = False
-    for index, row in enumerate(_read_csv_rows(text, 6)):
-        name, month_col, date_col, qty, price, amount = row[:6]
+    for index, row in enumerate(_read_csv_rows(text, len(columns))):
+        v = _row_values(row, columns)
+        name, extra, date_col = v.get("name", ""), v.get("extra", ""), v.get("date", "")
+        amount = v.get("amount", "")
         if name.startswith("Легенда"):
             break
-        if date_col == "Дата" and name:
-            header = re.search(r"\(([^)]*)\)", name)
-            section = header.group(1).strip() if header else name
-            monthly = month_col == "Месяц"
-            continue
         paid_on = _parse_ru_date(date_col)
         amount_value = parse_money(amount)
+        if name and paid_on is None and date_col and amount_value is None:
+            header = re.search(r"\(([^)]*)\)", name)
+            section = header.group(1).strip() if header else name
+            continue
         if paid_on is None or amount_value is None or amount_value <= 0:
             continue
         date = paid_on
-        if monthly and month_col.lower()[:3] in _MONTHS:
-            month = _MONTHS.index(month_col.lower()[:3]) + 1
+        month_key = extra.lower()[:3]
+        if month_key in _MONTHS and not re.search(r"\d", extra):
+            month = _MONTHS.index(month_key) + 1
             year = paid_on.year if month <= paid_on.month else paid_on.year - 1
             date = _month_end(year, month)
-            name = f"{section.capitalize() if section else 'Электроэнергия'} за {month_col.lower()} {year}"
+            title = section.capitalize() if section else "Электроэнергия"
+            name = f"{title} за {extra.lower()} {year}"
         if not name:
             continue
-        quantity = parse_money(qty)
-        price_value = parse_money(price)
+        quantity = parse_money(v.get("quantity"))
+        price_value = parse_money(v.get("price"))
         description = name
         if quantity is not None and price_value is not None and quantity != 1:
             description = f"{name} ({_fmt_number(quantity)} × {_fmt_number(price_value)})"
-        order = month_col if not monthly and re.fullmatch(r"\d{6,}-\d{1,6}", month_col) else None
+        order = extra if re.fullmatch(r"\d{6,}-\d{1,6}", extra) else None
         rows.append({
             "index": index,
             "order": order,
@@ -654,11 +723,38 @@ def view():
         income_chart=_chart_slices(income["rows"], "received"),
         spending_chart=_chart_slices(spending["groups"], "amount"),
         budget_chart=_chart_slices(budget["sections"], "amount"),
+        budget_format=csv_format_context("budget"),
+        spending_format=csv_format_context("spending"),
     )
 
 
 def _redirect_back(year: int | None):
+    """Обратно на ту же страницу, с которой пришло действие (тот же адрес —
+    тогда AJAX-отправка формы, см. base.html: submitFormAjax, подменяет
+    только содержимое, без полной перезагрузки). Без JS — к списку
+    списаний."""
+    referrer = request.referrer or ""
+    view_path = url_for("year_report.view")
+    if referrer and urlsplit(referrer).path == view_path:
+        parts = urlsplit(referrer)
+        return redirect(parts.path + (f"?{parts.query}" if parts.query else ""))
     return redirect(url_for("year_report.view", year=year) + "#gaps")
+
+
+@bp.route("/expenses/<int:expense_id>/category", methods=["POST"])
+@roles_required(RoleEnum.CHAIRMAN)
+def set_expense_category(expense_id):
+    """Перенос расхода в другую статью прямо со страницы — если при
+    заведении статья подобрана неверно."""
+    expense = database.db_session.get(Expense, expense_id)
+    if expense is None:
+        abort(404)
+    category = (request.form.get("category") or "").strip()
+    if not category:
+        abort(400)
+    expense.category = category
+    database.db_session.commit()
+    return _redirect_back(expense.date.year)
 
 
 @bp.route("/lines/<int:line_id>/book", methods=["POST"])
@@ -738,9 +834,9 @@ def import_budget():
     if year is None:
         abort(400)
     text = _decode_upload(request.files.get("file"))
-    items = parse_budget_csv(text) if text else []
+    items = parse_budget_csv(text, get_csv_columns("budget")) if text else []
     if not items:
-        flash(_("В файле не найдено ни одной статьи сметы — нужен CSV со столбцами «Наименование, Кол-во, Цена, Сумма»."), "danger")
+        flash(_("В файле не найдено ни одной статьи сметы — проверьте формат CSV (какие столбцы в каком порядке)."), "danger")
         return redirect(url_for("year_report.view", year=year))
     database.db_session.query(BudgetItem).filter(BudgetItem.year == year).delete()
     for position, item in enumerate(items):
@@ -883,9 +979,9 @@ def _exact_subset(rows: list[dict], target: Decimal) -> list[dict] | None:
 def import_spending_preview():
     year = request.form.get("year", type=int)
     text = _decode_upload(request.files.get("file"))
-    rows = parse_spending_csv(text) if text else []
+    rows = parse_spending_csv(text, get_csv_columns("spending")) if text else []
     if not rows:
-        flash(_("В файле не найдено ни одной траты — нужен CSV «Отчёта по тратам» (блоки «Наименование (раздел), , Дата, Кол-во, Цена, Сумма»)."), "danger")
+        flash(_("В файле не найдено ни одной траты — проверьте формат CSV (какие столбцы в каком порядке)."), "danger")
         return redirect(url_for("year_report.view", year=year))
     _match_spending_rows(rows)
     line_ids = {int(r["action"].split(":")[1]) for r in rows if r["action"].startswith("line:")}
@@ -932,7 +1028,7 @@ def import_spending_preview():
 def import_spending_apply():
     f = request.form
     year = f.get("year", type=int)
-    rows = parse_spending_csv(f.get("csv_text") or "")
+    rows = parse_spending_csv(f.get("csv_text") or "", get_csv_columns("spending"))
     by_index = {r["index"]: r for r in rows}
     counterparties = database.db_session.query(Counterparty).order_by(Counterparty.name).all()
     available = {line.id: line for line in available_statement_lines()}
@@ -1012,3 +1108,73 @@ def import_spending_apply():
     flash(_("Отчёт по тратам импортирован: заведено расходов — {created}, уточнена статья — {updated}.",
             created=created, updated=updated), "success")
     return redirect(url_for("year_report.view", year=year))
+
+
+# --- Формат CSV ------------------------------------------------------------
+
+def csv_format_context(kind: str) -> dict:
+    """Параметры общей модалки setup/_csv_format_modal.html."""
+    _import_type, catalog = CSV_FORMATS[kind]
+    columns = get_csv_columns(kind)
+    positions = {key: i + 1 for i, key in enumerate(columns) if key}
+    labels = dict((k, lbl) for k, lbl, _r in catalog)
+    return {
+        "modal_id": f"{kind}FormatModal",
+        "format_action": url_for("year_report.save_csv_format", kind=kind),
+        "catalog": catalog,
+        "active_keys": set(positions),
+        "positions": positions,
+        "summary": [(i + 1, labels[key]) for i, key in enumerate(columns) if key],
+    }
+
+
+@bp.route("/format/<kind>", methods=["POST"])
+@roles_required(RoleEnum.CHAIRMAN)
+def save_csv_format(kind):
+    if kind not in CSV_FORMATS:
+        abort(404)
+    import_type, catalog = CSV_FORMATS[kind]
+    positions: dict[int, str] = {}
+    for key, _label, required in catalog:
+        if not request.form.get(f"col_{key}"):
+            continue
+        try:
+            pos = int(request.form.get(f"pos_{key}") or 0)
+        except ValueError:
+            pos = 0
+        if pos < 1:
+            flash(_("Укажите номер столбца для каждой отмеченной колонки (начиная с 1)."), "danger")
+            return _redirect_back(None)
+        if pos in positions:
+            flash(_("Две колонки не могут занимать один и тот же столбец файла ({pos}).", pos=pos), "danger")
+            return _redirect_back(None)
+        positions[pos] = key
+    required = {k for k, _l, r in catalog if r}
+    if not required.issubset(positions.values()):
+        flash(_("В формате обязательно должны быть колонки «Наименование», «Сумма» (и «Дата» — для отчёта по тратам)."), "danger")
+        return _redirect_back(None)
+    columns = [positions.get(i, "") for i in range(1, max(positions) + 1)]
+    payload = json.dumps(columns, ensure_ascii=False)
+    profile = database.db_session.query(CsvImportProfile).filter_by(import_type=import_type).first()
+    if profile is None:
+        database.db_session.add(CsvImportProfile(import_type=import_type, columns=payload))
+    else:
+        profile.columns = payload
+    database.db_session.commit()
+    flash(_("Формат CSV сохранён."), "success")
+    return _redirect_back(None)
+
+
+@bp.route("/format/<kind>/template.csv")
+@roles_required(RoleEnum.CHAIRMAN)
+def csv_template(kind):
+    if kind not in CSV_FORMATS:
+        abort(404)
+    columns = get_csv_columns(kind)
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    for example in _EXAMPLE_ROWS[kind]:
+        writer.writerow([example.get(key, "") if key else "" for key in columns])
+    filename = "budget_template.csv" if kind == "budget" else "spending_template.csv"
+    return Response(buf.getvalue(), mimetype="text/csv",
+                    headers={"Content-Disposition": f"attachment; filename={filename}"})

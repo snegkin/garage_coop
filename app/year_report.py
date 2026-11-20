@@ -1785,3 +1785,18 @@ def set_section_kind():
     row.is_target = request.form.get("kind") == "target"
     database.db_session.commit()
     return _redirect_back(year)
+
+
+def budget_totals_by_kind() -> dict[int, dict[str, float]]:
+    """Суммы смет по годам: членские разделы, целевые и вся смета — для
+    подсказки «сумма из сметы» в массовом начислении (finance.mass_charge).
+    Тип раздела — как на странице «Финансы за год»: сохранённый или
+    подобранный по названию."""
+    saved = {(r.year, r.name): r.is_target for r in database.db_session.query(BudgetSection)}
+    totals: dict[int, dict[str, float]] = {}
+    for item in database.db_session.query(BudgetItem):
+        is_target = saved.get((item.year, item.section), guess_section_target(item.section))
+        row = totals.setdefault(item.year, {"membership": 0.0, "target": 0.0, "total": 0.0})
+        row["target" if is_target else "membership"] += float(item.amount)
+        row["total"] += float(item.amount)
+    return totals

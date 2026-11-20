@@ -1368,6 +1368,22 @@ def import_spending_preview():
             (e for e in near if abs((e.date - row["date"]).days) <= 7
              and normalize_category(e.category) == row["category"]), None,
         ) if row["action"] == "cash" else None
+        # По умолчанию такую позицию относим к этому расходу: закупка уже
+        # заведена одной суммой по выписке (Русский Свет — один платёж на
+        # весь заказ), позиции отчёта её детализируют, а не повторяют.
+        if row["hint_expense"] is not None:
+            row["action"] = f"expense:{row['hint_expense'].id}"
+            row["hinted"] = True
+    # Сколько позиций отчёта по умолчанию детализируют каждый расход — для
+    # пояснения в предпросмотре (суммы подгонятся под сумму расхода).
+    split_groups: dict[int, Decimal] = {}
+    for row in rows:
+        if row.get("hinted"):
+            expense_id = int(row["action"].split(":")[1])
+            split_groups[expense_id] = split_groups.get(expense_id, Decimal("0")) + row["amount"]
+    for row in rows:
+        if row.get("hinted"):
+            row["split_total"] = split_groups[int(row["action"].split(":")[1])]
         if row["action"].startswith("expense:"):
             current = int(row["action"].split(":")[1])
             if current not in {e.id for e in row["nearby_expenses"]} and current in expenses:
@@ -1391,6 +1407,7 @@ def import_spending_apply():
     available = {line.id: line for line in available_statement_lines()}
 
     to_line: dict[int, list[dict]] = {}
+    to_expense: dict[int, list[dict]] = {}
     new_names: list[str] = []
     created = updated = 0
     total = Decimal("0")
@@ -1400,13 +1417,10 @@ def import_spending_apply():
         category = cap(f.get(f"category_{index}") or row["category"], Expense.__table__.c.category)
         if action == "skip":
             continue
-        if action.startswith("expense:"):
-            expense = database.db_session.get(Expense, int(action.split(":")[1]))
-            if expense is not None and expense.category != category:
-                expense.category = category
-                updated += 1
-            continue
         row["category"] = category
+        if action.startswith("expense:"):
+            to_expense.setdefault(int(action.split(":")[1]), []).append(row)
+            continue
         if action.startswith("line:"):
             line_id = int(action.split(":")[1])
             if line_id in available:
@@ -1426,6 +1440,44 @@ def import_spending_apply():
             cash_expense.booked_payment_id = cash_payment.id
             created += 1
             total += row["amount"]
+
+    # Строки, отнесённые к уже заведённому расходу. Одна строка — только
+    # уточнить статью. Несколько — расход детализируется позициями: первая
+    # позиция становится самим расходом (его документы и оплата остаются),
+    # остальные — новыми расходами того же контрагента; суммы подгоняются
+    # под сумму расхода (оплачено по факту), цена по отчёту — в описании.
+    # Расход из показаний общего счётчика не разбиваем.
+    meter_expense_ids = {
+        expense_id for (expense_id,) in database.db_session.query(MasterMeterReading.expense_id)
+        .filter(MasterMeterReading.expense_id.isnot(None))
+    }
+    for expense_id, expense_rows in to_expense.items():
+        expense = database.db_session.get(Expense, expense_id)
+        if expense is None:
+            continue
+        if len(expense_rows) == 1 or expense.id in meter_expense_ids:
+            category = expense_rows[0]["category"]
+            if expense.category != category:
+                expense.category = category
+                updated += 1
+            continue
+        fitted = _fit_to_payment(expense_rows, expense.amount)
+        for i, (row, amount) in enumerate(zip(expense_rows, fitted)):
+            description = row["description"]
+            if amount != row["amount"]:
+                description = f"{description} — " + _("по отчёту {amount} ₽", amount=_fmt_money(row["amount"]))
+            if i == 0:
+                expense.amount, expense.category, expense.description = amount, row["category"], description
+                continue
+            database.db_session.add(Expense(
+                counterparty_id=expense.counterparty_id, date=expense.date, amount=amount,
+                category=row["category"], description=description, kind=ExpenseKind.CHARGE,
+                booked_payment_id=expense.booked_payment_id, budget_item_id=None,
+            ))
+            created += 1
+        updated += 1
+        database.db_session.flush()
+        touched[expense.counterparty_id] = expense.counterparty
 
     for line_id, line_rows in to_line.items():
         line = available[line_id]

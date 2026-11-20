@@ -32,6 +32,26 @@
   .yr-meter-fig { text-align:right; }
   @media (max-width: 767.98px) { .yr-meter-row { grid-template-columns: 1fr; gap:.2rem; } .yr-meter-fig { text-align:left; } }
   [data-bs-theme="dark"] .yr-meter-within { background:#3987e5; }
+  /* «Смета и факт» — таблица разделов (сетка, чтобы строки раскрывались
+     через <details> и колонки совпадали у заголовка, разделов и позиций). */
+  .yr-pf-row { display:grid; grid-template-columns: minmax(0, 2.6fr) repeat(5, minmax(5.5rem, 1fr));
+               gap:.75rem; align-items:center; padding:.35rem 0; border-bottom:1px solid var(--bs-border-color);
+               font-variant-numeric: tabular-nums; }
+  .yr-pf-row > span:not(.yr-pf-name) { text-align:right; white-space:nowrap; }
+  .yr-pf-row > span:first-child { text-align:left; white-space:normal; }
+  .yr-pf-head { border-bottom-width:2px; }
+  .yr-pf summary.yr-pf-row { list-style:none; cursor:pointer; }
+  .yr-pf summary.yr-pf-row::-webkit-details-marker { display:none; }
+  .yr-pf summary .yr-pf-name::before { content:"▸"; display:inline-block; width:1em; color: var(--bs-secondary-color); }
+  .yr-pf details[open] > summary .yr-pf-name::before { content:"▾"; }
+  .yr-pf .yr-meter { margin-top:.3rem; height:.4rem; }
+  .yr-pf-detail { background: var(--bs-tertiary-bg); }
+  .yr-pf-detail .yr-pf-row { border-bottom-style:dashed; }
+  .yr-pf-total { border-bottom:0; border-top:2px solid var(--bs-border-color); }
+  @media (max-width: 767.98px) {
+    .yr-pf-row { grid-template-columns: minmax(0, 1fr) auto auto; }
+    .yr-pf-row > span:nth-child(4), .yr-pf-row > span:nth-child(5) { display:none; }
+  }
 </style>
 
 {% macro csv_format_line(fmt, kind) %}
@@ -338,26 +358,36 @@
   </div>
 
   {% if plan_fact.sections %}
-  <div class="yr-meter-list">
+  {% set show_funding = budget.sections and budget.funding.charged %}
+  <div class="yr-pf">
+    <div class="yr-pf-row yr-pf-head small text-muted">
+      <span>{{ _("Раздел сметы") }}</span><span>{{ _("План") }}</span><span>{{ _("Потрачено") }}</span><span>%</span>
+      <span>{{ _("Собрано") if show_funding else "" }}</span><span>{{ _("Остаток") if show_funding else "" }}</span>
+    </div>
     {% for sec in plan_fact.sections %}
-    <details class="mb-2" data-key="plan:{{ sec.name }}">
-      <summary class="yr-meter-row">
-        <span class="yr-meter-name fw-semibold">{{ sec.name }} <span class="badge fw-normal {{ 'text-bg-warning' if sec.is_target else 'text-bg-light border' }}">{{ _("целевой") if sec.is_target else _("членский") }}</span></span>
-        {{ meter(sec.meter, sec.name) }}
-        <span class="yr-meter-fig small">{{ meter_figures(sec) }}
-          {% if budget.funding.charged %}<br><span class="text-nowrap">{{ _("собрано {amount}", amount=fmt2(sec.collected)) }}</span>
-          <span class="text-nowrap {{ 'text-success' if sec.balance >= 0 else 'text-danger fw-semibold' }}">· {% if sec.balance >= 0 %}{{ _("остаток {amount}", amount=fmt2(sec.balance)) }}{% else %}{{ _("дефицит {amount}", amount=fmt2(-sec.balance)) }}{% endif %}</span>{% endif %}
+    <details data-key="plan:{{ sec.name }}">
+      <summary class="yr-pf-row">
+        <span class="yr-pf-name">
+          <span class="fw-semibold">{{ sec.name }}</span>
+          <span class="badge fw-normal {{ 'text-bg-warning' if sec.is_target else 'text-bg-light border' }}">{{ _("целевой") if sec.is_target else _("членский") }}</span>
+          {{ meter(sec.meter, sec.name) }}
         </span>
+        <span>{{ fmt2(sec.plan) }}</span>
+        <span>{{ fmt2(sec.fact) }}</span>
+        <span class="{{ 'text-danger fw-semibold' if sec.meter.over_amount }}">{{ sec.meter.rate if sec.meter.rate is not none else "—" }}</span>
+        <span>{{ fmt2(sec.collected) if show_funding else "" }}</span>
+        <span>{% if show_funding %}<span class="{{ 'text-success' if sec.balance >= 0 else 'text-danger fw-semibold' }}">{{ fmt2(sec.balance) }}</span>{% endif %}</span>
       </summary>
-      <div class="ps-3 pt-1">
+      <div class="yr-pf-detail">
         {% for row in sec["items"] %}
-        <div class="yr-meter-row small">
-          <span class="yr-meter-name">{{ row.item.name }}{% if not row.expenses %} <span class="text-muted">— {{ _("не потрачено") }}</span>{% endif %}</span>
-          {{ meter(row.meter, row.item.name) }}
-          <span class="yr-meter-fig">{{ meter_figures(row) }}</span>
+        <div class="yr-pf-row small {{ 'text-muted' if not row.expenses }}">
+          <span class="yr-pf-name ps-3">{{ row.item.name }}{% if not row.expenses %} — {{ _("не потрачено") }}{% endif %}
+            {% if row.meter.over_amount %}<span class="text-muted">({{ _("сверх плана позиции {amount}", amount=fmt2(row.meter.over_amount)) }})</span>{% endif %}</span>
+          <span>{{ fmt2(row.plan) }}</span><span>{{ fmt2(row.fact) if row.expenses else "—" }}</span>
+          <span>{{ row.meter.rate if row.expenses and row.meter.rate is not none else "" }}</span><span></span><span></span>
         </div>
         {% if row.expenses %}
-        <ul class="list-unstyled small ms-3 mb-2">
+        <ul class="list-unstyled small ms-4 mb-2">
           {% for entry in row.expenses %}{% set e = entry.expense %}
           <li class="d-flex flex-wrap flex-md-nowrap justify-content-between align-items-center gap-2 py-1 border-bottom">
             <span>{% if entry.suggested %}<span class="text-warning-emphasis" title="{{ _('Подобрано автоматически') }}">≈</span> {% endif %}{{ fmt_date(e.date) }} · <a href="{{ url_for('counterparties.detail', counterparty_id=e.counterparty_id) }}">{{ e.counterparty.name }}</a>{% if e.description %} — {{ e.description|truncate(70) }}{% endif %}</span>
@@ -370,7 +400,14 @@
       </div>
     </details>
     {% endfor %}
+    <div class="yr-pf-row yr-pf-total fw-bold">
+      <span>{{ _("Итого по смете") }}</span><span>{{ fmt2(plan_fact.plan) }}</span><span>{{ fmt2(plan_fact.fact) }}</span>
+      <span>{{ plan_fact.meter.rate if plan_fact.meter.rate is not none else "—" }}</span>
+      <span>{{ fmt2(plan_fact.collected) if show_funding else "" }}</span>
+      <span>{% if show_funding %}<span class="{{ 'text-success' if plan_fact.balance >= 0 else 'text-danger' }}">{{ fmt2(plan_fact.balance) }}</span>{% endif %}</span>
+    </div>
   </div>
+  <p class="text-muted small mt-2 mb-0">{{ _("Нажмите на раздел, чтобы увидеть его позиции и расходы. Собрано — доля средств сметы, приходящаяся на раздел; остаток — собрано минус потрачено (плюс — переходит на следующий год, минус — дефицит раздела). Расход относится к одной позиции сметы, поэтому превышение по отдельной позиции — подсказка, важнее итог раздела.") }}</p>
   {% else %}
   <p class="text-muted">{{ _("Смета на этот год не загружена — загрузите её ниже, чтобы сравнить траты с планом.") }}</p>
   {% endif %}
@@ -393,16 +430,6 @@
   </details>
   {% endif %}
 
-  <div class="table-responsive mt-3">
-  <table class="table table-sm mb-0 yr-table align-middle">
-    <thead><tr><th></th><th class="text-end">{{ _("План") }}</th><th class="text-end">{{ _("Факт") }}</th><th class="text-end">{{ _("Разница") }}</th></tr></thead>
-    <tbody>
-      <tr><td>{{ _("Поступления") }}</td><td class="text-end">{{ fmt2(income.total.charged) }}</td><td class="text-end">{{ fmt2(income.total.received) }}</td><td class="text-end">{{ fmt2(income.total.received - income.total.charged) }}</td></tr>
-      <tr><td>{{ _("Расходы по смете") }}</td><td class="text-end">{{ fmt2(plan_fact.plan) if plan_fact.plan else "—" }}</td><td class="text-end">{{ fmt2(plan_fact.fact) }}</td><td class="text-end">{{ fmt2(plan_fact.fact - plan_fact.plan) if plan_fact.plan else "—" }}</td></tr>
-      <tr><td>{{ _("Расходы вне сметы") }}</td><td class="text-end">—</td><td class="text-end">{{ fmt2(plan_fact.off_total) }}</td><td></td></tr>
-    </tbody>
-  </table>
-  </div>
 </div></div>
 
 {# --- Смета --- #}

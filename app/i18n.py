@@ -3822,6 +3822,11 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "ID приложения": "App ID",
         "Очистите поле ID, чтобы выключить вход через провайдера.": "Clear the ID field to turn off sign-in with that provider.",
         # «Финансы за год» (app/year_report.py)
+        "Относится к уже заведённому расходу: {date}, {amount} ₽ — {name}. Позиции этого заказа в отчёте на {listed} ₽ — расход разобьётся на них, суммы подгонятся под оплаченные {amount} ₽. Если позиция не из него — выберите «Оплачено не через банк».": "Belongs to an already recorded expense: {date}, {amount} ₽ — {name}. This order's items in the report total {listed} ₽ — the expense will be split into them and the amounts scaled to the {amount} ₽ actually paid. If the item is not part of it, select “Paid not via the bank”.",
+        "Остаток": "Balance",
+        "сверх плана позиции {amount}": "over the item plan by {amount}",
+        "Итого по смете": "Budget total",
+        "Нажмите на раздел, чтобы увидеть его позиции и расходы. Собрано — доля средств сметы, приходящаяся на раздел; остаток — собрано минус потрачено (плюс — переходит на следующий год, минус — дефицит раздела). Расход относится к одной позиции сметы, поэтому превышение по отдельной позиции — подсказка, важнее итог раздела.": "Click a section to see its items and expenses. Collected is the section's share of budget funds; balance is collected minus spent (positive carries over to next year, negative is the section's shortfall). An expense is assigned to a single budget item, so overspending on an individual item is only a hint — the section total matters more.",
         "Какие операции считать": "Which transactions to count",
         "Все операции: и по расчётному счёту, и наличные (платежи, вписанные вручную, траты «не через банк»)": "All transactions: both the bank account and cash (payments entered manually, expenses “not via the bank”)",
         "Все операции": "All transactions",

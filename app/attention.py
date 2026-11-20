@@ -30,7 +30,7 @@ from .permissions import is_board
 def counts(user) -> dict[str, int]:
     """Счётчики по видам; ключи есть всегда (0, если пользователю вид не
     положен) — контекст-процессор отдаёт их шаблонам как pending_*_count."""
-    result = {"pd": 0, "votes": 0, "proposals": 0, "applications": 0, "mail": 0}
+    result = {"pd": 0, "votes": 0, "proposals": 0, "applications": 0, "mail": 0, "owed": 0}
     if not user:
         return result
     session = database.db_session
@@ -40,6 +40,11 @@ def counts(user) -> dict[str, int]:
         result["pd"] = session.query(PersonDataRevision).filter(
             PersonDataRevision.status == PersonDataRevisionStatus.PENDING
         ).count()
+        # и кому кооператив должен выплатить: начисленная оплата труда,
+        # траты за свой счёт к возмещению (app/year_report.py: owed_people).
+        # Дёшево: только расходы с человеком-получателем, обычно единицы.
+        from .year_report import owed_people
+        result["owed"] = len(owed_people())
 
     # всем — открытые голосования, где у пользователя нет ни одного бюллетеня
     if user.person_id:
@@ -101,6 +106,7 @@ def items(user, by_key: dict[str, int] | None = None) -> list[dict]:
         ("proposals", "lightbulb", _("Предложения ждут решения"), url_for("proposals.list_proposals")),
         ("applications", "file-earmark-text", _("Заявления ждут решения"),
          url_for("applications.list_applications", status="submitted")),
+        ("owed", "cash-coin", _("К выплате людям (оплата труда, возмещение)"), url_for("year_report.view") + "#owed"),
     ]
     result = [
         {"key": key, "icon": icon, "label": label, "url": url, "count": c[key]}

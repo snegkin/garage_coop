@@ -14,7 +14,7 @@ Expense, сгруппированные по статьям).
 - загрузка сметы из CSV (выгрузка таблицы председателя — разделы и статьи);
 - импорт «Отчёта по тратам» из CSV с предпросмотром: строки сопоставляются
   с уже заведёнными расходами и со списаниями из выписки, остальное
-  заводится как «оплачено не через банк» (наличными, за свой счёт).
+  заводится как «оплачено не через банк» (наличными или за свой счёт).
 
 Статьи расходов — Expense.category, свободный текст; для сводки он
 приводится к статье справочника ExpenseCategory (normalize_category) — исторические
@@ -141,9 +141,9 @@ def category_rules() -> CategoryRules:
 
 
 # Контрагент для трат, оплаченных не со счёта кооператива (наличными,
-# председателем за свой счёт и т.п.) — заводится при импорте отчёта по
+# кем-то за свой счёт и т.п.) — заводится при импорте отчёта по
 # тратам, если такого ещё нет (ищется по названию).
-CASH_COUNTERPARTY_NAME = "Оплачено не через банк (наличные, за свой счёт)"
+CASH_COUNTERPARTY_NAME = "Оплачено наличными / не через банк"
 
 # Технические проводки — не реальные деньги, а перенос сальдо между
 # лицевыми счетами (зачёт, выбытие/смена собственника) и списание пени:
@@ -614,7 +614,7 @@ def _cash_counterparty() -> Counterparty:
     cp = database.db_session.query(Counterparty).filter(Counterparty.name == CASH_COUNTERPARTY_NAME).first()
     if cp is None:
         cp = Counterparty(name=CASH_COUNTERPARTY_NAME, comment=_(
-            "Траты, оплаченные не со счёта кооператива: наличными, за свой счёт с последующим возмещением и т.п."
+            "Траты, оплаченные не со счёта кооператива: наличными, а иногда и за свой счёт."
         ))
         database.db_session.add(cp)
         database.db_session.flush()
@@ -661,7 +661,7 @@ def _available_years() -> list[int]:
 #
 # Налоговая видит только движение по расчётному счёту; наличные взносы
 # (председатель вписывает платёж на лицевой счёт вручную) и траты наличными
-# / за свой счёт в выписке не видны. Переключатель «Только р/с» (?source=bank)
+# (в т.ч. за свой счёт) в выписке не видны. Переключатель «Только р/с» (?source=bank)
 # считает по выписке: поступления — платежи, пришедшие через банк (строка
 # выписки или запись реестра платежей банка ссылается на платёж), траты —
 # без расходов, оплаченных не со счёта. По умолчанию — все операции.
@@ -1073,6 +1073,7 @@ def view():
                                    lambda r, colors=_budget_colors(budget["sections"]): colors[r["name"]]),
         plan_fact=_with_funding(_plan_fact(year), budget),
         source=current_source(),
+        owed=owed_people(),
         today=dt.date.today(),
         persons=database.db_session.query(Person).filter(Person.is_archived.is_(False)).order_by(Person.full_name).all(),
         funding_chart=_chart_slices(budget["sections"], "collected",
@@ -2238,9 +2239,11 @@ def _person_counterparty(person: Person) -> Counterparty:
 @bp.route("/expenses/new", methods=["POST"])
 @roles_required(RoleEnum.CHAIRMAN)
 def add_expense():
-    """Трата, которой нет в выписке: наличными / за свой счёт (сразу с
-    платежом «не через банк»), или начисление к выплате человеку (оплата
-    труда председателю), которое оплатят позже со счёта."""
+    """Трата, которой нет в выписке: наличными / не через банк (сразу с
+    платежом), за свой счёт — к возмещению человеку, или начисление к
+    выплате (оплата труда председателю). Два последних — долг кооператива
+    человеку (расход у контрагента на его имя, без платежа): возмещение /
+    выплату по выписке потом разносят как «оплата начисленного»."""
     f = request.form
     try:
         date = dt.date.fromisoformat(f.get("date") or "")
@@ -2252,14 +2255,18 @@ def add_expense():
         return _redirect_back(dt.date.today().year)
     person = database.db_session.get(Person, f.get("person_id", type=int)) if f.get("person_id") else None
     mode = f.get("mode") or "cash"
-    if mode == "accrued" and person is None:
-        flash(_("Для начисления к выплате выберите, кому оно начислено."), "danger")
+    if mode not in ("cash", "own", "accrued"):
+        mode = "cash"
+    if mode in ("own", "accrued") and person is None:
+        flash(_("Выберите человека: кому начислено или кто платил за свой счёт."), "danger")
         return _redirect_back(date.year)
     category = cap(f.get("category") or category_rules().default, Expense.__table__.c.category)
     description = (f.get("description") or "").strip() or None
+    if mode == "own":
+        description = f"{description} — " + _("за свой счёт, к возмещению") if description else _("За свой счёт, к возмещению")
     budget_item = (database.db_session.get(BudgetItem, f.get("budget_item_id", type=int))
                    if f.get("budget_item_id") else None)
-    counterparty = _person_counterparty(person) if mode == "accrued" else _cash_counterparty()
+    counterparty = _person_counterparty(person) if mode in ("own", "accrued") else _cash_counterparty()
     expense = Expense(
         counterparty_id=counterparty.id, date=date, amount=amount, category=category, description=description,
         kind=ExpenseKind.CHARGE, person_id=person.id if person else None,
@@ -2267,9 +2274,9 @@ def add_expense():
     )
     database.db_session.add(expense)
     database.db_session.flush()
-    if mode == "accrued":
+    if mode in ("own", "accrued"):
         reallocate_counterparty_expenses(counterparty)
-        what = "начислено к выплате"
+        what = "за свой счёт, к возмещению" if mode == "own" else "начислено к выплате"
     else:
         payment = pay_counterparty(counterparty, date, amount, comment=_("Оплачено не через банк"), adjust_balance=False)
         expense.booked_payment_id = payment.id
@@ -2293,3 +2300,34 @@ def set_expense_person(expense_id):
     expense.person_id = person_id if person_id and database.db_session.get(Person, person_id) else None
     database.db_session.commit()
     return _redirect_back(expense.date.year)
+
+
+def owed_people() -> list[dict]:
+    """
+    Кому кооператив должен: начисленная оплата труда и траты за свой счёт к
+    возмещению (расходы с человеком-получателем у контрагента на его имя),
+    ещё не выплаченные. По всем годам — долг не сгорает с новым годом.
+    Выплата — перевод по выписке, разнесённый как «оплата начисленного»
+    (или платёж на странице контрагента, если выплатили наличными).
+    """
+    cash = database.db_session.query(Counterparty).filter(Counterparty.name == CASH_COUNTERPARTY_NAME).first()
+    counterparty_ids = {
+        cp_id for (cp_id,) in database.db_session.query(Expense.counterparty_id)
+        .filter(Expense.person_id.isnot(None), Expense.booked_payment_id.is_(None)).distinct()
+        if cash is None or cp_id != cash.id
+    }
+    rows = []
+    for counterparty in database.db_session.query(Counterparty).filter(Counterparty.id.in_(counterparty_ids)):
+        owed = -counterparty_balance(counterparty)
+        if owed <= 0:
+            continue
+        unpaid = []
+        for expense in sorted(counterparty.expenses, key=lambda e: (e.date, e.id)):
+            if expense.kind != ExpenseKind.CHARGE:
+                continue
+            left = expense.amount - sum((a.amount for a in expense.allocations), Decimal("0"))
+            if left > 0:
+                unpaid.append({"expense": expense, "left": left})
+        person = next((u["expense"].person for u in unpaid if u["expense"].person is not None), None)
+        rows.append({"counterparty": counterparty, "person": person, "owed": owed, "unpaid": unpaid})
+    return sorted(rows, key=lambda r: -r["owed"])

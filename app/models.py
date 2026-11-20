@@ -2553,7 +2553,7 @@ class ElectricitySettings(Base):
     outdoor_lighting: Mapped[str | None] = mapped_column(String(200))
     # Широта кооператива, ° — для длины ночи (фотореле: от заката до
     # восхода). По умолчанию — Ярославль.
-    latitude: Mapped[Decimal] = mapped_column(Numeric(6, 3), default=Decimal("57.6"), server_default="57.6")
+    latitude: Mapped[Decimal] = mapped_column(Numeric(8, 5), default=Decimal("57.6"), server_default="57.6")
 
     supplier: Mapped["Counterparty | None"] = relationship()
 

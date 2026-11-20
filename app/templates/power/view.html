@@ -76,10 +76,11 @@
            value="{{ settings.outdoor_lighting or '' }}" placeholder="3×50, 5×8">
     {% if settings.outdoor_lighting %}<span class="text-muted">= {{ fmt2(lighting_w).rstrip('0').rstrip(',') }} {{ _("Вт") }}</span>{% endif %}
     <label for="latitude">{{ _("широта") }}</label>
-    <div class="input-group input-group-sm" style="width:110px">
-      <input class="form-control" id="latitude" name="latitude" inputmode="decimal" value="{{ settings.latitude }}" required>
-      <span class="input-group-text">°</span>
+    <div class="input-group input-group-sm" style="width:170px">
+      <input class="form-control" id="latitude" name="latitude" value="{{ latitude_dms or '' }}" required
+             title="{{ _("Можно в градусах (57,625) или в градусах, минутах и секундах (57°37′30″ или 57 37 30)") }}">
     </div>
+    {% if settings.latitude is not none %}<span class="text-muted">= {{ (settings.latitude.normalize() ~ "")|replace(".", ",") }}°</span>{% endif %}
     <button class="btn btn-sm btn-outline-primary">{{ _("Сохранить") }}</button>
   </form>
   {% if tariff_pairs %}

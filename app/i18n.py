@@ -3822,6 +3822,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "ID приложения": "App ID",
         "Очистите поле ID, чтобы выключить вход через провайдера.": "Clear the ID field to turn off sign-in with that provider.",
         # «Финансы за год» (app/year_report.py)
+        "Укажите широту: в градусах (57,625) или в градусах, минутах и секундах (57°37′30″), от −66° до 66°.": "Enter the latitude in degrees (57.625) or in degrees, minutes and seconds (57°37′30″), from −66° to 66°.",
+        "Можно в градусах (57,625) или в градусах, минутах и секундах (57°37′30″ или 57 37 30)": "Degrees (57.625) or degrees, minutes and seconds (57°37′30″ or 57 37 30)",
+        "с. ш.": "N",
+        "ю. ш.": "S",
         "состав светильников не задан": "lamp set is not specified",
         "{set} = {watts} Вт × {hours} тёмных часов (закат—восход на широте {latitude}°, по {until}) = {kwh} кВт·ч × {tariff} ₽": "{set} = {watts} W × {hours} dark hours (sunset to sunrise at latitude {latitude}°, through {until}) = {kwh} kWh × {tariff} ₽",
         "Наружное освещение": "Outdoor lighting",
@@ -3832,7 +3836,6 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Для оценки в «Финансах за год»: сколько из счёта энергосбыта уходит на фонари — мощность × тёмные часы (от заката до восхода на этой широте).": "For the estimate in “Annual finances”: how much of the supplier's bill goes to street lights — power × dark hours (sunset to sunrise at this latitude).",
         "широта": "latitude",
         "Не разобрать «{part}»: пишите «кол-во×Вт» через запятую, например «3×50, 5×8».": "Cannot parse “{part}”: write “count×W” separated by commas, e.g. “3×50, 5×8”.",
-        "Укажите широту в градусах, от −66 до 66 (Ярославль — 57,6).": "Enter the latitude in degrees, from −66 to 66 (Yaroslavl is 57.6).",
         "Наружное освещение сохранено.": "Outdoor lighting saved.",
         "гаражей со счётчиком: {garages} × {watts} Вт × {hours} ч (с 1 января по {until}) = {kwh} кВт·ч × {tariff} ₽ (текущий тариф поставщика)": "garages with a meter: {garages} × {watts} W × {hours} h (from January 1 to {until}) = {kwh} kWh × {tariff} ₽ (current supplier tariff)",
         "Состав оплаты за электроэнергию": "Electricity payment breakdown",

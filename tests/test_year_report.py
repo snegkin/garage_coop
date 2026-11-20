@@ -1002,6 +1002,20 @@ def test_save_outdoor_lighting_normalizes(app, db, client):
     settings = db.query(ElectricitySettings).one()
     assert settings.outdoor_lighting == "3×50, 5×8"
     assert settings.latitude == Decimal("57.6")
+    client.post("/power/outdoor-lighting", data={"outdoor_lighting": "3×50, 5×8", "latitude": "57°37'31\""})
+    db.expire_all()
+    assert db.query(ElectricitySettings).one().latitude == Decimal("57.62528")
+    assert "57°37′31″" in client.get("/power/").get_data(as_text=True)
     client.post("/power/outdoor-lighting", data={"outdoor_lighting": "много", "latitude": "57,6"})
     db.expire_all()
     assert db.query(ElectricitySettings).one().outdoor_lighting == "3×50, 5×8"
+
+
+def test_parse_latitude_degrees_minutes_seconds(app):
+    from app.accounting import format_latitude_dms, parse_latitude
+    for text in ("57,625", "57.625", "57°37'30\"", "57 37 30", "57°37,5'", "57°37′30″ с. ш.", "57°37'30\" N"):
+        assert parse_latitude(text) == Decimal("57.625"), text
+    assert parse_latitude("33°52′ ю. ш.") == Decimal("-33.86667")
+    assert parse_latitude("57°61'") is None and parse_latitude("абв") is None
+    with app.test_request_context():
+        assert format_latitude_dms(Decimal("57.62528")) == "57°37′31″ с. ш."

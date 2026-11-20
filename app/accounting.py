@@ -24,7 +24,7 @@ import calendar
 import datetime as dt
 import math
 import re
-from decimal import Decimal, ROUND_HALF_UP, ROUND_UP
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP, ROUND_UP
 
 from sqlalchemy import func
 
@@ -960,6 +960,45 @@ def lighting_watts(text: str | None) -> Decimal:
         return sum((count * watts for count, watts in parse_lighting(text)), Decimal("0"))
     except ValueError:
         return Decimal("0")
+
+
+_DMS = re.compile(r"^\s*(-)?\s*(\d+(?:[.,]\d+)?)\s*(?:°|º|град\w*|\s)\s*"
+                  r"(?:(\d+(?:[.,]\d+)?)\s*(?:'|′|’|мин\w*|\s)\s*"
+                  r"(?:(\d+(?:[.,]\d+)?)\s*(?:\"|″|”|''|сек\w*)?)?)?\s*([NSСЮ])?(?:\.?\s*ш\.?)?\s*$", re.IGNORECASE)
+
+
+def parse_latitude(text: str | None) -> Decimal | None:
+    """Широта: десятичные градусы «57,625» или градусы-минуты-секунды
+    «57°37'30"», «57 37 30», «57°37,5'», с N/С (север) или S/Ю (юг).
+    Результат — градусы, 5 знаков (~1 м); None — не разобрать."""
+    text = (text or "").strip()
+    if not text:
+        return None
+    try:
+        return Decimal(text.replace(",", ".").replace("−", "-")).quantize(Decimal("0.00001"))
+    except InvalidOperation:
+        pass
+    m = _DMS.match(text.replace("−", "-"))
+    if m is None:
+        return None
+    sign, deg, minutes, seconds, hemi = m.groups()
+    num = lambda v: Decimal(v.replace(",", ".")) if v else Decimal("0")
+    if num(minutes) >= 60 or num(seconds) >= 60:
+        return None
+    value = num(deg) + num(minutes) / 60 + num(seconds) / 3600
+    if sign or (hemi and hemi.upper() in ("S", "Ю")):
+        value = -value
+    return value.quantize(Decimal("0.00001"))
+
+
+def format_latitude_dms(value: Decimal | None) -> str:
+    """57.625 → «57°37′30″ с. ш.» (для подсказки у поля)."""
+    if value is None:
+        return ""
+    total = int((abs(Decimal(value)) * 3600).quantize(Decimal("1"), ROUND_HALF_UP))
+    d, rest = divmod(total, 3600)
+    mnt, sec = divmod(rest, 60)
+    return f"{d}°{mnt:02d}′{sec:02d}″ " + (_("с. ш.") if value >= 0 else _("ю. ш."))
 
 
 def night_hours(latitude: Decimal | float, start: dt.date, end: dt.date) -> Decimal:

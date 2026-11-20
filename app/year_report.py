@@ -34,12 +34,13 @@ from flask import Blueprint, Response, abort, flash, g, redirect, render_templat
 from sqlalchemy.orm import selectinload
 
 from . import audit, database
-from .accounting import available_statement_lines, pay_counterparty, reallocate_counterparty_expenses
+from .accounting import available_statement_lines, counterparty_balance, pay_counterparty, reallocate_counterparty_expenses
 from .auth import roles_required
 from .i18n import translate as _
 from .models import (
-    BankAccount, BankStatementLine, BudgetItem, Charge, Counterparty, CounterpartyPayment, CsvImportProfile, Expense,
-    BudgetSection, ChargeAllocation, ExpenseCategory, MasterMeterReading, PaymentRegistryEntry, ExpenseKind, FeeType, MemberAccount, Payment, RoleEnum,
+    BankAccount, BankStatementLine, BudgetItem, BudgetSection, Charge, ChargeAllocation, Counterparty,
+    CounterpartyPayment, CsvImportProfile, Expense, ExpenseCategory, ExpenseKind, FeeType, MasterMeterReading,
+    MemberAccount, Payment, PaymentRegistryEntry, Person, RoleEnum,
 )
 
 bp = Blueprint("year_report", __name__, url_prefix="/year-report")
@@ -565,12 +566,20 @@ def suggest_for_line(line: BankStatementLine, counterparties: list[Counterparty]
             counts[c] = counts.get(c, 0) + 1
         if counts:
             category = max(counts, key=counts.get)
+    # Контрагенту уже начислено и не оплачено (оплата труда, заведённая
+    # «начислено, оплата позже») — это списание, скорее всего, оплата долга:
+    # по умолчанию заводим только платёж, без нового расхода.
+    owed = Decimal("0")
+    if counterparty is not None:
+        owed = max(-counterparty_balance(counterparty), Decimal("0"))
     return {
         "line": line,
         "counterparty": counterparty,
         "new_name": clean_counterparty_name(line),
         "category": category or category_rules().default,
         "confident": confident,
+        "owed": owed,
+        "pays_accrued": owed >= line.amount,
         "description": (line.payment_purpose or "").strip()[:500],
         "date": bill_date(line),
     }
@@ -1064,6 +1073,8 @@ def view():
                                    lambda r, colors=_budget_colors(budget["sections"]): colors[r["name"]]),
         plan_fact=_with_funding(_plan_fact(year), budget),
         source=current_source(),
+        today=dt.date.today(),
+        persons=database.db_session.query(Person).filter(Person.is_archived.is_(False)).order_by(Person.full_name).all(),
         funding_chart=_chart_slices(budget["sections"], "collected",
                                     lambda r, colors=_budget_colors(budget["sections"]): colors[r["name"]]),
         budget_format=csv_format_context("budget"),
@@ -1113,6 +1124,18 @@ def book_statement_line(line_id):
         return _redirect_back(line.operation_date.year)
     f = request.form
     counterparty = _get_or_create_counterparty(f.get("counterparty_id"), line, f.get("new_name"))
+    if f.get("mode") == "accrued":
+        # Оплата ранее начисленного (оплата труда и т.п.) — только платёж,
+        # нового расхода нет: расход уже заведён при начислении.
+        pay_counterparty(counterparty, line.operation_date, line.amount, bank_account=line.bank_account,
+                         comment=(line.payment_purpose or "").strip()[:500] or None, adjust_balance=False,
+                         bank_statement_line_id=line.id)
+        audit.record("counterparty_payment.create", entity_type="counterparty", entity_id=counterparty.id,
+                     summary=f"Оплата начисленного {audit.format_amount(line.amount)} — {counterparty.name}, "
+                             f"{audit.format_date(line.operation_date)} (по выписке банка)")
+        database.db_session.commit()
+        flash(_("Платёж заведён как оплата начисленного."), "success")
+        return _redirect_back(line.operation_date.year)
     category = cap(f.get("category") or category_rules().default, Expense.__table__.c.category)
     expense = book_line(line, counterparty, category, f.get("description"))
     audit.record(
@@ -1144,7 +1167,12 @@ def book_all_statement_lines():
             counterparty = _get_or_create_counterparty(None, line, suggestion["new_name"], record=False)
             counterparties.append(counterparty)
             new_names.append(counterparty.name)
-        book_line(line, counterparty, suggestion["category"], suggestion["description"], suggestion["date"])
+        if suggestion["pays_accrued"]:
+            pay_counterparty(counterparty, line.operation_date, line.amount, bank_account=line.bank_account,
+                             comment=(line.payment_purpose or "").strip()[:500] or None, adjust_balance=False,
+                             bank_statement_line_id=line.id)
+        else:
+            book_line(line, counterparty, suggestion["category"], suggestion["description"], suggestion["date"])
         booked += 1
         total += line.amount
     if booked:
@@ -1664,7 +1692,10 @@ def _plan_fact(year: int) -> dict:
     item_cats = {item.id: _item_categories(item) for item in items}
     outside_names = category_rules().outside
     by_item: dict[int, dict] = {
-        item.id: {"item": item, "plan": item.amount, "fact": Decimal("0"), "expenses": []} for item in items
+        item.id: {"item": item, "plan": item.amount, "fact": Decimal("0"), "expenses": [],
+                  # статьи позиции в порядке справочника — первая подставляется в «+ трата»
+                  "item_categories": [c for c in category_rules().names if c in item_cats[item.id]]}
+        for item in items
     }
     expenses = (
         database.db_session.query(Expense)
@@ -2007,7 +2038,7 @@ def payment_batch(payment: CounterpartyPayment, claimed: set[int] | None = None)
             Expense.counterparty_id == payment.counterparty_id, Expense.booked_payment_id.is_(None),
             Expense.kind == ExpenseKind.CHARGE,
         )
-        if e.id not in claimed and e.id not in meter_expense_ids and not e.documents
+        if e.id not in claimed and e.id not in meter_expense_ids and not e.documents and e.person_id is None
         and -10 <= (payment.date - e.date).days <= 120
     ]
     candidates.sort(key=lambda e: (abs((payment.date - e.date).days), e.id))
@@ -2019,12 +2050,34 @@ def payment_batch(payment: CounterpartyPayment, claimed: set[int] | None = None)
     return sorted((r["expense"] for r in subset), key=lambda e: e.id) if subset else []
 
 
+def _is_accrued_payment(payment: CounterpartyPayment) -> bool:
+    """Платёж «оплата начисленного» по строке выписки: гасит только
+    начисленные расходы (с человеком-получателем, без своей оплаты-пачки).
+    Отменяется удалением одного платежа — начисление остаётся."""
+    if payment.adjusts_bank_balance or payment.reversed_by or payment.bank_statement_line_id is None:
+        return False
+    if database.db_session.query(Expense).filter(Expense.booked_payment_id == payment.id).first() is not None:
+        return False
+    expenses = {a.expense for a in payment.allocations}
+    return bool(expenses) and all(e.person_id is not None and e.booked_payment_id is None for e in expenses)
+
+
 def _unbook_payment(payment: CounterpartyPayment) -> int | None:
     """Удалить разнесение: расходы пачки и сам платёж (баланс счёта он не
     менял — adjusts_bank_balance=False). None — отменить нельзя. Пачка — та
     же, что показана в «Разнесённых списаниях» (с учётом расходов, уже
     отнесённых к другим оплатам того же года)."""
     row = next((r for r in booked_payments(payment.date.year) if r["payment"].id == payment.id), None)
+    if row is not None and row.get("payment_only"):
+        counterparty = payment.counterparty
+        line = payment.bank_statement_line
+        database.db_session.delete(payment)
+        database.db_session.flush()
+        reallocate_counterparty_expenses(counterparty)
+        audit.record("expense.unbook", entity_type="counterparty", entity_id=counterparty.id,
+                     summary=f"Отменена оплата начисленного: {counterparty.name}, {audit.format_amount(line.amount)} "
+                             f"от {audit.format_date(line.operation_date)} (строка выписки снова свободна)")
+        return 0
     batch = row["expenses"] if row is not None and row["can_unbook"] else payment_batch(payment)
     if not batch:
         return None
@@ -2047,6 +2100,9 @@ def _unbook_payment(payment: CounterpartyPayment) -> int | None:
 def _unbook_response(count: int | None, year: int):
     if count is None:
         flash(_("Это разнесение здесь отменить нельзя: расход заведён вручную, с документами или показанием счётчика, либо платёж менял баланс счёта — исправьте на странице контрагента."), "warning")
+    elif count == 0:
+        database.db_session.commit()
+        flash(_("Оплата отменена, начисление осталось — строка выписки снова свободна."), "success")
     else:
         database.db_session.commit()
         flash(_("Разнесение отменено: удалено расходов — {count}.", count=count), "success")
@@ -2111,8 +2167,9 @@ def booked_payments(year: int) -> list[dict]:
         batch = payment_batch(payment, claimed)
         claimed.update(e.id for e in batch)
         expenses = batch or sorted({a.expense for a in payment.allocations}, key=lambda e: e.id)
+        payment_only = not batch and _is_accrued_payment(payment)
         rows.append({"payment": payment, "line": payment.bank_statement_line, "expenses": expenses,
-                     "can_unbook": bool(batch)})
+                     "can_unbook": bool(batch) or payment_only, "payment_only": payment_only})
     return rows
 
 
@@ -2161,3 +2218,78 @@ def copy_budget():
     flash(_("Смета на {year} год создана по образцу {prev} года — поправьте её и при необходимости загрузите CSV.",
             year=year, prev=year - 1), "success")
     return redirect(url_for("year_report.view", year=year))
+
+
+# --- Трата вручную и получатель-человек ----------------------------------------
+
+def _person_counterparty(person: Person) -> Counterparty:
+    """Контрагент на имя человека — для начисления к выплате (оплата труда):
+    расход начисляется ему, а когда в выписке появится перевод, списание
+    разносится как «оплата начисленного» (только платёж)."""
+    name = cap(person.full_name, Counterparty.__table__.c.name)
+    cp = database.db_session.query(Counterparty).filter(Counterparty.name == name).first()
+    if cp is None:
+        cp = Counterparty(name=name, comment=_("Начисления к выплате человеку (оплата труда и т.п.)"))
+        database.db_session.add(cp)
+        database.db_session.flush()
+    return cp
+
+
+@bp.route("/expenses/new", methods=["POST"])
+@roles_required(RoleEnum.CHAIRMAN)
+def add_expense():
+    """Трата, которой нет в выписке: наличными / за свой счёт (сразу с
+    платежом «не через банк»), или начисление к выплате человеку (оплата
+    труда председателю), которое оплатят позже со счёта."""
+    f = request.form
+    try:
+        date = dt.date.fromisoformat(f.get("date") or "")
+    except ValueError:
+        date = None
+    amount = parse_money(f.get("amount"))
+    if date is None or amount is None or amount <= 0:
+        flash(_("Укажите дату и сумму траты."), "danger")
+        return _redirect_back(dt.date.today().year)
+    person = database.db_session.get(Person, f.get("person_id", type=int)) if f.get("person_id") else None
+    mode = f.get("mode") or "cash"
+    if mode == "accrued" and person is None:
+        flash(_("Для начисления к выплате выберите, кому оно начислено."), "danger")
+        return _redirect_back(date.year)
+    category = cap(f.get("category") or category_rules().default, Expense.__table__.c.category)
+    description = (f.get("description") or "").strip() or None
+    budget_item = (database.db_session.get(BudgetItem, f.get("budget_item_id", type=int))
+                   if f.get("budget_item_id") else None)
+    counterparty = _person_counterparty(person) if mode == "accrued" else _cash_counterparty()
+    expense = Expense(
+        counterparty_id=counterparty.id, date=date, amount=amount, category=category, description=description,
+        kind=ExpenseKind.CHARGE, person_id=person.id if person else None,
+        budget_item_id=budget_item.id if budget_item else None,
+    )
+    database.db_session.add(expense)
+    database.db_session.flush()
+    if mode == "accrued":
+        reallocate_counterparty_expenses(counterparty)
+        what = "начислено к выплате"
+    else:
+        payment = pay_counterparty(counterparty, date, amount, comment=_("Оплачено не через банк"), adjust_balance=False)
+        expense.booked_payment_id = payment.id
+        what = "оплачено не через банк"
+    audit.record("expense.create", entity_type="counterparty", entity_id=counterparty.id,
+                 summary=f"Трата {audit.format_amount(amount)} от {audit.format_date(date)} — {category}"
+                         f"{', ' + person.full_name if person else ''} ({what})")
+    database.db_session.commit()
+    flash(_("Трата добавлена."), "success")
+    return _redirect_back(date.year)
+
+
+@bp.route("/expenses/<int:expense_id>/person", methods=["POST"])
+@roles_required(RoleEnum.CHAIRMAN)
+def set_expense_person(expense_id):
+    """Кому из людей начислен/выплачен расход (или снять)."""
+    expense = database.db_session.get(Expense, expense_id)
+    if expense is None:
+        abort(404)
+    person_id = request.form.get("person_id", type=int)
+    expense.person_id = person_id if person_id and database.db_session.get(Person, person_id) else None
+    database.db_session.commit()
+    return _redirect_back(expense.date.year)

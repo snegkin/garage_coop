@@ -588,11 +588,12 @@ def book_line(line: BankStatementLine, counterparty: Counterparty, category: str
     )
     database.db_session.add(expense)
     database.db_session.flush()
-    pay_counterparty(
+    payment = pay_counterparty(
         counterparty, line.operation_date, line.amount, bank_account=line.bank_account,
         comment=(line.payment_purpose or "").strip()[:500] or None, adjust_balance=False,
         bank_statement_line_id=line.id,
     )
+    expense.booked_payment_id = payment.id
     return expense
 
 
@@ -946,12 +947,20 @@ def view():
     counterparties = database.db_session.query(Counterparty).order_by(Counterparty.name).all()
     gaps = [suggest_for_line(line, counterparties) for line in unaccounted_debits(year)]
     gaps_total = sum((g["line"].amount for g in gaps), Decimal("0"))
+    not_expense_lines = (
+        database.db_session.query(BankStatementLine)
+        .filter(BankStatementLine.not_expense.is_(True), BankStatementLine.direction == "debit",
+                BankStatementLine.operation_date >= dt.date(year, 1, 1),
+                BankStatementLine.operation_date <= dt.date(year, 12, 31))
+        .order_by(BankStatementLine.operation_date)
+        .all()
+    )
 
     return render_template(
         "year_report/view.html",
         year=year, years=years,
         income=income, spending=spending, budget=budget,
-        gaps=gaps, gaps_total=gaps_total,
+        gaps=gaps, gaps_total=gaps_total, not_expense_lines=not_expense_lines,
         counterparties=counterparties, categories=category_rules().names,
         income_chart=_chart_slices(income["rows"], "received", _income_colors(income["rows"])),
         spending_chart=_chart_slices(spending["groups"], "amount"),
@@ -1312,12 +1321,15 @@ def import_spending_apply():
             action = "cash"
         if action == "cash":
             cp = _cash_counterparty()
-            database.db_session.add(Expense(
+            cash_expense = Expense(
                 counterparty_id=cp.id, date=row["date"], amount=row["amount"],
                 category=category, description=row["description"], kind=ExpenseKind.CHARGE,
-            ))
+            )
+            database.db_session.add(cash_expense)
             database.db_session.flush()
-            pay_counterparty(cp, row["paid_on"], row["amount"], comment=_("Оплачено не через банк"), adjust_balance=False)
+            cash_payment = pay_counterparty(cp, row["paid_on"], row["amount"], comment=_("Оплачено не через банк"),
+                                            adjust_balance=False)
+            cash_expense.booked_payment_id = cash_payment.id
             created += 1
             total += row["amount"]
 
@@ -1333,22 +1345,27 @@ def import_spending_apply():
         # подгоняются под реально списанное, цена из отчёта остаётся в
         # описании.
         fitted = _fit_to_payment(line_rows, line.amount)
+        line_expenses = []
         for row, amount in zip(line_rows, fitted):
             description = row["description"]
             if amount != row["amount"]:
                 description = f"{description} — " + _("по отчёту {amount} ₽", amount=_fmt_money(row["amount"]))
-            database.db_session.add(Expense(
+            line_expense = Expense(
                 counterparty_id=counterparty.id, date=row["date"], amount=amount,
                 category=row["category"], description=description, kind=ExpenseKind.CHARGE,
-            ))
+            )
+            database.db_session.add(line_expense)
+            line_expenses.append(line_expense)
             created += 1
             total += amount
         database.db_session.flush()
-        pay_counterparty(
+        line_payment = pay_counterparty(
             counterparty, line.operation_date, line.amount, bank_account=line.bank_account,
             comment=(line.payment_purpose or "").strip()[:500] or None, adjust_balance=False,
             bank_statement_line_id=line.id,
         )
+        for line_expense in line_expenses:
+            line_expense.booked_payment_id = line_payment.id
         touched[counterparty.id] = counterparty
     for counterparty in touched.values():
         reallocate_counterparty_expenses(counterparty)
@@ -1482,7 +1499,7 @@ def _plan_fact(year: int) -> dict:
     - привязан к позиции сметы явно (budget_item_id) или подобран
       автоматически (suggested=True — показывается со значком «≈», можно
       закрепить или поменять);
-    - вне сметы — нецелевые траты (явно отмечен off_budget или подбор не
+    - вне сметы — не заложено в смету (явно отмечен off_budget или подбор не
       нашёл позицию);
     - земельный налог — отдельно: собирается отдельным взносом и уходит в
       ФНС транзитом, в смету не входит (если явно не привязан к позиции).
@@ -1800,3 +1817,60 @@ def budget_totals_by_kind() -> dict[int, dict[str, float]]:
         row["target" if is_target else "membership"] += float(item.amount)
         row["total"] += float(item.amount)
     return totals
+
+
+# --- Отмена разнесения ---------------------------------------------------------
+
+@bp.route("/expenses/<int:expense_id>/unbook", methods=["POST"])
+@roles_required(RoleEnum.CHAIRMAN)
+def unbook_expense(expense_id):
+    """
+    Отменить разнесение, сделанное на этой странице: удалить всю пачку —
+    расходы, заведённые вместе с одним платежом (позиции одного заказа), и
+    сам платёж. Строка выписки снова свободна и появляется в «Списаниях без
+    расхода». Платёж таких разнесений баланс счёта не менял
+    (adjusts_bank_balance=False), поэтому деньги никуда не двигаются.
+    Прикреплённые к расходам документы остаются у контрагента (Document.
+    expense_id → NULL).
+    """
+    expense = database.db_session.get(Expense, expense_id)
+    if expense is None:
+        abort(404)
+    payment = expense.booked_payment
+    if payment is None:
+        flash(_("Этот расход заведён не разнесением на этой странице — удалите его на странице контрагента."), "warning")
+        return _redirect_back(expense.date.year)
+    if payment.adjusts_bank_balance or payment.reversed_by:
+        flash(_("Платёж по этому расходу менял баланс счёта или сторнирован — отмените его на странице контрагента."), "warning")
+        return _redirect_back(expense.date.year)
+    counterparty = expense.counterparty
+    batch = database.db_session.query(Expense).filter(Expense.booked_payment_id == payment.id).all()
+    total = sum((e.amount for e in batch), Decimal("0"))
+    line = payment.bank_statement_line
+    year = expense.date.year
+    for item in batch:
+        database.db_session.delete(item)
+    database.db_session.delete(payment)
+    database.db_session.flush()
+    reallocate_counterparty_expenses(counterparty)
+    where = (f"строка выписки {audit.format_amount(line.amount)} от {audit.format_date(line.operation_date)} снова свободна"
+             if line is not None else "оплачено не через банк")
+    audit.record("expense.unbook", entity_type="counterparty", entity_id=counterparty.id,
+                 summary=f"Отменено разнесение: {counterparty.name}, расходов {len(batch)} на "
+                         f"{audit.format_amount(total)} ({where})")
+    database.db_session.commit()
+    flash(_("Разнесение отменено: удалено расходов — {count}.", count=len(batch)), "success")
+    return _redirect_back(year)
+
+
+@bp.route("/lines/<int:line_id>/restore", methods=["POST"])
+@roles_required(RoleEnum.CHAIRMAN)
+def restore_statement_line(line_id):
+    """Снять отметку «не трата» — строка снова в «Списаниях без расхода»."""
+    line = database.db_session.get(BankStatementLine, line_id)
+    if line is None:
+        abort(404)
+    line.not_expense = False
+    database.db_session.commit()
+    flash(_("Отметка «не трата» снята."), "success")
+    return _redirect_back(line.operation_date.year)

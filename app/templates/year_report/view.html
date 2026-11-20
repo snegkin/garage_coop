@@ -117,6 +117,55 @@
         </div>
       </div>
       <p class="text-muted small mb-0 mt-2">{{ _("Начислено — начисления за этот год; получено — платежи, поступившие в этом году (в том числе долги прошлых лет). Без зачётов между счетами и списаний пени.") }}</p>
+
+      {% if budget.sections and budget.funding.charged %}
+      {% set fund = budget.funding %}
+      <h6 class="mt-4">{{ _("Собрано на смету — по разделам") }}</h6>
+      <div class="row g-2 mb-2">
+        <div class="col-6 col-lg-3"><div class="border rounded p-2 h-100">
+          <div class="small text-muted">{{ _("Средства сметы") }}</div>
+          <div class="fw-semibold">{{ fmt2(fund.paid) }} {{ _("из") }} {{ fmt2(fund.charged) }} ₽</div>
+          <div class="small text-muted">{{ _("собрано из начисленного за год{rate}", rate=(" · " ~ fund.rate ~ "%") if fund.rate is not none else "") }}</div>
+        </div></div>
+        <div class="col-6 col-lg-3"><div class="border rounded p-2 h-100">
+          <div class="small text-muted">{{ _("На текущую деятельность") }}</div>
+          <div class="fw-semibold">{{ fmt2(fund.membership_collected) }} ₽</div>
+          <div class="small text-muted">{{ _("членские разделы сметы") }}</div>
+        </div></div>
+        <div class="col-6 col-lg-3"><div class="border rounded p-2 h-100">
+          <div class="small text-muted">{{ _("На целевые мероприятия") }}</div>
+          <div class="fw-semibold">{{ fmt2(fund.target_collected) }} ₽</div>
+          <div class="small text-muted">{{ _("целевые разделы сметы") }}</div>
+        </div></div>
+        <div class="col-6 col-lg-3"><div class="border rounded p-2 h-100">
+          <div class="small text-muted">{{ _("Начислено по видам") }}</div>
+          {% for f in fund.fees %}<div class="small">{{ f.name }}: {{ fmt2(f.charged) }}</div>{% endfor %}
+        </div></div>
+      </div>
+      <div class="row g-3 align-items-center">
+        <div class="col-12 col-md-4"><div class="yr-chart"><canvas id="fundingChart" aria-label="{{ _('Собрано на смету — по разделам') }}"></canvas></div></div>
+        <div class="col-12 col-md-8">
+          <div class="table-responsive">
+          <table class="table table-sm mb-0 yr-table">
+            <thead><tr><th>{{ _("Раздел сметы") }}</th><th>{{ _("Назначение") }}</th><th class="text-end">{{ _("По смете") }}</th><th class="text-end">{{ _("Начислено") }}</th><th class="text-end">{{ _("Собрано") }}</th></tr></thead>
+            <tbody>
+              {% for sec in budget.sections %}
+              <tr>
+                <td><span class="yr-swatch" data-chart="fundingChart" data-label="{{ sec.name }}"></span>{{ sec.name }}</td>
+                <td><span class="badge {{ 'text-bg-warning' if sec.is_target else 'text-bg-light border' }}">{{ _("целевой") if sec.is_target else _("членский") }}</span></td>
+                <td class="text-end">{{ fmt2(sec.amount) }}</td>
+                <td class="text-end">{{ fmt2(sec.funded_charged) }}</td>
+                <td class="text-end">{{ fmt2(sec.collected) }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+            <tfoot><tr class="fw-bold border-top"><td>{{ _("Итого") }}</td><td></td><td class="text-end">{{ fmt2(budget.total) }}</td><td class="text-end">{{ fmt2(fund.charged) }}</td><td class="text-end">{{ fmt2(fund.paid) }}</td></tr></tfoot>
+          </table>
+          </div>
+        </div>
+      </div>
+      <p class="text-muted small mb-0 mt-2">{{ _("Средства сметы — начисления этого года по членским, целевым и прочим взносам на нужды кооператива (без земельного налога, электроэнергии, возмещений и пени) и оплаченная их часть, в том числе оплаченная позже. На разделы они делятся пропорционально плану сметы: взнос платят одной суммой, поэтому точнее разделить нельзя. Точно — если начислять отдельные целевые взносы на мероприятия.") }}</p>
+      {% endif %}
       {% else %}
       <p class="text-muted mb-0">{{ _("За этот год нет ни начислений, ни платежей.") }}</p>
       {% endif %}
@@ -233,7 +282,7 @@
     <div class="col-6 col-lg-3"><div class="border rounded p-2 h-100">
       <div class="small text-muted">{{ _("Не освоено из сметы") }}</div>
       <div class="fw-semibold">{{ fmt2(plan_fact.unspent) }} ₽</div>
-      <div class="small text-muted">{{ _("запас на конец года или недовыполненный план") }}</div>
+      <div class="small text-muted">{% if budget.funding.charged %}{{ _("собрано на смету {collected}, потрачено по смете {spent}: {sign} {amount}", collected=fmt2(plan_fact.collected), spent=fmt2(plan_fact.fact), sign=(_("остаток") if plan_fact.balance >= 0 else _("дефицит")), amount=fmt2(plan_fact.balance|abs)) }}{% else %}{{ _("запас на конец года или недовыполненный план") }}{% endif %}</div>
     </div></div>
     <div class="col-6 col-lg-3"><div class="border rounded p-2 h-100">
       <div class="small text-muted">{{ plan_fact.outside_label or _("Не входит в смету") }}</div>
@@ -247,9 +296,12 @@
     {% for sec in plan_fact.sections %}
     <details class="mb-2" data-key="plan:{{ sec.name }}">
       <summary class="yr-meter-row">
-        <span class="yr-meter-name fw-semibold">{{ sec.name }}</span>
+        <span class="yr-meter-name fw-semibold">{{ sec.name }} <span class="badge fw-normal {{ 'text-bg-warning' if sec.is_target else 'text-bg-light border' }}">{{ _("целевой") if sec.is_target else _("членский") }}</span></span>
         {{ meter(sec.meter, sec.name) }}
-        <span class="yr-meter-fig small">{{ meter_figures(sec) }}</span>
+        <span class="yr-meter-fig small">{{ meter_figures(sec) }}
+          {% if budget.funding.charged %}<br><span class="text-nowrap">{{ _("собрано {amount}", amount=fmt2(sec.collected)) }}</span>
+          <span class="text-nowrap {{ 'text-success' if sec.balance >= 0 else 'text-danger fw-semibold' }}">· {% if sec.balance >= 0 %}{{ _("остаток {amount}", amount=fmt2(sec.balance)) }}{% else %}{{ _("дефицит {amount}", amount=fmt2(-sec.balance)) }}{% endif %}</span>{% endif %}
+        </span>
       </summary>
       <div class="ps-3 pt-1">
         {% for row in sec["items"] %}
@@ -326,7 +378,7 @@
     <div class="col-12 col-md-8">
       <div class="table-responsive">
       <table class="table table-sm mb-0 yr-table">
-        <thead><tr><th>{{ _("Раздел") }}</th><th class="text-end">{{ _("Сумма") }}</th><th class="text-end">%</th></tr></thead>
+        <thead><tr><th>{{ _("Раздел") }}</th><th>{{ _("Назначение") }}</th><th class="text-end">{{ _("Сумма") }}</th><th class="text-end">%</th></tr></thead>
         <tbody>
           {% for s in budget.sections %}
           <tr>
@@ -343,12 +395,22 @@
                 </ul>
               </details>
             </td>
+            <td class="align-top">
+              <form method="post" action="{{ url_for('year_report.set_section_kind') }}" data-ajax class="d-flex align-items-center gap-1">
+                <input type="hidden" name="year" value="{{ year }}"><input type="hidden" name="section" value="{{ s.name }}">
+                {% if not s.kind_saved %}<span class="text-warning-emphasis" title="{{ _('Подобрано по названию раздела — выберите, чтобы закрепить') }}">≈</span>{% endif %}
+                <select class="form-select form-select-sm py-0 js-autosubmit-plain" name="kind" style="width:auto" aria-label="{{ _('Назначение раздела') }}">
+                  <option value="membership" {{ "selected" if not s.is_target }}>{{ _("членский") }}</option>
+                  <option value="target" {{ "selected" if s.is_target }}>{{ _("целевой") }}</option>
+                </select>
+              </form>
+            </td>
             <td class="text-end align-top">{{ fmt2(s.amount) }}</td>
             <td class="text-end align-top">{{ s.share if s.share is not none else "—" }}</td>
           </tr>
           {% endfor %}
         </tbody>
-        <tfoot><tr class="fw-bold border-top"><td>{{ _("Итого") }}</td><td class="text-end">{{ fmt2(budget.total) }}</td><td></td></tr></tfoot>
+        <tfoot><tr class="fw-bold border-top"><td>{{ _("Итого") }}</td><td></td><td class="text-end">{{ fmt2(budget.total) }}</td><td></td></tr></tfoot>
       </table>
       </div>
     </div>
@@ -524,6 +586,7 @@
     draw("incomeChart", {{ income_chart|tojson }});
     draw("spendingChart", {{ spending_chart|tojson }});
     draw("budgetChart", {{ budget_chart|tojson }});
+    draw("fundingChart", {{ funding_chart|tojson }});
   }
   // Chart.js подгружаем сами и только один раз: обычный <script src> в
   // #mainContent после каждой AJAX-подмены вставлялся бы заново и

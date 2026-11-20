@@ -1017,6 +1017,24 @@ class ExpenseCategory(Base):
     is_default: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("0"))
 
 
+class BudgetSection(Base):
+    """Раздел сметы года и его назначение: членский (текущая деятельность —
+    содержание, оплата труда, отчётность) или целевой (конкретное
+    мероприятие, утверждённое собранием, — замена проводки, опоры).
+    Отдельная таблица, а не поле позиций: смета перезагружается из CSV
+    целиком (позиции пересоздаются), а тип раздела должен сохраниться.
+    Строки нет — тип подбирается по названию раздела (см.
+    app/year_report.py: guess_section_target)."""
+    __tablename__ = "budget_section"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    year: Mapped[int] = mapped_column(Integer, index=True)
+    name: Mapped[str] = mapped_column(String(255))
+    is_target: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    __table_args__ = (UniqueConstraint("year", "name", name="uq_budget_section_year_name"),)
+
+
 class BudgetItem(Base):
     """Строка сметы на год (доходов и расходов кооператива) — раздел
     («Содержание кооператива», «Замена общей проводки»…) и статья в нём.

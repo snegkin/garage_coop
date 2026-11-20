@@ -3822,6 +3822,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "ID приложения": "App ID",
         "Очистите поле ID, чтобы выключить вход через провайдера.": "Clear the ID field to turn off sign-in with that provider.",
         # «Финансы за год» (app/year_report.py)
+        "Сменить человека…": "Change person…",
+        "Указать человека (кому начислено / выплачено)…": "Set person (accrued / paid to)…",
+        "Убрать человека ({name})": "Remove person ({name})",
+        "Расчёты с контрагентом": "Counterparty settlements",
         "по смете": "per budget",
         "наличными": "cash",
         "Не через банк: вписан вручную": "Not via the bank: entered manually",

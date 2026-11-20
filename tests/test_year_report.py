@@ -710,3 +710,20 @@ def test_unbook_legacy_booking_without_link(app, db, client):
     assert db.query(Expense).filter_by(counterparty_id=ozon.id).count() == 0
     assert db.get(BankStatementLine, line.id) in available_statement_lines()
     assert db.get(Expense, manual.id) is not None
+
+
+def test_order_links_only_for_marketplace_inn(app, db, client):
+    from app.year_report import order_links
+    purpose = 'Оплата по заказу 0161382282-0010 в том числе НДС <429.90>'
+    linked = str(order_links(purpose, "7704217370"))
+    assert '<a href="https://www.ozon.ru/my/orderdetails/?order=0161382282-0010"' in linked
+    assert "&lt;429.90&gt;" in linked  # остальной текст экранирован
+    assert "<a " not in str(order_links(purpose, "7606052264"))  # не Озон — без ссылки
+
+    _chairman(db, client)
+    account = _bank(db)
+    _debit(db, account, dt.date(2026, 11, 16), "5465", 'ООО "ИНТЕРНЕТ РЕШЕНИЯ"', "7704217370",
+           "Оплата по заказу 0161382282-0010", "u1")
+    db.commit()
+    body = client.get("/year-report/?year=2026").get_data(as_text=True)
+    assert "ozon.ru/my/orderdetails/?order=0161382282-0010" in body

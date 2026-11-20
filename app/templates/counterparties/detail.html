@@ -234,7 +234,7 @@
         {% endif %}
       </td>
       <td>
-        {{ p.comment or "—" }}
+        {{ (p.comment or "—")|order_links(counterparty.inn) }}
         {% if p.reverses_payment_id and p.reverses %}<div class="text-muted small">{{ _("сторно платежа от {date}", date=fmt_date(p.reverses.date)) }}</div>{% endif %}
         {% if p.reverses_payment_id is none and p.reversed_by %}<div class="text-muted small">{{ _("отменён проводкой от {date}", date=fmt_date(p.reversed_by[0].date)) }}</div>{% endif %}
       </td>

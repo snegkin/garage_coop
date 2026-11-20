@@ -26,6 +26,8 @@ import io
 import json
 import re
 from decimal import Decimal, InvalidOperation
+
+from markupsafe import Markup, escape
 from urllib.parse import urlsplit
 
 from flask import Blueprint, Response, abort, flash, g, redirect, render_template, request, url_for
@@ -188,6 +190,37 @@ def guess_category(text: str, section_hint: str | None = None) -> str:
         if hinted and hinted != rules.default:
             return hinted
     return rules.by_keywords(text) or rules.default
+
+
+# --- Ссылки на заказы маркетплейсов -----------------------------------------
+
+# (ИНН продавца-маркетплейса, номер заказа в тексте, ссылка на заказ в
+# личном кабинете). У Озона в назначении платежа «Оплата по заказу
+# 0161382282-0010» — это и есть номер заказа в ЛК.
+MARKETPLACE_ORDER_LINKS = [
+    ("7704217370", re.compile(r"(?<![\d-])(\d{10}-\d{4})(?![\d-])"), "https://www.ozon.ru/my/orderdetails/?order={order}"),
+]
+
+
+def order_links(text: str | None, inn: str | None) -> Markup:
+    """Номера заказов маркетплейса в тексте — ссылками на заказ в его
+    личном кабинете (фильтр шаблонов `order_links`). Только у контрагента с
+    ИНН этого маркетплейса — чтобы не превращать в ссылки случайные числа
+    того же вида. Текст экранируется."""
+    escaped = str(escape(text or ""))
+    digits = re.sub(r"\D", "", inn or "")
+    for marketplace_inn, pattern, url in MARKETPLACE_ORDER_LINKS:
+        if digits == marketplace_inn:
+            escaped = pattern.sub(
+                lambda m: f'<a href="{url.format(order=m.group(1))}" target="_blank" rel="noopener noreferrer">{m.group(1)}</a>',
+                escaped,
+            )
+    return Markup(escaped)
+
+
+@bp.app_template_filter("order_links")
+def _order_links_filter(text, inn=None):
+    return order_links(text, inn)
 
 
 # --- Деньги и даты из CSV --------------------------------------------------

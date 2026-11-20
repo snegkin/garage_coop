@@ -375,6 +375,84 @@
     fromInput.disabled = toInput.disabled = applyBtn.disabled = true;
   }
 
+  // Инерционная прокрутка: после того как палец/мышь отпущены на ходу,
+  // график продолжает ехать по истории и плавно тормозит. Скорость считаем
+  // сами по последним pointermove (Hammer внутри плагина зума её не отдаёт
+  // в onPanComplete), сдвиг — через chart.pan(), так что работают те же
+  // limits, что и у ручного перетаскивания. Слушаем window, а не canvas:
+  // при быстром жесте указатель часто отпускают уже за пределами графика.
+  const inertia = (function () {
+    const SAMPLE_WINDOW_MS = 100;  // скорость — по последним 100 мс жеста
+    const MIN_START_SPEED = 0.3;   // px/мс; медленнее — просто отпустили, без инерции
+    const MIN_SPEED = 0.02;        // px/мс; ниже — останавливаемся
+    const FRICTION_TAU_MS = 325;   // постоянная затухания (как у iOS-прокрутки)
+    let samples = [];
+    let pointerDown = false;
+    let rafId = null;
+
+    canvas.addEventListener("pointerdown", function (e) {
+      stop();
+      pointerDown = true;
+      samples = [{ t: e.timeStamp, x: e.clientX }];
+    });
+    window.addEventListener("pointermove", function (e) {
+      if (!pointerDown) return;
+      samples.push({ t: e.timeStamp, x: e.clientX });
+      while (samples.length > 2 && e.timeStamp - samples[0].t > SAMPLE_WINDOW_MS) samples.shift();
+    });
+    ["pointerup", "pointercancel"].forEach(function (type) {
+      window.addEventListener(type, function (e) {
+        if (!pointerDown) return;
+        pointerDown = false;
+        samples.push({ t: e.timeStamp, x: e.clientX });
+      });
+    });
+    // Колесо/кнопки масштаба — прерывают инерцию, иначе график «уплывает»
+    // из-под только что выбранного масштаба.
+    canvas.addEventListener("wheel", function () { stop(); }, { passive: true });
+
+    function releaseSpeed() {
+      if (samples.length < 2) return 0;
+      const last = samples[samples.length - 1];
+      // Ищем самый ранний сэмпл в окне перед отпусканием: если перед ним
+      // палец стоял на месте дольше окна, скорость получится ~0.
+      let first = last;
+      for (let i = samples.length - 2; i >= 0 && last.t - samples[i].t <= SAMPLE_WINDOW_MS; i--) first = samples[i];
+      const dt = last.t - first.t;
+      return dt > 0 ? (last.x - first.x) / dt : 0;
+    }
+
+    function stop() {
+      if (rafId !== null) cancelAnimationFrame(rafId);
+      rafId = null;
+    }
+
+    function start() {
+      stop();
+      // onPanComplete приходит из hammer'овского panend — это может случиться
+      // раньше нашего pointerup; откладываем на кадр, чтобы сэмпл отпускания
+      // успел записаться.
+      rafId = requestAnimationFrame(function () {
+        let v = releaseSpeed();
+        if (Math.abs(v) < MIN_START_SPEED) { rafId = null; return; }
+        let prevT = performance.now();
+        function step(now) {
+          const dt = Math.min(now - prevT, 50);  // вкладка была в фоне — не прыгаем
+          prevT = now;
+          const minBefore = chart.scales.x.min;
+          chart.pan({ x: v * dt }, undefined, "none");
+          v *= Math.exp(-dt / FRICTION_TAU_MS);
+          // Упёрлись в край загруженного диапазона (limits) — дальше ехать некуда.
+          if (Math.abs(v) < MIN_SPEED || chart.scales.x.min === minBefore) { rafId = null; return; }
+          rafId = requestAnimationFrame(step);
+        }
+        rafId = requestAnimationFrame(step);
+      });
+    }
+
+    return { start: start, stop: stop };
+  })();
+
   const chart = new Chart(canvas.getContext("2d"), {
     type: "line",
     data: { datasets: [] },
@@ -416,7 +494,15 @@
         // pinch — то же самое жестами на тачскрине (нужен hammer.js, см. script выше).
         zoom: {
           zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: "x" },
-          pan: { enabled: true, mode: "x" },
+          // onPanStart/onPanComplete — для инерционной прокрутки (см. inertia ниже).
+          pan: {
+            enabled: true, mode: "x",
+            onPanStart: function () { inertia.stop(); },
+            onPanComplete: function () { inertia.start(); },
+          },
+          // min/max — границы загруженного диапазона, выставляются в
+          // fetchAndRender: и ручной сдвиг, и инерция упираются в края данных,
+          // а не уезжают в пустоту.
           limits: { x: { minRange: 5 * 60 * 1000 } },
         },
       },
@@ -554,6 +640,10 @@
       .then(function (r) { return r.json(); })
       .then(function (data) {
         lastData = data;
+        inertia.stop();
+        const xLimits = chart.options.plugins.zoom.limits.x;
+        xLimits.min = new Date(since).getTime();
+        xLimits.max = new Date(until).getTime();
         render();
         if (isFirstLoad) {
           applyInitialZoom();
@@ -586,7 +676,7 @@
     emptyMsg.textContent = emptyMsgDefaultText;
     fetchAndRender();
   });
-  document.getElementById("resetZoomBtn").addEventListener("click", function () { chart.resetZoom(); });
+  document.getElementById("resetZoomBtn").addEventListener("click", function () { inertia.stop(); chart.resetZoom(); });
 
   if (boundsMinIso && boundsMaxIso) {
     fetchAndRender();

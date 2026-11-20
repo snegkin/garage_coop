@@ -495,3 +495,58 @@ def test_chart_colors_fixed_per_category_and_fee_type(app, db, client):
     db.commit()
     client.post(f"/year-report/fee-types/{fee.id}/color", data={"color": "#ABCDEF"})
     assert db.get(FeeType, fee.id).color == "#abcdef"
+
+
+# --- Собрано на смету по разделам ---------------------------------------------
+
+def test_section_funding_pro_rata_and_kinds(app, db, client):
+    from app.models import BudgetSection, Charge, ChargeAllocation, FeeType, MemberAccount, Payment
+    from app.year_report import _budget, _plan_fact, _with_funding, guess_section_target
+    from tests.conftest import make_garage, make_person
+    _chairman(db, client)
+    assert guess_section_target("Замена общей проводки") and guess_section_target("Установка новых опор освещения")
+    assert not guess_section_target("Содержание кооператива") and not guess_section_target("Прочее")
+
+    db.add_all([
+        BudgetItem(year=2026, section="Содержание кооператива", name="Уборка снега", amount=Decimal("30000"), position=0),
+        BudgetItem(year=2026, section="Замена общей проводки", name="Провод", amount=Decimal("10000"), position=1),
+    ])
+    membership = db.query(FeeType).filter_by(code="membership").one_or_none() or FeeType(code="membership", name="Членский взнос")
+    land = db.query(FeeType).filter_by(code="land_tax").one_or_none() or FeeType(code="land_tax", name="Земельный налог")
+    db.add_all([membership, land])
+    person, garage = make_person(db), make_garage(db)
+    acc = MemberAccount(person_id=person.id, garage_id=garage.id, fee_type=membership, account_number="10010")
+    land_acc = MemberAccount(person_id=person.id, garage_id=garage.id, fee_type=land, account_number="20010")
+    db.add_all([acc, land_acc])
+    db.flush()
+    charge = Charge(account_id=acc.id, year=2026, amount=Decimal("8000"))
+    land_charge = Charge(account_id=land_acc.id, year=2026, amount=Decimal("1000"))
+    payment = Payment(account_id=acc.id, date=dt.date(2027, 1, 10), amount=Decimal("4000"))  # заплатил в следующем году
+    db.add_all([charge, land_charge, payment])
+    db.flush()
+    db.add(ChargeAllocation(charge_id=charge.id, payment_id=payment.id, amount=Decimal("4000")))
+    cp = Counterparty(name="Русский Свет")
+    db.add(cp)
+    db.flush()
+    db.add(Expense(counterparty_id=cp.id, date=dt.date(2026, 5, 1), amount=Decimal("1500"),
+                   category="Электрика", description="Провод ПВ3"))
+    db.commit()
+
+    with app.test_request_context():
+        budget = _budget(2026)
+        fund = budget["funding"]
+        # Земельный налог — транзит, в средства сметы не входит.
+        assert (fund["charged"], fund["paid"]) == (Decimal("8000"), Decimal("4000"))
+        wiring = next(s for s in budget["sections"] if s["name"] == "Замена общей проводки")
+        assert wiring["is_target"] and not wiring["kind_saved"]
+        assert wiring["collected"] == Decimal("1000.00")  # 25 % сметы
+        assert fund["target_collected"] == Decimal("1000.00") and fund["membership_collected"] == Decimal("3000.00")
+        pf = _with_funding(_plan_fact(2026), budget)
+        sec = next(s for s in pf["sections"] if s["name"] == "Замена общей проводки")
+        assert sec["balance"] == Decimal("-500.00")  # собрано 1000, потрачено 1500 — дефицит
+
+    # Председатель меняет тип раздела — сохраняется и переживает перезагрузку сметы.
+    client.post("/year-report/budget/section-kind", data={"year": "2026", "section": "Замена общей проводки", "kind": "membership"})
+    assert db.query(BudgetSection).filter_by(year=2026, name="Замена общей проводки").one().is_target is False
+    body = client.get("/year-report/?year=2026").get_data(as_text=True)
+    assert "Собрано на смету — по разделам" in body

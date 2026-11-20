@@ -37,7 +37,7 @@ from .auth import roles_required
 from .i18n import translate as _
 from .models import (
     BankAccount, BankStatementLine, BudgetItem, Charge, Counterparty, CounterpartyPayment, CsvImportProfile, Expense,
-    ExpenseCategory, ExpenseKind, FeeType, MemberAccount, Payment, RoleEnum,
+    BudgetSection, ChargeAllocation, ExpenseCategory, ExpenseKind, FeeType, MemberAccount, Payment, RoleEnum,
 )
 
 bp = Blueprint("year_report", __name__, url_prefix="/year-report")
@@ -738,9 +738,92 @@ def _budget(year: int) -> dict:
         })
     ordered = list(sections.values())
     total = sum((s["amount"] for s in ordered), Decimal("0"))
+    saved = {
+        row.name: row.is_target
+        for row in database.db_session.query(BudgetSection).filter(BudgetSection.year == year)
+    }
     for s in ordered:
         s["share"] = _percent(s["amount"], total)
-    return {"sections": ordered, "total": total}
+        s["kind_saved"] = s["name"] in saved
+        s["is_target"] = saved[s["name"]] if s["name"] in saved else guess_section_target(s["name"])
+    funding = _section_funding(year, ordered, total)
+    for s in ordered:
+        s.update(funding["sections"][s["name"]])
+    return {"sections": ordered, "total": total, "funding": funding}
+
+
+_TARGET_SECTION_RE = re.compile(
+    r"замен|установк|строительств|ремонт|приобрет|модерниз|реконструк|прокладк|монтаж|видеонаблюд|освещен",
+    re.IGNORECASE,
+)
+# Транзитные виды взноса — собираются не на смету, а чтобы заплатить за
+# членов дальше: земельный налог (в ФНС), электричество (поставщику),
+# возмещение СМС/госпошлины (telecom_disputes). Пеня — доход, но не
+# средства сметы.
+TRANSIT_FEE_CODES = {"land_tax", "electricity", "telecom_disputes"}
+
+
+def guess_section_target(name: str) -> bool:
+    """Целевой ли раздел сметы — подсказка по названию («Замена общей
+    проводки», «Установка опор» — целевые; «Содержание кооператива»,
+    «Взыскание задолженности», «Прочее» — членские). Председатель
+    подтверждает или меняет её на странице."""
+    return bool(_TARGET_SECTION_RE.search(name or ""))
+
+
+def _section_funding(year: int, sections: list[dict], total_plan: Decimal) -> dict:
+    """
+    Сколько собрано на смету года и на каждый её раздел. Средства сметы —
+    начисления ЭТОГО года по нетранзитным видам взноса (членский, целевой и
+    т.п.; без земельного налога, электричества, возмещений и пени) и
+    оплаченная их часть (ChargeAllocation — платежом любой даты, в т.ч. уже
+    в следующем году). На разделы делятся ПРОПОРЦИОНАЛЬНО ПЛАНУ раздела в
+    смете: человек платит одной суммой, и указать, на какой раздел пошёл
+    его рубль, нельзя — только пропорция сметы. Если за год начислялись
+    отдельные целевые взносы — это всё равно доли одной сметы.
+    """
+    charges = (
+        database.db_session.query(Charge)
+        .options(selectinload(Charge.account).selectinload(MemberAccount.fee_type),
+                 selectinload(Charge.allocations).selectinload(ChargeAllocation.payment))
+        .filter(Charge.year == year, Charge.account_id.isnot(None))
+        .all()
+    )
+    charged = paid = Decimal("0")
+    by_fee: dict[str, dict] = {}
+    for charge in charges:
+        fee_type = charge.account.fee_type
+        if (fee_type is None or fee_type.is_penalty or fee_type.code in TRANSIT_FEE_CODES
+                or charge.related_person_id is not None or _is_tech(charge.comment, _TECH_CHARGE_PREFIXES)):
+            continue
+        charge_paid = sum((
+            a.amount for a in charge.allocations
+            if a.payment.related_person_id is None and a.payment.offset_charge_id is None
+            and a.payment.amnesty_for_charge_id is None and not _is_tech(a.payment.comment, _TECH_PAYMENT_PREFIXES)
+        ), Decimal("0"))
+        charged += charge.amount
+        paid += charge_paid
+        row = by_fee.setdefault(fee_type.name, {"name": fee_type.name, "charged": Decimal("0"), "paid": Decimal("0")})
+        row["charged"] += charge.amount
+        row["paid"] += charge_paid
+
+    per_section = {}
+    for section in sections:
+        share = section["amount"] / total_plan if total_plan else Decimal("0")
+        per_section[section["name"]] = {
+            "funded_charged": (charged * share).quantize(Decimal("0.01")),
+            "collected": (paid * share).quantize(Decimal("0.01")),
+        }
+    target_collected = sum((per_section[s["name"]]["collected"] for s in sections if s["is_target"]), Decimal("0"))
+    return {
+        "charged": charged,
+        "paid": paid,
+        "fees": sorted(by_fee.values(), key=lambda r: -r["charged"]),
+        "sections": per_section,
+        "target_collected": target_collected,
+        "membership_collected": paid - target_collected if sections else Decimal("0"),
+        "rate": _percent(paid, charged),
+    }
 
 
 # Постоянные цвета диаграмм — по смыслу, а не по месту в рейтинге: цвет
@@ -772,6 +855,21 @@ def _income_colors(rows: list[dict]):
     return lambda r: colors[r["name"]]
 
 
+def _hue_lightness(color: str) -> tuple[float, float]:
+    import colorsys
+    r, g_, b = (int(color[i:i + 2], 16) / 255 for i in (1, 3, 5))
+    h, lightness, _s = colorsys.rgb_to_hls(r, g_, b)
+    return h * 360, lightness
+
+
+def _too_close(a: str, b: str) -> bool:
+    """Два цвета на одной диаграмме не различить: близкий тон (до 25°) и
+    близкая светлота («Юридические» малиновый рядом со «штрафами» красным)."""
+    (ha, la), (hb, lb) = _hue_lightness(a), _hue_lightness(b)
+    hue_gap = min(abs(ha - hb), 360 - abs(ha - hb))
+    return hue_gap < 25 and abs(la - lb) < 0.25
+
+
 def _budget_colors(sections: list[dict]) -> dict[str, str]:
     """Цвет раздела сметы — цвет статьи расходов, на которую приходится
     больше всего денег раздела («Замена проводки» — как «Электрика»); если
@@ -788,8 +886,8 @@ def _budget_colors(sections: list[dict]) -> dict[str, str]:
         if weights:
             best = max(weights, key=weights.get)
             color = rules.colors.get(best)
-        if color is None or color in used:
-            color = next((c for c in _FALLBACK_COLORS if c not in used), GRAY)
+        if color is None or any(_too_close(color, other) for other in used):
+            color = next((c for c in _FALLBACK_COLORS if not any(_too_close(c, other) for other in used)), GRAY)
         used.add(color)
         colors[section["name"]] = color
     return colors
@@ -820,7 +918,9 @@ def view():
         spending_chart=_chart_slices(spending["groups"], "amount"),
         budget_chart=_chart_slices(budget["sections"], "amount",
                                    lambda r, colors=_budget_colors(budget["sections"]): colors[r["name"]]),
-        plan_fact=_plan_fact(year),
+        plan_fact=_with_funding(_plan_fact(year), budget),
+        funding_chart=_chart_slices(budget["sections"], "collected",
+                                    lambda r, colors=_budget_colors(budget["sections"]): colors[r["name"]]),
         budget_format=csv_format_context("budget"),
         spending_format=csv_format_context("spending"),
     )
@@ -1614,3 +1714,35 @@ def set_fee_type_color(fee_type_id):
     database.db_session.commit()
     flash(_("Цвет «{name}» сохранён.", name=fee_type.name), "success")
     return _back_to_categories()
+
+
+def _with_funding(plan_fact: dict, budget: dict) -> dict:
+    """Добавить к разделам «Сметы и факта» собранное на раздел (доля
+    средств сметы по плану) и остаток: собрано − потрачено (плюс —
+    переходит на следующий год, минус — дефицит раздела)."""
+    by_name = {s["name"]: s for s in budget["sections"]}
+    for section in plan_fact["sections"]:
+        info = by_name.get(section["name"], {})
+        section["is_target"] = info.get("is_target", False)
+        section["collected"] = info.get("collected", Decimal("0"))
+        section["balance"] = section["collected"] - section["fact"]
+    plan_fact["collected"] = budget["funding"]["paid"]
+    plan_fact["balance"] = plan_fact["collected"] - plan_fact["fact"]
+    return plan_fact
+
+
+@bp.route("/budget/section-kind", methods=["POST"])
+@roles_required(RoleEnum.CHAIRMAN)
+def set_section_kind():
+    """Членский или целевой раздел сметы."""
+    year = request.form.get("year", type=int)
+    name = cap((request.form.get("section") or "").strip(), BudgetSection.__table__.c.name)
+    if year is None or not name:
+        abort(400)
+    row = database.db_session.query(BudgetSection).filter_by(year=year, name=name).first()
+    if row is None:
+        row = BudgetSection(year=year, name=name)
+        database.db_session.add(row)
+    row.is_target = request.form.get("kind") == "target"
+    database.db_session.commit()
+    return _redirect_back(year)

@@ -2546,6 +2546,14 @@ class ElectricitySettings(Base):
     # прибавляется к объёму по показаниям — Вт × часы с прошлых показаний
     # (accounting.meter_self_consumption_kwh); 0 — не начислять.
     meter_self_consumption_w: Mapped[Decimal] = mapped_column(Numeric(5, 2), default=Decimal("2"), server_default="2")
+    # Наружное освещение (фонари на территории): состав светильников
+    # «кол-во×Вт», через запятую — «3×50, 5×8» (accounting.parse_lighting).
+    # Только для оценки в «Финансах за год» (сколько из счёта энергосбыта
+    # уходит на освещение): мощность × тёмные часы (accounting.night_hours).
+    outdoor_lighting: Mapped[str | None] = mapped_column(String(200))
+    # Широта кооператива, ° — для длины ночи (фотореле: от заката до
+    # восхода). По умолчанию — Ярославль.
+    latitude: Mapped[Decimal] = mapped_column(Numeric(6, 3), default=Decimal("57.6"), server_default="57.6")
 
     supplier: Mapped["Counterparty | None"] = relationship()
 

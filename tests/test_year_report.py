@@ -965,6 +965,43 @@ def test_electricity_breakdown_losses_and_meter_self_consumption(app, db):
     assert el["hours"] == 240                          # 10 дней
     assert el["kwh"] == Decimal("1.44")                # 3 × 2 Вт × 240 ч
     assert el["meters"] == Decimal("9.07")             # 1,44 × 6,30
+    assert el["lighting"] == Decimal("0")             # освещение не задано
     assert el["rest"] == Decimal("10233.00") - Decimal("233.00") - Decimal("9.07")
+    settings = db.query(ElectricitySettings).one()
+    settings.outdoor_lighting = "3×50, 5×8"
+    db.commit()
+    with app.test_request_context("/year-report/"):
+        el = _electricity_breakdown(2026, today=dt.date(2026, 1, 10))
+    assert el["lighting_w"] == Decimal("190")
+    assert Decimal("160") < el["dark_hours"] < Decimal("175")   # ~16,8 ч тьмы в сутки в январе на 57,6°
+    assert el["lighting"] == (el["lighting_kwh"] * Decimal("6.30")).quantize(Decimal("0.01"))
+    assert el["rest"] == el["total"] - el["losses"] - el["meters"] - el["lighting"]
     with app.test_request_context("/year-report/"):
         assert _electricity_breakdown(2025, today=dt.date(2026, 1, 10)) is None  # счетов за год нет
+
+
+def test_parse_lighting_and_night_hours():
+    from app.accounting import lighting_watts, night_hours, parse_lighting
+    import pytest
+    assert parse_lighting("3×50, 5×8") == [(3, Decimal("50")), (5, Decimal("8"))]
+    assert lighting_watts("3x50 + 5*8") == Decimal("190")
+    assert lighting_watts("190 Вт") == Decimal("190")
+    assert lighting_watts("три фонаря") == Decimal("0")
+    with pytest.raises(ValueError):
+        parse_lighting("3×50, много")
+    year = night_hours(Decimal("57.6"), dt.date(2026, 1, 1), dt.date(2026, 12, 31))
+    assert Decimal("4200") < year < Decimal("4400")
+    assert night_hours(57.6, dt.date(2026, 6, 21), dt.date(2026, 6, 21)) < night_hours(57.6, dt.date(2026, 12, 21), dt.date(2026, 12, 21))
+
+
+def test_save_outdoor_lighting_normalizes(app, db, client):
+    from app.models import ElectricitySettings
+    _chairman(db, client)
+    resp = client.post("/power/outdoor-lighting", data={"outdoor_lighting": "3x50 ; 5 * 8", "latitude": "57,6"})
+    assert resp.status_code == 302
+    settings = db.query(ElectricitySettings).one()
+    assert settings.outdoor_lighting == "3×50, 5×8"
+    assert settings.latitude == Decimal("57.6")
+    client.post("/power/outdoor-lighting", data={"outdoor_lighting": "много", "latitude": "57,6"})
+    db.expire_all()
+    assert db.query(ElectricitySettings).one().outdoor_lighting == "3×50, 5×8"

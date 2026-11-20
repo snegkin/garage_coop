@@ -35,7 +35,8 @@ from sqlalchemy.orm import selectinload
 
 from . import audit, database
 from .accounting import (
-    available_statement_lines, counterparty_balance, current_tariff, get_electricity_settings, pay_counterparty,
+    available_statement_lines, counterparty_balance, current_tariff, get_electricity_settings, lighting_watts,
+    night_hours, pay_counterparty,
     reallocate_counterparty_expenses,
 )
 from .auth import roles_required
@@ -833,7 +834,10 @@ def _electricity_breakdown(year: int, today: dt.date | None = None) -> dict | No
     - собственное потребление счётчиков — гаражи со счётчиком × Вт × часы с
       1 января по дату просмотра (прошлый год — целиком) × текущий тариф
       поставщика: приборы учёта его не считают, а энергосбыт выставляет;
-    - остальное — потребление гаражей по счётчикам и общее освещение.
+    - наружное освещение — суммарная мощность фонарей
+      (ElectricitySettings.outdoor_lighting) × тёмные часы на широте
+      кооператива за тот же период × текущий тариф поставщика;
+    - остальное — потребление гаражей по счётчикам и прочее.
     None — поставщик не указан или расходов на него за год нет."""
     today = today or dt.date.today()
     settings = get_electricity_settings()
@@ -865,17 +869,26 @@ def _electricity_breakdown(year: int, today: dt.date | None = None) -> dict | No
     tariff = current_tariff(ElectricityTariffKind.SUPPLIER, today)
     kwh = (len(garages) * watts * hours / Decimal("1000")).quantize(Decimal("0.01"))
     meters = (kwh * tariff.rate).quantize(Decimal("0.01")) if tariff is not None else Decimal("0")
-    rest = total - losses - meters
+    # Наружное освещение: мощность × тёмные часы (закат—восход) за тот же
+    # период. Позже — по отдельному счётчику Sonoff на освещении.
+    lighting_w = lighting_watts(settings.outdoor_lighting)
+    dark_hours = night_hours(settings.latitude, start, end) if lighting_w and end >= start else Decimal("0")
+    lighting_kwh = (lighting_w * dark_hours / Decimal("1000")).quantize(Decimal("0.01"))
+    lighting = (lighting_kwh * tariff.rate).quantize(Decimal("0.01")) if tariff is not None else Decimal("0")
+    rest = total - losses - meters - lighting
     return {
         "supplier": settings.supplier, "total": total,
         "losses": losses, "percent": percent,
         "meters": meters, "garages": len(garages), "outside": sum(1 for g in garages if g.outside_territory),
         "watts": watts, "hours": hours, "kwh": kwh, "tariff": tariff.rate if tariff else None, "until": end,
+        "lighting": lighting, "lighting_w": lighting_w, "lighting_set": settings.outdoor_lighting,
+        "dark_hours": dark_hours, "lighting_kwh": lighting_kwh,
         "rest": rest,
-        "text": {"watts": _fmt_number(watts), "kwh": _fmt_number(kwh), "percent": _fmt_number(percent),
+        "text": {"lighting_w": _fmt_number(lighting_w), "dark_hours": _fmt_number(dark_hours),
+                 "lighting_kwh": _fmt_number(lighting_kwh), "latitude": _fmt_number(settings.latitude or Decimal("0")),"watts": _fmt_number(watts), "kwh": _fmt_number(kwh), "percent": _fmt_number(percent),
                  "tariff": _fmt_number(tariff.rate) if tariff and tariff.rate != tariff.rate.quantize(Decimal("0.01"))
                  else (f"{tariff.rate:.2f}".replace(".", ",") if tariff else "—")},
-        "shares": {k: _percent(v, total) for k, v in (("losses", losses), ("meters", meters), ("rest", rest))},
+        "shares": {k: _percent(v, total) for k, v in (("losses", losses), ("meters", meters), ("lighting", lighting), ("rest", rest))},
     }
 
 

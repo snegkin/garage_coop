@@ -22,6 +22,7 @@
 """
 import calendar
 import datetime as dt
+import math
 import re
 from decimal import Decimal, ROUND_HALF_UP, ROUND_UP
 
@@ -932,6 +933,60 @@ def meter_self_consumption_kwh(garage: Garage, date_from: dt.date | None, date_t
     watts = get_electricity_settings().meter_self_consumption_w or Decimal("0")
     hours = Decimal((date_to - date_from).days * 24)
     return (watts * hours / Decimal("1000")).quantize(Decimal("0.001"), ROUND_HALF_UP)
+
+
+_LIGHTING_PART = re.compile(r"^\s*(?:(\d+)\s*[×xхXХ*]\s*)?(\d+(?:[.,]\d+)?)\s*(?:вт|w)?\s*$", re.IGNORECASE)
+
+
+def parse_lighting(text: str | None) -> list[tuple[int, Decimal]]:
+    """Состав наружного освещения (ElectricitySettings.outdoor_lighting):
+    «3×50, 5×8» → [(3, 50), (5, 8)]. Части через запятую, «;» или «+»;
+    в части — «кол-во×Вт» (×, x, х, *) или просто Вт (1 светильник).
+    Неразборчивая часть — ValueError."""
+    parts = []
+    for raw in re.split(r"[,;+\n]", text or ""):
+        if not raw.strip():
+            continue
+        m = _LIGHTING_PART.match(raw)
+        if m is None:
+            raise ValueError(raw.strip())
+        parts.append((int(m.group(1) or 1), Decimal(m.group(2).replace(",", "."))))
+    return parts
+
+
+def lighting_watts(text: str | None) -> Decimal:
+    """Суммарная мощность наружного освещения, Вт (0 — не задано/ошибка)."""
+    try:
+        return sum((count * watts for count, watts in parse_lighting(text)), Decimal("0"))
+    except ValueError:
+        return Decimal("0")
+
+
+def night_hours(latitude: Decimal | float, start: dt.date, end: dt.date) -> Decimal:
+    """Тёмные часы (от заката до восхода — так работает фотореле фонарей)
+    с start по end включительно на широте latitude, по формуле длины дня
+    (склонение Солнца по дню года, высота −0,833° с рефракцией). Оценка:
+    реальное фотореле включается чуть позже заката и гаснет чуть раньше
+    восхода, в пасмурную погоду — наоборот."""
+    if end < start:
+        return Decimal("0")
+    phi = math.radians(float(latitude))
+    h0 = math.radians(-0.833)
+    total = 0.0
+    day = start
+    while day <= end:
+        n = day.timetuple().tm_yday
+        decl = math.radians(23.44) * math.sin(2 * math.pi * (284 + n) / 365)
+        cos_w = (math.sin(h0) - math.sin(phi) * math.sin(decl)) / (math.cos(phi) * math.cos(decl))
+        if cos_w <= -1:
+            day_len = 24.0          # полярный день
+        elif cos_w >= 1:
+            day_len = 0.0           # полярная ночь
+        else:
+            day_len = 2 * math.degrees(math.acos(cos_w)) / 15
+        total += 24 - day_len
+        day += dt.timedelta(days=1)
+    return Decimal(str(round(total, 1)))
 
 
 def garage_fee_excluded(garage: Garage, fee_type: FeeType | None) -> bool:

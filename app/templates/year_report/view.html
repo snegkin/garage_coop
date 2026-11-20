@@ -19,14 +19,23 @@
   ul.list-unstyled > li.border-bottom:last-child { border-bottom: 0 !important; }
   /* Текст строки расхода: дата и контрагент целиком, описание обрезается
      многоточием ровно по доступной ширине (полностью — в подсказке). */
-  .yr-exp-text { display:flex; align-items:baseline; gap:.3rem; min-width:0; flex:1 1 auto; }
-  .yr-exp-text > .yr-exp-head, .yr-exp-text > .text-nowrap { flex:none; white-space:nowrap; }
+  .yr-exp-text { display:flex; align-items:baseline; gap:.3rem; min-width:0; flex:1 1 auto; overflow:hidden; }
+  /* Не хватает места — сначала сжимается описание, потом человек, потом
+     контрагент (всё с многоточием); дата видна всегда. */
+  .yr-exp-text > .yr-exp-head, .yr-exp-text > .text-nowrap { flex:0 1 auto; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .yr-exp-text > .text-nowrap { flex-shrink:4; }
+  .yr-exp-text > .yr-exp-desc { flex-shrink:50; }
+  /* В раскрытой строке таблицы (колонка уже, чем у «Сметы и факт») —
+     текст переносится, а не обрезается: иначе описаний почти не видно. */
+  .yr-detail-row .yr-exp-text { display:block; overflow:visible; }
+  .yr-detail-row .yr-exp-text > * { white-space:normal !important; overflow:visible !important; }
   .yr-exp-desc { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .yr-exp-right .form-select { width:100%; min-width:0; }
   .yr-exp-right .yr-amount { text-align:right; white-space:nowrap; font-variant-numeric: tabular-nums; }
   @media (max-width: 767.98px) {
     .yr-exp-right, .yr-exp-right.wide { grid-template-columns: minmax(0, 1fr) auto 1.25rem; width:100%; }
-    .yr-exp-text { display:block; }
+    .yr-exp-text { display:block; overflow:visible; }
+    .yr-exp-text > .yr-exp-head, .yr-exp-text > .text-nowrap { overflow:visible; }
     .yr-exp-text > .yr-exp-head, .yr-exp-desc { white-space:normal; }
   }
   .yr-meter-row { display:grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) 19rem; gap:.75rem; align-items:center; padding:.25rem 0; }
@@ -60,9 +69,12 @@
   .yr-scroll-list { max-height: 22rem; overflow-y: auto; }
   .yr-table td { vertical-align: top; }
   .yr-item-row { display:grid; grid-template-columns: minmax(0, 1fr) 6.5rem 6.5rem; gap:.75rem; align-items:baseline; padding:.25rem 0; }
+  /* Содержимое раскрытой строки не расширяет таблицу (width:0), а
+     занимает её ширину (min-width:100%) — длинные описания обрезаются. */
+  .yr-detail-row > td > * { width:0; min-width:100%; }
   /* На телефоне таблица прокручивается вбок — раскрытый список держим в
      видимой ширине экрана, а не по всей ширине таблицы. */
-  @media (max-width: 767.98px) { .yr-item-row { grid-template-columns: minmax(0, 1fr) auto auto; gap:.5rem; } .yr-detail-row > td > * { position:sticky; left:0; max-width: calc(100vw - 5rem); } }
+  @media (max-width: 767.98px) { .yr-item-row { grid-template-columns: minmax(0, 1fr) auto auto; gap:.5rem; } .yr-detail-row > td > * { position:sticky; left:0; width: calc(100vw - 5rem); min-width:0; } }
   .yr-detail-row > td { background: var(--bs-tertiary-bg); padding: .25rem .75rem .5rem 1.75rem; }
   .yr-num { text-align:right; white-space:nowrap; font-variant-numeric: tabular-nums; }
   .yr-stack { display:flex; height:.75rem; border-radius:4px; overflow:hidden; background: var(--bs-secondary-bg); }
@@ -90,11 +102,7 @@
 {% endmacro %}
 
 {% macro person_tag(e) %}
-<span class="text-nowrap">
-  {% if e.person %} · <i class="bi bi-person" aria-hidden="true"></i> <a href="{{ url_for('persons.detail', person_id=e.person_id) }}">{{ e.person.full_name }}</a>{% endif %}
-  <button type="button" class="btn btn-link btn-sm p-0 ms-1 text-secondary align-baseline" data-bs-toggle="modal" data-bs-target="#personModal"
-          data-expense="{{ e.id }}" data-person="{{ e.person_id or '' }}" title="{{ _('Кому начислено / выплачено') }}" aria-label="{{ _('Кому начислено / выплачено') }}"><i class="bi bi-person-plus" aria-hidden="true"></i></button>
-</span>
+{% if e.person %}<span class="text-nowrap" title="{{ _('Кому начислено / выплачено') }}">· <i class="bi bi-person" aria-hidden="true"></i> <a href="{{ url_for('persons.detail', person_id=e.person_id) }}">{{ e.person.full_name }}</a></span>{% endif %}
 {% endmacro %}
 
 {% macro expense_text(e, suggested=False) %}
@@ -105,14 +113,32 @@
 </span>
 {% endmacro %}
 
+{# Меню действий у траты («⋯»): человек-получатель, отмена разнесения,
+   переход к контрагенту. strategy fixed — чтобы меню не обрезалось
+   прокручиваемой таблицей. #}
 {% macro unbook_button(e) %}
-{% if e.id in undoable_ids %}
-<form method="post" action="{{ url_for('year_report.unbook_expense', expense_id=e.id) }}"
-      onsubmit="return confirm({{ _('Отменить разнесение? Расход (и другие позиции той же оплаты) и платёж будут удалены, строка выписки снова появится в «Списаниях без расхода».')|tojson }})">
-  <button class="btn btn-sm btn-link p-0 text-secondary" type="submit" title="{{ _('Отменить разнесение') }}" aria-label="{{ _('Отменить разнесение') }}"><i class="bi bi-arrow-counterclockwise" aria-hidden="true"></i></button>
-</form>
-{% else %}<span></span>
-{% endif %}
+<div class="dropdown">
+  <button class="btn btn-sm btn-link p-0 text-secondary yr-menu-btn" type="button" data-bs-toggle="dropdown" aria-expanded="false"
+          data-bs-popper-config='{"strategy":"fixed"}' title="{{ _('Действия') }}" aria-label="{{ _('Действия') }}"><i class="bi bi-three-dots-vertical" aria-hidden="true"></i></button>
+  <ul class="dropdown-menu dropdown-menu-end small">
+    <li><button type="button" class="dropdown-item" data-bs-toggle="modal" data-bs-target="#personModal"
+                data-expense="{{ e.id }}" data-person="{{ e.person_id or '' }}"><i class="bi bi-person-plus me-2" aria-hidden="true"></i>{{ _("Сменить человека…") if e.person else _("Указать человека (кому начислено / выплачено)…") }}</button></li>
+    {% if e.person %}
+    <li><form method="post" action="{{ url_for('year_report.set_expense_person', expense_id=e.id) }}" data-ajax>
+      <input type="hidden" name="person_id" value="">
+      <button class="dropdown-item" type="submit"><i class="bi bi-person-x me-2" aria-hidden="true"></i>{{ _("Убрать человека ({name})", name=e.person.full_name) }}</button>
+    </form></li>
+    {% endif %}
+    <li><a class="dropdown-item" href="{{ url_for('counterparties.detail', counterparty_id=e.counterparty_id) }}"><i class="bi bi-building me-2" aria-hidden="true"></i>{{ _("Расчёты с контрагентом") }}</a></li>
+    {% if e.id in undoable_ids %}
+    <li><hr class="dropdown-divider"></li>
+    <li><form method="post" action="{{ url_for('year_report.unbook_expense', expense_id=e.id) }}"
+              onsubmit="return confirm({{ _('Отменить разнесение? Расход (и другие позиции той же оплаты) и платёж будут удалены, строка выписки снова появится в «Списаниях без расхода».')|tojson }})">
+      <button class="dropdown-item text-danger" type="submit"><i class="bi bi-arrow-counterclockwise me-2" aria-hidden="true"></i>{{ _("Отменить разнесение") }}</button>
+    </form></li>
+    {% endif %}
+  </ul>
+</div>
 {% endmacro %}
 
 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
@@ -379,8 +405,13 @@
               {% for g in spending.groups %}
               <tr>
                 <td>
-                  <details data-key="spending:{{ g.name }}">
-                    <summary><span class="yr-swatch" data-chart="spendingChart" data-label="{{ g.name }}"></span>{{ g.name }} <span class="text-muted small">({{ g.expenses|length }})</span></summary>
+                  <details data-key="spending:{{ g.name }}" data-row-toggle>
+                    <summary><span class="yr-swatch" data-chart="spendingChart" data-label="{{ g.name }}"></span>{{ g.name }} <span class="text-muted small">({{ g.expenses|length }})</span></summary></details>
+                </td>
+                <td class="text-end align-top">{{ fmt2(g.amount) }}</td>
+                <td class="text-end align-top">{{ g.share if g.share is not none else "—" }}</td>
+              </tr>
+              <tr class="yr-detail-row" hidden><td colspan="3">
                     <ul class="list-unstyled small mt-1 mb-0">
                       {% for e in g.expenses %}
                       <li class="d-flex flex-wrap flex-md-nowrap justify-content-between align-items-center gap-2 py-1 border-bottom">
@@ -397,11 +428,7 @@
                       </li>
                       {% endfor %}
                     </ul>
-                  </details>
-                </td>
-                <td class="text-end align-top">{{ fmt2(g.amount) }}</td>
-                <td class="text-end align-top">{{ g.share if g.share is not none else "—" }}</td>
-              </tr>
+              </td></tr>
               {% endfor %}
             </tbody>
             <tfoot><tr class="fw-bold border-top">

@@ -17,7 +17,7 @@ Expense, сгруппированные по статьям).
   заводится как «оплачено не через банк» (наличными, за свой счёт).
 
 Статьи расходов — Expense.category, свободный текст; для сводки он
-приводится к одному из CATEGORIES (normalize_category) — исторические
+приводится к статье справочника ExpenseCategory (normalize_category) — исторические
 «электротовары»/«Хостинг»/«штраф» и т.п. попадают в общие статьи.
 """
 import csv
@@ -28,7 +28,7 @@ import re
 from decimal import Decimal, InvalidOperation
 from urllib.parse import urlsplit
 
-from flask import Blueprint, Response, abort, flash, redirect, render_template, request, url_for
+from flask import Blueprint, Response, abort, flash, g, redirect, render_template, request, url_for
 from sqlalchemy.orm import selectinload
 
 from . import audit, database
@@ -37,73 +37,105 @@ from .auth import roles_required
 from .i18n import translate as _
 from .models import (
     BankAccount, BankStatementLine, BudgetItem, Charge, Counterparty, CounterpartyPayment, CsvImportProfile, Expense,
-    ExpenseKind, FeeType, MemberAccount, Payment, RoleEnum,
+    ExpenseCategory, ExpenseKind, FeeType, MemberAccount, Payment, RoleEnum,
 )
 
 bp = Blueprint("year_report", __name__, url_prefix="/year-report")
 
-# Статьи расходов (хранятся в Expense.category как есть, по-русски — это
-# данные кооператива, как и названия контрагентов, не строки интерфейса).
-CATEGORIES = [
-    "Электроэнергия",
-    "Электрика",
-    "Видеонаблюдение",
-    "Хоз. работы",
-    "Сайт и связь",
-    "Канцелярия",
-    "Земельный налог",
-    "Налоги, штрафы, пени",
-    "Отчётность и ЭДО",
-    "Оплата труда",
-    "Банковское обслуживание",
-    "Почтовые расходы",
-    "Юридические расходы",
-    "Прочее",
-]
+# Статьи расходов — справочник ExpenseCategory (страница «Статьи и цвета»,
+# см. ниже categories_view). Expense.category хранит НАЗВАНИЕ статьи как
+# есть, по-русски — это данные кооператива, не строки интерфейса.
+# Значения по умолчанию — те же, что заносит миграция fb2d330cafd9: ими
+# пользуются, пока справочник пуст или нет контекста приложения (разбор
+# CSV в тестах без БД).
 OTHER_CATEGORY = "Прочее"
-
-# Названия разделов «Отчёта по тратам» и старые категории расходов → статья.
-_CATEGORY_ALIASES = {
-    "электроэнергия": "Электроэнергия",
-    "электрика": "Электрика",
-    "электротовары": "Электрика",
-    "видеонаблюдение": "Видеонаблюдение",
-    "хоз. работы": "Хоз. работы",
-    "хоз.работы": "Хоз. работы",
-    "хозработы": "Хоз. работы",
-    "уборка снега": "Хоз. работы",
-    "сайт": "Сайт и связь",
-    "хостинг": "Сайт и связь",
-    "смс": "Сайт и связь",
-    "коммуникации": "Сайт и связь",
-    "связь": "Сайт и связь",
-    "канцелярия": "Канцелярия",
-    "штраф": "Налоги, штрафы, пени",
-    "штрафы": "Налоги, штрафы, пени",
-    "налоги": "Налоги, штрафы, пени",
-}
-for _c in CATEGORIES:
-    _CATEGORY_ALIASES.setdefault(_c.lower(), _c)
-
-# Ключевые слова в названии/назначении → статья. Порядок важен: первое
-# совпадение побеждает (земельный налог раньше общего «налог», комиссия
-# банка раньше всего остального и т.п.).
-_KEYWORD_RULES = [
-    (("земельн", "единый налоговый платеж", "единый налоговый платёж"), "Земельный налог"),
-    (("комисси", "платежные поручения", "платёжные поручения"), "Банковское обслуживание"),
-    (("фонд оплаты труда", " фот ", "документооборот", "оплата труда"), "Оплата труда"),
-    (("сбис", "нулевк", "отчетност", "отчётност", "скзи", "кэп ", "тензор", "крипто-про"), "Отчётность и ЭДО"),
-    # «налог» — отдельным словом: «нулевая отчётность в налоговую» — не налог.
-    (("штраф", "пени", "пеня", " налог ", " налог,", " налог.", "налоги", "налога ", "налогам"), "Налоги, штрафы, пени"),
-    (("госпошлин", "исков", "юр. помощь", "юридич"), "Юридические расходы"),
-    (("почтов", "уфпс", "почта росс"), "Почтовые расходы"),
-    (("электроэнерг", "тнс энерго"), "Электроэнергия"),
-    (("домен", "хостинг", "vps", "бегет", "рег.ру", "смс", "sms", "мобильн", "связь", "интернет-услуг"), "Сайт и связь"),
-    (("снег", "покос", "спил", "кустар", "кустов", "субботник", "мусор", "гербиц", "подсыпк", "крошк", "транспортн"), "Хоз. работы"),
-    (("камер", "видеонабл", "wi-fi мост", "ubiquiti", "litebeam", "poe", "витая пара", "коммутатор", "powerline"), "Видеонаблюдение"),
-    (("провод", "кабел", "гильз", "сжим", "клемм", "изолент", " щит", "din-рейк", "фонар", " опор", "sonoff", "автоматическ"), "Электрика"),
-    (("бумаг", "степлер", "скоб", "картридж", "резак", "трафарет", "магнит"), "Канцелярия"),
+DEFAULT_CATEGORIES = [
+    # (название, цвет, слова для автоподбора, не входит в смету, к смете по статье, по умолчанию)
+    ("Земельный налог", "#2a78d6", "земельн, единый налоговый платеж, единый налоговый платёж", True, False, False),
+    ("Банковское обслуживание", "#a8743a", "комисси, платежные поручения, платёжные поручения", False, True, False),
+    ("Оплата труда", "#e87ba4", 'фонд оплаты труда, "фот", документооборот, оплата труда', False, False, False),
+    ("Отчётность и ЭДО", "#86b6ef", 'сбис, нулевк, отчетност, отчётност, скзи, "кэп", тензор, крипто-про', False, True, False),
+    ("Налоги, штрафы, пени", "#e34948", 'штраф, "пени", "пеня", "налог", "налоги", "налога", "налогам"', False, True, False),
+    ("Юридические расходы", "#b5476b", "госпошлин, исков, юр. помощь, юридич", False, False, False),
+    ("Почтовые расходы", "#f4a582", "почтов, уфпс, почта росс", False, True, False),
+    ("Электроэнергия", "#eda100", "электроэнерг, тнс энерго", False, True, False),
+    ("Сайт и связь", "#1baf7a",
+     "домен, хостинг, vps, бегет, рег.ру, смс, sms, мобильн, связь, интернет-услуг, сайт, коммуникац",
+     False, False, False),
+    ("Хоз. работы", "#008300",
+     "снег, покос, спил, кустар, кустов, субботник, мусор, гербиц, подсыпк, крошк, транспортн, "
+     "хоз. работ, хоз.работ, хозработ", False, False, False),
+    ("Видеонаблюдение", "#6250d6",
+     "камер, видеонабл, wi-fi мост, ubiquiti, litebeam, poe, витая пара, коммутатор, powerline",
+     False, False, False),
+    ("Электрика", "#eb6834",
+     "провод, кабел, гильз, сжим, клемм, изолент, щит, din-рейк, фонар, опор, sonoff, автоматическ, электротовар",
+     False, False, False),
+    ("Канцелярия", "#b3a9ef", "бумаг, степлер, скоб, картридж, резак, трафарет, магнит", False, False, False),
+    (OTHER_CATEGORY, "#a3a29d", None, False, False, True),
 ]
+GRAY = "#a3a29d"
+
+
+def parse_keywords(text: str | None) -> list[re.Pattern]:
+    """Слова для автоподбора — через запятую или с новой строки. Слово
+    совпадает с НАЧАЛОМ слова в тексте («провод» — «проводки», но не
+    «щит» в «защитный»); в кавычках — только слово целиком («"фот"» — не
+    «фотореле»)."""
+    patterns = []
+    for raw in re.split(r"[,\n]", text or ""):
+        word = raw.strip()
+        whole = len(word) > 2 and word[0] in "\"«" and word[-1] in "\"»"
+        word = word.strip("\"«» ").lower()
+        if not word:
+            continue
+        tail = r"(?![\w])" if whole else ""
+        patterns.append(re.compile(r"(?<![\w])" + re.escape(word) + tail, re.IGNORECASE))
+    return patterns
+
+
+class CategoryRules:
+    """Справочник статей в виде, удобном для подбора: порядок, цвета,
+    признаки и скомпилированные слова."""
+
+    def __init__(self, rows):
+        rows = list(rows)
+        self.names = [r[0] for r in rows]
+        self.colors = {r[0]: r[1] or GRAY for r in rows}
+        self.matchers = [(r[0], parse_keywords(r[2])) for r in rows]
+        self.outside = {r[0] for r in rows if r[3]}
+        self.narrow = {r[0] for r in rows if r[4]}
+        self.default = next((r[0] for r in rows if r[5]), OTHER_CATEGORY)
+        self._by_lower = {name.lower(): name for name in self.names}
+
+    def exact(self, text: str | None) -> str | None:
+        return self._by_lower.get((text or "").strip().lower())
+
+    def by_keywords(self, text: str | None) -> str | None:
+        for name, patterns in self.matchers:
+            if any(p.search(text or "") for p in patterns):
+                return name
+        return None
+
+    def all_matching(self, text: str | None) -> set[str]:
+        return {name for name, patterns in self.matchers if any(p.search(text or "") for p in patterns)}
+
+
+def category_rules() -> CategoryRules:
+    """Справочник статей — из БД (раз на запрос), по умолчанию — встроенный."""
+    try:
+        cached = getattr(g, "_expense_category_rules", None)
+    except RuntimeError:  # нет контекста приложения
+        return CategoryRules(DEFAULT_CATEGORIES)
+    if cached is None:
+        rows = database.db_session.query(ExpenseCategory).order_by(ExpenseCategory.position, ExpenseCategory.id).all()
+        cached = CategoryRules(
+            [(c.name, c.color, c.keywords, c.outside_budget, c.budget_match_by_category, c.is_default) for c in rows]
+            or DEFAULT_CATEGORIES
+        )
+        g._expense_category_rules = cached
+    return cached
+
 
 # Контрагент для трат, оплаченных не со счёта кооператива (наличными,
 # председателем за свой счёт и т.п.) — заводится при импорте отчёта по
@@ -133,35 +165,29 @@ def cap(value: str | None, column) -> str | None:
 
 
 def normalize_category(raw: str | None) -> str:
-    """Свободный текст Expense.category → одна из CATEGORIES (или сам
-    текст, если он ни на что не похож — тогда статья показывается как есть)."""
+    """Свободный текст Expense.category → статья справочника (по названию,
+    иначе по словам автоподбора) или сам текст, если он ни на что не похож
+    — тогда статья показывается как есть."""
+    rules = category_rules()
     if not raw or not raw.strip():
-        return OTHER_CATEGORY
-    text = raw.strip()
-    alias = _CATEGORY_ALIASES.get(text.lower())
-    if alias:
-        return alias
-    by_keyword = _category_by_keywords(text)
-    return by_keyword or text
+        return rules.default
+    return rules.exact(raw) or rules.by_keywords(raw) or raw.strip()
 
 
 def _category_by_keywords(text: str) -> str | None:
-    low = f" {text.lower()} "
-    for keywords, category in _KEYWORD_RULES:
-        if any(k in low for k in keywords):
-            return category
-    return None
+    return category_rules().by_keywords(text)
 
 
 def guess_category(text: str, section_hint: str | None = None) -> str:
     """Статья для новой траты: раздел отчёта, если он сам по себе статья
     («видеонаблюдение» — даже щит в этом разделе относится к нему), иначе
-    по ключевым словам, иначе «Прочее»."""
+    по словам автоподбора, иначе статья по умолчанию («Прочее»)."""
+    rules = category_rules()
     if section_hint:
-        alias = _CATEGORY_ALIASES.get(section_hint.strip().lower())
-        if alias and alias != OTHER_CATEGORY:
-            return alias
-    return _category_by_keywords(text) or OTHER_CATEGORY
+        hinted = rules.exact(section_hint) or rules.by_keywords(section_hint)
+        if hinted and hinted != rules.default:
+            return hinted
+    return rules.by_keywords(text) or rules.default
 
 
 # --- Деньги и даты из CSV --------------------------------------------------
@@ -493,7 +519,7 @@ def suggest_for_line(line: BankStatementLine, counterparties: list[Counterparty]
     category = _category_by_keywords(text)
     if category is None and counterparty is not None and counterparty.category:
         alias = normalize_category(counterparty.category)
-        category = alias if alias in CATEGORIES else None
+        category = alias if alias in category_rules().names else None
     confident = category is not None
     if category is None and counterparty is not None:
         # Как уже разнесены прошлые расходы этого контрагента — самая частая
@@ -510,7 +536,7 @@ def suggest_for_line(line: BankStatementLine, counterparties: list[Counterparty]
         "line": line,
         "counterparty": counterparty,
         "new_name": clean_counterparty_name(line),
-        "category": category or OTHER_CATEGORY,
+        "category": category or category_rules().default,
         "confident": confident,
         "description": (line.payment_purpose or "").strip()[:500],
         "date": bill_date(line),
@@ -600,8 +626,23 @@ def _income(year: int) -> dict:
 
     rows: dict[str, dict] = {}
 
-    def _row(name: str) -> dict:
-        return rows.setdefault(name, {"name": name, "charged": Decimal("0"), "received": Decimal("0")})
+    penalty_color = next((ft.color for ft in fee_types.values() if ft.is_penalty and ft.color), None)
+
+    def _color_for(fee_type: FeeType | None, garage_level: bool) -> str | None:
+        if fee_type is None:
+            return (electricity.color if electricity else None) if garage_level else None
+        return penalty_color if fee_type.is_penalty else fee_type.color
+
+    def _row(name: str, code: str | None = None, color: str | None = None) -> dict:
+        row = rows.setdefault(name, {"name": name, "code": code, "color": None,
+                                     "charged": Decimal("0"), "received": Decimal("0")})
+        row["color"] = row["color"] or color
+        return row
+
+    def _code_for(fee_type: FeeType | None, garage_level: bool) -> str | None:
+        if fee_type is None:
+            return "electricity" if garage_level else None
+        return "penalty" if fee_type.is_penalty else fee_type.code
 
     charges = (
         database.db_session.query(Charge)
@@ -613,7 +654,8 @@ def _income(year: int) -> dict:
         if charge.related_person_id is not None or _is_tech(charge.comment, _TECH_CHARGE_PREFIXES):
             continue
         fee_type = charge.account.fee_type if charge.account is not None else charge.fee_type
-        _row(_name_for(fee_type, charge.account is None))["charged"] += charge.amount
+        _row(_name_for(fee_type, charge.account is None), _code_for(fee_type, charge.account is None),
+             _color_for(fee_type, charge.account is None))["charged"] += charge.amount
 
     payments = (
         database.db_session.query(Payment)
@@ -627,7 +669,8 @@ def _income(year: int) -> dict:
                 or _is_tech(payment.comment, _TECH_PAYMENT_PREFIXES)):
             continue
         fee_type = payment.account.fee_type if payment.account is not None else None
-        _row(_name_for(fee_type, payment.account is None))["received"] += payment.amount
+        _row(_name_for(fee_type, payment.account is None), _code_for(fee_type, payment.account is None),
+             _color_for(fee_type, payment.account is None))["received"] += payment.amount
 
     ordered = sorted(rows.values(), key=lambda r: (-r["received"], -r["charged"]))
     for r in ordered:
@@ -690,6 +733,7 @@ def _budget(year: int) -> dict:
         section["amount"] += item.amount
         section["lines"].append({
             "name": item.name, "amount": item.amount, "price": item.price,
+            "categories": sorted(_item_categories(item)),
             "qty_text": _fmt_number(item.quantity) if item.quantity is not None and item.price is not None else None,
         })
     ordered = list(sections.values())
@@ -699,16 +743,56 @@ def _budget(year: int) -> dict:
     return {"sections": ordered, "total": total}
 
 
-def _chart_slices(rows: list[dict], key: str, limit: int = 7) -> list[dict]:
-    """Доли для круговой диаграммы: крупнейшие `limit` как есть, хвост —
-    одним куском «Остальное» (больше 8 цветов не различить)."""
-    positive = [r for r in rows if r[key] > 0]
-    positive.sort(key=lambda r: -r[key])
-    slices = [{"label": r["name"], "value": float(r[key])} for r in positive[:limit]]
-    rest = sum((r[key] for r in positive[limit:]), Decimal("0"))
-    if rest > 0:
-        slices.append({"label": _("Остальное"), "value": float(rest), "other": True})
-    return slices
+# Постоянные цвета диаграмм — по смыслу, а не по месту в рейтинге: цвет
+# задан у статьи расходов (ExpenseCategory.color) и у вида взноса
+# (FeeType.color) в справочнике «Статьи и цвета», один и тот же во всех
+# диаграммах и во все годы; совпадающие по смыслу вещи в поступлениях и
+# тратах (земельный налог, электроэнергия, пени и штрафы) окрашены
+# одинаково. Запасные цвета — для разделов сметы и видов взноса без цвета.
+_FALLBACK_COLORS = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#6250d6", "#e34948"]
+
+
+def _chart_slices(rows: list[dict], key: str, color_of=None) -> list[dict]:
+    """Доли для круговой диаграммы с постоянным цветом каждой доли
+    (color_of(row) → цвет; по умолчанию — цвет статьи по названию)."""
+    rules = category_rules()
+    color_of = color_of or (lambda r: rules.colors.get(r["name"], GRAY))
+    return [
+        {"label": r["name"], "value": float(r[key]), "color": color_of(r)}
+        for r in sorted((r for r in rows if r[key] > 0), key=lambda r: -r[key])
+    ]
+
+
+def _income_colors(rows: list[dict]):
+    """Цвет вида взноса — из справочника; у вида без цвета — первый
+    свободный запасной (не серый у всех сразу)."""
+    used = {r["color"] for r in rows if r.get("color")}
+    spare = (c for c in _FALLBACK_COLORS if c not in used)
+    colors = {r["name"]: r.get("color") or next(spare, GRAY) for r in rows}
+    return lambda r: colors[r["name"]]
+
+
+def _budget_colors(sections: list[dict]) -> dict[str, str]:
+    """Цвет раздела сметы — цвет статьи расходов, на которую приходится
+    больше всего денег раздела («Замена проводки» — как «Электрика»); если
+    этот цвет уже занят другим разделом — первый свободный из запасных."""
+    rules = category_rules()
+    colors: dict[str, str] = {}
+    used: set[str] = set()
+    for section in sections:
+        weights: dict[str, Decimal] = {}
+        for line in section["lines"]:
+            for category in line["categories"]:
+                weights[category] = weights.get(category, Decimal("0")) + line["amount"]
+        color = None
+        if weights:
+            best = max(weights, key=weights.get)
+            color = rules.colors.get(best)
+        if color is None or color in used:
+            color = next((c for c in _FALLBACK_COLORS if c not in used), GRAY)
+        used.add(color)
+        colors[section["name"]] = color
+    return colors
 
 
 @bp.route("/")
@@ -731,10 +815,11 @@ def view():
         year=year, years=years,
         income=income, spending=spending, budget=budget,
         gaps=gaps, gaps_total=gaps_total,
-        counterparties=counterparties, categories=CATEGORIES,
-        income_chart=_chart_slices(income["rows"], "received"),
+        counterparties=counterparties, categories=category_rules().names,
+        income_chart=_chart_slices(income["rows"], "received", _income_colors(income["rows"])),
         spending_chart=_chart_slices(spending["groups"], "amount"),
-        budget_chart=_chart_slices(budget["sections"], "amount"),
+        budget_chart=_chart_slices(budget["sections"], "amount",
+                                   lambda r, colors=_budget_colors(budget["sections"]): colors[r["name"]]),
         plan_fact=_plan_fact(year),
         budget_format=csv_format_context("budget"),
         spending_format=csv_format_context("spending"),
@@ -781,7 +866,7 @@ def book_statement_line(line_id):
         return _redirect_back(line.operation_date.year)
     f = request.form
     counterparty = _get_or_create_counterparty(f.get("counterparty_id"), line, f.get("new_name"))
-    category = cap(f.get("category") or OTHER_CATEGORY, Expense.__table__.c.category)
+    category = cap(f.get("category") or category_rules().default, Expense.__table__.c.category)
     expense = book_line(line, counterparty, category, f.get("description"))
     audit.record(
         "expense.create", entity_type="counterparty", entity_id=counterparty.id,
@@ -1048,7 +1133,7 @@ def import_spending_preview():
     return render_template(
         "year_report/import_spending.html",
         year=year, rows=rows, csv_text=text, lines=lines, expenses=expenses,
-        free_lines=free_lines, categories=CATEGORIES,
+        free_lines=free_lines, categories=category_rules().names,
         total=sum((r["amount"] for r in rows), Decimal("0")),
     )
 
@@ -1212,10 +1297,7 @@ def csv_template(kind):
 
 # --- Смета и факт ---------------------------------------------------------
 
-LAND_TAX_CATEGORY = "Земельный налог"
-_NARROW_CATEGORIES = {
-    "Банковское обслуживание", "Электроэнергия", "Налоги, штрафы, пени", "Почтовые расходы", "Отчётность и ЭДО",
-}
+
 _MATCH_STOP_STEMS = {"оплат", "счету", "числе", "рубле", "товар", "услуг", "работ", "резер", "проче", "налог",
                      "общий", "счетч"}
 
@@ -1228,15 +1310,14 @@ def _stems(text: str | None) -> set[str]:
 def _item_categories(item: BudgetItem) -> set[str]:
     """Все статьи расходов, на которые похожа позиция сметы («Резерв на
     оплату электроэнергии (+ штрафы…)» — и электроэнергия, и штрафы)."""
-    low = f" {item.name.lower()} {item.section.lower()} "
-    return {category for keywords, category in _KEYWORD_RULES if any(k in low for k in keywords)}
+    return category_rules().all_matching(f"{item.name} {item.section}")
 
 
 def suggest_budget_item(expense: Expense, items: list[BudgetItem], item_cats: dict[int, set[str]]) -> BudgetItem | None:
     """Позиция сметы для расхода: больше всего общих слов (по первым 5
     буквам) в описании/контрагенте и наименовании позиции, плюс балл за
     совпадение статьи; нужно хотя бы 2 балла. Иначе — для узких статей
-    (_NARROW_CATEGORIES), если статье расхода в смете соответствует ровно
+    (ExpenseCategory.budget_match_by_category), если статье расхода в смете соответствует ровно
     одна позиция (комиссии банка → «платёжные поручения»), она."""
     category = normalize_category(expense.category)
     expense_stems = _stems(" ".join(filter(None, [expense.description, expense.counterparty.name])))
@@ -1250,7 +1331,7 @@ def suggest_budget_item(expense: Expense, items: list[BudgetItem], item_cats: di
     # Только для узких статей: комиссия банка — это и есть «платёжные
     # поручения», а вот единственная в смете позиция хоз. работ («уборка
     # снега») ещё не значит, что подсыпка дороги заложена в смету.
-    if category not in _NARROW_CATEGORIES:
+    if category not in category_rules().narrow:
         return None
     same = [item for item in items if category in item_cats[item.id]]
     return same[0] if len(same) == 1 else None
@@ -1274,6 +1355,7 @@ def _plan_fact(year: int) -> dict:
         .all()
     )
     item_cats = {item.id: _item_categories(item) for item in items}
+    outside_names = category_rules().outside
     by_item: dict[int, dict] = {
         item.id: {"item": item, "plan": item.amount, "fact": Decimal("0"), "expenses": []} for item in items
     }
@@ -1293,7 +1375,7 @@ def _plan_fact(year: int) -> dict:
         suggested = False
         if expense.budget_item_id in by_item:
             target = by_item[expense.budget_item_id]
-        elif not expense.off_budget and items and normalize_category(expense.category) != LAND_TAX_CATEGORY:
+        elif not expense.off_budget and items and normalize_category(expense.category) not in outside_names:
             match = suggest_budget_item(expense, items, item_cats)
             if match is not None:
                 target, suggested = by_item[match.id], True
@@ -1301,7 +1383,7 @@ def _plan_fact(year: int) -> dict:
         if target is not None:
             target["fact"] += expense.amount
             target["expenses"].append({"expense": expense, "suggested": suggested})
-        elif normalize_category(expense.category) == LAND_TAX_CATEGORY and not expense.off_budget:
+        elif normalize_category(expense.category) in outside_names and not expense.off_budget:
             land["total"] += expense.amount
             land["expenses"].append(expense)
         else:
@@ -1335,6 +1417,7 @@ def _plan_fact(year: int) -> dict:
         "off_total": off_total,
         "off_count": sum(len(g["expenses"]) for g in off_groups),
         "land": land,
+        "outside_label": ", ".join(name for name in category_rules().names if name in category_rules().outside),
         "suggested_count": suggested_count,
         "in_budget_share": _percent(fact, fact + off_total),
     }
@@ -1398,3 +1481,136 @@ def confirm_budget_suggestions():
     database.db_session.commit()
     flash(_("Подбор закреплён: расходов — {count}.", count=confirmed), "success")
     return _redirect_back(year)
+
+
+# --- Справочник статей и цветов ------------------------------------------------
+
+_COLOR_RE = re.compile(r"#[0-9a-fA-F]{6}")
+
+
+def _category_form_values(f) -> dict:
+    color = (f.get("color") or "").strip()
+    return {
+        "name": cap((f.get("name") or "").strip(), ExpenseCategory.__table__.c.name),
+        "color": color.lower() if _COLOR_RE.fullmatch(color) else None,
+        "keywords": (f.get("keywords") or "").strip() or None,
+        "position": f.get("position", type=int) or 0,
+        "outside_budget": bool(f.get("outside_budget")),
+        "budget_match_by_category": bool(f.get("budget_match_by_category")),
+    }
+
+
+def _ensure_categories_seeded() -> None:
+    """Справочник пуст (новая установка до миграции с данными или всё
+    удалено) — заносим встроенные статьи, чтобы было что править."""
+    if database.db_session.query(ExpenseCategory).count():
+        return
+    for i, (name, color, keywords, outside, by_category, default) in enumerate(DEFAULT_CATEGORIES):
+        database.db_session.add(ExpenseCategory(
+            name=name, color=color, keywords=keywords, position=i * 10, outside_budget=outside,
+            budget_match_by_category=by_category, is_default=default,
+        ))
+    database.db_session.commit()
+
+
+@bp.route("/categories")
+@roles_required(RoleEnum.CHAIRMAN)
+def categories_view():
+    _ensure_categories_seeded()
+    categories = database.db_session.query(ExpenseCategory).order_by(ExpenseCategory.position, ExpenseCategory.id).all()
+    usage: dict[str, int] = {}
+    for (raw,) in database.db_session.query(Expense.category):
+        name = normalize_category(raw)
+        usage[name] = usage.get(name, 0) + 1
+    fee_types = database.db_session.query(FeeType).order_by(FeeType.is_penalty, FeeType.name).all()
+    return render_template(
+        "year_report/categories.html", categories=categories, usage=usage, fee_types=fee_types,
+        next_position=(max((c.position for c in categories), default=0) + 10),
+        year=request.args.get("year", type=int),
+    )
+
+
+def _back_to_categories():
+    # Справочник изменился — подбор статей в этом же контексте должен
+    # видеть новое (кэш category_rules живёт на g).
+    g.pop("_expense_category_rules", None)
+    return redirect(request.referrer if request.referrer and urlsplit(request.referrer).path == url_for(
+        "year_report.categories_view") else url_for("year_report.categories_view"))
+
+
+@bp.route("/categories/new", methods=["POST"])
+@roles_required(RoleEnum.CHAIRMAN)
+def create_category():
+    values = _category_form_values(request.form)
+    if not values["name"]:
+        flash(_("Укажите название статьи."), "danger")
+    elif category_rules().exact(values["name"]) or database.db_session.query(ExpenseCategory).filter(
+            ExpenseCategory.name == values["name"]).first():
+        flash(_("Статья «{name}» уже есть.", name=values["name"]), "danger")
+    else:
+        database.db_session.add(ExpenseCategory(**values))
+        audit.record("expense_category.create", summary=f"Добавлена статья расходов «{values['name']}»")
+        database.db_session.commit()
+        flash(_("Статья добавлена."), "success")
+    return _back_to_categories()
+
+
+@bp.route("/categories/<int:category_id>/edit", methods=["POST"])
+@roles_required(RoleEnum.CHAIRMAN)
+def edit_category(category_id):
+    category = database.db_session.get(ExpenseCategory, category_id)
+    if category is None:
+        abort(404)
+    values = _category_form_values(request.form)
+    if not values["name"]:
+        flash(_("Укажите название статьи."), "danger")
+        return _back_to_categories()
+    old_name = category.name
+    if values["name"] != old_name and database.db_session.query(ExpenseCategory).filter(
+            ExpenseCategory.name == values["name"], ExpenseCategory.id != category.id).first():
+        flash(_("Статья «{name}» уже есть.", name=values["name"]), "danger")
+        return _back_to_categories()
+    for key, value in values.items():
+        setattr(category, key, value)
+    if values["name"] != old_name:
+        # Расходы хранят название статьи — переименовываем и их.
+        moved = database.db_session.query(Expense).filter(Expense.category == old_name).update(
+            {"category": values["name"]}, synchronize_session=False)
+        audit.record("expense_category.rename",
+                     summary=f"Статья расходов «{old_name}» переименована в «{values['name']}» (расходов: {moved})")
+    database.db_session.commit()
+    flash(_("Статья «{name}» сохранена.", name=category.name), "success")
+    return _back_to_categories()
+
+
+@bp.route("/categories/<int:category_id>/delete", methods=["POST"])
+@roles_required(RoleEnum.CHAIRMAN)
+def delete_category(category_id):
+    category = database.db_session.get(ExpenseCategory, category_id)
+    if category is None:
+        abort(404)
+    if category.is_default:
+        flash(_("Статью по умолчанию удалить нельзя — в неё попадает всё неопознанное."), "danger")
+        return _back_to_categories()
+    default = category_rules().default
+    moved = database.db_session.query(Expense).filter(Expense.category == category.name).update(
+        {"category": default}, synchronize_session=False)
+    audit.record("expense_category.delete",
+                 summary=f"Удалена статья расходов «{category.name}», её расходы ({moved}) перенесены в «{default}»")
+    database.db_session.delete(category)
+    database.db_session.commit()
+    flash(_("Статья удалена, её расходы перенесены в «{name}».", name=default), "success")
+    return _back_to_categories()
+
+
+@bp.route("/fee-types/<int:fee_type_id>/color", methods=["POST"])
+@roles_required(RoleEnum.CHAIRMAN)
+def set_fee_type_color(fee_type_id):
+    fee_type = database.db_session.get(FeeType, fee_type_id)
+    if fee_type is None:
+        abort(404)
+    color = (request.form.get("color") or "").strip()
+    fee_type.color = color.lower() if _COLOR_RE.fullmatch(color) else None
+    database.db_session.commit()
+    flash(_("Цвет «{name}» сохранён.", name=fee_type.name), "success")
+    return _back_to_categories()

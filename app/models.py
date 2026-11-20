@@ -988,6 +988,35 @@ class FeeRate(Base):
     fee_type: Mapped["FeeType"] = relationship()
 
 
+class ExpenseCategory(Base):
+    """Статья расходов — справочник «Финансов за год» (app/year_report.py):
+    по ней группируются траты (Expense.category хранит НАЗВАНИЕ статьи,
+    свободным текстом — исторически), у неё постоянный цвет на диаграммах и
+    слова для автоподбора статьи по назначению платежа/наименованию.
+    position — и порядок в списках, и приоритет автоподбора (первая
+    совпавшая статья сверху вниз)."""
+    __tablename__ = "expense_category"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(100), unique=True)
+    color: Mapped[str | None] = mapped_column(String(7))  # #rrggbb
+    # Слова для автоподбора через запятую или с новой строки: слово
+    # совпадает с началом слова в тексте («провод» — «проводки»); в кавычках
+    # — только целиком («"фот"» — не «фотореле»).
+    keywords: Mapped[str | None] = mapped_column(Text)
+    position: Mapped[int] = mapped_column(Integer, default=0)
+    # Не входит в смету по своей природе (земельный налог — отдельный взнос,
+    # транзитом в ФНС): в «Смете и факте» показывается отдельно.
+    outside_budget: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("0"))
+    # Узкая статья: если в смете ровно одна позиция этой статьи — расход
+    # относится к ней, даже без общих слов (комиссия банка → «платёжные
+    # поручения»).
+    budget_match_by_category: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("0"))
+    # Статья по умолчанию («Прочее») — куда попадает всё неопознанное;
+    # удалить её нельзя.
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("0"))
+
+
 class BudgetItem(Base):
     """Строка сметы на год (доходов и расходов кооператива) — раздел
     («Содержание кооператива», «Замена общей проводки»…) и статья в нём.
@@ -2665,6 +2694,8 @@ class FeeType(Base):
     # Электричество сюда не относится — у него отдельный, гаражный лицевой счёт.
     type_code: Mapped[str | None] = mapped_column(String(5))
     is_penalty: Mapped[bool] = mapped_column(Boolean, default=False)  # пеня по этому виду взноса
+    # Цвет на диаграммах «Финансов за год» (#rrggbb); пусто — запасной.
+    color: Mapped[str | None] = mapped_column(String(7))
 
     # per_garage=False — счёт этого вида взноса один на ЧЕЛОВЕКА, а не на пару
     # (гараж, собственник), как обычно (см. MemberAccount.garage_id, теперь

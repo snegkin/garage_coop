@@ -424,3 +424,74 @@ def test_budget_reimport_keeps_expense_links(app, db, client):
     db.expire_all()
     new_item = db.query(BudgetItem).filter(BudgetItem.name == "Механизированная уборка снега").one()
     assert db.get(Expense, expense.id).budget_item_id == new_item.id
+
+
+# --- Справочник статей и цветов ----------------------------------------------
+
+def test_parse_keywords_prefix_and_whole_word():
+    from app.year_report import parse_keywords
+    prefix, whole = parse_keywords('щит, "фот"')
+    assert prefix.search("Щит распределительный") and not prefix.search("Диод защитный")
+    assert whole.search("ФОТ за март") and not whole.search("Фотореле IEK")
+
+
+def test_categories_seeded_by_migration_with_colors(app, db):
+    from app.models import ExpenseCategory, FeeType
+    names = [c.name for c in db.query(ExpenseCategory).order_by(ExpenseCategory.position)]
+    assert names[0] == "Земельный налог" and names[-1] == "Прочее"
+    assert db.query(ExpenseCategory).filter_by(name="Земельный налог").one().outside_budget is True
+    assert db.query(ExpenseCategory).filter_by(is_default=True).one().name == "Прочее"
+
+
+def test_category_crud_renames_and_moves_expenses(app, db, client):
+    from app.models import ExpenseCategory
+    _chairman(db, client)
+    cp = Counterparty(name="Подрядчик")
+    db.add(cp)
+    db.flush()
+    db.add(Expense(counterparty_id=cp.id, date=dt.date(2026, 5, 1), amount=Decimal("100"), category="Хоз. работы"))
+    db.commit()
+    assert client.get("/year-report/categories").status_code == 200
+
+    # Новая статья со своими словами — сразу участвует в автоподборе.
+    client.post("/year-report/categories/new", data={
+        "name": "Дорога", "color": "#123456", "keywords": "подсыпк, крошк, асфальт", "position": "5",
+    })
+    road = db.query(ExpenseCategory).filter_by(name="Дорога").one()
+    assert road.color == "#123456"
+    with app.test_request_context():
+        from app.year_report import guess_category
+        assert guess_category("Подсыпка дороги асфальтовой крошкой") == "Дорога"
+
+    # Переименование статьи переименовывает и расходы.
+    hoz = db.query(ExpenseCategory).filter_by(name="Хоз. работы").one()
+    client.post(f"/year-report/categories/{hoz.id}/edit", data={
+        "name": "Хозяйственные работы", "color": hoz.color, "keywords": hoz.keywords, "position": str(hoz.position),
+    })
+    db.expire_all()
+    assert db.query(Expense).one().category == "Хозяйственные работы"
+
+    # Удаление — расходы в «Прочее»; «Прочее» удалить нельзя.
+    client.post(f"/year-report/categories/{hoz.id}/delete")
+    db.expire_all()
+    assert db.query(Expense).one().category == "Прочее"
+    other = db.query(ExpenseCategory).filter_by(is_default=True).one()
+    client.post(f"/year-report/categories/{other.id}/delete")
+    assert db.get(ExpenseCategory, other.id) is not None
+
+
+def test_chart_colors_fixed_per_category_and_fee_type(app, db, client):
+    from app.models import FeeType
+    from app.year_report import _chart_slices
+    _chairman(db, client)
+    with app.test_request_context():
+        slices = _chart_slices([
+            {"name": "Электрика", "amount": Decimal("10")},
+            {"name": "Земельный налог", "amount": Decimal("50")},
+        ], "amount")
+    assert [(s["label"], s["color"]) for s in slices] == [("Земельный налог", "#2a78d6"), ("Электрика", "#eb6834")]
+    fee = FeeType(code="membership_x", name="Членский взнос X")
+    db.add(fee)
+    db.commit()
+    client.post(f"/year-report/fee-types/{fee.id}/color", data={"color": "#ABCDEF"})
+    assert db.get(FeeType, fee.id).color == "#abcdef"

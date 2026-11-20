@@ -30,6 +30,7 @@
 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
   <h3 class="mb-0">{{ _("Финансы за {year} год", year=year) }}</h3>
   <form method="get" class="d-flex align-items-center gap-2">
+    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('year_report.categories_view', year=year) }}">{{ _("Статьи и цвета") }}</a>
     <label class="form-label mb-0 small text-muted" for="yearSelect">{{ _("Год") }}</label>
     <select class="form-select form-select-sm" style="width:auto" id="yearSelect" name="year" onchange="this.form.submit()">
       {% for y in years %}<option value="{{ y }}" {{ "selected" if y == year }}>{{ y }}</option>{% endfor %}
@@ -64,7 +65,7 @@
     <div class="card h-100 yr-tile"><div class="card-body">
       <div class="small text-muted">{{ _("Потрачено") }}</div>
       <div class="value">{{ fmt2(spending.total) }} ₽</div>
-      <div class="small text-muted">{% if plan_fact.land.total %}{{ _("из них земельный налог {amount} ₽", amount=fmt2(plan_fact.land.total)) }}{% else %}&nbsp;{% endif %}</div>
+      <div class="small text-muted">{% if plan_fact.land.total %}{{ _("из них вне сметы по своей природе ({names}): {amount} ₽", names=plan_fact.outside_label, amount=fmt2(plan_fact.land.total)) }}{% else %}&nbsp;{% endif %}</div>
     </div></div>
   </div>
   <div class="col-12 col-lg">
@@ -235,7 +236,7 @@
       <div class="small text-muted">{{ _("запас на конец года или недовыполненный план") }}</div>
     </div></div>
     <div class="col-6 col-lg-3"><div class="border rounded p-2 h-100">
-      <div class="small text-muted">{{ _("Земельный налог") }}</div>
+      <div class="small text-muted">{{ plan_fact.outside_label or _("Не входит в смету") }}</div>
       <div class="fw-semibold">{{ fmt2(plan_fact.land.total) }} ₽</div>
       <div class="small text-muted">{{ _("отдельный взнос, в смету не входит") }}</div>
     </div></div>
@@ -477,12 +478,9 @@
     });
   });
 
-  // Категориальная палитра — фиксированный порядок, восьмой цвет — серый
-  // для «Остальное»; отдельные шаги для тёмной темы.
+  // Цвета приходят с сервера и постоянны для каждой статьи/вида взноса
+  // (справочник «Статьи и цвета»: ExpenseCategory.color, FeeType.color).
   var dark = document.documentElement.getAttribute("data-bs-theme") === "dark";
-  var palette = dark
-    ? ["#3987e5", "#d95926", "#199e70", "#c98500", "#d55181", "#0ca30c", "#9085e9"]
-    : ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#6250d6"];
   var otherColor = dark ? "#6b6b66" : "#a3a29d";
   var surface = getComputedStyle(document.body).getPropertyValue("--bs-card-bg").trim()
     || getComputedStyle(document.body).backgroundColor;
@@ -491,11 +489,10 @@
   function draw(id, slices) {
     var canvas = document.getElementById(id);
     if (!canvas || !slices.length) return;
-    var colors = slices.map(function (s, i) { return s.other ? otherColor : palette[i % palette.length]; });
+    var colors = slices.map(function (s) { return s.color || otherColor; });
     var byLabel = {};
     slices.forEach(function (s, i) { byLabel[s.label] = colors[i]; });
-    // Цвет у строк таблицы — тот же, что у куска диаграммы; строки, ушедшие
-    // в «Остальное», получают серый.
+    // Цвет у строк таблицы — тот же, что у куска диаграммы.
     document.querySelectorAll('.yr-swatch[data-chart="' + id + '"]').forEach(function (el) {
       el.style.backgroundColor = byLabel[el.dataset.label] || otherColor;
     });

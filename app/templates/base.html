@@ -138,6 +138,7 @@
             {% endif %}
             {% if is_chairman() %}
             <li><a class="dropdown-item" href="{{ url_for('year_report.view') }}">{{ _("Финансы за год") }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('year_report.categories_view') }}">{{ _("Статьи доходов и расходов") }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('finance.mass_charge') }}">{{ _("Массовое начисление") }}</a></li>
             {% endif %}
             <li><hr class="dropdown-divider"></li>

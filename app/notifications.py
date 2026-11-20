@@ -498,7 +498,7 @@ BOARD_EVENT_GROUPS = {
     },
     "counterparties": {
         "label": "Контрагенты и расходы",
-        "actions": ("counterparty.*", "counterparty_payment.*", "expense.*", "counterparty_api.*", "budget.*", "statement_line.*"),
+        "actions": ("counterparty.*", "counterparty_payment.*", "expense.*", "counterparty_api.*", "budget.*", "statement_line.*", "expense_category.*"),
     },
     "governance": {
         "label": "Собрания, голосования, предложения, заявления, состав правления, кандидаты",

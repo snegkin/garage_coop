@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Статьи и цвета") }}{% endblock %}
+{% block content %}
+<style>
+  .cat-color { width: 2.6rem; height: 2rem; padding: .15rem; }
+  .cat-table td { vertical-align: top; }
+  .cat-table textarea { min-width: 16rem; font-size: .85rem; }
+</style>
+<a href="{{ url_for('year_report.view', year=year) }}" class="d-inline-block mb-3" data-back-link data-back-label="&larr; {{ _('Назад') }}">&larr; {{ _("К финансам за год") }}</a>
+<h3>{{ _("Статьи и цвета") }}</h3>
+<p class="text-muted">{{ _("Статьи расходов, по которым группируются траты на странице «Финансы за год», и цвета на диаграммах — один цвет у статьи во всех диаграммах и во все годы.") }}</p>
+
+<div class="card mb-4"><div class="card-body">
+  <h5 class="card-title">{{ _("Статьи расходов") }}</h5>
+  <p class="small text-muted">
+    {{ _("Слова для автоподбора — через запятую: статья подставляется, если в назначении платежа или наименовании траты есть слово, начинающееся так («провод» — подойдёт и «проводки»); слово в кавычках — только целиком («\"фот\"» — не «фотореле»). Статьи проверяются сверху вниз, побеждает первая совпавшая — порядок задаёт «№».") }}
+    {{ _("Переименование статьи переименовывает её и у уже заведённых расходов, удаление переносит расходы в статью по умолчанию.") }}
+  </p>
+  <div class="table-responsive">
+  <table class="table table-sm align-middle cat-table">
+    <thead><tr>
+      <th style="width:4.5rem">№</th><th>{{ _("Статья") }}</th><th>{{ _("Цвет") }}</th><th>{{ _("Слова для автоподбора") }}</th>
+      <th>{{ _("Смета") }}</th><th class="text-end">{{ _("Расходов") }}</th><th></th>
+    </tr></thead>
+    <tbody>
+      {% for c in categories %}
+      <tr>
+        <td><input class="form-control form-control-sm" type="number" name="position" value="{{ c.position }}" form="cat{{ c.id }}" aria-label="{{ _('Порядок') }}"></td>
+        <td>
+          <form id="cat{{ c.id }}" method="post" action="{{ url_for('year_report.edit_category', category_id=c.id) }}" data-ajax></form>
+          <input class="form-control form-control-sm" name="name" value="{{ c.name }}" maxlength="100" required form="cat{{ c.id }}" aria-label="{{ _('Статья') }}">
+          {% if c.is_default %}<div class="small text-muted">{{ _("по умолчанию — для неопознанного") }}</div>{% endif %}
+        </td>
+        <td><input class="form-control form-control-color cat-color" type="color" name="color" value="{{ c.color or '#a3a29d' }}" form="cat{{ c.id }}" aria-label="{{ _('Цвет') }}"></td>
+        <td><textarea class="form-control form-control-sm" name="keywords" rows="2" form="cat{{ c.id }}" aria-label="{{ _('Слова для автоподбора') }}">{{ c.keywords or "" }}</textarea></td>
+        <td class="small">
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="outside_budget" value="1" id="out{{ c.id }}" form="cat{{ c.id }}" {{ "checked" if c.outside_budget }}>
+            <label class="form-check-label" for="out{{ c.id }}" title="{{ _('Как земельный налог: отдельный взнос, в «Смете и факте» показывается отдельно') }}">{{ _("не входит в смету") }}</label>
+          </div>
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="budget_match_by_category" value="1" id="bm{{ c.id }}" form="cat{{ c.id }}" {{ "checked" if c.budget_match_by_category }}>
+            <label class="form-check-label" for="bm{{ c.id }}" title="{{ _('Если в смете ровно одна позиция этой статьи — расход относится к ней, даже без общих слов (комиссии банка → «платёжные поручения»)') }}">{{ _("к смете по статье") }}</label>
+          </div>
+        </td>
+        <td class="text-end">{{ usage.get(c.name, 0) }}</td>
+        <td class="text-nowrap">
+          <button class="btn btn-sm btn-outline-primary" type="submit" form="cat{{ c.id }}">{{ _("Сохранить") }}</button>
+          {% if not c.is_default %}
+          <form method="post" action="{{ url_for('year_report.delete_category', category_id=c.id) }}" class="d-inline"
+                onsubmit="return confirm({{ _('Удалить статью «{name}»? Её расходы перейдут в статью по умолчанию.', name=c.name)|tojson }})">
+            <button class="btn btn-sm btn-outline-danger btn-icon-square" type="submit" title="{{ _('Удалить') }}"><i class="bi bi-trash" aria-hidden="true"></i></button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+      <tr class="table-light">
+        <td><input class="form-control form-control-sm" type="number" name="position" value="{{ next_position }}" form="catNew" aria-label="{{ _('Порядок') }}"></td>
+        <td>
+          <form id="catNew" method="post" action="{{ url_for('year_report.create_category') }}" data-ajax></form>
+          <input class="form-control form-control-sm" name="name" maxlength="100" placeholder="{{ _('Новая статья') }}" required form="catNew" aria-label="{{ _('Новая статья') }}">
+        </td>
+        <td><input class="form-control form-control-color cat-color" type="color" name="color" value="#6b6b66" form="catNew" aria-label="{{ _('Цвет') }}"></td>
+        <td><textarea class="form-control form-control-sm" name="keywords" rows="2" form="catNew" aria-label="{{ _('Слова для автоподбора') }}"></textarea></td>
+        <td class="small">
+          <div class="form-check"><input class="form-check-input" type="checkbox" name="outside_budget" value="1" id="outNew" form="catNew"><label class="form-check-label" for="outNew">{{ _("не входит в смету") }}</label></div>
+          <div class="form-check"><input class="form-check-input" type="checkbox" name="budget_match_by_category" value="1" id="bmNew" form="catNew"><label class="form-check-label" for="bmNew">{{ _("к смете по статье") }}</label></div>
+        </td>
+        <td></td>
+        <td><button class="btn btn-sm btn-primary" type="submit" form="catNew">{{ _("Добавить") }}</button></td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+</div></div>
+
+<div class="card mb-4"><div class="card-body">
+  <h5 class="card-title">{{ _("Виды взносов") }}</h5>
+  <p class="small text-muted">{{ _("Цвета на диаграмме поступлений. Одинаковые по смыслу с тратами — тем же цветом: земельный налог, электроэнергия, пени и штрафы. Названия и коды видов взноса — в «Формате лицевых счетов».") }}
+    <a href="{{ url_for('finance.account_format') }}">{{ _("Формат лицевых счетов") }}</a></p>
+  <div class="table-responsive">
+  <table class="table table-sm align-middle">
+    <thead><tr><th>{{ _("Вид взноса") }}</th><th>{{ _("Цвет") }}</th><th></th></tr></thead>
+    <tbody>
+      {% for ft in fee_types %}
+      <tr>
+        <td>{{ ft.name }}{% if ft.is_penalty %} <span class="small text-muted">({{ _("на диаграмме — общей долей «Пеня»") }})</span>{% endif %}</td>
+        <td>
+          <form id="fee{{ ft.id }}" method="post" action="{{ url_for('year_report.set_fee_type_color', fee_type_id=ft.id) }}" data-ajax></form>
+          <input class="form-control form-control-color cat-color" type="color" name="color" value="{{ ft.color or '#a3a29d' }}" form="fee{{ ft.id }}" aria-label="{{ _('Цвет') }}">
+        </td>
+        <td><button class="btn btn-sm btn-outline-primary" type="submit" form="fee{{ ft.id }}">{{ _("Сохранить") }}</button></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div></div>
+{% endblock %}

@@ -641,7 +641,10 @@ def _available_years() -> list[int]:
     years |= {d.year for (d,) in database.db_session.query(Expense.date).all()}
     years |= {y for (y,) in database.db_session.query(BudgetItem.year).distinct()}
     years |= {d.year for (d,) in database.db_session.query(BankStatementLine.operation_date).all()}
+    # Текущий и следующий — следующий всегда, чтобы заранее загрузить смету
+    # и начислить взносы на будущий год (в базе по нему ещё ничего нет).
     years.add(dt.date.today().year)
+    years.add(dt.date.today().year + 1)
     return sorted(years)
 
 
@@ -1064,6 +1067,8 @@ def view():
         funding_chart=_chart_slices(budget["sections"], "collected",
                                     lambda r, colors=_budget_colors(budget["sections"]): colors[r["name"]]),
         budget_format=csv_format_context("budget"),
+        previous_budget_year=(year - 1) if not budget["sections"] and database.db_session.query(BudgetItem)
+            .filter(BudgetItem.year == year - 1).first() is not None else None,
         spending_format=csv_format_context("spending"),
     )
 
@@ -2122,3 +2127,37 @@ def restore_statement_line(line_id):
     database.db_session.commit()
     flash(_("Отметка «не трата» снята."), "success")
     return _redirect_back(line.operation_date.year)
+
+
+@bp.route("/budget/copy", methods=["POST"])
+@roles_required(RoleEnum.CHAIRMAN)
+def copy_budget():
+    """Смета на год по образцу прошлогодней — позиции и типы разделов
+    (членский/целевой); дальше правится перезагрузкой CSV. Только в пустой
+    год, чтобы не затереть уже загруженную смету."""
+    year = request.form.get("year", type=int)
+    if year is None:
+        abort(400)
+    if database.db_session.query(BudgetItem).filter(BudgetItem.year == year).first() is not None:
+        flash(_("Смета на {year} год уже есть — чтобы заменить её, загрузите CSV.", year=year), "warning")
+        return redirect(url_for("year_report.view", year=year))
+    source_items = (
+        database.db_session.query(BudgetItem).filter(BudgetItem.year == year - 1)
+        .order_by(BudgetItem.position, BudgetItem.id).all()
+    )
+    if not source_items:
+        abort(404)
+    for item in source_items:
+        database.db_session.add(BudgetItem(
+            year=year, section=item.section, name=item.name, quantity=item.quantity, price=item.price,
+            amount=item.amount, position=item.position,
+        ))
+    for section in database.db_session.query(BudgetSection).filter(BudgetSection.year == year - 1):
+        database.db_session.add(BudgetSection(year=year, name=section.name, is_target=section.is_target))
+    total = sum((i.amount for i in source_items), Decimal("0"))
+    audit.record("budget.copy", summary=f"Смета на {year} год взята за основу из сметы {year - 1}: "
+                                         f"{len(source_items)} статей на {audit.format_amount(total)}")
+    database.db_session.commit()
+    flash(_("Смета на {year} год создана по образцу {prev} года — поправьте её и при необходимости загрузите CSV.",
+            year=year, prev=year - 1), "success")
+    return redirect(url_for("year_report.view", year=year))

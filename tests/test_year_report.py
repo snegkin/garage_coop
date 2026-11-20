@@ -814,3 +814,26 @@ def test_import_splits_existing_expense_into_report_items(app, db, client):
     assert items[0].id == expense.id and items[0].documents  # документ остался у первой позиции
     assert all("по отчёту" in e.description for e in items)
     assert all(e.category == "Электрика" for e in items)
+
+
+def test_next_year_available_and_budget_copy(app, db, client):
+    from app.models import BudgetSection
+    _chairman(db, client)
+    next_year = dt.date.today().year + 1
+    body = client.get(f"/year-report/?year={next_year}").get_data(as_text=True)
+    assert f"Финансы за {next_year} год" in body
+    db.add_all([
+        BudgetItem(year=next_year - 1, section="Замена общей проводки", name="Провод", amount=Decimal("6000"), position=0),
+        BudgetItem(year=next_year - 1, section="Содержание кооператива", name="Уборка снега", amount=Decimal("9000"), position=1),
+        BudgetSection(year=next_year - 1, name="Замена общей проводки", is_target=True),
+    ])
+    db.commit()
+    body = client.get(f"/year-report/?year={next_year}").get_data(as_text=True)
+    assert f"Взять за основу смету {next_year - 1} года" in body
+    client.post("/year-report/budget/copy", data={"year": str(next_year)})
+    items = db.query(BudgetItem).filter_by(year=next_year).all()
+    assert sum(i.amount for i in items) == Decimal("15000")
+    assert db.query(BudgetSection).filter_by(year=next_year, name="Замена общей проводки").one().is_target is True
+    # Повторно — не затирает.
+    client.post("/year-report/budget/copy", data={"year": str(next_year)})
+    assert db.query(BudgetItem).filter_by(year=next_year).count() == 2

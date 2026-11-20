@@ -28,7 +28,7 @@
 {% endmacro %}
 
 {% macro unbook_button(e) %}
-{% if e.booked_payment_id %}
+{% if e.id in undoable_ids %}
 <form method="post" action="{{ url_for('year_report.unbook_expense', expense_id=e.id) }}" class="d-inline"
       onsubmit="return confirm({{ _('Отменить разнесение? Расход (и другие позиции той же оплаты) и платёж будут удалены, строка выписки снова появится в «Списаниях без расхода».')|tojson }})">
   <button class="btn btn-sm btn-link p-0 text-secondary" type="submit" title="{{ _('Отменить разнесение') }}" aria-label="{{ _('Отменить разнесение') }}"><i class="bi bi-arrow-counterclockwise" aria-hidden="true"></i></button>
@@ -300,7 +300,7 @@
     <div class="col-6 col-lg-3"><div class="border rounded p-2 h-100">
       <div class="small text-muted">{{ _("Не освоено из сметы") }}</div>
       <div class="fw-semibold">{{ fmt2(plan_fact.unspent) }} ₽</div>
-      <div class="small text-muted">{% if budget.funding.charged %}{{ _("собрано на смету {collected}, потрачено по смете {spent}: {sign} {amount}", collected=fmt2(plan_fact.collected), spent=fmt2(plan_fact.fact), sign=(_("остаток") if plan_fact.balance >= 0 else _("дефицит")), amount=fmt2(plan_fact.balance|abs)) }}{% else %}{{ _("запас на конец года или недовыполненный план") }}{% endif %}</div>
+      <div class="small text-muted">{% if budget.sections and budget.funding.charged %}{{ _("собрано на смету {collected}, потрачено по смете {spent}: {sign} {amount}", collected=fmt2(plan_fact.collected), spent=fmt2(plan_fact.fact), sign=(_("остаток") if plan_fact.balance >= 0 else _("дефицит")), amount=fmt2(plan_fact.balance|abs)) }}{% else %}{{ _("запас на конец года или недовыполненный план") }}{% endif %}</div>
     </div></div>
     <div class="col-6 col-lg-3"><div class="border rounded p-2 h-100">
       <div class="small text-muted">{{ plan_fact.outside_label or _("Не входит в смету") }}</div>
@@ -498,7 +498,7 @@
   </table>
   </div>
   {% else %}
-  <p class="text-muted mb-0">{{ _("Все списания из выписки за этот год уже разнесены по контрагентам.") }}</p>
+  <p class="text-muted mb-0">{{ _("Все списания из выписки за этот год уже разнесены по контрагентам.") }}{% if booked %} <a href="#booked">{{ _("Разнесённые — ниже, там же их можно отменить.") }}</a>{% endif %}</p>
   {% endif %}
   {% if not_expense_lines %}
   <details class="mt-3" data-key="gaps:not-expense">
@@ -518,6 +518,43 @@
   </details>
   {% endif %}
 </div></div>
+
+{# --- Разнесённые списания --- #}
+{% if booked %}
+<div class="card mb-4" id="booked"><div class="card-body">
+  <details data-key="booked:list">
+    <summary><h5 class="card-title d-inline">{{ _("Разнесённые списания: {count}", count=booked|length) }}</h5></summary>
+    <p class="text-muted small mt-2">{{ _("Оплаты по выписке и «оплачено не через банк» за этот год с заведёнными по ним расходами. «Отменить разнесение» удаляет расходы этой оплаты и сам платёж — строка выписки снова появится в «Списаниях без расхода», её можно разнести заново.") }}</p>
+    <div class="table-responsive">
+    <table class="table table-sm align-middle yr-table mb-0">
+      <thead><tr><th>{{ _("Дата") }}</th><th class="text-end">{{ _("Сумма") }}</th><th>{{ _("Контрагент") }}</th><th>{{ _("Расходы") }}</th><th></th></tr></thead>
+      <tbody>
+        {% for row in booked %}{% set p = row.payment %}
+        <tr>
+          <td class="text-nowrap">{{ fmt_date(p.date) }}</td>
+          <td class="text-end text-nowrap">{{ fmt2(p.amount) }}</td>
+          <td class="small"><a href="{{ url_for('counterparties.detail', counterparty_id=p.counterparty_id) }}">{{ p.counterparty.name }}</a></td>
+          <td class="small">
+            {% for e in row.expenses %}<div>{{ e.category or "—" }}: {{ (e.description or "")|truncate(70) }} — {{ fmt2(e.amount) }}</div>{% else %}<span class="text-muted">—</span>{% endfor %}
+          </td>
+          <td class="text-nowrap">
+            {% if row.can_unbook %}
+            <form method="post" action="{{ url_for('year_report.unbook_payment', payment_id=p.id) }}"
+                  onsubmit="return confirm({{ _('Отменить разнесение? Расходы этой оплаты и платёж будут удалены, строка выписки снова появится в «Списаниях без расхода».')|tojson }})">
+              <button class="btn btn-sm btn-outline-danger" type="submit"><i class="bi bi-arrow-counterclockwise" aria-hidden="true"></i> {{ _("Отменить разнесение") }}</button>
+            </form>
+            {% else %}
+            <a class="small" href="{{ url_for('counterparties.detail', counterparty_id=p.counterparty_id) }}" title="{{ _('Расход заведён вручную, с документами или показанием счётчика — правится на странице контрагента') }}">{{ _("у контрагента") }}</a>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    </div>
+  </details>
+</div></div>
+{% endif %}
 
 {# --- Импорт отчёта по тратам --- #}
 <div class="card mb-4"><div class="card-body">

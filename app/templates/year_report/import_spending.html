@@ -1,6 +1,12 @@
 {% extends "base.html" %}
 {% block title %}{{ _("Импорт отчёта по тратам") }}{% endblock %}
 {% block content %}
+<style>
+  /* Строки, на которые стоит посмотреть (не через банк, подгонка суммы,
+     разбивка расхода) — полосой слева, а не заливкой: в тёмной теме
+     заливка «съедала» серый текст. */
+  td.yr-attention { box-shadow: inset 4px 0 0 var(--bs-warning); padding-left: .75rem; }
+</style>
 <a href="{{ url_for('year_report.view', year=year) }}" class="d-inline-block mb-3">&larr; {{ _("К финансам за {year} год", year=year) }}</a>
 <h3>{{ _("Импорт отчёта по тратам") }}</h3>
 <p class="text-muted">
@@ -20,12 +26,13 @@
     <tbody>
       {% for r in rows %}
       {% set kind = r.action.split(":")[0] %}
-      <tr class="{{ 'table-warning' if kind == 'cash' or (r.approx_diff is defined and r.approx_diff) }}">
-        <td class="text-nowrap">{{ fmt_date(r.paid_on) }}</td>
+      {% set attention = kind == 'cash' or (r.approx_diff is defined and r.approx_diff) or r.hinted %}
+      <tr>
+        <td class="text-nowrap {{ 'yr-attention' if attention }}">{{ fmt_date(r.paid_on) }}</td>
         <td class="small text-muted">{{ r.section }}</td>
         <td class="small" style="max-width:24rem">{{ r.description }}
           {% if r.hint_expense %}{% set e = r.hint_expense %}
-          <div class="text-warning-emphasis">{{ _("Рядом уже заведён расход: {date}, {amount} ₽ — {name}. Если позиция из него — выберите его.", date=fmt_date(e.date), amount=fmt2(e.amount), name=e.counterparty.name) }}</div>
+          <div class="text-warning-emphasis">{{ _("Относится к уже заведённому расходу: {date}, {amount} ₽ — {name}. Позиции этого заказа в отчёте на {listed} ₽ — расход разобьётся на них, суммы подгонятся под оплаченные {amount} ₽. Если позиция не из него — выберите «Оплачено не через банк».", date=fmt_date(e.date), amount=fmt2(e.amount), name=e.counterparty.name, listed=fmt2(r.split_total)) }}</div>
           {% endif %}
         </td>
         <td class="text-end text-nowrap">{{ fmt2(r.amount) }}

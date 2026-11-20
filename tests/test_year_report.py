@@ -405,7 +405,7 @@ def test_budget_item_select_and_confirm_routes(app, db, client):
     snow = db.get(Expense, e["snow"].id)
     assert snow.off_budget is False and snow.budget_item_id is None
     body = client.get("/year-report/?year=2026").get_data(as_text=True)
-    assert "Смета и факт" in body and "перерасход" in body
+    assert "Смета и факт" in body and "Итого по смете" in body
 
 
 def test_budget_reimport_keeps_expense_links(app, db, client):
@@ -772,3 +772,45 @@ def test_source_toggle_bank_only(app, db, client):
         assert spending["total"] == Decimal("300") and spending["not_via_bank"] == Decimal("200")
     body = client.get("/year-report/?year=2026&source=bank").get_data(as_text=True)
     assert "Показано только движение по расчётному счёту" in body
+
+
+def test_import_splits_existing_expense_into_report_items(app, db, client):
+    """Русский Свет: заказ уже заведён одной суммой по выписке (33 890,74),
+    в отчёте он расписан позициями на другую сумму — позиции по умолчанию
+    относятся к этому расходу и разбивают его, итог остаётся оплаченным."""
+    from app.accounting import pay_counterparty
+    from app.models import Document, DocumentType
+    _chairman(db, client)
+    account = _bank(db)
+    rs = Counterparty(name="Русский Свет", inn="7704844420")
+    db.add(rs)
+    db.flush()
+    expense = Expense(counterparty_id=rs.id, date=dt.date(2026, 5, 16), amount=Decimal("33890.74"),
+                      category="электротовары", description="Закупка кабеля")
+    db.add(expense)
+    db.flush()
+    db.add(Document(doc_type=DocumentType.UTD, date=dt.date(2026, 5, 16), title="УПД", expense_id=expense.id))
+    pay_counterparty(rs, dt.date(2026, 5, 16), Decimal("33890.74"), bank_account=account, adjust_balance=False)
+    db.commit()
+    csv_text = """Наименование (электрика),,Дата,Кол-во, Цена,Сумма
+Провод ПуГВнг 1х10 С,,21.05.2026,1," р. 14 086,12 "," р. 14 086,12 "
+Клемма СМК 222-413,,21.05.2026,20," р. 517,77 "," р. 10 355,40 "
+"""
+    body = client.post("/year-report/spending/import", data={
+        "year": "2026", "file": (io.BytesIO(csv_text.encode("utf-8")), "r.csv"),
+    }, content_type="multipart/form-data").get_data(as_text=True)
+    assert "Относится к уже заведённому расходу" in body
+    assert f'value="expense:{expense.id}" selected' in body
+
+    form = {"year": "2026", "csv_text": csv_text}
+    for r in parse_spending_csv(csv_text):
+        form[f"category_{r['index']}"] = r["category"]
+        form[f"action_{r['index']}"] = f"expense:{expense.id}"
+    client.post("/year-report/spending/import/apply", data=form)
+    db.expire_all()
+    items = db.query(Expense).filter_by(counterparty_id=rs.id).order_by(Expense.id).all()
+    assert len(items) == 2
+    assert sum(e.amount for e in items) == Decimal("33890.74")
+    assert items[0].id == expense.id and items[0].documents  # документ остался у первой позиции
+    assert all("по отчёту" in e.description for e in items)
+    assert all(e.category == "Электрика" for e in items)

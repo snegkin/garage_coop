@@ -158,8 +158,11 @@ class BankAccount(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     bank_name: Mapped[str] = mapped_column(String(255))
     bik: Mapped[str | None] = mapped_column(String(9))
-    checking_account: Mapped[str] = mapped_column(String(20))              # р/с
-    correspondent_account: Mapped[str | None] = mapped_column(String(20))  # к/с
+    # 30, а не 20 цифр номера: номер можно хранить с пробелами-разрядами
+    # для читаемости («40703 810 7 7703 0002079»), в QR-код и API он идёт
+    # одними цифрами — см. accounting.account_digits.
+    checking_account: Mapped[str] = mapped_column(String(30))              # р/с
+    correspondent_account: Mapped[str | None] = mapped_column(String(30))  # к/с
     is_primary: Mapped[bool] = mapped_column(Boolean, default=False)       # основной счёт, для ПД-4 и т.п.
     comment: Mapped[str | None] = mapped_column(Text)
 
@@ -630,9 +633,9 @@ class CourtSection(Base):
     treasury_inn: Mapped[str | None] = mapped_column(String(12))
     treasury_kpp: Mapped[str | None] = mapped_column(String(9))
     treasury_bank: Mapped[str | None] = mapped_column(String(255))
-    treasury_account: Mapped[str | None] = mapped_column(String(20))
+    treasury_account: Mapped[str | None] = mapped_column(String(30))  # с пробелами-разрядами, как р/с
     treasury_bik: Mapped[str | None] = mapped_column(String(9))
-    treasury_correspondent_account: Mapped[str | None] = mapped_column(String(20))
+    treasury_correspondent_account: Mapped[str | None] = mapped_column(String(30))
     treasury_oktmo: Mapped[str | None] = mapped_column(String(11))
     treasury_kbk: Mapped[str | None] = mapped_column(String(20))  # КБК госпошлины по гражданским делам
     comment: Mapped[str | None] = mapped_column(Text)

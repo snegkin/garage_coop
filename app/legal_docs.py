@@ -32,7 +32,7 @@ from . import penalty
 from . import name_declension
 from .i18n import translate as _, format_date
 from .auth import roles_required
-from .accounting import balance, reallocate_member_charges, charge_paid_amount
+from .accounting import balance, reallocate_member_charges, charge_paid_amount, compact_requisite, tidy_account_number
 from .persons import build_statement
 from .models import (
     Person, Cooperative, CourtSection, RoleEnum, MemberAccount, PersonalAccount,
@@ -658,14 +658,14 @@ def _save_court_section_from_form(section: CourtSection, f):
     section.name = f["name"].strip()
     section.court_address = f.get("court_address") or None
     section.treasury_payee = f.get("treasury_payee") or None
-    section.treasury_inn = f.get("treasury_inn") or None
-    section.treasury_kpp = f.get("treasury_kpp") or None
+    section.treasury_inn = compact_requisite(f.get("treasury_inn"))
+    section.treasury_kpp = compact_requisite(f.get("treasury_kpp"))
     section.treasury_bank = f.get("treasury_bank") or None
-    section.treasury_account = f.get("treasury_account") or None
-    section.treasury_bik = f.get("treasury_bik") or None
-    section.treasury_correspondent_account = f.get("treasury_correspondent_account") or None
-    section.treasury_oktmo = f.get("treasury_oktmo") or None
-    section.treasury_kbk = f.get("treasury_kbk") or None
+    section.treasury_account = tidy_account_number(f.get("treasury_account"))
+    section.treasury_bik = compact_requisite(f.get("treasury_bik"))
+    section.treasury_correspondent_account = tidy_account_number(f.get("treasury_correspondent_account"))
+    section.treasury_oktmo = compact_requisite(f.get("treasury_oktmo"))
+    section.treasury_kbk = compact_requisite(f.get("treasury_kbk"))
     section.comment = f.get("comment") or None
 
 

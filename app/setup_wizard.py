@@ -38,7 +38,7 @@ from .models import (
 )
 from .login_generation import default_login, login_key
 from .accounting import (
-    get_electricity_settings, current_tariff, electricity_account_number,
+    get_electricity_settings, current_tariff, electricity_account_number, compact_requisite, tidy_account_number,
 )
 from .garages import _ensure_member_accounts
 from .governance import _current_term
@@ -104,9 +104,9 @@ def cooperative_step():
         f = request.form
         coop.full_name = f["full_name"]
         coop.short_name = f.get("short_name") or None
-        coop.inn = f["inn"]
-        coop.kpp = f["kpp"]
-        coop.ogrn = f["ogrn"]
+        coop.inn = compact_requisite(f["inn"]) or ""
+        coop.kpp = compact_requisite(f["kpp"]) or ""
+        coop.ogrn = compact_requisite(f["ogrn"]) or ""
         coop.legal_address = f.get("legal_address") or None
         coop.postal_address = f.get("postal_address") or None
         reg_date = f.get("registration_date")
@@ -138,9 +138,9 @@ def bank_account_step():
             database.db_session.query(BankAccount).update({"is_primary": False})
         database.db_session.add(BankAccount(
             bank_name=f["bank_name"],
-            bik=f.get("bik") or None,
-            checking_account=f["checking_account"],
-            correspondent_account=f.get("correspondent_account") or None,
+            bik=compact_requisite(f.get("bik")),
+            checking_account=tidy_account_number(f["checking_account"]) or "",
+            correspondent_account=tidy_account_number(f.get("correspondent_account")),
             is_primary=is_primary,
             comment=f.get("comment") or None,
             balance=_parse_decimal(f.get("balance")),
@@ -171,8 +171,8 @@ def counterparty_step():
         if action == "create":
             counterparty = Counterparty(
                 name=f["name"],
-                inn=f.get("inn") or None,
-                kpp=f.get("kpp") or None,
+                inn=compact_requisite(f.get("inn")),
+                kpp=compact_requisite(f.get("kpp")),
                 category=_("электрика"),
                 phone=f.get("phone") or None,
                 email=f.get("email") or None,

@@ -15,7 +15,8 @@ from tests.conftest import make_person, make_garage, make_ownership, make_user, 
 
 
 def _make_penalty_account(db, person, garage, code, amount):
-    fee_type = FeeType(code=code, name="Пеня по взносу", type_code=code, is_penalty=True)
+    # type_code — String(5): короткий код из конца code (pen_a → "pen_a").
+    fee_type = FeeType(code=code, name="Пеня по взносу", type_code=code[-5:], is_penalty=True)
     db.add(fee_type)
     db.flush()
     account = MemberAccount(person_id=person.id, garage_id=garage.id, fee_type_id=fee_type.id, account_number=f"П{code}")

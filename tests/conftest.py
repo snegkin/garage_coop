@@ -32,6 +32,9 @@ class TestConfig(Config):
     WTF_CSRF_ENABLED = False
     RATELIMIT_ENABLED = False
     SECRET_KEY = "test-secret-key"
+    # Строка длиннее String(n) — ошибка, а не молчаливая запись (SQLite
+    # длину не проверяет), см. app/database.py: _check_string_lengths.
+    STRICT_STRING_LENGTHS = True
 
 
 @pytest.fixture(scope="session")

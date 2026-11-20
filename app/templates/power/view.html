@@ -70,6 +70,18 @@
     </div>
     <button class="btn btn-sm btn-outline-primary">{{ _("Сохранить") }}</button>
   </form>
+  <form method="post" action="{{ url_for('power.save_outdoor_lighting') }}" class="d-flex flex-wrap align-items-center gap-2 small mb-3">
+    <label for="outdoorLighting" title="{{ _('Для оценки в «Финансах за год»: сколько из счёта энергосбыта уходит на фонари — мощность × тёмные часы (от заката до восхода на этой широте).') }}">{{ _("Наружное освещение (кол-во×Вт)") }}</label>
+    <input class="form-control form-control-sm" style="width:12rem" id="outdoorLighting" name="outdoor_lighting" maxlength="200"
+           value="{{ settings.outdoor_lighting or '' }}" placeholder="3×50, 5×8">
+    {% if settings.outdoor_lighting %}<span class="text-muted">= {{ fmt2(lighting_w).rstrip('0').rstrip(',') }} {{ _("Вт") }}</span>{% endif %}
+    <label for="latitude">{{ _("широта") }}</label>
+    <div class="input-group input-group-sm" style="width:110px">
+      <input class="form-control" id="latitude" name="latitude" inputmode="decimal" value="{{ settings.latitude }}" required>
+      <span class="input-group-text">°</span>
+    </div>
+    <button class="btn btn-sm btn-outline-primary">{{ _("Сохранить") }}</button>
+  </form>
   {% if tariff_pairs %}
   <table class="table table-sm bg-body sortable">
     <thead><tr><th>{{ _("Действует с") }}</th><th>{{ _("По") }}</th><th>{{ _("Поставщика") }}</th><th>{{ _("Для членов") }}</th><th>{{ _("Комментарий") }}</th><th class="no-sort"></th></tr></thead>

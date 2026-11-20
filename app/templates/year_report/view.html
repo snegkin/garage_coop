@@ -62,7 +62,7 @@
   .yr-stack > div { height:100%; }
   .yr-el-row { display:grid; grid-template-columns: minmax(0, 1fr) 7rem 3.5rem; gap:.75rem; align-items:baseline; padding:.4rem 0; }
   @media (max-width: 575.98px) { .yr-el-row { grid-template-columns: minmax(0, 1fr) auto auto; gap:.5rem; } }
-  .yr-el-rest { background:#3987e5; } .yr-el-meters { background:#1baf7a; } .yr-el-losses { background:#e8813a; }
+  .yr-el-rest { background:#3987e5; } .yr-el-meters { background:#1baf7a; } .yr-el-losses { background:#e8813a; } .yr-el-lighting { background:#d4b106; }
   .yr-pf-total { border-bottom:0; border-top:2px solid var(--bs-border-color); }
   /* Позиция без расходов — не раскрывается, но отступ под стрелку тот же. */
   .yr-pf-detail > .yr-pf-row .yr-pf-name::before { content:""; display:inline-block; width:1em; }
@@ -385,11 +385,12 @@
       <div class="yr-stack mb-3" role="img" aria-label="{{ _('Состав оплаты за электроэнергию') }}">
         <div class="yr-el-rest" style="width: {{ el.shares.rest or 0 }}%"></div>
         <div class="yr-el-meters" style="width: {{ el.shares.meters or 0 }}%"></div>
+        <div class="yr-el-lighting" style="width: {{ el.shares.lighting or 0 }}%"></div>
         <div class="yr-el-losses" style="width: {{ el.shares.losses or 0 }}%"></div>
       </div>
       <ul class="list-unstyled small mb-2">
         <li class="yr-el-row border-bottom">
-          <span><span class="yr-swatch yr-el-rest"></span>{{ _("Потребление гаражей по счётчикам и общее освещение") }}
+          <span><span class="yr-swatch yr-el-rest"></span>{{ _("Потребление гаражей по счётчикам и прочее") }}
             <span class="text-muted d-block">{{ _("остальное") }}</span></span>
           <span class="yr-num">{{ fmt2(el.rest) }}</span><span class="yr-num text-muted">{{ el.shares.rest }}%</span>
         </li>
@@ -399,12 +400,17 @@
           <span class="yr-num">{{ fmt2(el.meters) }}</span><span class="yr-num text-muted">{{ el.shares.meters }}%</span>
         </li>
         <li class="yr-el-row border-bottom">
+          <span><span class="yr-swatch yr-el-lighting"></span>{{ _("Наружное освещение") }}
+            <span class="text-muted d-block">{% if el.lighting_set %}{{ _("{set} = {watts} Вт × {hours} тёмных часов (закат—восход на широте {latitude}°, по {until}) = {kwh} кВт·ч × {tariff} ₽", set=el.lighting_set, watts=el.text.lighting_w, hours=el.text.dark_hours, latitude=el.text.latitude, until=fmt_date(el.until), kwh=el.text.lighting_kwh, tariff=el.text.tariff) }}{% else %}{{ _("состав светильников не задан") }} — <a href="{{ url_for('power.view') }}">{{ _("укажите на странице электроэнергии") }}</a>{% endif %}</span></span>
+          <span class="yr-num">{{ fmt2(el.lighting) }}</span><span class="yr-num text-muted">{{ el.shares.lighting }}%</span>
+        </li>
+        <li class="yr-el-row border-bottom">
           <span><span class="yr-swatch yr-el-losses"></span>{{ _("Потери в линии") }}
             <span class="text-muted d-block">{{ _("{percent} % сверх объёма, энергосбыт добавляет их в счёт: сумма × {percent} / (100 + {percent})", percent=el.text.percent) }}</span></span>
           <span class="yr-num">{{ fmt2(el.losses) }}</span><span class="yr-num text-muted">{{ el.shares.losses }}%</span>
         </li>
       </ul>
-      <p class="text-muted small mb-0">{{ _("Расчёт на дату просмотра по настройкам электроэнергии (процент потерь, Вт на счётчик) и текущему тарифу — только для наглядности: это часть тех же счетов, отдельно нигде не учитывается.") }}</p>
+      <p class="text-muted small mb-0">{{ _("Расчёт на дату просмотра по настройкам электроэнергии (процент потерь, Вт на счётчик, наружное освещение) и текущему тарифу — только для наглядности: это часть тех же счетов, отдельно нигде не учитывается.") }}</p>
     </div></div>
   </div>
   {% endif %}

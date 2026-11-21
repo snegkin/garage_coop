@@ -1185,8 +1185,8 @@ def _redirect_back(year: int | None):
     только содержимое, без полной перезагрузки). Без JS — к списку
     списаний."""
     referrer = request.referrer or ""
-    view_path = url_for("year_report.view")
-    if referrer and urlsplit(referrer).path == view_path:
+    view_paths = (url_for("year_report.view"), url_for("year_report.plan_view"))
+    if referrer and urlsplit(referrer).path in view_paths:
         parts = urlsplit(referrer)
         return redirect(parts.path + (f"?{parts.query}" if parts.query else ""))
     return redirect(url_for("year_report.view", year=year) + "#gaps")
@@ -1785,11 +1785,15 @@ def _plan_fact(year: int) -> dict:
         .all()
     )
     item_cats = {item.id: _item_categories(item) for item in items}
+    # Позиции «возмещение человеку» — расходы к ним не подбираются: факт по
+    # ним — выплаты этому человеку за год (ниже).
+    match_items = [item for item in items if item.person_id is None]
     outside_names = category_rules().outside
     by_item: dict[int, dict] = {
         item.id: {"item": item, "plan": item.amount, "fact": Decimal("0"), "expenses": [],
                   # статьи позиции в порядке справочника — первая подставляется в «+ трата»
-                  "item_categories": [c for c in category_rules().names if c in item_cats[item.id]]}
+                  "item_categories": [c for c in category_rules().names if c in item_cats[item.id]],
+                  "payments": []}
         for item in items
     }
     expenses = (
@@ -1811,8 +1815,8 @@ def _plan_fact(year: int) -> dict:
         suggested = False
         if expense.budget_item_id in by_item:
             target = by_item[expense.budget_item_id]
-        elif not expense.off_budget and items and normalize_category(expense.category) not in outside_names:
-            match = suggest_budget_item(expense, items, item_cats)
+        elif not expense.off_budget and match_items and normalize_category(expense.category) not in outside_names:
+            match = suggest_budget_item(expense, match_items, item_cats)
             if match is not None:
                 target, suggested = by_item[match.id], True
                 suggested_count += 1
@@ -1827,6 +1831,8 @@ def _plan_fact(year: int) -> dict:
             group = off.setdefault(category, {"name": category, "total": Decimal("0"), "expenses": []})
             group["total"] += expense.amount
             group["expenses"].append(expense)
+
+    _reimbursement_facts(year, by_item, bank_only)
 
     sections: list[dict] = []
     for row in by_item.values():
@@ -1859,6 +1865,39 @@ def _plan_fact(year: int) -> dict:
         "suggested_count": suggested_count,
         "in_budget_share": _percent(fact, fact + off_total),
     }
+
+
+def _reimbursement_facts(year: int, by_item: dict[int, dict], bank_only: bool) -> None:
+    """Факт по позициям «возмещение человеку» — выплаты этому человеку
+    (платежи контрагенту на его имя) с датой в этом году."""
+    rows = [row for row in by_item.values() if row["item"].person_id is not None]
+    if not rows:
+        return
+    by_person: dict[int, list[dict]] = {}
+    for row in rows:
+        by_person.setdefault(row["item"].person_id, []).append(row)
+    for person_id, person_rows in by_person.items():
+        person = database.db_session.get(Person, person_id)
+        if person is None:
+            continue
+        counterparty = (database.db_session.query(Counterparty)
+                        .filter(Counterparty.name == cap(person.full_name, Counterparty.__table__.c.name)).first())
+        if counterparty is None:
+            continue
+        payments = [
+            p for p in counterparty.payments
+            if dt.date(year, 1, 1) <= p.date <= dt.date(year, 12, 31)
+            and p.reverses_payment_id is None and not p.reversed_by
+            and (not bank_only or p.bank_account_id is not None or p.bank_statement_line_id is not None)
+        ]
+        # Несколько позиций на одного человека — выплаты по порядку позиций.
+        left = sorted(payments, key=lambda p: (p.date, p.id))
+        pool = sum((p.amount for p in left), Decimal("0"))
+        for row in person_rows:
+            take = min(pool, row["plan"]) if row is not person_rows[-1] else pool
+            row["fact"] += take
+            row["payments"] = left
+            pool -= take
 
 
 def _meter(plan: Decimal, fact: Decimal) -> dict:

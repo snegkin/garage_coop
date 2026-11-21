@@ -1066,6 +1066,13 @@ class BudgetItem(Base):
     price: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
     amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
     position: Mapped[int] = mapped_column(Integer, default=0)
+    # Позиция «возмещение человеку»: кооперативу не хватило денег вернуть
+    # потраченное человеком за свой счёт (или выплатить начисленное) —
+    # возмещение закладывается в смету следующего года. Факт по такой
+    # позиции — выплаты этому человеку за год (см. year_report._plan_fact).
+    person_id: Mapped[int | None] = mapped_column(ForeignKey("person.id", ondelete="SET NULL"))
+
+    person: Mapped["Person | None"] = relationship()
 
 
 # ---------------------------------------------------------------------------

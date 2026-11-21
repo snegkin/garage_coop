@@ -290,6 +290,7 @@ def create_app(config_class=Config):
     from .postal_letters import bp as postal_letters_bp, agent_bp as postal_agent_bp
     from .annual_reports import bp as annual_reports_bp
     from .year_report import bp as year_report_bp
+    from . import budget_plan  # noqa: F401 — маршруты планирования сметы на том же blueprint
     from .system_logs import bp as system_logs_bp
 
     app.register_blueprint(main_bp)

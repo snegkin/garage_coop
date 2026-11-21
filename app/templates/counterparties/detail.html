@@ -495,6 +495,28 @@
             <label class="form-label">{{ _("Описание") }}</label>
             <textarea class="form-control" name="description">{{ e.description or "" }}</textarea>
           </div>
+          {% set pay_mode = pay_modes.get(e.id) %}
+          <div class="row g-2 mb-3">
+            {% if pay_mode %}
+            <div class="col-12 col-md-6">
+              <label class="form-label">{{ _("За чей счёт оплачено") }}</label>
+              <div class="form-check"><input class="form-check-input" type="radio" name="pay_mode" value="cash" id="payCash{{ e.id }}" {{ "checked" if pay_mode == "cash" }}>
+                <label class="form-check-label" for="payCash{{ e.id }}">{{ _("деньгами кооператива (наличные / не через банк)") }}</label></div>
+              <div class="form-check"><input class="form-check-input" type="radio" name="pay_mode" value="own" id="payOwn{{ e.id }}" {{ "checked" if pay_mode == "own" }}>
+                <label class="form-check-label" for="payOwn{{ e.id }}">{{ _("человеком за свой счёт — кооператив должен возместить") }}</label></div>
+              <div class="form-check"><input class="form-check-input" type="radio" name="pay_mode" value="accrued" id="payAccrued{{ e.id }}" {{ "checked" if pay_mode == "accrued" }}>
+                <label class="form-check-label" for="payAccrued{{ e.id }}">{{ _("начислено человеку, выплата позже (оплата труда)") }}</label></div>
+              <div class="form-text">{{ _("За свой счёт и начислено — долг кооператива этому человеку: виден в «Финансах за год» → «К выплате людям», пока не выплатят.") }}</div>
+            </div>
+            {% endif %}
+            <div class="col-12 {{ 'col-md-6' if pay_mode }}">
+              <label class="form-label">{{ _("Человек") }} <span class="text-muted small">{{ _("(кто платил за свой счёт / кому начислено, выплачено)") if pay_mode else _("(кому начислено / выплачено)") }}</span></label>
+              <select class="form-select" name="person_id" data-searchable data-placeholder="{{ _('— не указано —') }}">
+                <option value="">{{ _("— не указано —") }}</option>
+                {% for p in persons %}<option value="{{ p.id }}" {{ "selected" if p.id == e.person_id }}>{{ p.full_name }}</option>{% endfor %}
+              </select>
+            </div>
+          </div>
           <div class="mb-3">
             <label class="form-label">{{ _("Счёт / акт / УПД от контрагента") }}</label>
             {% if e.documents %}

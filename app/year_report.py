@@ -2330,6 +2330,79 @@ def _person_counterparty(person: Person) -> Counterparty:
     return cp
 
 
+OWN_FUNDS_MARK = "за свой счёт, к возмещению"
+
+
+def expense_payment_mode(expense: Expense) -> str | None:
+    """Как оплачена трата, которой нет в выписке: "cash" — деньгами
+    кооператива не через банк (контрагент «Оплачено наличными / не через
+    банк»), "own" — человеком за свой счёт, к возмещению, "accrued" —
+    начислено человеку к выплате (оплата труда). Оба последних — расход на
+    контрагенте-человеке без своей оплаты. None — обычный контрагент."""
+    counterparty = expense.counterparty
+    if counterparty is None:
+        return None
+    if counterparty.name == CASH_COUNTERPARTY_NAME:
+        return "cash"
+    if (expense.person is not None and expense.booked_payment_id is None
+            and counterparty.name == cap(expense.person.full_name, Counterparty.__table__.c.name)):
+        return "own" if OWN_FUNDS_MARK in (expense.description or "").lower() else "accrued"
+    return None
+
+
+def _without_own_mark(description: str | None) -> str | None:
+    text = (description or "").strip()
+    for mark in (" — " + OWN_FUNDS_MARK, OWN_FUNDS_MARK):
+        i = text.lower().find(mark)
+        if i != -1:
+            text = (text[:i] + text[i + len(mark):]).strip()
+    return text or None
+
+
+def change_expense_payment_mode(expense: Expense, mode: str, person: Person | None) -> Counterparty:
+    """Сменить, как оплачена трата не через банк (см. expense_payment_mode):
+    деньги кооператива ↔ за свой счёт человека ↔ начислено к выплате.
+    Расход переезжает к нужному контрагенту («Оплачено наличными» или
+    контрагент-человек), у наличной траты — своя оплата, у долга человеку
+    оплаты нет (возмещение разносится потом). Возвращает контрагента, у
+    которого расход теперь. ValueError — с текстом для пользователя."""
+    current = expense_payment_mode(expense)
+    if current is None or mode not in ("cash", "own", "accrued"):
+        raise ValueError(_("Способ оплаты меняется только у трат не через банк и долгов человеку."))
+    if mode in ("own", "accrued") and person is None:
+        raise ValueError(_("Выберите человека: кому начислено или кто платил за свой счёт."))
+    old = expense.counterparty
+    target = _cash_counterparty() if mode == "cash" else _person_counterparty(person)
+    if current in ("own", "accrued") and target.id != old.id and expense.allocations:
+        raise ValueError(_("Этот долг уже (частично) возмещён — сначала отмените платёж человеку."))
+
+    if current == "cash" and mode != "cash" and expense.booked_payment is not None:
+        payment = expense.booked_payment
+        others = (database.db_session.query(Expense)
+                  .filter(Expense.booked_payment_id == payment.id, Expense.id != expense.id).count())
+        expense.booked_payment_id = None
+        database.db_session.flush()
+        if others:
+            payment.amount -= expense.amount
+        else:
+            database.db_session.delete(payment)
+    description = _without_own_mark(expense.description)
+    if mode == "own":
+        description = f"{description} — {OWN_FUNDS_MARK}" if description else _("За свой счёт, к возмещению")
+    expense.description = description
+    expense.counterparty = target
+    expense.person_id = person.id if person is not None else None
+    database.db_session.flush()
+    if mode == "cash" and current != "cash":
+        payment = pay_counterparty(target, expense.date, expense.amount, comment=_("Оплачено не через банк"),
+                                   adjust_balance=False)
+        expense.booked_payment_id = payment.id
+    reallocate_counterparty_expenses(old)
+    if target.id != old.id:
+        reallocate_counterparty_expenses(target)
+    return target
+
+
 @bp.route("/expenses/new", methods=["POST"])
 @roles_required(RoleEnum.CHAIRMAN)
 def add_expense():
@@ -2357,7 +2430,7 @@ def add_expense():
     category = cap(f.get("category") or category_rules().default, Expense.__table__.c.category)
     description = (f.get("description") or "").strip() or None
     if mode == "own":
-        description = f"{description} — " + _("за свой счёт, к возмещению") if description else _("За свой счёт, к возмещению")
+        description = f"{description} — {OWN_FUNDS_MARK}" if description else _("За свой счёт, к возмещению")
     budget_item = (database.db_session.get(BudgetItem, f.get("budget_item_id", type=int))
                    if f.get("budget_item_id") else None)
     counterparty = _person_counterparty(person) if mode in ("own", "accrued") else _cash_counterparty()

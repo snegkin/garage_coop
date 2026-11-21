@@ -11,7 +11,7 @@ from .auth import roles_required
 from .models import (
     Counterparty, CounterpartyApiProvider, CounterpartyApiCredential, Expense, ExpenseKind, CounterpartyPayment, ReconciliationAct,
     BALANCE_SYNC_INTERVAL_CHOICES,
-    BankAccount, BankStatementLine, Document, DocumentTemplate, DocumentType, IssuedDocument, MasterMeterReading, RoleEnum,
+    BankAccount, BankStatementLine, Document, DocumentTemplate, DocumentType, IssuedDocument, MasterMeterReading, Person, RoleEnum,
 )
 from .accounting import (
     counterparty_balance, counterparty_amount_to_pay, counterparty_unbilled_usage,
@@ -355,7 +355,15 @@ def detail(counterparty_id):
         last_payment_id=last_payment_id,
         referenceable_statement_lines=referenceable_statement_lines,
         today=dt.date.today(),
+        persons=database.db_session.query(Person).filter(Person.is_archived.is_(False)).order_by(Person.full_name).all(),
+        pay_modes=_pay_modes(expenses),
     )
+
+
+def _pay_modes(expenses) -> dict:
+    """Как оплачена каждая трата не через банк (year_report.expense_payment_mode)."""
+    from .year_report import expense_payment_mode
+    return {e.id: expense_payment_mode(e) for e in expenses}
 
 
 @bp.route("/<int:counterparty_id>/expenses/new", methods=["POST"])
@@ -417,6 +425,8 @@ def edit_expense(counterparty_id, expense_id):
         abort(404)
 
     f = request.form
+    from .year_report import change_expense_payment_mode, expense_payment_mode
+    mode_before = expense_payment_mode(expense)
     expense.date = dt.date.fromisoformat(f["date"])
     expense.amount = parse_decimal(f["amount"])
     expense.category = f.get("category") or None
@@ -426,7 +436,38 @@ def edit_expense(counterparty_id, expense_id):
         "document_file", "document_title", default_title, counterparty, expense, doc_type,
     )
     database.db_session.flush()
+    # Сумма/дата наличной траты — и её собственная оплата «не через банк»
+    # (одна трата на платёж), иначе оплата разошлась бы с расходом.
+    booked = expense.booked_payment
+    if (mode_before == "cash" and booked is not None and booked.bank_account_id is None
+            and booked.bank_statement_line_id is None
+            and database.db_session.query(Expense).filter(Expense.booked_payment_id == booked.id).count() == 1):
+        booked.amount, booked.date = expense.amount, expense.date
     reallocate_counterparty_expenses(counterparty)
+    # Человек (кому начислено / выплачено, кто платил за свой счёт) и, у
+    # трат не через банк, — за чей счёт оплачено.
+    if "person_id" in f:
+        person_id = f.get("person_id", type=int)
+        person = database.db_session.get(Person, person_id) if person_id else None
+        mode = f.get("pay_mode") if mode_before is not None else None
+        if mode and (mode != mode_before or (mode != "cash" and person is not None and person.id != expense.person_id)):
+            try:
+                target = change_expense_payment_mode(expense, mode, person)
+            except ValueError as exc:
+                database.db_session.rollback()
+                flash(str(exc), "danger")
+                return redirect(url_for("counterparties.detail", counterparty_id=counterparty.id))
+            if target.id != counterparty.id:
+                audit.record(
+                    "expense.edit", entity_type="counterparty", entity_id=target.id,
+                    summary=f"Расход #{expense.id} {audit.format_amount(expense.amount)} перенесён: "
+                            f"{counterparty.name} → {target.name}",
+                )
+                database.db_session.commit()
+                flash(_("Расход изменён и перенесён к контрагенту «{name}».", name=target.name), "success")
+                return redirect(url_for("counterparties.detail", counterparty_id=target.id))
+        else:
+            expense.person_id = person.id if person else None
     audit.record(
         "expense.edit", entity_type="counterparty", entity_id=counterparty.id,
         summary=f"Изменён расход #{expense.id} — {counterparty.name}, "

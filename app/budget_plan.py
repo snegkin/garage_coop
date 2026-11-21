@@ -390,3 +390,39 @@ def plan_reimburse():
     database.db_session.commit()
     flash(_("Возмещение заложено в смету {year} года.", year=year), "success")
     return _plan_redirect(year)
+
+
+# --- Позиция по факту трат («не было в смете») ------------------------------
+
+@bp.route("/plan/items/from-expenses", methods=["POST"])
+@roles_required(RoleEnum.CHAIRMAN)
+def plan_item_from_expenses():
+    """Позиция сметы с планом 0 для трат, которых в смете не было (из
+    «Смета и факт»: выбор позиции у траты или группа «вне сметы»): раздел —
+    существующий или новый, траты относятся к новой позиции. В «Смете и
+    факт» видно, на что потрачено сверх сметы; в смету следующего года
+    позицию можно взять по факту («Из прошлых смет»)."""
+    f = request.form
+    year = f.get("year", type=int)
+    if year is None:
+        abort(400)
+    section = _section_name(f.get("section")) or _section_name(f.get("new_section"))
+    name = cap(" ".join((f.get("name") or "").split()), BudgetItem.__table__.c.name)
+    if not section or not name:
+        flash(_("Укажите раздел и наименование позиции."), "danger")
+        return _plan_redirect(year)
+    new_section = not f.get("section")
+    _ensure_section(year, section, (f.get("kind") == "target") if new_section else None)
+    item = database.db_session.query(BudgetItem).filter_by(year=year, section=section, name=name).first()
+    if item is None:
+        item = BudgetItem(year=year, section=section, name=name, amount=Decimal("0"))
+        _insert_item(year, section, item)
+        database.db_session.flush()
+    ids = [int(v) for v in (f.get("expense_ids") or "").split(",") if v.strip().isdigit()]
+    expenses = database.db_session.query(Expense).filter(Expense.id.in_(ids)).all() if ids else []
+    for expense in expenses:
+        expense.budget_item_id, expense.off_budget = item.id, False
+    database.db_session.commit()
+    flash(_("Позиция «{name}» (не было в смете) — в разделе «{section}»; трат отнесено: {count}.",
+            name=name, section=section, count=len(expenses)), "success")
+    return _plan_redirect(year)

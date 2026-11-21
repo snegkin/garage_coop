@@ -98,6 +98,7 @@
                 <form id="bpItem{{ item.id }}" method="post" action="{{ url_for('year_report.plan_edit_item', item_id=item.id) }}" data-ajax></form>
                 <input class="form-control form-control-sm js-autosave" name="name" form="bpItem{{ item.id }}" value="{{ item.name }}" aria-label="{{ _('Наименование') }}">
                 {% if item.person %}<div class="small text-muted mt-1"><i class="bi bi-person" aria-hidden="true"></i> {{ _("возмещение человеку — факт: выплаты ему за год") }}</div>{% endif %}
+                {% if not item.amount and not item.person %}<div class="small text-muted mt-1"><span class="badge text-bg-light border fw-normal">{{ _("не было в смете") }}</span> {{ _("заведена по факту траты; план 0") }}</div>{% endif %}
               </td>
               <td class="bp-qty bp-hide-sm"><input class="form-control form-control-sm text-end js-autosave" name="quantity" form="bpItem{{ item.id }}" inputmode="decimal"
                          value="{{ item.quantity.normalize() if item.quantity is not none else '' }}" aria-label="{{ _('Кол-во') }}"></td>
@@ -199,10 +200,10 @@
               {% for r in sec.rows %}
               <tr class="{{ 'text-muted' if r.taken }}">
                 <td style="width:1.5rem"><input class="form-check-input" type="checkbox" name="item_id" value="{{ r.item.id }}" id="prev{{ r.item.id }}" {{ "disabled" if r.taken }} aria-label="{{ r.item.name }}"></td>
-                <td><label for="prev{{ r.item.id }}">{{ r.item.name }}</label>{% if r.taken %} <span class="badge text-bg-light border fw-normal">{{ _("уже в смете") }}</span>{% endif %}
+                <td><label for="prev{{ r.item.id }}">{{ r.item.name }}</label>{% if not r.plan %} <span class="badge text-bg-light border fw-normal">{{ _("не было в смете") }}</span>{% endif %}{% if r.taken %} <span class="badge text-bg-light border fw-normal">{{ _("уже в смете") }}</span>{% endif %}
                   <div class="text-muted">{{ _("план {plan} · факт", plan=fmt2(r.plan)) }}
                     {% if not r.taken %}<button type="button" class="btn btn-link btn-sm p-0 align-baseline js-take-fact" data-target="take{{ r.item.id }}" data-value="{{ fmt2(r.fact) }}">{{ fmt2(r.fact) }}</button>{% else %}{{ fmt2(r.fact) }}{% endif %}</div></td>
-                <td class="bp-take">{% if not r.taken %}<input class="form-control form-control-sm text-end" id="take{{ r.item.id }}" name="amount_{{ r.item.id }}" inputmode="decimal" value="{{ fmt2(r.plan) }}" aria-label="{{ _('Сумма в смету') }}">{% endif %}</td>
+                <td class="bp-take">{% if not r.taken %}<input class="form-control form-control-sm text-end" id="take{{ r.item.id }}" name="amount_{{ r.item.id }}" inputmode="decimal" value="{{ fmt2(r.plan if r.plan else r.fact) }}" aria-label="{{ _('Сумма в смету') }}">{% endif %}</td>
               </tr>
               {% endfor %}
             </tbody>

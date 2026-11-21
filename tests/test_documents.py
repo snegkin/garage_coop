@@ -362,6 +362,7 @@ def test_police_statement_unauthorized_power(db, client):
     page = client.get(f"/documents/new?template_id={statement.id}&owner={owner.id}:{garage.id}").get_data(as_text=True)
     assert "Гараж (бокс) № 42" in page and "прежнего владельца Петровой Анны Ивановны" in page
     assert "ст. 7.19 КоАП РФ" in page and "ст. 306 УК РФ" in page
+    assert "письменный договор электроснабжения не заключался" in page and "не расторгнув" not in page
     # Подсказка (как подать, не вскрывать гараж) — на странице, не на бланке.
     assert "КУСП" in page and "КУСП" not in page.split('id="docAddressee"')[1]
     assert "{{" not in page.split('id="docAddressee"')[1]

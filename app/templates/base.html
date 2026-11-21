@@ -240,12 +240,28 @@
 <div class="container app-container pb-5" id="mainContent">
   {% with messages = get_flashed_messages(with_categories=true) %}
     {% if messages %}
-      {# Категория «toast-…» (toast-success, toast-info…) — всплывающее
-         уведомление в углу, само пропадает (initToasts ниже); остальные —
-         обычная плашка над содержимым. #}
+      {# Всплывающие уведомления (сами пропадают, initToasts ниже): успех и
+         информация — «Сохранено», «Платёж добавлен» и т.п., а также явная
+         категория «toast-…». Ошибки и предупреждения (danger/warning) —
+         плашкой, пока не закроют. Длинное сообщение (подробный итог
+         импорта) — тоже плашкой: за несколько секунд его не прочитать.
+         Категория «alert-…» (alert-success) — плашкой явно: то, что надо
+         успеть прочитать (выпущенный токен, созданная учётная запись). #}
+      {% set ns = namespace(toasts=[], alerts=[]) %}
+      {% for category, message in messages %}
+        {% set kind = category[6:] if category.startswith("toast-") else category %}
+        {% if category.startswith("alert-") %}
+          {% set ns.alerts = ns.alerts + [(category[6:], message)] %}
+        {% elif (category.startswith("toast-") or category in ("success", "info")) and (message|striptags|length) <= 220 %}
+          {% set ns.toasts = ns.toasts + [(kind, message)] %}
+        {% else %}
+          {% set ns.alerts = ns.alerts + [(kind, message)] %}
+        {% endif %}
+      {% endfor %}
       <div class="toast-container position-fixed top-0 end-0 p-3 flash-toasts" style="margin-top:3.5rem; z-index:1090">
-      {% for category, message in messages if category.startswith("toast-") %}
-        <div class="toast show align-items-center text-bg-{{ category[6:] }} border-0" role="status" aria-live="polite" data-autohide-ms="7000">
+      {% for kind, message in ns.toasts %}
+        <div class="toast show align-items-center text-bg-{{ 'primary' if kind == 'info' else kind }} border-0" role="status" aria-live="polite"
+             data-autohide-ms="{{ [15000, 4500 + 60 * (message|striptags|length)]|min }}">
           <div class="d-flex">
             <div class="toast-body">{{ message }}</div>
             <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="{{ _('Закрыть') }}"></button>
@@ -253,7 +269,7 @@
         </div>
       {% endfor %}
       </div>
-      {% for category, message in messages if not category.startswith("toast-") %}
+      {% for category, message in ns.alerts %}
         <div class="alert alert-{{ category }} alert-dismissible fade show flash-message" role="alert">
           {{ message }}
           <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
@@ -1978,6 +1994,9 @@ function localizeDatetime(el) {
 </script>
 <script src="{{ vendor_url('bootstrap', 'bootstrap.bundle.min.js') }}"></script>
 <style>
+/* Всплывающие уведомления (flash-toasts): ссылки в них — на цветном фоне. */
+.flash-toasts .toast a { color: #fff; text-decoration: underline; font-weight: 600; }
+.flash-toasts .toast { max-width: min(26rem, calc(100vw - 2rem)); }
 /* Единый стиль ссылок по всему проекту: без подчёркивания по умолчанию,
    подчёркивание только при наведении. Переопределяет базовое правило
    Bootstrap (a { text-decoration: underline }) — та же специфичность
@@ -2477,7 +2496,7 @@ tr.table-info-subtle { --bs-table-bg: var(--bs-info-bg-subtle); --bs-table-borde
   /* Интерфейс, не часть документа — на бланк при печати не попадает:
      незакрытые уведомления («Документ сохранён…»), пузыри и окна чатов
      правления/ревизионной комиссии. */
-  .flash-message, .chat-widget-bubble, .chat-widget-panel { display: none !important; }
+  .flash-message, .flash-toasts, .chat-widget-bubble, .chat-widget-panel { display: none !important; }
 }
 /* Шапка и контент на широких мониторах — шире бутстраповских 1320px
    (.container): таблицам с кнопками в правых колонках тесно, а на 2K/4K

@@ -808,7 +808,7 @@ def api_settings():
             settings.agent_token_hash = _hash_token(new_token)
             audit.record("postal_api.issue_token", entity_type="postal_api_settings", entity_id=settings.id,
                          summary="Выпущен новый токен агента ЭЗП")
-            flash(_("Новый токен агента выпущен — скопируйте его в конфиг агента сейчас, больше он показан не будет."), "success")
+            flash(_("Новый токен агента выпущен — скопируйте его в конфиг агента сейчас, больше он показан не будет."), "alert-success")  # плашкой: надо успеть прочитать
         else:
             settings.sender_id = (request.form.get("sender_id") or "").strip() or None
             audit.record("postal_api.settings", entity_type="postal_api_settings", entity_id=settings.id,

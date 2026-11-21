@@ -684,7 +684,7 @@ def create_account(person_id):
         summary=f"Создана учётная запись «{username}» для {person.full_name}, роль — {initial_role.value}",
     )
     database.db_session.commit()
-    flash(_("Учётная запись создана. Сообщите человеку логин и пароль."), "success")
+    flash(_("Учётная запись создана. Сообщите человеку логин и пароль."), "alert-success")  # плашкой: надо успеть прочитать
     return redirect(url_for("persons.detail", person_id=person.id))
 
 

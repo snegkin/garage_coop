@@ -1,0 +1,250 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Смета на {year} год", year=year) }}{% endblock %}
+{% block content %}
+<style>
+  .bp-items { font-variant-numeric: tabular-nums; }
+  .bp-items td { vertical-align: middle; }
+  .bp-items .form-control { min-width: 0; }
+  .bp-items .bp-num { width: 7rem; text-align: right; }
+  .bp-items .bp-qty { width: 5rem; text-align: right; }
+  .bp-items .bp-amount { width: 8rem; text-align: right; white-space: nowrap; }
+  .bp-items .bp-actions { width: 5.5rem; white-space: nowrap; text-align: right; }
+  .bp-section + .bp-section { margin-top: 1.5rem; }
+  .bp-prev td { vertical-align: middle; }
+  .bp-prev .bp-take { width: 7.5rem; text-align: right; }
+  @media (max-width: 767.98px) {
+    .bp-items .bp-qty, .bp-items .bp-num { width: 4.5rem; }
+    .bp-items .bp-hide-sm { display: none; }
+    .bp-items .bp-amount { width: 6rem; }
+    .bp-items .bp-actions { width: 3.75rem; }
+    .bp-items td, .bp-items th { padding-left: .15rem; padding-right: .15rem; }
+  }
+</style>
+
+<a href="{{ url_for('year_report.view', year=year) }}" class="d-inline-block mb-3" data-back-link data-back-label="&larr; {{ _('Назад') }}">&larr; {{ _("К финансам за {year} год", year=year) }}</a>
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+  <h3 class="mb-0">{{ _("Смета на {year} год", year=year) }}</h3>
+  <form method="get" class="d-flex align-items-center gap-2">
+    <label class="form-label mb-0 small text-muted" for="planYear">{{ _("Год") }}</label>
+    <select class="form-select form-select-sm" style="width:auto" id="planYear" name="year" onchange="this.form.submit()">
+      {% for y in years %}<option value="{{ y }}" {{ "selected" if y == year }}>{{ y }}</option>{% endfor %}
+    </select>
+  </form>
+</div>
+
+{% set owed_total = reimbursements|sum(attribute="owed") %}
+<div class="row g-3 mb-4">
+  <div class="col-6 col-lg-3"><div class="card h-100"><div class="card-body">
+    <div class="small text-muted">{{ _("Всего по смете") }}</div>
+    <div class="fs-5 fw-semibold">{{ fmt2(total) }} ₽</div>
+  </div></div></div>
+  <div class="col-6 col-lg-3"><div class="card h-100"><div class="card-body">
+    <div class="small text-muted">{{ _("Членские разделы") }}</div>
+    <div class="fs-5 fw-semibold">{{ fmt2(membership) }} ₽</div>
+    {% if per_garage_membership is not none %}<div class="small text-muted">{{ _("≈ {amount} ₽ с гаража (счетов: {count})", amount=fmt2(per_garage_membership), count=membership_accounts) }}</div>{% endif %}
+  </div></div></div>
+  <div class="col-6 col-lg-3"><div class="card h-100"><div class="card-body">
+    <div class="small text-muted">{{ _("Целевые разделы") }}</div>
+    <div class="fs-5 fw-semibold">{{ fmt2(target) }} ₽</div>
+    {% if target and per_garage_target is not none %}<div class="small text-muted">{{ _("≈ {amount} ₽ с гаража (счетов: {count})", amount=fmt2(per_garage_target), count=target_accounts) }}</div>
+    {% elif target and membership_accounts %}<div class="small text-muted">{{ _("целевых счетов нет; вместе с членским — ≈ {amount} ₽ с гаража", amount=fmt2((total / membership_accounts)|round(2))) }}</div>{% endif %}
+  </div></div></div>
+  <div class="col-6 col-lg-3"><div class="card h-100"><div class="card-body">
+    <div class="small text-muted">{{ _("На счетах кооператива") }}</div>
+    <div class="fs-5 fw-semibold">{{ fmt2(bank_balance) }} ₽</div>
+    <div class="small text-muted">{% if bank_balance_date %}{{ _("на {date}", date=fmt_date(bank_balance_date)) }}{% endif %}
+      {% if owed_total %}<br><span class="{{ 'text-danger' if owed_total > bank_balance else '' }}">{{ _("долг людям за прошлые годы: {amount} ₽", amount=fmt2(owed_total)) }}</span>{% endif %}</div>
+  </div></div></div>
+</div>
+
+<div class="row g-4">
+  {# --- Редактор сметы --- #}
+  <div class="col-12 col-xl-8">
+    <div class="card"><div class="card-body">
+      <h5 class="card-title">{{ _("Разделы и позиции") }}</h5>
+      <p class="small text-muted">{{ _("Изменения сохраняются сразу. Есть кол-во и цена — сумма считается сама; иначе введите сумму. Членский раздел — текущая деятельность (содержание, оплата труда), целевой — мероприятие, утверждённое собранием (собирается целевым взносом).") }}</p>
+
+      {% for sec in sections %}
+      <div class="bp-section">
+        <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+          <form method="post" action="{{ url_for('year_report.plan_rename_section') }}" data-ajax class="flex-grow-1" style="min-width:14rem">
+            <input type="hidden" name="year" value="{{ year }}"><input type="hidden" name="old" value="{{ sec.name }}">
+            <input class="form-control form-control-sm fw-semibold js-autosave" name="name" value="{{ sec.name }}" maxlength="255" aria-label="{{ _('Название раздела') }}">
+          </form>
+          <form method="post" action="{{ url_for('year_report.set_section_kind') }}" data-ajax>
+            <input type="hidden" name="year" value="{{ year }}"><input type="hidden" name="section" value="{{ sec.name }}">
+            <select class="form-select form-select-sm js-autosave" name="kind" style="width:auto" aria-label="{{ _('Назначение раздела') }}">
+              <option value="membership" {{ "selected" if not sec.is_target }}>{{ _("членский") }}</option>
+              <option value="target" {{ "selected" if sec.is_target }}>{{ _("целевой") }}</option>
+            </select>
+          </form>
+          <span class="fw-semibold text-nowrap">{{ fmt2(sec.amount) }} ₽</span>
+          <form method="post" action="{{ url_for('year_report.plan_delete_section') }}" data-ajax
+                onsubmit="return confirm({{ _('Удалить раздел «{name}» со всеми позициями ({count})?', name=sec.name, count=sec['items']|length)|tojson }})">
+            <input type="hidden" name="year" value="{{ year }}"><input type="hidden" name="name" value="{{ sec.name }}">
+            <button class="btn btn-sm btn-link text-danger p-0" title="{{ _('Удалить раздел') }}" aria-label="{{ _('Удалить раздел') }}"><i class="bi bi-trash" aria-hidden="true"></i></button>
+          </form>
+        </div>
+        <div class="table-responsive">
+        <table class="table table-sm bp-items mb-1">
+          <thead class="small text-muted"><tr>
+            <th>{{ _("Наименование") }}</th><th class="bp-qty bp-hide-sm">{{ _("Кол-во") }}</th><th class="bp-num bp-hide-sm">{{ _("Цена") }}</th>
+            <th class="bp-amount">{{ _("Сумма") }}</th><th class="bp-actions"></th>
+          </tr></thead>
+          <tbody>
+            {% for item in sec["items"] %}
+            <tr>
+              <td>
+                <form id="bpItem{{ item.id }}" method="post" action="{{ url_for('year_report.plan_edit_item', item_id=item.id) }}" data-ajax></form>
+                <input class="form-control form-control-sm js-autosave" name="name" form="bpItem{{ item.id }}" value="{{ item.name }}" aria-label="{{ _('Наименование') }}">
+                {% if item.person %}<div class="small text-muted mt-1"><i class="bi bi-person" aria-hidden="true"></i> {{ _("возмещение человеку — факт: выплаты ему за год") }}</div>{% endif %}
+              </td>
+              <td class="bp-qty bp-hide-sm"><input class="form-control form-control-sm text-end js-autosave" name="quantity" form="bpItem{{ item.id }}" inputmode="decimal"
+                         value="{{ item.quantity.normalize() if item.quantity is not none else '' }}" aria-label="{{ _('Кол-во') }}"></td>
+              <td class="bp-num bp-hide-sm"><input class="form-control form-control-sm text-end js-autosave" name="price" form="bpItem{{ item.id }}" inputmode="decimal"
+                         value="{{ fmt2(item.price) if item.price is not none else '' }}" aria-label="{{ _('Цена') }}"></td>
+              <td class="bp-amount"><input class="form-control form-control-sm text-end js-autosave" name="amount" form="bpItem{{ item.id }}" inputmode="decimal"
+                         value="{{ fmt2(item.amount) }}" aria-label="{{ _('Сумма') }}"
+                         {% if item.quantity is not none and item.price is not none %}readonly title="{{ _('Кол-во × цена') }}"{% endif %}></td>
+              <td class="bp-actions">
+                {% if not loop.first %}<form class="d-inline" method="post" action="{{ url_for('year_report.plan_move_item', item_id=item.id) }}" data-ajax>
+                  <input type="hidden" name="direction" value="up"><button class="btn btn-sm btn-link p-0 text-secondary" title="{{ _('Выше') }}" aria-label="{{ _('Выше') }}"><i class="bi bi-arrow-up" aria-hidden="true"></i></button></form>{% endif %}
+                {% if not loop.last %}<form class="d-inline" method="post" action="{{ url_for('year_report.plan_move_item', item_id=item.id) }}" data-ajax>
+                  <input type="hidden" name="direction" value="down"><button class="btn btn-sm btn-link p-0 text-secondary" title="{{ _('Ниже') }}" aria-label="{{ _('Ниже') }}"><i class="bi bi-arrow-down" aria-hidden="true"></i></button></form>{% endif %}
+                <form class="d-inline" method="post" action="{{ url_for('year_report.plan_delete_item', item_id=item.id) }}" data-ajax
+                      onsubmit="return confirm({{ _('Удалить позицию «{name}»?', name=item.name)|tojson }})">
+                  <button class="btn btn-sm btn-link p-0 text-danger ms-1" title="{{ _('Удалить') }}" aria-label="{{ _('Удалить') }}"><i class="bi bi-x-lg" aria-hidden="true"></i></button></form>
+              </td>
+            </tr>
+            {% endfor %}
+            <tr class="table-light">
+              <td>
+                <form id="bpNew{{ loop.index }}" method="post" action="{{ url_for('year_report.plan_add_item') }}" data-ajax>
+                  <input type="hidden" name="year" value="{{ year }}"><input type="hidden" name="section" value="{{ sec.name }}">
+                </form>
+                <input class="form-control form-control-sm" name="name" form="bpNew{{ loop.index }}" placeholder="{{ _('Новая позиция') }}" aria-label="{{ _('Новая позиция') }}">
+              </td>
+              <td class="bp-qty bp-hide-sm"><input class="form-control form-control-sm text-end" name="quantity" form="bpNew{{ loop.index }}" inputmode="decimal" placeholder="{{ _('кол-во') }}"></td>
+              <td class="bp-num bp-hide-sm"><input class="form-control form-control-sm text-end" name="price" form="bpNew{{ loop.index }}" inputmode="decimal" placeholder="{{ _('цена') }}"></td>
+              <td class="bp-amount"><input class="form-control form-control-sm text-end" name="amount" form="bpNew{{ loop.index }}" inputmode="decimal" placeholder="{{ _('сумма') }}"></td>
+              <td class="bp-actions"><button class="btn btn-sm btn-outline-primary" form="bpNew{{ loop.index }}" title="{{ _('Добавить позицию') }}" aria-label="{{ _('Добавить позицию') }}"><i class="bi bi-plus-lg" aria-hidden="true"></i></button></td>
+            </tr>
+          </tbody>
+        </table>
+        </div>
+      </div>
+      {% else %}
+      <p class="text-muted">{{ _("Смета на этот год пуста — добавьте раздел или возьмите позиции из прошлых смет справа.") }}</p>
+      {% endfor %}
+
+      <form method="post" action="{{ url_for('year_report.plan_add_section') }}" data-ajax class="d-flex flex-wrap gap-2 align-items-center mt-4 pt-3 border-top">
+        <input type="hidden" name="year" value="{{ year }}">
+        <input class="form-control form-control-sm" style="max-width:22rem" name="name" maxlength="255" placeholder="{{ _('Новый раздел, например «Ремонт дороги»') }}" aria-label="{{ _('Новый раздел') }}" required>
+        <select class="form-select form-select-sm" style="width:auto" name="kind" aria-label="{{ _('Назначение раздела') }}">
+          <option value="membership">{{ _("членский") }}</option>
+          <option value="target">{{ _("целевой") }}</option>
+        </select>
+        <button class="btn btn-sm btn-outline-primary"><i class="bi bi-plus-lg me-1" aria-hidden="true"></i>{{ _("Добавить раздел") }}</button>
+      </form>
+    </div></div>
+  </div>
+
+  <div class="col-12 col-xl-4">
+    {# --- Возмещение людям --- #}
+    <div class="card mb-4 {{ 'border-warning' if reimbursements|selectattr('to_plan')|list }}" id="reimburse"><div class="card-body">
+      <h5 class="card-title">{{ _("Возмещение людям") }}</h5>
+      <p class="small text-muted">{{ _("Кооператив должен людям за прошлые годы: траты за свой счёт и начисленная оплата труда. Если вернуть сейчас не из чего — заложите возмещение в смету: позиция «Возмещение затрат: ФИО» в разделе «{section}», факт по ней — выплаты этому человеку за год.", section=reimburse_section) }}</p>
+      {% for r in reimbursements %}
+      <div class="border-top pt-2 mt-2">
+        <div class="d-flex justify-content-between gap-2">
+          <a href="{{ url_for('persons.detail', person_id=r.person.id) }}" class="fw-semibold">{{ r.person.full_name }}</a>
+          <span class="text-nowrap">{{ _("долг {amount}", amount=fmt2(r.owed)) }}</span>
+        </div>
+        {% if r.planned %}<div class="small text-success">{{ _("уже заложено в смету: {amount} ₽", amount=fmt2(r.planned)) }}</div>{% endif %}
+        {% if r.unpaid %}
+        <details class="small">
+          <summary class="text-muted">{{ _("из чего ({count})", count=r.unpaid|length) }}</summary>
+          <ul class="list-unstyled mb-0">
+            {% for u in r.unpaid %}<li>{{ fmt_date(u.expense.date) }} · {{ u.expense.category or "—" }}{% if u.expense.description %} — {{ u.expense.description|truncate(60) }}{% endif %} — {{ fmt2(u.left) }}</li>{% endfor %}
+          </ul>
+        </details>
+        {% endif %}
+        {% if r.to_plan %}
+        <form method="post" action="{{ url_for('year_report.plan_reimburse') }}" data-ajax class="d-flex gap-2 mt-1">
+          <input type="hidden" name="year" value="{{ year }}"><input type="hidden" name="person_id" value="{{ r.person.id }}">
+          <input class="form-control form-control-sm text-end" style="max-width:8rem" name="amount" inputmode="decimal" value="{{ fmt2(r.to_plan) }}" aria-label="{{ _('Сумма возмещения') }}">
+          <button class="btn btn-sm btn-outline-primary text-nowrap">{{ _("Заложить в смету") }}</button>
+        </form>
+        {% endif %}
+      </div>
+      {% else %}
+      <p class="small text-muted mb-0">{{ _("Долгов людям за прошлые годы нет.") }}</p>
+      {% endfor %}
+    </div></div>
+
+    {# --- Из прошлых смет --- #}
+    <div class="card"><div class="card-body">
+      <h5 class="card-title">{{ _("Из прошлых смет") }}</h5>
+      {% if previous %}
+      <p class="small text-muted">{{ _("Отметьте позиции и добавьте их в смету — в раздел с тем же названием. Сумма — плановая; «факт» подставит, сколько реально потрачено.") }}</p>
+      {% for prev in previous %}
+      <details class="mb-2" {{ "open" if loop.first }}>
+        <summary class="fw-semibold">{{ _("Смета {year}: план {plan}, факт {fact}", year=prev.year, plan=fmt2(prev.plan), fact=fmt2(prev.fact)) }}</summary>
+        <form method="post" action="{{ url_for('year_report.plan_copy_items') }}" data-ajax>
+          <input type="hidden" name="year" value="{{ year }}">
+          {% for sec in prev.sections %}
+          <div class="small fw-semibold mt-2">{{ sec.name }}</div>
+          <table class="table table-sm small bp-prev mb-1">
+            <tbody>
+              {% for r in sec.rows %}
+              <tr class="{{ 'text-muted' if r.taken }}">
+                <td style="width:1.5rem"><input class="form-check-input" type="checkbox" name="item_id" value="{{ r.item.id }}" id="prev{{ r.item.id }}" {{ "disabled" if r.taken }} aria-label="{{ r.item.name }}"></td>
+                <td><label for="prev{{ r.item.id }}">{{ r.item.name }}</label>{% if r.taken %} <span class="badge text-bg-light border fw-normal">{{ _("уже в смете") }}</span>{% endif %}
+                  <div class="text-muted">{{ _("план {plan} · факт", plan=fmt2(r.plan)) }}
+                    {% if not r.taken %}<button type="button" class="btn btn-link btn-sm p-0 align-baseline js-take-fact" data-target="take{{ r.item.id }}" data-value="{{ fmt2(r.fact) }}">{{ fmt2(r.fact) }}</button>{% else %}{{ fmt2(r.fact) }}{% endif %}</div></td>
+                <td class="bp-take">{% if not r.taken %}<input class="form-control form-control-sm text-end" id="take{{ r.item.id }}" name="amount_{{ r.item.id }}" inputmode="decimal" value="{{ fmt2(r.plan) }}" aria-label="{{ _('Сумма в смету') }}">{% endif %}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          {% endfor %}
+          <button class="btn btn-sm btn-outline-primary mt-1">{{ _("Добавить выбранные") }}</button>
+        </form>
+      </details>
+      {% endfor %}
+      {% else %}
+      <p class="small text-muted mb-0">{{ _("Смет прошлых лет нет — их можно загрузить из CSV на странице «Финансы за год».") }}</p>
+      {% endif %}
+    </div></div>
+  </div>
+</div>
+
+<script>
+(function () {
+  // Сохранение сразу: поле изменили (ушли из него / выбрали значение) —
+  // форма отправляется через data-ajax, страница подменяется без перезагрузки.
+  document.querySelectorAll(".js-autosave").forEach(function (el) {
+    el.addEventListener("change", function () {
+      var form = el.form || (el.getAttribute("form") && document.getElementById(el.getAttribute("form")));
+      if (form) form.requestSubmit();
+    });
+  });
+  // «факт» у позиции прошлой сметы — подставить фактическую сумму и отметить.
+  document.querySelectorAll(".js-take-fact").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var input = document.getElementById(btn.dataset.target);
+      input.value = btn.dataset.value;
+      var row = btn.closest("tr"), box = row && row.querySelector("input[type=checkbox]");
+      if (box) box.checked = true;
+    });
+  });
+  // Отметили позицию прошлой сметы — правка суммы рядом тоже её отмечает.
+  document.querySelectorAll(".bp-prev .bp-take input").forEach(function (input) {
+    input.addEventListener("input", function () {
+      var box = input.closest("tr").querySelector("input[type=checkbox]");
+      if (box) box.checked = true;
+    });
+  });
+})();
+</script>
+{% endblock %}

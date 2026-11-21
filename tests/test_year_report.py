@@ -1103,3 +1103,37 @@ def test_edit_legacy_cash_expense_to_own_funds_drops_its_payment(app, db, client
     with app.test_request_context():
         assert counterparty_balance(db.get(Counterparty, cash.id)) == Decimal("0")
     assert db.get(Expense, mowing.id).counterparty_id != cash.id
+
+
+def test_owed_block_can_be_marked_read_until_debts_change(app, db, client):
+    """«К выплате людям» — «Прочитано»: блок свёрнут, в колокольчике 0;
+    новый долг — снова непрочитано."""
+    from app import attention
+    from app.models import ExpenseKind, User
+    from app.year_report import _person_counterparty
+    from tests.conftest import make_person
+    _chairman(db, client)
+    person = make_person(db, full_name="Егоров Станислав Николаевич")
+    with app.test_request_context():
+        cp = _person_counterparty(person)
+    db.add(Expense(counterparty_id=cp.id, date=dt.date(2026, 7, 25), amount=Decimal("300"), category="Прочее",
+                   description="Штраф СФР — за свой счёт, к возмещению", kind=ExpenseKind.CHARGE, person_id=person.id))
+    db.commit()
+    user = db.query(User).filter_by(username="chair").one()
+    with app.test_request_context():
+        assert attention.counts(user)["owed"] == 1
+    body = client.get("/year-report/?year=2026").get_data(as_text=True)
+    assert "yr-owed" in body and "300,00" in body and ">Прочитано<" in body.replace("</i>", ">").replace("\n", "")
+
+    client.post("/year-report/owed/seen", data={"read": "1"})
+    db.expire_all()
+    user = db.query(User).filter_by(username="chair").one()
+    with app.test_request_context():
+        assert attention.counts(user)["owed"] == 0
+    assert "вернуть как непрочитанное" in client.get("/year-report/?year=2026").get_data(as_text=True)
+
+    db.add(Expense(counterparty_id=cp.id, date=dt.date(2026, 8, 1), amount=Decimal("149"), category="Прочее",
+                   kind=ExpenseKind.CHARGE, person_id=person.id))
+    db.commit()
+    with app.test_request_context():
+        assert attention.counts(db.query(User).filter_by(username="chair").one())["owed"] == 1

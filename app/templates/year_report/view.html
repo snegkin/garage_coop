@@ -88,6 +88,11 @@
   /* Длинное название позиции переносится под текст, а не под стрелку. */
   .yr-pf-detail .yr-pf-name { padding-left: calc(1rem + 1em) !important; text-indent:-1em; }
   .yr-pf-name .badge, .yr-pf-name .btn { text-indent:0; }
+  .yr-owed { table-layout: fixed; font-variant-numeric: tabular-nums; }
+  .yr-owed thead th:nth-child(1) { width: 6.5rem; } .yr-owed thead th:nth-child(2) { width: 11rem; } .yr-owed thead th:nth-child(4) { width: 8rem; }
+  .yr-owed-desc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #owed summary::-webkit-details-marker { display:none; }
+  @media (max-width: 767.98px) { .yr-owed thead th:nth-child(2), .yr-owed td:nth-child(2) { display:none; } .yr-owed thead th:nth-child(1) { width: 5.5rem; } .yr-owed thead th:nth-child(4) { width: 5.5rem; } .yr-owed-desc { white-space: normal; } }
   @media (max-width: 767.98px) {
     .yr-pf-row { grid-template-columns: minmax(0, 1fr) auto auto; }
     .yr-pf-row > span:nth-child(4), .yr-pf-row > span:nth-child(5) { display:none; }
@@ -205,23 +210,42 @@
 </div>
 
 {% if owed %}
-<div class="card mb-4 border-warning" id="owed"><div class="card-body">
-  <h5 class="card-title">{{ _("К выплате людям: {amount} ₽", amount=fmt2(owed|sum(attribute="owed"))) }}</h5>
-  <p class="small text-muted">{{ _("Кооператив должен: начисленная оплата труда и траты за свой счёт к возмещению. Чтобы не путать деньги кооператива и свои, такие траты заводятся долгом человеку; когда выплата пройдёт по выписке, разнесите её как «оплата начисленного» — долг погасится.") }}</p>
-  <ul class="list-unstyled mb-0">
+<div class="card mb-4 {{ 'border-warning' if owed_unread }}" id="owed"><div class="card-body {{ 'py-2' if not owed_unread }}">
+  <details {{ "open" if owed_unread }} data-key="owed:{{ 'unread' if owed_unread else 'read' }}">
+  <summary class="d-flex justify-content-between align-items-center flex-wrap gap-2" style="list-style:none; cursor:pointer">
+    <span class="{{ 'h5 mb-0' if owed_unread else 'fw-semibold' }}">{{ _("К выплате людям: {amount} ₽", amount=fmt2(owed|sum(attribute="owed"))) }}
+      {% if not owed_unread %}<span class="text-muted small fw-normal">· {{ _("прочитано, пока долги не изменятся") }} ▸</span>{% endif %}</span>
+    <form method="post" action="{{ url_for('year_report.owed_seen') }}" data-ajax class="m-0">
+      <input type="hidden" name="read" value="{{ '1' if owed_unread else '0' }}">
+      <button class="btn btn-sm {{ 'btn-outline-secondary' if owed_unread else 'btn-link p-0' }}">
+        {% if owed_unread %}<i class="bi bi-check2 me-1" aria-hidden="true"></i>{{ _("Прочитано") }}{% else %}{{ _("вернуть как непрочитанное") }}{% endif %}</button>
+    </form>
+  </summary>
+  <p class="small text-muted mt-2">{{ _("Кооператив должен: начисленная оплата труда и траты за свой счёт к возмещению. Чтобы не путать деньги кооператива и свои, такие траты заводятся долгом человеку; когда выплата пройдёт по выписке, разнесите её как «оплата начисленного» — долг погасится.") }}
+    {% if owed_unread %}{{ _("«Прочитано» свернёт блок и уберёт его из колокольчика, пока долги не изменятся.") }}{% endif %}</p>
+  <div class="table-responsive">
+  <table class="table table-sm mb-0 yr-owed">
+    <thead class="small text-muted"><tr><th>{{ _("Дата") }}</th><th>{{ _("Статья") }}</th><th>{{ _("Описание") }}</th><th class="text-end">{{ _("Сумма") }}</th></tr></thead>
     {% for row in owed %}
-    <li class="py-1 border-bottom">
-      <div class="d-flex justify-content-between gap-2">
-        <span class="fw-semibold">{% if row.person %}<a href="{{ url_for('persons.detail', person_id=row.person.id) }}">{{ row.person.full_name }}</a>{% else %}{{ row.counterparty.name }}{% endif %}</span>
-        <span class="text-nowrap fw-semibold">{{ fmt2(row.owed) }} ₽</span>
-      </div>
-      <ul class="list-unstyled small text-muted ms-3 mb-0">
-        {% for u in row.unpaid %}<li>{{ fmt_date(u.expense.date) }} · {{ u.expense.category or "—" }}{% if u.expense.description %} — {{ u.expense.description|truncate(80) }}{% endif %} — {{ fmt2(u.left) }}</li>{% endfor %}
-      </ul>
-      <a class="small" href="{{ url_for('counterparties.detail', counterparty_id=row.counterparty.id) }}">{{ _("расчёты с ним (выплата наличными — платёж там)") }}</a>
-    </li>
+    <tbody>
+      <tr class="table-light">
+        <th colspan="3">{% if row.person %}<a href="{{ url_for('persons.detail', person_id=row.person.id) }}">{{ row.person.full_name }}</a>{% else %}{{ row.counterparty.name }}{% endif %}
+          <a class="small fw-normal ms-2" href="{{ url_for('counterparties.detail', counterparty_id=row.counterparty.id) }}">{{ _("расчёты с ним (выплата наличными — платёж там)") }}</a></th>
+        <th class="text-end text-nowrap">{{ fmt2(row.owed) }} ₽</th>
+      </tr>
+      {% for u in row.unpaid %}
+      <tr class="small">
+        <td class="text-nowrap">{{ fmt_date(u.expense.date) }}</td>
+        <td class="text-nowrap">{{ u.expense.category or "—" }}</td>
+        <td class="yr-owed-desc" title="{{ u.expense.description or '' }}">{{ u.expense.description or "—" }}</td>
+        <td class="text-end text-nowrap">{{ fmt2(u.left) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
     {% endfor %}
-  </ul>
+  </table>
+  </div>
+  </details>
 </div></div>
 {% endif %}
 

@@ -3822,6 +3822,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "ID приложения": "App ID",
         "Очистите поле ID, чтобы выключить вход через провайдера.": "Clear the ID field to turn off sign-in with that provider.",
         # «Финансы за год» (app/year_report.py)
+        "прочитано, пока долги не изменятся": "read until the debts change",
+        "вернуть как непрочитанное": "mark as unread",
+        "«Прочитано» свернёт блок и уберёт его из колокольчика, пока долги не изменятся.": "“Read” collapses the block and removes it from the bell until the debts change.",
         "+ новая позиция (не было в смете)…": "+ new item (not in the budget)…",
         "+ новый раздел…": "+ new section…",
         "Для трат, которых не было в смете: позиция с планом 0 — в «Смете и факт» видно, что потрачено сверх сметы и на что; в смету следующего года её можно взять по факту.": "For expenses that were not in the budget: an item with a plan of 0 — “Budget vs actual” shows what was spent beyond the budget and on what; it can be taken into next year's budget at the actual amount.",

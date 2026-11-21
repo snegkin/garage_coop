@@ -1140,6 +1140,7 @@ def view():
     income = _income(year)
     spending = _spending(year)
     budget = _budget(year)
+    owed = owed_people()
     counterparties = database.db_session.query(Counterparty).order_by(Counterparty.name).all()
     gaps = [suggest_for_line(line, counterparties) for line in unaccounted_debits(year)]
     gaps_total = sum((g["line"].amount for g in gaps), Decimal("0"))
@@ -1166,7 +1167,8 @@ def view():
                                    lambda r, colors=_budget_colors(budget["sections"]): colors[r["name"]]),
         plan_fact=_with_funding(_plan_fact(year), budget),
         source=current_source(),
-        owed=owed_people(),
+        owed=owed,
+        owed_unread=owed_unread(g.user, owed),
         electricity=_electricity_breakdown(year),
         today=dt.date.today(),
         persons=database.db_session.query(Person).filter(Person.is_archived.is_(False)).order_by(Person.full_name).all(),
@@ -2448,6 +2450,10 @@ def change_expense_payment_mode(expense: Expense, mode: str, person: Person | No
     if mode == "own":
         description = f"{description} — {OWN_FUNDS_MARK}" if description else _("За свой счёт, к возмещению")
     expense.description = description
+    if target.id != old.id:
+        # Разнесение по оплатам прежнего контрагента к новому не относится —
+        # пересоберётся у обоих (reallocate ниже).
+        database.db_session.query(ExpenseAllocation).filter(ExpenseAllocation.expense_id == expense.id).delete()
     expense.counterparty = target
     expense.person_id = person.id if person is not None else None
     database.db_session.flush()
@@ -2525,6 +2531,30 @@ def set_expense_person(expense_id):
     expense.person_id = person_id if person_id and database.db_session.get(Person, person_id) else None
     database.db_session.commit()
     return _redirect_back(expense.date.year)
+
+
+def owed_signature(rows: list[dict]) -> str:
+    """Отпечаток списка долгов людям: кому и сколько. Меняется, когда
+    появился новый долг или выплачена его часть — тогда «прочитано»
+    (User.owed_seen_signature) снимается само."""
+    import hashlib
+    text = ";".join(f"{r['counterparty'].id}:{r['owed']}" for r in sorted(rows, key=lambda r: r["counterparty"].id))
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
+def owed_unread(user, rows: list[dict] | None = None) -> bool:
+    rows = owed_people() if rows is None else rows
+    return bool(rows) and (user is None or user.owed_seen_signature != owed_signature(rows))
+
+
+@bp.route("/owed/seen", methods=["POST"])
+@roles_required(RoleEnum.CHAIRMAN)
+def owed_seen():
+    """«Прочитано» у блока «К выплате людям» — свернуть и не считать в
+    колокольчике, пока долги не изменятся. read=0 — вернуть."""
+    g.user.owed_seen_signature = owed_signature(owed_people()) if request.form.get("read", "1") == "1" else None
+    database.db_session.commit()
+    return _redirect_back(dt.date.today().year)
 
 
 def owed_people() -> list[dict]:

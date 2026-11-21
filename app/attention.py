@@ -43,8 +43,10 @@ def counts(user) -> dict[str, int]:
         # и кому кооператив должен выплатить: начисленная оплата труда,
         # траты за свой счёт к возмещению (app/year_report.py: owed_people).
         # Дёшево: только расходы с человеком-получателем, обычно единицы.
-        from .year_report import owed_people
-        result["owed"] = len(owed_people())
+        # Отмеченное прочитанным (пока долги те же) — не считаем.
+        from .year_report import owed_people, owed_unread
+        rows = owed_people()
+        result["owed"] = len(rows) if owed_unread(user, rows) else 0
 
     # всем — открытые голосования, где у пользователя нет ни одного бюллетеня
     if user.person_id:

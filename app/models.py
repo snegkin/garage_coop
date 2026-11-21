@@ -1783,6 +1783,11 @@ class User(Base):
     board_chat_read_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
     # То же самое, но для чата ревизионной комиссии (app/revision_chat.py).
     revision_chat_read_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
+    # «К выплате людям» (Финансы за год, колокольчик) отмечено прочитанным:
+    # отпечаток списка долгов на тот момент (year_report.owed_signature).
+    # Пока долги те же — блок свёрнут, в колокольчике не считается; новый
+    # долг или частичная выплата меняют отпечаток — снова «непрочитано».
+    owed_seen_signature: Mapped[str | None] = mapped_column(String(64))
 
     # Кэш "непрочитано" в почте правления — ТОЛЬКО для POP3 (см.
     # MailboxPop3MessageState ниже и app/mailbox.py). У IMAP свои настоящие

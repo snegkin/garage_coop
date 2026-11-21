@@ -352,6 +352,21 @@ def test_notary_letter_about_heirs(db, client):
     assert "{{" not in page.split('id="docAddressee"')[1]
 
 
+def test_police_statement_unauthorized_power(db, client):
+    owner, garage, _chairman = _setup(db)
+    login(client, "board1", "pass1234")
+    client.post("/documents/templates/defaults")
+    statement = db.query(DocumentTemplate).filter_by(
+        name="Заявление в полицию о самовольном подключении к электросети").one()
+    assert statement.recipient == "garage" and not statement.is_public
+    page = client.get(f"/documents/new?template_id={statement.id}&owner={owner.id}:{garage.id}").get_data(as_text=True)
+    assert "Гараж (бокс) № 42" in page and "прежнего владельца Петровой Анны Ивановны" in page
+    assert "ст. 7.19 КоАП РФ" in page and "ст. 306 УК РФ" in page
+    # Подсказка (как подать, не вскрывать гараж) — на странице, не на бланке.
+    assert "КУСП" in page and "КУСП" not in page.split('id="docAddressee"')[1]
+    assert "{{" not in page.split('id="docAddressee"')[1]
+
+
 def test_letter_to_heirs(db, client):
     owner, garage, _chairman = _setup(db)
     login(client, "board1", "pass1234")

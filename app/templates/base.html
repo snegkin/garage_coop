@@ -3240,6 +3240,10 @@ function submitFormAjax(form, opts) {
       initSearchableSelects(mainContent);
       initUtcDatetimes(mainContent);
       initToasts(mainContent);
+      // Действие могло снять или добавить пункт колокольчика («Прочитано»
+      // у долгов людям, разнесённое списание, одобренная заявка) — шапка
+      // вне #mainContent и сама не подменяется, обновляем счётчик сразу.
+      if (window.refreshAttention) window.refreshAttention();
       initBackLinks(mainContent);
       initCheckColumns(mainContent);
       runContentScripts(mainContent);

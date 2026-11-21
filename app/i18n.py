@@ -3822,6 +3822,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "ID приложения": "App ID",
         "Очистите поле ID, чтобы выключить вход через провайдера.": "Clear the ID field to turn off sign-in with that provider.",
         # «Финансы за год» (app/year_report.py)
+        "Расход перенесён к контрагенту «{name}».": "The expense has been moved to the counterparty “{name}”.",
         "В смету добавлено позиций: {count}.": "Items added to the budget: {count}.",
         "Возмещение заложено в смету {year} года.": "Reimbursement planned in the {year} budget.",
         "Возмещение людям": "Reimbursement to people",
@@ -3878,7 +3879,6 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "(кто платил за свой счёт / кому начислено, выплачено)": "(who paid from own funds / accrued, paid to)",
         "человеком за свой счёт — кооператив должен возместить": "by a person from own funds — the cooperative must reimburse",
         "За чей счёт оплачено": "Paid from whose funds",
-        "Расход изменён и перенесён к контрагенту «{name}».": "Expense updated and moved to the counterparty “{name}”.",
         "Этот долг уже (частично) возмещён — сначала отмените платёж человеку.": "This debt has already been (partly) reimbursed — cancel the payment to the person first.",
         "Способ оплаты меняется только у трат не через банк и долгов человеку.": "The payment method can only be changed for expenses not via the bank and debts to a person.",
         "Сменить человека…": "Change person…",

@@ -2,6 +2,7 @@ import datetime as dt
 import os
 
 from flask import Blueprint, render_template, request, redirect, url_for, flash, abort, current_app, jsonify
+from markupsafe import Markup
 from werkzeug.utils import secure_filename
 
 from . import database
@@ -464,8 +465,14 @@ def edit_expense(counterparty_id, expense_id):
                             f"{counterparty.name} → {target.name}",
                 )
                 database.db_session.commit()
-                flash(_("Расход изменён и перенесён к контрагенту «{name}».", name=target.name), "success")
-                return redirect(url_for("counterparties.detail", counterparty_id=target.id))
+                # Остаёмся на этой странице (форма — AJAX, страница просто
+                # обновится без расхода), а куда он переехал — во всплывающем
+                # уведомлении со ссылкой: переход и «Назад» вернули бы
+                # закэшированную копию с открытой формой.
+                flash(Markup('{} <a class="link-light fw-semibold" href="{}">{}</a>').format(
+                    _("Расход перенесён к контрагенту «{name}».", name=target.name),
+                    url_for("counterparties.detail", counterparty_id=target.id), _("Открыть")), "toast-success")
+                return redirect(url_for("counterparties.detail", counterparty_id=counterparty.id))
         else:
             expense.person_id = person.id if person else None
     audit.record(

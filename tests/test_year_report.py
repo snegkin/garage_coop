@@ -1049,7 +1049,10 @@ def test_edit_cash_expense_to_own_funds_and_back(app, db, client):
             "person_id": str(person.id), "pay_mode": "own"}
 
     resp = client.post(f"/counterparties/{cash.id}/expenses/{expense.id}/edit", data=form)
-    assert resp.status_code == 302
+    # Остаёмся на странице прежнего контрагента; куда переехал — во всплывающем уведомлении.
+    assert resp.status_code == 302 and resp.headers["Location"].endswith(f"/counterparties/{cash.id}")
+    body = client.get(resp.headers["Location"]).get_data(as_text=True)
+    assert "toast" in body and "Расход перенесён к контрагенту" in body
     db.expire_all()
     expense = db.get(Expense, expense.id)
     assert expense.counterparty.name == db.get(Person, person.id).full_name
@@ -1069,3 +1072,34 @@ def test_edit_cash_expense_to_own_funds_and_back(app, db, client):
     assert expense.description == "DC-DC преобразователь"
     with app.test_request_context():
         assert owed_people() == []
+
+
+def test_edit_legacy_cash_expense_to_own_funds_drops_its_payment(app, db, client):
+    """Наличная трата, заведённая до связи booked_payment: её оплата «не через
+    банк» находится по разнесению и тоже убирается — у «Оплачено наличными»
+    не остаётся переплаты."""
+    from app.accounting import counterparty_balance, pay_counterparty, reallocate_counterparty_expenses
+    from app.models import ExpenseKind
+    from app.year_report import _cash_counterparty
+    from tests.conftest import make_person
+    _chairman(db, client)
+    with app.test_request_context():
+        cash = _cash_counterparty()
+    person = make_person(db)
+    keep = Expense(counterparty_id=cash.id, date=dt.date(2026, 7, 1), amount=Decimal("300"), category="Прочее",
+                   kind=ExpenseKind.CHARGE)
+    mowing = Expense(counterparty_id=cash.id, date=dt.date(2026, 8, 8), amount=Decimal("1000"), category="Хоз. работы",
+                     description="Покос травы", kind=ExpenseKind.CHARGE)
+    db.add_all([keep, mowing])
+    db.flush()
+    pay_counterparty(cash, keep.date, Decimal("300"), adjust_balance=False)
+    pay_counterparty(cash, mowing.date, Decimal("1000"), adjust_balance=False)
+    reallocate_counterparty_expenses(cash)
+    db.commit()
+    client.post(f"/counterparties/{cash.id}/expenses/{mowing.id}/edit", data={
+        "date": "2026-08-08", "amount": "1000", "category": "Хоз. работы", "description": "Покос травы",
+        "person_id": str(person.id), "pay_mode": "own"})
+    db.expire_all()
+    with app.test_request_context():
+        assert counterparty_balance(db.get(Counterparty, cash.id)) == Decimal("0")
+    assert db.get(Expense, mowing.id).counterparty_id != cash.id

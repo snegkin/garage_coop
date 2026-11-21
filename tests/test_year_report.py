@@ -1024,3 +1024,48 @@ def test_parse_latitude_degrees_minutes_seconds(app):
     assert parse_latitude("57°61'") is None and parse_latitude("абв") is None
     with app.test_request_context():
         assert format_latitude_dms(Decimal("57.62528")) == "57°37′31″ с. ш."
+
+
+def test_edit_cash_expense_to_own_funds_and_back(app, db, client):
+    """Трата «не через банк» → «за свой счёт человека» в форме правки
+    расхода у контрагента: расход переезжает к контрагенту-человеку, оплата
+    «не через банк» удаляется — кооператив должен человеку; и обратно."""
+    from app.models import ExpenseKind, Person
+    from app.year_report import _cash_counterparty, expense_payment_mode, owed_people
+    from tests.conftest import make_person
+    _chairman(db, client)
+    with app.test_request_context():
+        cash = _cash_counterparty()
+    person = make_person(db)
+    expense = Expense(counterparty_id=cash.id, date=dt.date(2026, 7, 25), amount=Decimal("93"),
+                      category="Прочее", description="DC-DC преобразователь", kind=ExpenseKind.CHARGE)
+    db.add(expense)
+    db.flush()
+    from app.accounting import pay_counterparty
+    payment = pay_counterparty(cash, expense.date, expense.amount, comment="Оплачено не через банк", adjust_balance=False)
+    expense.booked_payment_id = payment.id
+    db.commit()
+    form = {"date": "2026-07-25", "amount": "93", "category": "Прочее", "description": "DC-DC преобразователь",
+            "person_id": str(person.id), "pay_mode": "own"}
+
+    resp = client.post(f"/counterparties/{cash.id}/expenses/{expense.id}/edit", data=form)
+    assert resp.status_code == 302
+    db.expire_all()
+    expense = db.get(Expense, expense.id)
+    assert expense.counterparty.name == db.get(Person, person.id).full_name
+    assert expense.booked_payment_id is None and expense.person_id == person.id
+    assert expense.description == "DC-DC преобразователь — за свой счёт, к возмещению"
+    assert db.query(CounterpartyPayment).filter_by(id=payment.id).first() is None
+    with app.test_request_context():
+        assert expense_payment_mode(expense) == "own"
+        assert [row["owed"] for row in owed_people()] == [Decimal("93")]
+
+    form.update(description=expense.description, pay_mode="cash", person_id="")
+    resp = client.post(f"/counterparties/{expense.counterparty_id}/expenses/{expense.id}/edit", data=form)
+    db.expire_all()
+    expense = db.get(Expense, expense.id)
+    assert expense.counterparty_id == cash.id and expense.booked_payment is not None
+    assert expense.booked_payment.amount == Decimal("93") and expense.person_id is None
+    assert expense.description == "DC-DC преобразователь"
+    with app.test_request_context():
+        assert owed_people() == []

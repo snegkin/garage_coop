@@ -240,7 +240,20 @@
 <div class="container app-container pb-5" id="mainContent">
   {% with messages = get_flashed_messages(with_categories=true) %}
     {% if messages %}
-      {% for category, message in messages %}
+      {# Категория «toast-…» (toast-success, toast-info…) — всплывающее
+         уведомление в углу, само пропадает (initToasts ниже); остальные —
+         обычная плашка над содержимым. #}
+      <div class="toast-container position-fixed top-0 end-0 p-3 flash-toasts" style="margin-top:3.5rem; z-index:1090">
+      {% for category, message in messages if category.startswith("toast-") %}
+        <div class="toast show align-items-center text-bg-{{ category[6:] }} border-0" role="status" aria-live="polite" data-autohide-ms="7000">
+          <div class="d-flex">
+            <div class="toast-body">{{ message }}</div>
+            <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="{{ _('Закрыть') }}"></button>
+          </div>
+        </div>
+      {% endfor %}
+      </div>
+      {% for category, message in messages if not category.startswith("toast-") %}
         <div class="alert alert-{{ category }} alert-dismissible fade show flash-message" role="alert">
           {{ message }}
           <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
@@ -1924,12 +1937,30 @@ function enhanceSearchableSelect(select) {
 function initSearchableSelects(root) {
   root.querySelectorAll("select[data-searchable]").forEach(enhanceSearchableSelect);
 }
+// Всплывающие уведомления (flash с категорией «toast-…») — сами пропадают
+// через data-autohide-ms; при наведении мыши ждут. Без bootstrap.Toast:
+// скрипт может выполниться раньше, чем подключён bootstrap.bundle.
+function initToasts(root) {
+  root.querySelectorAll(".toast[data-autohide-ms]").forEach(function (toast) {
+    if (toast.dataset.toastInit) return;
+    toast.dataset.toastInit = "1";
+    var timer = null;
+    function hide() { toast.classList.remove("show"); setTimeout(function () { toast.remove(); }, 300); }
+    function arm() { timer = setTimeout(hide, parseInt(toast.dataset.autohideMs, 10) || 7000); }
+    toast.addEventListener("mouseenter", function () { clearTimeout(timer); });
+    toast.addEventListener("mouseleave", arm);
+    var close = toast.querySelector('[data-bs-dismiss="toast"]');
+    if (close) close.addEventListener("click", function (ev) { ev.preventDefault(); clearTimeout(timer); hide(); });
+    arm();
+  });
+}
 function initUtcDatetimes(root) {
   root.querySelectorAll("[data-utc-datetime]").forEach(localizeDatetime);
 }
 document.addEventListener("DOMContentLoaded", function () {
   initSearchableSelects(document);
   initUtcDatetimes(document);
+  initToasts(document);
 });
 
 // В БД время хранится в UTC (dt.datetime.utcnow() везде в бэкенде) — сервер
@@ -3189,6 +3220,7 @@ function submitFormAjax(form, opts) {
       initActiveAccountsToggle(mainContent);
       initSearchableSelects(mainContent);
       initUtcDatetimes(mainContent);
+      initToasts(mainContent);
       initBackLinks(mainContent);
       initCheckColumns(mainContent);
       runContentScripts(mainContent);

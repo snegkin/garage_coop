@@ -43,7 +43,7 @@ from .auth import roles_required
 from .i18n import translate as _
 from .models import (
     BankAccount, BankStatementLine, BudgetItem, BudgetSection, Charge, ChargeAllocation, Counterparty,
-    CounterpartyPayment, CsvImportProfile, ElectricityMeter, ElectricityTariffKind, Expense, ExpenseCategory, ExpenseKind,
+    CounterpartyPayment, CsvImportProfile, ElectricityMeter, ExpenseAllocation, ElectricityTariffKind, Expense, ExpenseCategory, ExpenseKind,
     FeeType, Garage, MasterMeterReading, MemberAccount, Payment, PaymentRegistryEntry, Person, RoleEnum,
 )
 
@@ -2398,6 +2398,32 @@ def _without_own_mark(description: str | None) -> str | None:
     return text or None
 
 
+def _drop_cash_payment(expense: Expense) -> None:
+    """Убрать оплату «не через банк» наличной траты (она уходит в долг
+    человеку). Своя оплата (booked_payment) — удаляется или уменьшается,
+    если на ней ещё траты. У старых трат, заведённых до этой связи, — по
+    разнесению: оплаты без банка и строки выписки, гасившие эту трату."""
+    payment = expense.booked_payment
+    expense.booked_payment_id = None
+    database.db_session.flush()
+    if payment is not None:
+        others = database.db_session.query(Expense).filter(Expense.booked_payment_id == payment.id).count()
+        parts = [(payment, expense.amount if others else None)]
+    else:
+        # Запросом, а не expense.allocations: разнесение только что
+        # пересчитано (reallocate), коллекция в сессии могла устареть.
+        allocations = database.db_session.query(ExpenseAllocation).filter(
+            ExpenseAllocation.expense_id == expense.id).all()
+        parts = [(a.payment, a.amount) for a in allocations
+                 if a.payment.bank_account_id is None and a.payment.bank_statement_line_id is None]
+    for pay, amount in parts:
+        if amount is None or pay.amount <= amount:
+            database.db_session.delete(pay)
+        else:
+            pay.amount -= amount
+    database.db_session.flush()
+
+
 def change_expense_payment_mode(expense: Expense, mode: str, person: Person | None) -> Counterparty:
     """Сменить, как оплачена трата не через банк (см. expense_payment_mode):
     деньги кооператива ↔ за свой счёт человека ↔ начислено к выплате.
@@ -2412,19 +2438,12 @@ def change_expense_payment_mode(expense: Expense, mode: str, person: Person | No
         raise ValueError(_("Выберите человека: кому начислено или кто платил за свой счёт."))
     old = expense.counterparty
     target = _cash_counterparty() if mode == "cash" else _person_counterparty(person)
-    if current in ("own", "accrued") and target.id != old.id and expense.allocations:
+    if current in ("own", "accrued") and target.id != old.id and database.db_session.query(ExpenseAllocation).filter(
+            ExpenseAllocation.expense_id == expense.id).first() is not None:
         raise ValueError(_("Этот долг уже (частично) возмещён — сначала отмените платёж человеку."))
 
-    if current == "cash" and mode != "cash" and expense.booked_payment is not None:
-        payment = expense.booked_payment
-        others = (database.db_session.query(Expense)
-                  .filter(Expense.booked_payment_id == payment.id, Expense.id != expense.id).count())
-        expense.booked_payment_id = None
-        database.db_session.flush()
-        if others:
-            payment.amount -= expense.amount
-        else:
-            database.db_session.delete(payment)
+    if current == "cash" and mode != "cash":
+        _drop_cash_payment(expense)
     description = _without_own_mark(expense.description)
     if mode == "own":
         description = f"{description} — {OWN_FUNDS_MARK}" if description else _("За свой счёт, к возмещению")

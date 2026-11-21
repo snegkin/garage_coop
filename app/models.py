@@ -541,6 +541,10 @@ class Counterparty(Base):
     email: Mapped[str | None] = mapped_column(String(120))
     address: Mapped[str | None] = mapped_column(Text)
     comment: Mapped[str | None] = mapped_column(Text)
+    # Действующий договор с контрагентом: номер и дата заключения (для
+    # писем и документов — {{договор_контрагента}} в app/documents.py).
+    contract_number: Mapped[str | None] = mapped_column(String(100))
+    contract_date: Mapped[dt.date | None] = mapped_column(Date)
 
     # Баланс на момент начала учёта в системе (если отношения с
     # контрагентом уже велись раньше и на старте были не с нуля) —

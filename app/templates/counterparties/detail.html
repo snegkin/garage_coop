@@ -21,6 +21,15 @@
       <tr><th>{{ _("Email") }}</th><td>{{ email_link(counterparty.email) }}</td></tr>
       <tr><th>{{ _("Адрес") }}</th><td>{{ counterparty.address or "—" }}</td></tr>
       <tr>
+        <th>{{ _("Договор") }}</th>
+        <td>
+          {% if counterparty.contract_number or counterparty.contract_date %}
+            {% if counterparty.contract_number %}№ {{ counterparty.contract_number }}{% endif %}
+            {% if counterparty.contract_date %}{{ _("от") }} {{ fmt_date(counterparty.contract_date) }}{% endif %}
+          {% else %}—{% endif %}
+        </td>
+      </tr>
+      <tr>
         <th>{{ _("Начальный баланс") }}</th>
         <td>
           {% if counterparty.opening_balance is not none %}

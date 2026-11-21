@@ -168,6 +168,8 @@ def create():
         email=f.get("email") or None,
         address=f.get("address") or None,
         comment=f.get("comment") or None,
+        contract_number=(f.get("contract_number") or "").strip() or None,
+        contract_date=dt.date.fromisoformat(f["contract_date"]) if f.get("contract_date") else None,
         opening_balance=_parse_decimal(f.get("opening_balance")),
         opening_balance_date=dt.date.fromisoformat(f["opening_balance_date"]) if f.get("opening_balance_date") else None,
         api_provider=_parse_api_provider(f.get("api_provider")),
@@ -198,6 +200,8 @@ def edit(counterparty_id):
     counterparty.email = f.get("email") or None
     counterparty.address = f.get("address") or None
     counterparty.comment = f.get("comment") or None
+    counterparty.contract_number = (f.get("contract_number") or "").strip() or None
+    counterparty.contract_date = dt.date.fromisoformat(f["contract_date"]) if f.get("contract_date") else None
     counterparty.opening_balance = _parse_decimal(f.get("opening_balance"))
     opening_date = f.get("opening_balance_date")
     counterparty.opening_balance_date = dt.date.fromisoformat(opening_date) if opening_date else None

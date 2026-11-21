@@ -225,3 +225,29 @@ def test_detail_page_shows_each_comma_separated_phone_as_own_link(db, client):
     assert 'href="tel:+79111111111"' in body
     assert 'href="tel:+79222222222"' in body
     assert 'href="tel:+79111111111+79222222222"' not in body
+
+
+def test_contract_number_and_date_saved_shown_and_substituted(db, client, app):
+    _make_board(db)
+    counterparty = _make_counterparty(db)
+    db.commit()
+    login(client, "board1", "pass1234")
+    resp = client.post(f"/counterparties/{counterparty.id}/edit", data={
+        "name": "ООО Ромашка", "contract_number": " 15-Э ", "contract_date": "2025-02-01",
+    })
+    assert resp.status_code == 302
+    db.refresh(counterparty)
+    assert counterparty.contract_number == "15-Э"
+    assert counterparty.contract_date == dt.date(2025, 2, 1)
+    page = client.get(f"/counterparties/{counterparty.id}").get_data(as_text=True)
+    assert "№ 15-Э" in page and "01.02.2025" in page
+
+    from app import documents
+    with app.test_request_context():
+        ctx = documents.Context(dt.date(2026, 11, 21), counterparty=counterparty)
+        assert documents.fill("по договору {{договор_контрагента}}", ctx) == "по договору № 15-Э от 01.02.2025"
+
+    # Пустые поля — очищаются.
+    client.post(f"/counterparties/{counterparty.id}/edit", data={"name": "ООО Ромашка"})
+    db.refresh(counterparty)
+    assert counterparty.contract_number is None and counterparty.contract_date is None

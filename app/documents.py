@@ -277,6 +277,16 @@ def _outside_loss(ctx) -> str:
     return _number(settings.outside_line_loss_percent if settings else Decimal("2.33"))
 
 
+def _counterparty_contract(ctx) -> str:
+    cp = ctx.counterparty
+    if cp is None or not (cp.contract_number or cp.contract_date):
+        return ""
+    parts = [f"№ {cp.contract_number}"] if cp.contract_number else []
+    if cp.contract_date:
+        parts.append(f"от {_date(cp.contract_date)}")
+    return " ".join(parts)
+
+
 def _sale_subject(ctx) -> str:
     """«гараж (бокс) № 42» или «1/2 доли в праве собственности на гараж
     (бокс) № 42» — что продаёт продавец (по его доле в праве)."""
@@ -459,6 +469,7 @@ VARIABLES = [
     ("адрес_контрагента", "адрес контрагента", "Контрагент", lambda c: c.counterparty_attr("address")),
     ("email_контрагента", "электронная почта контрагента", "Контрагент", lambda c: c.counterparty_attr("email")),
     ("телефон_контрагента", "телефоны контрагента", "Контрагент", lambda c: c.counterparty_attr("phone")),
+    ("договор_контрагента", "договор с контрагентом: «№ 15-Э от 01.02.2025»", "Контрагент", _counterparty_contract),
     ("предмет_продажи", "«гараж (бокс) № 42» или «1/2 доли в праве собственности на гараж (бокс) № 42»",
      "Купля-продажа", _sale_subject),
 ]

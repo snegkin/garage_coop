@@ -134,3 +134,40 @@ def test_reimbursement_planned_and_paid_in_plan_fact(app, db, client):
         pf = _plan_fact(2027)
     row = pf["sections"][0]["items"][0]
     assert row["fact"] == Decimal("905") and pf["fact"] == Decimal("905")
+
+
+def test_item_from_off_budget_expenses(app, db, client):
+    """Траты, которых не было в смете, — новой позицией с планом 0 (в
+    существующем или новом разделе); в «Смете и факт» они уже не вне сметы."""
+    from app.year_report import _plan_fact
+    _chairman(db, client)
+    db.add(BudgetItem(year=2026, section="Содержание", name="Покос", amount=Decimal("3000"), position=0))
+    cp = Counterparty(name="Ubiquiti")
+    db.add(cp)
+    db.flush()
+    cams = [Expense(counterparty_id=cp.id, date=dt.date(2026, 7, d), amount=Decimal(a), category="Видеонаблюдение",
+                    kind=ExpenseKind.CHARGE, off_budget=True) for d, a in ((1, "13691"), (4, "2400"))]
+    db.add_all(cams)
+    db.commit()
+    body = client.get("/year-report/?year=2026").get_data(as_text=True)
+    assert "сделать позицией сметы" in body and "новая позиция (не было в смете)" in body
+
+    resp = client.post("/year-report/plan/items/from-expenses", data={
+        "year": "2026", "section": "", "new_section": "Видеонаблюдение", "kind": "target",
+        "name": "Wi-Fi мост и камеры", "expense_ids": ",".join(str(e.id) for e in cams)},
+        headers={"Referer": "http://localhost/year-report/?year=2026"})
+    assert resp.status_code == 302 and "/year-report/?year=2026" in resp.headers["Location"]
+    item = db.query(BudgetItem).filter_by(year=2026, name="Wi-Fi мост и камеры").one()
+    assert item.amount == 0 and item.section == "Видеонаблюдение"
+    assert db.query(BudgetSection).filter_by(year=2026, name="Видеонаблюдение").one().is_target
+    db.expire_all()
+    assert all(db.get(Expense, e.id).budget_item_id == item.id and not db.get(Expense, e.id).off_budget for e in cams)
+    with app.test_request_context("/year-report/?year=2026"):
+        pf = _plan_fact(2026)
+    assert pf["off_total"] == 0
+    row = next(r for s in pf["sections"] for r in s["items"] if r["item"].id == item.id)
+    assert row["plan"] == 0 and row["fact"] == Decimal("16091")
+    assert "не было в смете" in client.get("/year-report/?year=2026").get_data(as_text=True)
+    # В планировании следующего года — «из прошлых смет» с фактом как суммой по умолчанию.
+    body = client.get("/year-report/plan?year=2027").get_data(as_text=True)
+    assert "Wi-Fi мост и камеры" in body and "16091,00" in body

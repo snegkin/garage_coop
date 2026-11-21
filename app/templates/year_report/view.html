@@ -87,6 +87,7 @@
   .yr-pf-detail > .yr-pf-row .yr-pf-name::before { content:""; display:inline-block; width:1em; }
   /* Длинное название позиции переносится под текст, а не под стрелку. */
   .yr-pf-detail .yr-pf-name { padding-left: calc(1rem + 1em) !important; text-indent:-1em; }
+  .yr-pf-name .badge, .yr-pf-name .btn { text-indent:0; }
   @media (max-width: 767.98px) {
     .yr-pf-row { grid-template-columns: minmax(0, 1fr) auto auto; }
     .yr-pf-row > span:nth-child(4), .yr-pf-row > span:nth-child(5) { display:none; }
@@ -507,12 +508,14 @@
 {% endmacro %}
 {% macro budget_select(e, current, auto_label=none) %}
 <form method="post" action="{{ url_for('year_report.set_expense_budget_item', expense_id=e.id) }}" data-ajax>
-  <select class="form-select form-select-sm py-0 js-autosubmit-plain" name="budget_item"  aria-label="{{ _('Позиция сметы') }}">
+  <select class="form-select form-select-sm py-0 js-autosubmit-plain js-budget-select" name="budget_item"  aria-label="{{ _('Позиция сметы') }}"
+          data-expense="{{ e.id }}" data-name="{{ (e.description or e.category or '')|truncate(80, end='') }}" data-category="{{ e.category or '' }}">
     <option value="auto" {{ "selected" if current == "auto" }}>{{ auto_label or _("подобрано автоматически") }}</option>
     <option value="off" {{ "selected" if current == "off" }}>{{ _("вне сметы") }}</option>
     {% for item in plan_fact["items"] %}
     <option value="{{ item.id }}" {{ "selected" if current == item.id }}>{{ item.section|truncate(25) }} → {{ item.name|truncate(45) }}</option>
     {% endfor %}
+    <option value="new">{{ _("+ новая позиция (не было в смете)…") }}</option>
   </select>
 </form>
 {% endmacro %}
@@ -578,11 +581,11 @@
       <div class="yr-pf-detail">
         {% for row in sec["items"] %}
         {% if row.expenses %}<details data-key="plan:{{ sec.name }}:{{ row.item.id }}"><summary{% else %}<div{% endif %} class="yr-pf-row small {{ 'text-muted' if not row.expenses }}">
-          <span class="yr-pf-name ps-3">{{ row.item.name }}{% if row.expenses %} <span class="text-muted">({{ row.expenses|length }})</span>{% else %} — {{ _("не потрачено") }}{% endif %}
+          <span class="yr-pf-name ps-3">{{ row.item.name }}{% if not row.item.amount and not row.item.person_id %} <span class="badge text-bg-light border fw-normal" title="{{ _('Позиция заведена по факту траты — в утверждённой смете её не было') }}">{{ _("не было в смете") }}</span>{% endif %}{% if row.expenses %} <span class="text-muted">({{ row.expenses|length }})</span>{% else %} — {{ _("не потрачено") }}{% endif %}
             <button type="button" class="btn btn-link btn-sm p-0 ms-1 align-baseline" data-bs-toggle="modal" data-bs-target="#addExpenseModal"
                     data-budget-item="{{ row.item.id }}" data-description="{{ row.item.name }}"
                     data-category="{{ (row.item_categories or [''])[0] }}">+ {{ _("трата") }}</button>
-            {% if row.meter.over_amount %}<span class="text-muted">({{ _("сверх плана позиции {amount}", amount=fmt2(row.meter.over_amount)) }})</span>{% endif %}</span>
+            {% if row.meter.over_amount and row.plan %}<span class="text-muted">({{ _("сверх плана позиции {amount}", amount=fmt2(row.meter.over_amount)) }})</span>{% endif %}</span>
           <span>{{ fmt2(row.plan) }}</span><span>{{ fmt2(row.fact) if row.expenses else "—" }}</span>
           <span>{{ row.meter.rate if row.expenses and row.meter.rate is not none else "" }}</span><span></span><span></span>
         {% if row.expenses %}</summary>{% else %}</div>{% endif %}
@@ -618,7 +621,11 @@
     <summary class="fw-semibold">{{ _("Вне сметы (не было в смете): {amount} ₽", amount=fmt2(plan_fact.off_total)) }}</summary>
     <p class="small text-muted mt-1 mb-2">{{ _("Траты, которых не было в смете. Если трата на самом деле по смете — выберите позицию; если её стоит заложить в смету следующего года — это подсказка для планирования.") }}</p>
     {% for g in plan_fact.off_groups %}
-    <div class="small fw-semibold mt-2">{{ g.name }} — {{ fmt2(g.total) }} ₽</div>
+    <div class="small fw-semibold mt-2 d-flex flex-wrap align-items-baseline gap-2">
+      <span>{{ g.name }} — {{ fmt2(g.total) }} ₽</span>
+      <button type="button" class="btn btn-link btn-sm p-0 fw-normal" data-bs-toggle="modal" data-bs-target="#newItemModal"
+              data-expenses="{{ g.expenses|map(attribute='id')|join(',') }}" data-name="{{ g.name }}">{{ _("сделать позицией сметы") }}</button>
+    </div>
     <ul class="list-unstyled small ms-3 mb-1">
       {% for e in g.expenses %}
       <li class="d-flex flex-wrap flex-md-nowrap justify-content-between align-items-center gap-2 py-1 border-bottom">
@@ -913,6 +920,43 @@
   </div>
 </div>
 
+<div class="modal fade" id="newItemModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" action="{{ url_for('year_report.plan_item_from_expenses') }}">
+        <div class="modal-header">
+          <h5 class="modal-title">{{ _("Новая позиция сметы") }}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{{ _('Закрыть') }}"></button>
+        </div>
+        <div class="modal-body">
+          <p class="small text-muted">{{ _("Для трат, которых не было в смете: позиция с планом 0 — в «Смете и факт» видно, что потрачено сверх сметы и на что; в смету следующего года её можно взять по факту.") }}</p>
+          <input type="hidden" name="year" value="{{ year }}">
+          <input type="hidden" name="expense_ids" value="">
+          <div class="mb-2">
+            <label class="form-label small">{{ _("Раздел") }}</label>
+            <select class="form-select" name="section">
+              {% for s in budget.sections %}<option value="{{ s.name }}">{{ s.name }} ({{ _("целевой") if s.is_target else _("членский") }})</option>{% endfor %}
+              <option value="">{{ _("+ новый раздел…") }}</option>
+            </select>
+          </div>
+          <div class="row g-2 mb-2 js-new-section d-none">
+            <div class="col-8"><input class="form-control" name="new_section" maxlength="255" placeholder="{{ _('Название нового раздела') }}" aria-label="{{ _('Название нового раздела') }}"></div>
+            <div class="col-4"><select class="form-select" name="kind" aria-label="{{ _('Назначение раздела') }}">
+              <option value="membership">{{ _("членский") }}</option><option value="target">{{ _("целевой") }}</option></select></div>
+          </div>
+          <label class="form-label small">{{ _("Наименование позиции") }}</label>
+          <input class="form-control" name="name" required maxlength="500">
+          <div class="small text-muted mt-2 js-new-item-note"></div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+          <button class="btn btn-primary">{{ _("Создать и отнести траты") }}</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
 <div class="modal fade" id="personModal" tabindex="-1">
   <div class="modal-dialog">
     <div class="modal-content">
@@ -1044,8 +1088,45 @@
     sel.value = btn.dataset.person || "";
     sel.dispatchEvent(new Event("change"));
   });
+  // «Новая позиция» — из выбора позиции у траты или для группы «вне сметы».
+  var newItemModal = document.getElementById("newItemModal");
+  function openNewItem(expenseIds, name) {
+    var form = newItemModal.querySelector("form");
+    form.querySelector("[name=expense_ids]").value = expenseIds;
+    form.querySelector("[name=name]").value = name || "";
+    var count = expenseIds ? expenseIds.split(",").length : 0;
+    newItemModal.querySelector(".js-new-item-note").textContent =
+      {{ _("Трат будет отнесено к позиции: ")|tojson }} + count;
+    bootstrap.Modal.getOrCreateInstance(newItemModal).show();
+  }
+  if (newItemModal) {
+    var sectionSel = newItemModal.querySelector("[name=section]");
+    function syncSection() {
+      newItemModal.querySelector(".js-new-section").classList.toggle("d-none", sectionSel.value !== "");
+    }
+    sectionSel.addEventListener("change", syncSection);
+    syncSection();
+    newItemModal.addEventListener("show.bs.modal", function (ev) {
+      var btn = ev.relatedTarget;
+      if (btn && btn.dataset.expenses) {
+        var form = newItemModal.querySelector("form");
+        form.querySelector("[name=expense_ids]").value = btn.dataset.expenses;
+        form.querySelector("[name=name]").value = btn.dataset.name || "";
+        newItemModal.querySelector(".js-new-item-note").textContent =
+          {{ _("Трат будет отнесено к позиции: ")|tojson }} + btn.dataset.expenses.split(",").length;
+      }
+    });
+  }
   document.querySelectorAll(".js-autosubmit-plain").forEach(function (sel) {
-    sel.addEventListener("change", function () { sel.form.requestSubmit(); });
+    var before = sel.value;
+    sel.addEventListener("change", function () {
+      if (sel.value === "new") {
+        sel.value = before;  // выбор не меняем, пока позиция не создана
+        openNewItem(sel.dataset.expense, sel.dataset.name);
+        return;
+      }
+      sel.form.requestSubmit();
+    });
   });
   document.querySelectorAll(".js-autosubmit").forEach(function (sel) {
     sel.addEventListener("change", function () {

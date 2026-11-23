@@ -2041,6 +2041,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Нет такой группы уведомлений.": "No such notification group.",
         "Состав группы уведомлений сохранён.": "Notification group saved.",
         "Сохранено": "Saved",
+        "Убрать из группы": "Remove from the group",
         "Есть несохранённые изменения": "Unsaved changes",
         "Ждёт решения правления": "Awaiting a board decision",
         "Банк и выписки": "Bank and statements",

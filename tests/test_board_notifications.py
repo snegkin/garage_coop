@@ -372,13 +372,15 @@ def test_group_page_saves_roles_and_people(app, db, client):
     html = client.get("/notification-groups/").get_data(as_text=True)
     assert "Сбои синхронизации" in html
     resp = client.post("/notification-groups/failures", data={
-        "role_chairman": "1", "role_revision_commission": "1", "add_user_id": str(electrician.id),
+        "role_chairman": "1", "role_revision_commission": "1", "user_id": [str(electrician.id), str(chair.id)],
     })
     assert resp.status_code == 302
     assert notifications.group_recipient_ids("failures") == {chair.id, electrician.id, auditor.id}
     assert "failures" in notifications.user_notification_groups(electrician)
 
-    # Снять галочку у человека — убрать из группы.
+    assert {u.id for u in db.get(NotificationGroup, "failures").users} == {electrician.id, chair.id}
+
+    # Человека нет в отправленном списке — убран из группы.
     client.post("/notification-groups/failures", data={"role_chairman": "1"})
     assert notifications.group_recipient_ids("failures") == {chair.id}
 
@@ -391,7 +393,7 @@ def test_group_save_ajax_returns_only_this_card(app, db, client):
     board = _board_user(db, "board1")
     db.commit()
     login(client, "board1", "pass12345")
-    resp = client.post("/notification-groups/failures", data={"add_user_id": str(board.id)},
+    resp = client.post("/notification-groups/failures", data={"user_id": str(board.id)},
                        headers={"X-Requested-With": "XMLHttpRequest"})
     assert resp.status_code == 200
     data = resp.get_json()

@@ -83,10 +83,9 @@ def save(code):
         database.db_session.add(group)
 
     roles = [role for role in notifications.RECIPIENT_ROLES if f.get(f"role_{role}")]
+    # Весь список отдельных людей карточки разом (скрытые user_id, см.
+    # notification_groups/view.html) — кого в нём нет, тот убран.
     keep_ids = {int(v) for v in f.getlist("user_id") if v.isdigit()}
-    add_id = f.get("add_user_id", "")
-    if add_id.isdigit():
-        keep_ids.add(int(add_id))
     users = database.db_session.query(User).filter(User.id.in_(keep_ids)).all() if keep_ids else []
 
     group.roles = json.dumps(roles)

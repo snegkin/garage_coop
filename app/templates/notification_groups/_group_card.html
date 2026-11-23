@@ -16,15 +16,17 @@
           </div>
           <div class="mb-2">
             <div class="form-label mb-1">{{ _("Отдельные люди") }}</div>
-            {% for user in group.users %}
-            <div class="form-check">
-              <input class="form-check-input" type="checkbox" name="user_id" value="{{ user.id }}" id="{{ group.code }}_user_{{ user.id }}" checked>
-              <label class="form-check-label" for="{{ group.code }}_user_{{ user.id }}">{{ user.person.full_name if user.person else user.username }}</label>
+            <div class="js-people">
+              {% for user in group.users %}
+              <div class="d-flex align-items-center gap-2 js-person-row">
+                <input type="hidden" name="user_id" value="{{ user.id }}">
+                <span>{{ user.person.full_name if user.person else user.username }}</span>
+                <button type="button" class="btn btn-link btn-sm text-danger p-0 js-person-remove" title="{{ _('Убрать из группы') }}" aria-label="{{ _('Убрать из группы') }}">✕</button>
+              </div>
+              {% endfor %}
             </div>
-            {% else %}
-            <div class="text-body-secondary small mb-1">{{ _("Никого не добавлено.") }}</div>
-            {% endfor %}
-            <select class="form-select form-select-sm mt-1" name="add_user_id" data-searchable aria-label="{{ _('Добавить человека') }}">
+            <div class="text-body-secondary small mb-1 js-people-empty {{ 'd-none' if group.users }}">{{ _("Никого не добавлено.") }}</div>
+            <select class="form-select form-select-sm mt-1 js-person-picker" data-searchable data-placeholder="{{ _('Добавить человека…') }}" aria-label="{{ _('Добавить человека') }}">
               <option value="">{{ _("Добавить человека…") }}</option>
               {% for user in group.candidates %}
               <option value="{{ user.id }}">{{ user.person.full_name if user.person else user.username }}</option>

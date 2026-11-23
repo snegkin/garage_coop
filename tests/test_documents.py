@@ -551,6 +551,25 @@ def test_contractor_letters(db, client):
     assert "ООО «Хостинг»" in client.get(f"/documents/{doc.id}").get_data(as_text=True)
 
 
+def test_self_employed_contract(db, client):
+    from app.models import Counterparty
+    _setup(db)
+    worker = Counterparty(name="Электриков Иван Петрович", inn="500100732259", phone="+7 900 000-00-00")
+    db.add(worker)
+    db.commit()
+    login(client, "board1", "pass1234")
+    client.post("/documents/templates/defaults")
+    contract = db.query(DocumentTemplate).filter_by(name="Договор с самозанятым на выполнение работ").one()
+    assert contract.recipient == "contractor" and not contract.show_signature
+    page = client.get(f"/documents/new?template_id={contract.id}&counterparty_id={worker.id}").get_data(as_text=True)
+    body = page.split('id="docBody"')[1].split("</div>")[0]
+    assert "{{" not in body and "гражданин(ка) Электриков Иван Петрович, ИНН 500100732259" in body
+    assert "422-ФЗ" in body and "«Мой налог»" in body and "Договор не является трудовым" in body
+    assert "+7 900 000-00-00" in body and "ИНН 1234567890" in body
+    # Подсказка (проверка статуса НПД) — на странице, не на бланке.
+    assert "npd.nalog.ru/check-status" in page and "check-status" not in body
+
+
 def test_split_doc_title():
     split = documents.split_doc_title
     assert split("ДОГОВОР о подключении гаража") == ("ДОГОВОР", "о подключении гаража")

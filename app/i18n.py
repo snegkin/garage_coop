@@ -2356,7 +2356,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Доли оставшихся собственников пересчитаются. Лицевые счета выбывшего по этому гаражу с нулевым остатком уйдут в архив; долг или переплата по умолчанию остаются за ним — оставшиеся собственники за чужие взносы не отвечают. Причина сохранится в истории собственников.": "The remaining owners' shares will be recalculated. The departing owner's zero-balance accounts for this garage will be archived; any debt or overpayment stays with them by default, since the remaining owners are not liable for someone else's dues. The reason is kept in the ownership history.",
         "Перенести долг или переплату на оставшихся собственников (наследство, согласие сторон)": "Transfer the debt or overpayment to the remaining owners (inheritance, mutual consent)",
         "Единственный собственник: лицевые счета с остатком остаются за ним до появления нового собственника — тогда остаток перейдёт новому. Причина сохранится в истории собственников.": "Sole owner: accounts with a balance stay with them until a new owner appears; the balance then passes to the new owner. The reason is kept in the ownership history.",
-        "контрагент (организация, ИП)": "vendor (company, sole trader)",
+        "контрагент (организация, ИП, самозанятый)": "vendor (company, sole trader, self-employed)",
         "Письма на бланке": "Letters on letterhead",
         "Шаблоны писем — в": "Letter templates are in",
         "бланках и шаблонах": "forms and templates",

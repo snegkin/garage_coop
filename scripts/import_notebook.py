@@ -26,6 +26,8 @@ PAGES.py — файл расшифровки (в нём персональные
     G = {                             # номер гаража → описание страницы
         "173": dict(
             owner="ivanov",                       # ключ PERSONS или None (страница без ФИО)
+            # или owners=[("ivanov", "0.5"), ("petrov", "0.5")] — совладельцы с долями
+            # (пока только для страниц без взносов и смены собственника)
             contacts=[("petrov", "съёмщик", True)],  # (ключ, отношение, is_tenant)
             comment="произвольная заметка к гаражу",
             events=[ ... ],                       # строго в хронологическом порядке
@@ -164,7 +166,20 @@ def import_pages(pages):
             s.flush()
             owner = new
 
-        if spec.get("owner"):
+        if spec.get("owners"):
+            # совладельцы с долями — только для страниц без событий по членским счетам
+            assert not any(ev[0] in ("mf", "owner") or (ev[0] == "pay" and ev[3]) for ev in spec["events"]), \
+                f"Гараж {number}: совладельцы поддерживаются только без взносов/смены собственника"
+            for index, (key, share) in enumerate(spec["owners"]):
+                p = person(key)
+                s.add(GarageOwnership(garage_id=garage.id, person_id=p.id, share=Decimal(str(share))))
+                s.flush()
+                _ensure_member_accounts(garage, p.id, index)
+                s.add(GarageOwnershipEvent(garage_id=garage.id, person_id=p.id, share=Decimal(str(share)),
+                                           event_type=GarageOwnershipEventType.ADDED, comment="Импорт из тетради"))
+                owner = owner or p
+            s.flush()
+        elif spec.get("owner"):
             set_owner(spec["owner"], None, "Импорт из тетради")
         for key, relation, tenant in spec.get("contacts", []) + spec.get("extra_contacts", []):
             s.add(GarageContact(garage_id=garage.id, person_id=person(key).id, relation=relation, is_tenant=tenant))

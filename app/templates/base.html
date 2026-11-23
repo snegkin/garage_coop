@@ -3290,7 +3290,10 @@ document.addEventListener("submit", function (e) {
 //   - referrer — та же страница (другая вкладка ?tab=… того же pathname);
 //   - referrer подходит под data-back-inherit (регулярное выражение по
 //     pathname, напр. соседний гараж из «← Гараж №N →»): тогда
-//     наследуем адрес возврата той страницы, а не её саму.
+//     наследуем адрес возврата той страницы, а не её саму;
+//   - referrer подходит под data-back-skip (подстраница самой этой
+//     страницы, напр. «Редактировать» гаража: после сохранения redirect
+//     возвращает на карточку с referrer = форма редактирования).
 function initBackLinks(root) {
   var links = root.querySelectorAll("a[data-back-link]");
   if (!links.length) return;
@@ -3322,6 +3325,11 @@ function rememberBackTarget() {
   var ref;
   try { ref = new URL(document.referrer); } catch (e) { return; }
   if (ref.origin !== window.location.origin || ref.pathname === window.location.pathname) return;
+  var skip = false;
+  document.querySelectorAll("a[data-back-link][data-back-skip]").forEach(function (a) {
+    if (new RegExp(a.dataset.backSkip).test(ref.pathname)) skip = true;
+  });
+  if (skip) return;
   var inheritFrom = null;
   document.querySelectorAll("a[data-back-link][data-back-inherit]").forEach(function (a) {
     if (new RegExp(a.dataset.backInherit).test(ref.pathname)) inheritFrom = ref.pathname;

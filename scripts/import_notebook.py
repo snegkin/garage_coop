@@ -114,7 +114,7 @@ def move_target_charges(s, garage, ft_tg, tg_owner, member_accounts):
             payment = s.get(Payment, al.payment_id)
             cut[payment.id] += al.amount
             s.add(Payment(account_id=acc.id, date=payment.date, amount=al.amount,
-                          comment=f"Л/С {acc.account_number}: {payment.comment or 'По тетради'}"))
+                          comment=f"Л/С {acc.account_number}: {payment.comment or NOTEBOOK_PREFIX}"))
             tbal[acc.id] += al.amount
         charge.garage_id, charge.account_id = None, acc.id
         tbal[acc.id] -= charge.amount
@@ -132,10 +132,64 @@ def move_target_charges(s, garage, ft_tg, tg_owner, member_accounts):
     return tbal
 
 
+def _rub(x: Decimal) -> str:
+    text = f"{x:,.2f}".replace(",", " ").replace(".", ",")
+    return (text[:-3] if text.endswith(",00") else text) + " ₽"
+
+
+NOTEBOOK_PREFIX = "По тетради"
+MOVED_SUFFIX = " (целевой, перенесено со счёта гаража)"
+
+
+def rewrite_payment_comments(s, garage, ft_by_id):
+    """
+    Одна оплата из тетради в системе разнесена на несколько платежей (счёт
+    гаража — ЭЭ, членский, целевой), а в комментарии каждого был итог строки
+    тетради («По тетради: 1006 р» у части в 1000 ₽). Переписывает комментарии
+    импортированных платежей гаража: «По тетради, оплата 25.04.2026 — всего
+    1 006 ₽: 1 000 ₽ взносы, 6 ₽ электроэнергия (в тетради: …)». Части одной
+    оплаты — одна дата и одна заметка. Зачёты (фонари) не трогает.
+    """
+    accounts = s.query(MemberAccount).filter_by(garage_id=garage.id).all()
+    rows = [(p, "электроэнергия", None) for p in garage.payments]
+    for acc in accounts:
+        label = "целевые" if ft_by_id[acc.fee_type_id].code == "target" else "взносы"
+        rows += [(p, label, acc) for p in acc.payments]
+    groups = defaultdict(list)
+    for p, label, acc in rows:
+        text = p.comment or ""
+        if acc is not None and text.startswith(f"Л/С {acc.account_number}: "):
+            text = text[len(f"Л/С {acc.account_number}: "):]
+        if not text.startswith(NOTEBOOK_PREFIX) or text.startswith(f"{NOTEBOOK_PREFIX}, оплата"):
+            continue
+        note = text.removesuffix(MOVED_SUFFIX)[len(NOTEBOOK_PREFIX):].lstrip(":").strip()
+        if note.startswith("Зачёт"):
+            continue
+        groups[(p.date, note)].append((p, label, acc))
+    order = {"взносы": 0, "электроэнергия": 1, "целевые": 2}
+    changed = 0
+    for (date, note), parts in groups.items():
+        by_label = defaultdict(Decimal)
+        for p, label, _acc in parts:
+            by_label[label] += p.amount
+        total = sum(by_label.values(), Decimal("0"))
+        text = f"{NOTEBOOK_PREFIX}, оплата {date:%d.%m.%Y}"
+        if len(by_label) > 1:
+            text += f" — всего {_rub(total)}: " + ", ".join(
+                f"{_rub(v)} {k}" for k, v in sorted(by_label.items(), key=lambda kv: order[kv[0]]))
+        if note:
+            text += f" (в тетради: {note})"
+        for p, _label, acc in parts:
+            p.comment = f"Л/С {acc.account_number}: {text}" if acc is not None else text
+            changed += 1
+    return changed
+
+
 def import_pages(pages):
     s = database.db_session
     ft = {f.code: f for f in s.query(FeeType).all()}
     ft_el, ft_mf, ft_tg = ft["electricity"], ft["membership"], ft["target"]
+    ft_by_id = {f.id: f for f in ft.values()}
 
     if not s.query(ElectricityTariff).filter_by(kind=ElectricityTariffKind.MEMBER).count():
         for rate, eff in NOTEBOOK_TARIFFS:
@@ -318,6 +372,9 @@ def import_pages(pages):
         gbal = balance(garage)
         for acc in member_accounts.values():
             reallocate_member_charges(acc)
+        s.flush()
+        s.expire(garage, ["payments"])
+        rewrite_payment_comments(s, garage, ft_by_id)
         balances = {f"взносы {member_accounts[a].person.full_name}": b for a, b in mbal.items() if b}
         balances.update({f"целевые {member_accounts[a].person.full_name}": b for a, b in tbal.items() if b})
         report.append((number, owner.full_name if owner else "—", gbal, balances, flags))

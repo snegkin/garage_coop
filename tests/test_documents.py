@@ -373,6 +373,21 @@ def test_police_statement_unauthorized_power(db, client):
     assert "{{" not in page.split('id="docAddressee"')[1]
 
 
+def test_board_decision_member_gifts(db, client):
+    _setup(db)
+    login(client, "board1", "pass1234")
+    client.post("/documents/templates/defaults")
+    decision = db.query(DocumentTemplate).filter_by(
+        name="Решение правления о поощрении членов кооператива").one()
+    assert decision.recipient == "none" and not decision.is_public
+    page = client.get(f"/documents/new?template_id={decision.id}").get_data(as_text=True)
+    assert "ст. 572 ГК РФ" in page and "не более 4000" in page and "Подарок получил(а)" in page
+    # Подсказка (льгота по НДФЛ, не привязывать к объёму работ) — на странице, не на бланке.
+    assert "п. 28 ст. 217 НК РФ" in page and "6-НДФЛ" in page
+    assert "6-НДФЛ" not in page.split('id="docAddressee"')[1]
+    assert "{{" not in page.split('id="docAddressee"')[1]
+
+
 def test_letter_to_heirs(db, client):
     owner, garage, _chairman = _setup(db)
     login(client, "board1", "pass1234")

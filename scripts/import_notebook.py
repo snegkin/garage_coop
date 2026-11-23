@@ -28,7 +28,9 @@ PAGES.py — файл расшифровки (в нём персональные
             owner="ivanov",                       # ключ PERSONS или None (страница без ФИО)
             # или owners=[("ivanov", "0.5"), ("petrov", "0.5")] — совладельцы с долями
             # (пока только для страниц без взносов и смены собственника)
-            contacts=[("petrov", "съёмщик", True)],  # (ключ, отношение, is_tenant)
+            contacts=[("petrov", "съёмщик", True)],  # (ключ, отношение, is_tenant[, ключ собственника])
+            # 4-й элемент — чей это контакт (жена, дочь… собственника): если тот выбыл
+            # и ушёл в архив, контакт уходит в архив вместе с ним
             comment="произвольная заметка к гаражу",
             events=[ ... ],                       # строго в хронологическом порядке
         ),
@@ -75,6 +77,7 @@ from app.accounting import (  # noqa: E402
     ensure_personal_member_accounts,
 )
 from app.garages import _ensure_member_accounts  # noqa: E402
+from app.models import short_name_of  # noqa: E402
 
 DEFAULT_AREA = Decimal("24")  # площади в тетради нет — заглушка, поправить в карточке гаража
 Q = Decimal("0.01")
@@ -224,6 +227,26 @@ def archive_former_owners(s, person_ids):
     return archived
 
 
+def archive_owner_contacts(s, owner_contacts):
+    """
+    Контакты выбывшего собственника (родственники, чьи телефоны записаны в
+    тетради) — в архив вместе с ним, если они сами не собственники и не
+    контакты действующего собственника. Дата — та же, что у собственника.
+    """
+    owners_now = {o.person_id for o in s.query(GarageOwnership).all()}
+    keep = {c.id for _, c, o in owner_contacts if not o.is_archived}
+    archived = []
+    for number, contact, owner in owner_contacts:
+        if not owner.is_archived or contact.is_archived or contact.id in owners_now or contact.id in keep:
+            continue
+        contact.is_archived = True
+        contact.archived_at = owner.archived_at
+        contact.archived_reason = f"контакт прежнего собственника {owner.short_name or short_name_of(owner.full_name)} (гараж №{number}, по тетради)"
+        archived.append(f"{contact.full_name} — {contact.archived_reason}, {owner.archived_at:%d.%m.%Y}")
+    s.flush()
+    return archived
+
+
 def import_pages(pages):
     s = database.db_session
     ft = {f.code: f for f in s.query(FeeType).all()}
@@ -236,6 +259,7 @@ def import_pages(pages):
                                     effective_date=dt.date.fromisoformat(eff), comment="По тетради учёта (импорт)"))
 
     persons, created_persons = {}, 0
+    owner_contacts = []  # (номер гаража, контакт, чей это контакт)
 
     def person(key):
         nonlocal created_persons
@@ -324,8 +348,10 @@ def import_pages(pages):
             s.flush()
         elif spec.get("owner"):
             set_owner(spec["owner"], first_record_date(spec["events"]), "Импорт из тетради")
-        for key, relation, tenant in spec.get("contacts", []) + spec.get("extra_contacts", []):
+        for key, relation, tenant, *of in spec.get("contacts", []) + spec.get("extra_contacts", []):
             s.add(GarageContact(garage_id=garage.id, person_id=person(key).id, relation=relation, is_tenant=tenant))
+            if of:
+                owner_contacts.append((number, person(key), person(of[0])))
 
         flags = []
         for ev in spec["events"]:
@@ -419,6 +445,7 @@ def import_pages(pages):
         report.append((number, owner.full_name if owner else "—", gbal, balances, flags))
 
     archived = archive_former_owners(s, set(persons_touched(persons)))
+    archived += archive_owner_contacts(s, owner_contacts)
     return report, totals, created_persons, skipped, archived
 
 
@@ -452,7 +479,7 @@ def main():
         for f in flags:
             print(f"        ! {f}")
     if archived:
-        print("\nВ архив людей (выбыли из собственников):")
+        print("\nВ архив людей (выбывшие собственники и их контакты):")
         for line in archived:
             print(f"  {line}")
     if skipped:

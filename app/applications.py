@@ -248,6 +248,8 @@ ALLOWED_CSS = [
     "font-family", "font-size", "font-weight", "font-style", "text-decoration", "text-decoration-line",
     "text-align", "text-indent", "line-height", "margin-left", "padding-left", "vertical-align",
     "border", "border-collapse", "width", "padding",
+    # white-space: nowrap — неразрывные почта/сайт/телефон (typography.nobreak_html).
+    "white-space",
 ]
 _css_sanitizer = CSSSanitizer(allowed_css_properties=ALLOWED_CSS)
 

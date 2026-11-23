@@ -89,7 +89,7 @@
     <div class="legal-header-left">
       {% include "legal_docs/_letterhead.html" %}
     </div>
-    <div class="legal-header-right">
+    <div class="legal-header-right">{% filter nobreak %}
       <p>{{ _("Кому") }}: <strong>{{ person.full_name }}</strong></p>
       {% if person.residence_address or person.registration_address %}
       <p>{{ _("Адрес") }}: {{ person.residence_address or person.registration_address }}</p>
@@ -106,7 +106,7 @@
       {% if contact_parts %}
       <p>{{ _("Контакты") }}: {{ contact_parts|join("; ") }}</p>
       {% endif %}
-    </div>
+    {% endfilter %}</div>
   </div>
 
   {{ doc_title(_("Уведомление о задолженности")) }}
@@ -114,7 +114,7 @@
   {# Обращение по имени-отчеству, род — по отчеству («Уважаемая Анна
      Ивановна!»); адрес — в шапке справа, в обращении не повторяется. #}
   <p class="legal-p">{{ name_greeting(person.full_name) }}!</p>
-  {{ (intro_text or debt_notice_default_intro(coop, today))|legal_paragraphs }}
+  {{ (intro_text or debt_notice_default_intro(coop, today))|legal_paragraphs|nobreak }}
 
   {% if years %}
   <table class="print-table">
@@ -166,7 +166,7 @@
     </tbody>
   </table>
 
-  {{ (closing_text or debt_notice_default_closing())|legal_paragraphs }}
+  {{ (closing_text or debt_notice_default_closing())|legal_paragraphs|nobreak }}
 
   {{ signature_block(chairman, today) }}
 </div>
@@ -243,18 +243,18 @@
     <div class="legal-header-left">
       {% include "legal_docs/_letterhead.html" %}
     </div>
-    <div class="legal-header-right">
+    <div class="legal-header-right">{% filter nobreak %}
       <p>{{ _("В {court}", court=header.court_name) }}</p>
       <p>{{ header.court_address }}</p>
       <p>{{ header.party_label }}: <strong>{{ header.defendant_name }}</strong></p>
       <p>{{ _("Адрес") }}: {{ header.defendant_address }}</p>
-    </div>
+    {% endfilter %}</div>
   </div>
 
   <p class="print-title">{{ header.doc_title }}</p>
   <p class="print-subtitle">{{ header.doc_subtitle }}</p>
 
-  <div class="legal-text">{{ body_html }}</div>
+  <div class="legal-text">{{ body_html|nobreak }}</div>
 
   {{ signature_block(chairman, target_date) }}
 

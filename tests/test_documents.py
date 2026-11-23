@@ -7,6 +7,8 @@ PDF/печать, доступ только правлению.
 import datetime as dt
 from decimal import Decimal
 
+import pytest
+
 from app import documents
 from app.models import (
     AuditLog, BankAccount, Charge, Cooperative, DocumentTemplate, ElectricityMeter, ElectricityReading,
@@ -14,6 +16,9 @@ from app.models import (
 )
 
 from tests.conftest import make_person, make_garage, make_ownership, make_user, login
+
+# Текст документов сверяется с обычными пробелами (см. conftest.plain_pages).
+pytestmark = pytest.mark.usefixtures("plain_pages")
 
 
 def _setup(db):

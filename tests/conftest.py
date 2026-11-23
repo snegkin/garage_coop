@@ -74,6 +74,24 @@ def client(app):
 
 
 @pytest.fixture()
+def plain_pages(monkeypatch):
+    """Страницы документов — без неразрывной типографики (typography): тесты
+    ищут в них текст с обычными пробелами, а «КоАП\u00a0РФ» и
+    <span style="white-space: nowrap;">почта</span> — подробность вёрстки."""
+    import re
+    from werkzeug.test import TestResponse
+    nowrap = re.compile(r'<span style="white-space: nowrap;">(.*?)</span>')
+    original = TestResponse.get_data
+
+    def get_data(self, as_text=False):
+        data = original(self, as_text=as_text)
+        if as_text:
+            data = nowrap.sub(r"\1", data).replace("\u00a0", " ")
+        return data
+    monkeypatch.setattr(TestResponse, "get_data", get_data)
+
+
+@pytest.fixture()
 def db(app):
     """Даёт доступ к db_session внутри app_context — большинство тестов
     бизнес-логики работают с моделями напрямую, без похода через HTTP."""

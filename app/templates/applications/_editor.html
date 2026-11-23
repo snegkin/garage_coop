@@ -18,6 +18,7 @@
     <button type="button" class="btn btn-outline-secondary" data-cmd="undo" title="{{ _('Отменить') }} (Ctrl+Z)"><i class="bi bi-arrow-counterclockwise" aria-hidden="true"></i></button>
     <button type="button" class="btn btn-outline-secondary" data-cmd="redo" title="{{ _('Повторить') }} (Ctrl+Y)"><i class="bi bi-arrow-clockwise" aria-hidden="true"></i></button>
   </div>
+  <button type="button" class="btn btn-sm btn-outline-secondary" data-insert-nbsp title="{{ _('Неразрывный пробел: слова по обе стороны не разойдутся по строкам') }} (Shift+Space)" aria-label="{{ _('Неразрывный пробел') }}">a°b</button>
   <select class="form-select form-select-sm" data-font-name title="{{ _('Шрифт') }}" aria-label="{{ _('Шрифт') }}">
     <option value="'Times New Roman', 'Liberation Serif', serif">Times New Roman</option>
     <option value="Arial, 'Liberation Sans', sans-serif">Arial</option>
@@ -202,6 +203,17 @@
         html += "</tr>";
       }
       exec("insertHTML", html + "</table><p><br></p>");
+    });
+
+    // Shift+Space — неразрывный пробел, как Ctrl+Shift+Space в Word:
+    // «КоАП РФ», «№ 5», «серия 12 34» не разъедутся по строкам.
+    toolbar.querySelector("[data-insert-nbsp]").addEventListener("mousedown", function (e) { e.preventDefault(); });
+    toolbar.querySelector("[data-insert-nbsp]").addEventListener("click", function () { exec("insertText", "\u00a0"); });
+    editor.addEventListener("keydown", function (e) {
+      if (e.key === " " && e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        e.preventDefault();
+        document.execCommand("insertText", false, "\u00a0");
+      }
     });
 
     editor.addEventListener("paste", function (e) {

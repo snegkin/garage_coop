@@ -2,7 +2,7 @@
    persons/statement.html (.print-letterhead). #}
 <div class="print-letterhead">
   <img class="print-logo" src="{{ url_for('static', filename='logo.png') }}" alt="">
-  <div>
+  <div>{% filter nobreak %}
     {% if coop %}
     <div class="print-org-name">{{ coop.full_name }}</div>
     <div class="print-org-requisites">{{ _("ИНН") }} {{ coop.inn }}{% if coop.kpp %}, {{ _("КПП") }} {{ coop.kpp }}{% endif %}{% if coop.ogrn %}, {{ _("ОГРН") }} {{ coop.ogrn }}{% endif %}</div>
@@ -12,5 +12,5 @@
     <div class="print-org-address">{{ contacts }}</div>
     {% endif %}
     {% endif %}
-  </div>
+  {% endfilter %}</div>
 </div>

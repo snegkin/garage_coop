@@ -13,6 +13,10 @@ from app.models import (
 )
 
 from tests.conftest import make_person, make_garage, make_ownership, make_user, login
+import pytest
+
+# Текст документов сверяется с обычными пробелами (см. conftest.plain_pages).
+pytestmark = pytest.mark.usefixtures("plain_pages")
 
 
 def _owner(db, username="owner", number="42"):

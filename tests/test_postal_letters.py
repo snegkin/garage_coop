@@ -21,6 +21,10 @@ from app.models import (
 )
 
 from tests.conftest import make_person, make_garage, make_ownership, make_user, login
+import pytest
+
+# Текст документов сверяется с обычными пробелами (см. conftest.plain_pages).
+pytestmark = pytest.mark.usefixtures("plain_pages")
 
 
 def _make_coop(db, **kwargs):
@@ -341,7 +345,8 @@ def test_custom_text_rendered_in_letter_with_paragraphs_and_escaping(app):
             "summary": type("S", (), {"penalty_rows": [], "grand_total": 0})(), "years": [],
             "intro_text": "Первый <b>абзац</b>\nс переносом.\n\nВторой абзац.", "closing_text": None,
         }], coop=None, chairman=None, today=dt.date(2026, 10, 1))
-    assert '<p class="legal-p">Первый &lt;b&gt;абзац&lt;/b&gt;<br>с переносом.</p>' in html
+    # «с\u00a0переносом» — предлог не висит в конце строки (typography).
+    assert '<p class="legal-p">Первый &lt;b&gt;абзац&lt;/b&gt;<br>с\u00a0переносом.</p>' in html
     assert '<p class="legal-p">Второй абзац.</p>' in html
     assert "Просим погасить указанную задолженность" in html  # заключительный — стандартный
 

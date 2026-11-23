@@ -124,6 +124,12 @@ def create_app(config_class=Config):
     # Название установленного приложения без кавычек — см. main.app_display_name.
     from .main import app_display_name
     app.jinja_env.filters["app_display_name"] = app_display_name
+    # Неразрывная типографика документов (шапки, тексты на бланке): «КоАП РФ»,
+    # «№ 5», «серия 12 34», почта и сайт не рвутся по строкам — см. typography.
+    # nobreak — для текста/Markup, nobreak_html — для сырого HTML из БД.
+    from . import typography
+    app.jinja_env.filters["nobreak"] = typography.nobreak
+    app.jinja_env.filters["nobreak_html"] = typography.nobreak_html
 
     @app.before_request
     def _load_user():

@@ -144,6 +144,10 @@ def test_board_member_cannot_issue_and_stranger_cannot_view(db, client, app):
 
 from app import notifications
 from app.models import Application, ApplicationKind, ApplicationStatus
+import pytest
+
+# Текст документов сверяется с обычными пробелами (см. conftest.plain_pages).
+pytestmark = pytest.mark.usefixtures("plain_pages")
 
 
 def _submit_certificate_application(client, garage):

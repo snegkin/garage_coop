@@ -2944,6 +2944,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Новый собственник совпадает с заявителем.": "The new owner is the same as the applicant.",
         "Смена собственника проведена. Осталось отправить заявителю ответ.": "The owner change is done. Now send the applicant an answer.",
         "Повторить": "Redo",
+        "Неразрывный пробел": "Non-breaking space",
+        "Неразрывный пробел: слова по обе стороны не разойдутся по строкам":
+            "Non-breaking space: the words on both sides stay on one line",
         "Шрифт": "Font",
         "Размер шрифта": "Font size",
         "Зачёркнутый": "Strikethrough",

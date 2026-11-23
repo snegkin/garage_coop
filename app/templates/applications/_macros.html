@@ -11,7 +11,7 @@
   <div class="legal-header-left">
     {% include "legal_docs/_letterhead.html" %}
   </div>
-  <div class="legal-header-right">
+  <div class="legal-header-right">{% filter nobreak %}
     <p>{{ _("В правление") }} {% if coop %}{{ coop.short_name or coop.full_name }}{% else %}{{ _("кооператива") }}{% endif %}</p>
     <p>{{ _("от") }} <strong>{{ fio_genitive(d.applicant_name) }}</strong></p>
     {% for value, label, hint in [
@@ -24,7 +24,7 @@
     {% elif editing %}<p class="applicant-missing">{{ hint }}</p>{% endif %}
     {% endfor %}
     <p>{{ _("гараж") }} № {{ garage_html }}</p>
-  </div>
+  {% endfilter %}</div>
 </div>
 {% endmacro %}
 
@@ -57,7 +57,7 @@
   {{ applicant_header(application, coop, application.garage_number or "—") }}
   {{ legal.doc_title(application_doc_heading(application), application.title) }}
   {{ legal.number_and_date(application.number, application.created_at.date()) }}
-  <div class="application-body">{{ application.body_html|safe }}</div>
+  <div class="application-body">{{ application.body_html|nobreak_html }}</div>
   {% if application.new_owner_data %}
   {{ new_owner_table(application_new_owner_rows(application.new_owner_dict)) }}
   {% endif %}
@@ -79,10 +79,10 @@
   <div class="legal-header-left">
     {% include "legal_docs/_letterhead.html" %}
   </div>
-  <div class="legal-header-right">
+  <div class="legal-header-right">{% filter nobreak %}
     <p><strong>{{ fio_dative(application.applicant_name) }}</strong></p>
     {% if application.applicant_address %}<p>{{ application.applicant_address }}</p>{% endif %}
-  </div>
+  {% endfilter %}</div>
 </div>
 {% endmacro %}
 
@@ -95,7 +95,7 @@
   {{ legal.number_and_date(application.number, application.created_at.date()) }}
   <div class="application-body">
     {% if application.status.value == 'rejected' %}<p>{{ _("Правление рассмотрело Ваше заявление и отклонило его.") }}</p>{% endif %}
-    {{ (application.response_html or "")|safe }}
+    {{ application.response_html|nobreak_html }}
   </div>
   {{ legal.signature_block(application.decided_by, application.decided_at.date() if application.decided_at else None,
                            role=_("Председатель") if application.decided_by and application.decided_by.is_chairman else _("Член правления")) }}

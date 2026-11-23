@@ -13,9 +13,9 @@
       {% include "legal_docs/_letterhead.html" %}
     </div>
     {% if editable %}
-    <div class="legal-header-right doc-addressee" id="docAddressee" contenteditable="true" data-plain-editor data-input="docAddresseeInput" data-placeholder="{{ _('Кому / по месту требования — можно оставить пустым') }}" spellcheck="true">{{ addressee|safe }}</div>
+    <div class="legal-header-right doc-addressee" id="docAddressee" contenteditable="true" data-plain-editor data-input="docAddresseeInput" data-placeholder="{{ _('Кому / по месту требования — можно оставить пустым') }}" spellcheck="true">{{ addressee|nobreak_html }}</div>
     {% else %}
-    <div class="legal-header-right doc-addressee">{{ addressee|safe }}</div>
+    <div class="legal-header-right doc-addressee">{{ addressee|nobreak_html }}</div>
     {% endif %}
   </div>
   {% if editable %}
@@ -25,9 +25,9 @@
   {% endif %}
   {% if number %}{{ legal.number_and_date(number, date) }}{% endif %}
   {% if editable %}
-  <div class="application-body" id="docBody" contenteditable="true" data-sheet-editor data-input="docBodyInput" spellcheck="true">{{ body|safe }}</div>
+  <div class="application-body" id="docBody" contenteditable="true" data-sheet-editor data-input="docBodyInput" spellcheck="true">{{ body|nobreak_html }}</div>
   {% else %}
-  <div class="application-body">{{ body|safe }}</div>
+  <div class="application-body">{{ body|nobreak_html }}</div>
   {% endif %}
   {% if show_signature %}{{ legal.signature_block(signer, date, signer_role) }}{% endif %}
 </div>
@@ -59,6 +59,13 @@
     var input = document.getElementById(el.dataset.input);
     if (input && input.form) input.form.addEventListener("submit", function () {
       input.value = el.textContent.trim() ? el.innerHTML : "";
+    });
+    // Shift+Space — неразрывный пробел (как в редакторе текста листа).
+    el.addEventListener("keydown", function (e) {
+      if (e.key === " " && e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        e.preventDefault();
+        document.execCommand("insertText", false, "\u00a0");
+      }
     });
     el.addEventListener("paste", function (e) {
       e.preventDefault();

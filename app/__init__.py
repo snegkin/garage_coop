@@ -287,6 +287,7 @@ def create_app(config_class=Config):
     from .setup_wizard import bp as setup_wizard_bp
     from .surveillance import bp as surveillance_bp
     from .sms_settings import bp as sms_settings_bp
+    from .notification_groups import bp as notification_groups_bp
     from .telegram_settings import bp as telegram_settings_bp
     from .max_settings import bp as max_settings_bp
     from .external_login import bp as external_login_bp
@@ -334,6 +335,7 @@ def create_app(config_class=Config):
     app.register_blueprint(setup_wizard_bp)
     app.register_blueprint(surveillance_bp)
     app.register_blueprint(sms_settings_bp)
+    app.register_blueprint(notification_groups_bp)
     app.register_blueprint(telegram_settings_bp)
     app.register_blueprint(max_settings_bp)
     app.register_blueprint(external_login_bp)

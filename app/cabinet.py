@@ -156,8 +156,9 @@ def profile():
         max_available=max_bot.is_configured(max_settings) or bool(person.max_user_id),
         max_link_url=max_link_url,
         webpush_public_key=webpush.get_or_create_settings().public_key,
-        board_event_groups=[(code, group["label"]) for code, group in notifications.BOARD_EVENT_GROUPS.items()],
-        my_board_event_groups=notifications.board_event_groups(g.user),
+        my_notification_groups=[
+            notifications.BOARD_EVENT_GROUPS[code]["label"] for code in notifications.user_notification_groups(g.user)
+        ],
     )
 
 
@@ -194,10 +195,6 @@ def notification_settings():
         "notify_documents": bool(f.get("notify_documents")),
         "notify_board_chat": bool(f.get("notify_board_chat")) and is_board(),
     }
-    board_groups = [
-        code for code in notifications.BOARD_EVENT_GROUPS
-        if code in f.getlist("notify_board_events")
-    ] if is_board() else []
     not_ready = [
         channel for channel, on in channels.items()
         if on and not notifications.channel_is_ready(g.user, channel)
@@ -217,8 +214,6 @@ def notification_settings():
         g.user.notify_via_webpush = channels[NotificationChannel.WEBPUSH]
         for field, value in notify_events.items():
             setattr(g.user, field, value)
-        if is_board():
-            g.user.notify_board_events = json.dumps(board_groups)
         database.db_session.commit()
         flash(_("Настройки уведомлений сохранены."), "success")
     return redirect(url_for("cabinet.profile"))

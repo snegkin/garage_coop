@@ -16,7 +16,7 @@ from decimal import Decimal
 from app import audit, bank_sync, database, notifications
 from app.bank_api.base import StatementLine
 from app.models import (
-    RoleEnum, BankApiProvider, Vote, VoteQuestion, VoteStatus, PersonDataRevision, PersonDataRevisionStatus,
+    RoleEnum, BankApiProvider, NotificationGroup, Vote, VoteQuestion, VoteStatus, PersonDataRevision, PersonDataRevisionStatus,
 )
 
 from tests.conftest import make_person, make_garage, make_ownership, make_user, login
@@ -24,12 +24,25 @@ from tests.test_bank_sync import _StubClient, make_bank_account, make_credential
 from tests.test_notifications import _mock_smtp, _make_mailbox_settings
 
 
-def _board_user(db, username, role=RoleEnum.BOARD, email=None, groups=None):
+def _board_user(db, username, role=RoleEnum.BOARD, email=None):
     person = make_person(db, full_name=f"Член правления {username}", email=email or f"{username}@example.com")
-    user = make_user(db, username, "pass12345", role=role, person=person)
-    if groups is not None:
-        user.notify_board_events = json.dumps(groups)
-    return user
+    return make_user(db, username, "pass12345", role=role, person=person)
+
+
+def _set_group(db, code, roles=(), users=()):
+    """Состав группы уведомлений (NotificationGroup) — как после сохранения
+    на странице «Группы уведомлений»."""
+    group = db.get(NotificationGroup, code) or NotificationGroup(code=code)
+    group.roles = json.dumps(list(roles))
+    group.users = list(users)
+    db.add(group)
+    db.flush()
+    return group
+
+
+def _no_board_groups(db):
+    for code in notifications.BOARD_EVENT_GROUPS:
+        _set_group(db, code)
 
 
 def _member(db, username="member1", email="member1@example.com", owner=True):
@@ -120,7 +133,8 @@ def test_disabled_group_sends_nothing(app, db, client, monkeypatch):
     fake = _mock_smtp(monkeypatch)
     _make_mailbox_settings(db)
     _board_user(db, "chair", role=RoleEnum.CHAIRMAN)
-    _board_user(db, "board1", groups=["finance"])
+    _board_user(db, "board1")
+    _set_group(db, "bank")
     _sync_statement(db, client, monkeypatch, [
         StatementLine(external_uid="u1", operation_date=dt.date(2026, 8, 1), direction="debit", amount=Decimal("50.00")),
     ])
@@ -153,7 +167,7 @@ def test_login_notifies_only_when_logins_group_enabled(app, db, client, monkeypa
     fake = _mock_smtp(monkeypatch)
     _make_mailbox_settings(db)
     _board_user(db, "board_default")
-    _board_user(db, "board_logins", groups=["logins"])
+    _set_group(db, "logins", users=[_board_user(db, "board_logins")])
     _member(db)
     db.commit()
 
@@ -261,7 +275,8 @@ def test_vote_open_respects_member_subscription(app, db, client, monkeypatch):
 def test_future_meeting_notifies_members_past_does_not(app, db, client, monkeypatch):
     fake = _mock_smtp(monkeypatch)
     _make_mailbox_settings(db)
-    _board_user(db, "board1", groups=[])
+    _board_user(db, "board1")
+    _no_board_groups(db)
     _member(db)
     db.commit()
     login(client, "board1", "pass12345")
@@ -301,7 +316,8 @@ def test_revision_decision_notifies_submitter(app, db, client, monkeypatch):
 def test_public_document_notifies_members_internal_does_not(app, db, client, monkeypatch):
     fake = _mock_smtp(monkeypatch)
     _make_mailbox_settings(db)
-    _board_user(db, "board1", groups=[])
+    _board_user(db, "board1")
+    _no_board_groups(db)
     _member(db)
     db.commit()
     login(client, "board1", "pass12345")
@@ -320,44 +336,94 @@ def test_public_document_notifies_members_internal_does_not(app, db, client, mon
 # Настройки
 # ---------------------------------------------------------------------------
 
-def test_settings_save_board_groups(app, db, client):
-    user = _board_user(db, "board1")
+def test_default_groups_go_to_board_except_logins_and_failures(app, db):
+    chair = _board_user(db, "chair", role=RoleEnum.CHAIRMAN)
+    board = _board_user(db, "board1")
+    member, _ = _member(db)
     db.commit()
-    assert notifications.board_event_groups(user) == set(notifications.DEFAULT_BOARD_EVENT_GROUPS)
+    assert notifications.group_recipient_ids("bank") == {chair.id, board.id}
+    assert notifications.group_recipient_ids("failures") == set()
+    assert notifications.group_recipient_ids("logins") == set()
+    assert "failures" not in notifications.user_notification_groups(board)
+
+
+def test_failure_not_sent_by_default(app, db, monkeypatch):
+    fake = _mock_smtp(monkeypatch)
+    _make_mailbox_settings(db)
+    _board_user(db, "board1")
+    db.commit()
+    assert notifications.notify_failure("ewelink", "опрос eWeLink", "таймаут") is True
+    assert fake.sent == []
+
+
+def test_group_page_saves_roles_and_people(app, db, client):
+    from app.models import RevisionCommission, RevisionCommissionMember
+    _board_user(db, "board1")
+    chair = _board_user(db, "chair", role=RoleEnum.CHAIRMAN)
+    electrician, _ = _member(db, "electrician", "el@example.com")
+    auditor, auditor_person = _member(db, "auditor", "aud@example.com")
+    commission = RevisionCommission(start_date=dt.date(2026, 1, 1))
+    db.add(commission)
+    db.flush()
+    db.add(RevisionCommissionMember(commission_id=commission.id, person_id=auditor_person.id))
+    db.commit()
 
     login(client, "board1", "pass12345")
-    client.post("/cabinet/profile/notifications", data={
-        "notify_via_email": "1", "notify_board_events": ["bank", "logins", "bogus"], "notify_vote": "on",
+    html = client.get("/notification-groups/").get_data(as_text=True)
+    assert "Сбои синхронизации" in html
+    resp = client.post("/notification-groups/failures", data={
+        "role_chairman": "1", "role_revision_commission": "1", "add_user_id": str(electrician.id),
     })
-    db.refresh(user)
-    assert notifications.board_event_groups(user) == {"bank", "logins"}
-    assert user.notify_vote is True
-    assert user.notify_meeting is False
+    assert resp.status_code == 302
+    assert notifications.group_recipient_ids("failures") == {chair.id, electrician.id, auditor.id}
+    assert "failures" in notifications.user_notification_groups(electrician)
+
+    # Снять галочку у человека — убрать из группы.
+    client.post("/notification-groups/failures", data={"role_chairman": "1"})
+    assert notifications.group_recipient_ids("failures") == {chair.id}
+
+    from app.models import AuditLog
+    entry = db.query(AuditLog).filter_by(action="notification_group.edit").order_by(AuditLog.id.desc()).first()
+    assert "убраны" in entry.summary and "Ревизионная комиссия" in entry.summary
 
 
-def test_settings_board_groups_ignored_for_member(app, db, client):
-    user, _ = _member(db)
+def test_group_page_board_only(app, db, client):
+    _member(db)
     db.commit()
     login(client, "member1", "pass12345")
-    client.post("/cabinet/profile/notifications", data={"notify_via_email": "1", "notify_board_events": ["bank"]})
-    db.refresh(user)
-    assert user.notify_board_events is None
+    resp = client.post("/notification-groups/failures", data={"role_board": "1"})
+    assert resp.status_code == 302
+    assert db.get(NotificationGroup, "failures") is None
 
 
-def test_profile_page_shows_board_groups_only_to_board(app, db, client):
+def test_chairman_only_action_skips_other_group_members(app, db, monkeypatch):
+    fake = _mock_smtp(monkeypatch)
+    _make_mailbox_settings(db)
+    _board_user(db, "chair", role=RoleEnum.CHAIRMAN)
+    _board_user(db, "board1")
+    db.commit()
+    with app.test_request_context():
+        audit.record("certificate.request", "Запрошена справка")
+        db.commit()
+        notifications.dispatch_after_commit()
+    assert _recipients(fake) == ["chair@example.com"]
+
+
+def test_profile_shows_my_groups(app, db, client):
     _board_user(db, "board1")
     _member(db)
     db.commit()
 
     login(client, "board1", "pass12345")
     html = client.get("/cabinet/profile").get_data(as_text=True)
-    assert 'name="notify_board_events" value="bank"' in html
-    assert 'name="notify_vote"' in html
+    assert "Банк и выписки" in html
+    assert "/notification-groups/" in html
+    assert 'name="notify_board_events"' not in html
 
     client.get("/auth/logout")
     login(client, "member1", "pass12345")
     html = client.get("/cabinet/profile").get_data(as_text=True)
-    assert 'name="notify_board_events"' not in html
+    assert "Банк и выписки" not in html
     assert 'name="notify_vote"' in html
 
 
@@ -369,8 +435,8 @@ def test_failure_notified_once_per_day_per_source(app, db, monkeypatch):
     from app.models import FailureNotification
     fake = _mock_smtp(monkeypatch)
     _make_mailbox_settings(db)
-    _board_user(db, "board1")
-    _board_user(db, "board_off", groups=["bank"])
+    _set_group(db, "failures", users=[_board_user(db, "board1")])
+    _board_user(db, "board_off")
     db.commit()
 
     assert notifications.notify_failure("ewelink", "опрос eWeLink", "таймаут") is True
@@ -393,7 +459,7 @@ def test_dvr_script_notifies_after_consecutive_failures_once_per_recorder(app, d
     module = _load_dvr_snapshot_module()
     fake = _mock_smtp(monkeypatch)
     _make_mailbox_settings(db)
-    _board_user(db, "board1")
+    _set_group(db, "failures", users=[_board_user(db, "board1")])
     recorder = make_recorder(db)
     make_camera(db, recorder, label="Ворота", channel=1)
     make_camera(db, recorder, label="Двор", channel=2)
@@ -432,7 +498,7 @@ def test_dvr_script_notifies_after_consecutive_failures_once_per_recorder(app, d
 def test_success_resets_consecutive_failures(app, db, monkeypatch):
     fake = _mock_smtp(monkeypatch)
     _make_mailbox_settings(db)
-    _board_user(db, "board1")
+    _set_group(db, "failures", users=[_board_user(db, "board1")])
     db.commit()
     threshold = notifications.FREQUENT_FAILURE_THRESHOLD
 
@@ -454,7 +520,7 @@ def test_single_dvr_failure_long_ago_does_not_notify(app, db, monkeypatch):
     from app.models import FailureNotification
     fake = _mock_smtp(monkeypatch)
     _make_mailbox_settings(db)
-    _board_user(db, "board1")
+    _set_group(db, "failures", users=[_board_user(db, "board1")])
     db.commit()
     kw = dict(threshold=notifications.FREQUENT_FAILURE_THRESHOLD,
               min_duration=notifications.DVR_FAILURE_MIN_DURATION)
@@ -487,7 +553,7 @@ def test_ewelink_offline_phase_notifies_per_phase(app, db, monkeypatch):
 
     fake = _mock_smtp(monkeypatch)
     _make_mailbox_settings(db)
-    _board_user(db, "board1")
+    _set_group(db, "failures", users=[_board_user(db, "board1")])
     make_ewelink_account(db, app_id="app", access_token_encrypted="x", family_id="fam")
     make_phase_device(db, label="Фаза A", ewelink_device_id="a")
     make_phase_device(db, label="Фаза B", ewelink_device_id="b", sort_order=1)

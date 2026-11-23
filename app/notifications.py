@@ -42,7 +42,7 @@ from .auth import ROLE_LEVEL
 from .i18n import translate as _
 from .mail_client import MailError, send_message
 from .models import (
-    BoardChatMessage, FailureNotification, MailboxSettings, NotificationChannel, RoleEnum, TelegramSettings, WebPushSettings,
+    BoardChatMessage, FailureNotification, MailboxSettings, NotificationChannel, NotificationGroup, RoleEnum, TelegramSettings, WebPushSettings,
     WebPushSubscription, User,
 )
 from . import max_bot
@@ -135,10 +135,11 @@ def notify_subscribers(event: str, subject: str, body_text: str, exclude_user_id
     правления, подписанные на неё, второе такое же сообщение не получают."""
     column = getattr(User, f"notify_{event}")
     users = database.db_session.query(User).filter(column.is_(True)).all()
+    board_ids = group_recipient_ids(board_group) if board_group is not None else set()
     for user in users:
         if exclude_user_id is not None and user.id == exclude_user_id:
             continue
-        if board_group is not None and _receives_board_group(user, board_group):
+        if user.id in board_ids:
             continue
         notify(user, event, subject, body_text, url=url)
 
@@ -153,8 +154,9 @@ def notify_users(user_ids, event: str, subject: str, body_text: str, exclude_use
         return
     column = getattr(User, f"notify_{event}")
     users = database.db_session.query(User).filter(User.id.in_(ids), column.is_(True)).all()
+    board_ids = group_recipient_ids(board_group) if board_group is not None else set()
     for user in users:
-        if board_group is not None and _receives_board_group(user, board_group):
+        if user.id in board_ids:
             continue
         notify(user, event, subject, body_text, url=url)
 
@@ -506,7 +508,8 @@ BOARD_EVENT_GROUPS = {
     },
     "settings": {
         "label": "Почта и настройки",
-        "actions": ("cooperative.settings_edit", "mailbox.*", "telegram.*", "max.*", "external_login.*", "sms.*", "postal_api.*"),
+        "actions": ("cooperative.settings_edit", "mailbox.*", "telegram.*", "max.*", "external_login.*", "sms.*", "postal_api.*",
+                    "notification_group.*"),
     },
     "logins": {
         "label": "Входы на сайт",
@@ -528,8 +531,23 @@ BOARD_EVENT_GROUPS = {
     },
 }
 
-# Самое частое и наименее важное — включается только явно.
-DEFAULT_BOARD_EVENT_GROUPS = frozenset(BOARD_EVENT_GROUPS) - {"logins"}
+# Группы пользователей ERP, которые можно включить в группу уведомлений
+# целиком (см. NotificationGroup.roles) — состав берётся на момент
+# отправки: новый член правления сразу получает то же, что остальные.
+RECIPIENT_ROLES = {
+    "chairman": "Председатель",
+    "board": "Правление",
+    "accountant": "Бухгалтер",
+    "revision_commission": "Ревизионная комиссия",
+}
+
+# Кому уходит группа, которую правление ещё не настраивало (нет строки
+# NotificationGroup). Входы — самое частое и наименее важное, сбои cron —
+# техническое, назначают конкретных людей; обе по умолчанию никому.
+DEFAULT_GROUP_ROLES = {
+    code: () if code in ("logins", "failures") else ("chairman", "board", "accountant")
+    for code in BOARD_EVENT_GROUPS
+}
 
 # Фоновые синхронизации баланса без изменения данных кооператива и
 # действия в чужих разделах, о которых правление и так узнаёт иначе
@@ -564,20 +582,53 @@ def board_group_for_action(action: str) -> str | None:
     return None
 
 
-def _receives_board_group(user: User, group: str) -> bool:
-    return user.is_active and ROLE_LEVEL[user.role] >= ROLE_LEVEL[RoleEnum.BOARD] and group in board_event_groups(user)
-
-
-def board_event_groups(user: User) -> set[str]:
-    """Группы, на которые подписан член правления (с учётом NULL —
-    «ещё не выбирал», см. User.notify_board_events)."""
-    if user.notify_board_events is None:
-        return set(DEFAULT_BOARD_EVENT_GROUPS)
+def group_roles(group: NotificationGroup | None, code: str) -> set[str]:
+    """Группы пользователей ERP в составе группы уведомлений (строки ещё
+    нет — DEFAULT_GROUP_ROLES)."""
+    if group is None:
+        return set(DEFAULT_GROUP_ROLES.get(code, ()))
     try:
-        codes = json.loads(user.notify_board_events)
+        roles = json.loads(group.roles or "[]")
     except ValueError:
         return set()
-    return {code for code in codes if code in BOARD_EVENT_GROUPS}
+    return {role for role in roles if role in RECIPIENT_ROLES}
+
+
+def role_members(role: str) -> list[User]:
+    """Активные пользователи, входящие в группу ERP (см. RECIPIENT_ROLES).
+    Ревизионная комиссия — по составу текущей комиссии, а не по User.role:
+    её члены — обычные члены кооператива по роли."""
+    query = database.db_session.query(User).filter(User.is_active.is_(True))
+    if role == "revision_commission":
+        from .governance import current_revision_commission_member_ids
+        person_ids = current_revision_commission_member_ids()
+        if not person_ids:
+            return []
+        return query.filter(User.person_id.in_(person_ids)).all()
+    return query.filter(User.role == RoleEnum(role)).all()
+
+
+def group_recipients(code: str) -> list[User]:
+    """Активные пользователи, которым уходит группа уведомлений code:
+    все из включённых групп ERP плюс отдельно добавленные люди."""
+    group = database.db_session.get(NotificationGroup, code)
+    recipients: dict[int, User] = {}
+    for role in sorted(group_roles(group, code)):
+        for user in role_members(role):
+            recipients[user.id] = user
+    for user in (group.users if group is not None else []):
+        if user.is_active:
+            recipients[user.id] = user
+    return sorted(recipients.values(), key=lambda u: (u.person.full_name if u.person else u.username))
+
+
+def group_recipient_ids(code: str) -> set[int]:
+    return {user.id for user in group_recipients(code)}
+
+
+def user_notification_groups(user: User) -> list[str]:
+    """Коды групп уведомлений, которые получает пользователь (профиль)."""
+    return [code for code in BOARD_EVENT_GROUPS if user.id in group_recipient_ids(code)]
 
 
 def queue_board_event(action: str, summary: str, entity_type: str | None, entity_id: int | None,
@@ -618,13 +669,15 @@ def _dispatch_board_event(action: str, group: str, summary: str, link: str | Non
 def _send_to_board(group: str, event: str, subject: str, body_text: str,
                    min_level: int = ROLE_LEVEL[RoleEnum.BOARD], exclude_user_id: int | None = None,
                    url: str | None = None) -> int:
+    """Разослать составу группы уведомлений group (см. group_recipients).
+    min_level — дополнительный фильтр по роли: решения только
+    председателя (CHAIRMAN_ONLY_BOARD_ACTIONS) остальным из группы не
+    уходят, даже если их туда добавили."""
     sent = 0
-    for user in database.db_session.query(User).filter(User.is_active.is_(True)).all():
-        if ROLE_LEVEL[user.role] < min_level:
+    for user in group_recipients(group):
+        if min_level > ROLE_LEVEL[RoleEnum.BOARD] and ROLE_LEVEL[user.role] < min_level:
             continue
         if exclude_user_id is not None and user.id == exclude_user_id:
-            continue
-        if group not in board_event_groups(user):
             continue
         _deliver(user, event, subject, body_text, url=url)
         sent += 1
@@ -645,7 +698,7 @@ DVR_FAILURE_MIN_DURATION = dt.timedelta(minutes=10)
 
 def notify_failure(source: str, title: str, error: str, threshold: int = 1,
                    min_duration: dt.timedelta | None = None) -> bool:
-    """Сообщить правлению (группа «failures») о сбое фоновой
+    """Сообщить составу группы уведомлений «failures» о сбое фоновой
     синхронизации (source — см. FailureNotification.source). Каждый вызов
     — ещё один неудачный прогон подряд; уведомление уходит, только когда
     их набралось threshold (удачный прогон обнуляет счёт — reset_failure),

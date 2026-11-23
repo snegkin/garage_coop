@@ -1694,7 +1694,10 @@ def test_notify_new_mail_reaches_board_subscribed_to_mail_group(db, monkeypatch)
     board1 = _make_board(db, username="board1")
     board2 = _make_board(db, username="board2")
     member1 = _make_member(db)
-    board2.notify_board_events = json.dumps(["finance"])
+    from app.models import NotificationGroup
+    group = NotificationGroup(code="mail", roles="[]")
+    group.users = [board1]
+    db.add(group)
     db.commit()
     delivered = []
     monkeypatch.setattr(notifications, "_deliver", lambda user, event, subject, body, **kw: delivered.append((user.id, subject, body)))

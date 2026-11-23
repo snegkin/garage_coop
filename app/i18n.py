@@ -2022,6 +2022,24 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Уведомления правления — о действиях других пользователей на сайте":
             "Board notifications — about other users' actions on the site",
         "О своих собственных действиях уведомления не приходят.": "You are not notified about your own actions.",
+        "Вы не входите ни в одну группу уведомлений.": "You are not in any notification group.",
+        "Кому что приходит, правление настраивает в группах уведомлений.":
+            "The board decides who receives what in the notification groups.",
+        "Группы уведомлений": "Notification groups",
+        "Кому приходят уведомления о действиях на сайте, сбоях синхронизации и новой почте правления. В группу можно включить группы пользователей целиком — их состав берётся на момент отправки — и отдельных людей. Способ доставки (почта, Telegram, MAX, push) каждый выбирает сам в своём профиле.":
+            "Who receives notifications about actions on the site, sync failures and new board mail. A group can include whole user groups (their membership is taken at the time of sending) and individual people. Everyone chooses the delivery method (email, Telegram, MAX, push) in their own profile.",
+        "Группы пользователей": "User groups",
+        "Отдельные люди": "Individual people",
+        "Никого не добавлено.": "Nobody added.",
+        "Добавить человека": "Add a person",
+        "Добавить человека…": "Add a person…",
+        "Заявки на изменение данных и на справки уходят только председателю, даже если в группе есть другие.":
+            "Data change and certificate requests go to the chairman only, even if the group has other members.",
+        "Получают сейчас": "Currently received by",
+        "нет способа доставки": "no delivery method",
+        "Никто — уведомления этой группы никому не уходят.": "Nobody — this group's notifications are not sent to anyone.",
+        "Нет такой группы уведомлений.": "No such notification group.",
+        "Состав группы уведомлений сохранён.": "Notification group saved.",
         "Ждёт решения правления": "Awaiting a board decision",
         "Банк и выписки": "Bank and statements",
         "Начисления, платежи, пени": "Charges, payments, penalties",

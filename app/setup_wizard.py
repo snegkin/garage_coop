@@ -39,6 +39,7 @@ from .models import (
 from .login_generation import default_login, login_key
 from .accounting import (
     get_electricity_settings, current_tariff, electricity_account_number, compact_requisite, tidy_account_number,
+    ensure_personal_member_accounts,
 )
 from .garages import _ensure_member_accounts
 from .governance import _current_term
@@ -664,6 +665,7 @@ def garages_import():
                 database.db_session.add(GarageOwnership(garage_id=garage.id, person_id=person.id, share=share))
                 database.db_session.flush()
                 _ensure_member_accounts(garage, person.id, owner_index)
+                ensure_personal_member_accounts(person.id)
                 owners_added += 1
             else:
                 existing_ownership.share = share

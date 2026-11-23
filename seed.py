@@ -28,9 +28,12 @@ def main():
             database.db_session.add(Cooperative(full_name="", inn="", kpp="", ogrn=""))
             print("Создана пустая карточка кооператива — заполните реквизиты в разделе «Реквизиты».")
 
-        # Базовые виды взносов. land_tax и membership имеют type_code — при
+        # Базовые виды взносов. У всех, кроме electricity, есть type_code — при
         # добавлении собственника гаражу для них автоматически заводится
-        # персональный лицевой счёт (см. accounting.py и garages._ensure_member_accounts).
+        # лицевой счёт (см. accounting.py и garages._ensure_member_accounts).
+        # Целевой взнос тоже со своим счётом (код "0", как в первом кооперативе):
+        # без кода сборы на трактор/кабель/фонари некуда начислять, кроме счёта
+        # гаража, а он — электроэнергия.
         # electricity — исключение: у него отдельный лицевой счёт на гараж (PersonalAccount).
         default_fee_types = [
             dict(code="electricity", name="Электричество", type_code=None, is_penalty=False),
@@ -38,7 +41,7 @@ def main():
             dict(code="land_tax_penalty", name="Пеня по земельному налогу", type_code="1", is_penalty=True),
             dict(code="membership", name="Членский взнос", type_code="2", is_penalty=False),
             dict(code="membership_penalty", name="Пеня по членскому взносу", type_code="2", is_penalty=True),
-            dict(code="target", name="Целевой взнос", type_code=None, is_penalty=False),
+            dict(code="target", name="Целевой взнос", type_code="0", is_penalty=False),
         ]
         for ft in default_fee_types:
             if not database.db_session.query(FeeType).filter_by(code=ft["code"]).first():

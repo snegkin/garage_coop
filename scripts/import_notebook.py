@@ -41,8 +41,11 @@ PAGES.py — файл расшифровки (в нём персональные
                                              число → сумма как в тетради, 0 → показание без начисления
     ("el", date, year, amount, note)         начисление за ЭЭ без показания
     ("mf", date, year, amount, note)         членский взнос за год (счёт текущего собственника)
-    ("tg", date, amount, note)               целевой сбор (трактор, кабель, фонари…) на счёт гаража
-    ("pay", date, g, m, note)                платёж: g → счёт гаража (ЭЭ+целевые), m → членский счёт
+    ("tg", date, amount, note)               целевой сбор (трактор, кабель, фонари…); после загрузки
+                                             гаража переносится на целевой счёт собственника на дату
+                                             (move_target_charges) — если у вида «Целевой взнос» есть код
+    ("pay", date, g, m, note)                платёж: g → ЭЭ и целевые (общий «банк», как в тетради),
+                                             m → членский счёт
     ("close", date, note)                    «оплачено» (черта/подпись) — погасить долг на обоих счетах
     ("owner", date, person_key, note)        смена собственника (прежние счета архивируются,
                                              номера переходят новому; долги остаются за прежним)
@@ -64,10 +67,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app import create_app, database, audit  # noqa: E402
 from app.models import (  # noqa: E402
     Person, Phone, Garage, GarageOwnership, GarageOwnershipEvent, GarageOwnershipEventType, GarageContact,
-    PersonalAccount, MemberAccount, FeeType, Charge, Payment, ElectricityMeter, ElectricityReading,
+    PersonalAccount, MemberAccount, FeeType, Charge, ChargeAllocation, Payment, ElectricityMeter, ElectricityReading,
     ElectricityTariff, ElectricityTariffKind, User,
 )
-from app.accounting import electricity_account_number, reallocate_garage_charges, reallocate_member_charges  # noqa: E402
+from app.accounting import (  # noqa: E402
+    balance, electricity_account_number, reallocate_garage_charges, reallocate_member_charges,
+    ensure_personal_member_accounts,
+)
 from app.garages import _ensure_member_accounts  # noqa: E402
 
 DEFAULT_AREA = Decimal("24")  # площади в тетради нет — заглушка, поправить в карточке гаража
@@ -85,6 +91,45 @@ def load_pages(path):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def move_target_charges(s, garage, ft_tg, tg_owner, member_accounts):
+    """
+    Целевые сборы, начисленные по ходу загрузки на счёт гаража (как в тетради:
+    ЭЭ и целевые — одной суммой, общий «банк»), переносятся на целевой счёт
+    того, кто владел гаражом на дату начисления, вместе с оплаченными частями
+    платежей (по FIFO-разнесению счёта гаража). Так «банк» тратится как в
+    тетради, а итог гараж + целевые не меняется. Если у вида «Целевой взнос»
+    в БД нет кода счёта — начисления остаются на счёте гаража.
+    """
+    tbal = defaultdict(Decimal)
+    if not ft_tg.type_code:
+        return tbal
+    tcharges = sorted((c for c in garage.charges if c.fee_type_id == ft_tg.id), key=lambda c: c.id)
+    cut = defaultdict(Decimal)
+    for charge, (_date, owner) in zip(tcharges, tg_owner):
+        acc = s.query(MemberAccount).filter_by(person_id=owner.id, garage_id=garage.id, fee_type_id=ft_tg.id).one()
+        member_accounts[acc.id] = acc
+        for al in s.query(ChargeAllocation).filter_by(charge_id=charge.id).all():
+            payment = s.get(Payment, al.payment_id)
+            cut[payment.id] += al.amount
+            s.add(Payment(account_id=acc.id, date=payment.date, amount=al.amount,
+                          comment=f"Л/С {acc.account_number}: {payment.comment or 'По тетради'}"))
+            tbal[acc.id] += al.amount
+        charge.garage_id, charge.account_id = None, acc.id
+        tbal[acc.id] -= charge.amount
+    s.flush()
+    for payment_id, amount in cut.items():
+        payment = s.get(Payment, payment_id)
+        s.query(ChargeAllocation).filter_by(payment_id=payment_id).delete()
+        if payment.amount <= amount:
+            s.delete(payment)
+        else:
+            payment.amount -= amount
+    s.flush()
+    s.expire(garage, ["charges", "payments"])
+    reallocate_garage_charges(garage)
+    return tbal
 
 
 def import_pages(pages):
@@ -131,13 +176,15 @@ def import_pages(pages):
         gbal = Decimal("0")          # paid − charged по счёту гаража
         mbal = defaultdict(Decimal)  # id членского счёта → paid − charged
         member_accounts = {}
+        tg_owner = []                # (дата, собственник) по каждому целевому начислению, по порядку
         meter, prev_value = None, None
 
-        def member_account():
+        def member_account(fee_type=ft_mf):
             acc = s.query(MemberAccount).filter_by(
-                person_id=owner.id, garage_id=garage.id, fee_type_id=ft_mf.id, is_archived=False).one()
+                person_id=owner.id, garage_id=garage.id, fee_type_id=fee_type.id, is_archived=False).one()
             member_accounts[acc.id] = acc
             return acc
+
 
         def set_owner(key, date, comment):
             nonlocal owner
@@ -152,6 +199,7 @@ def import_pages(pages):
             s.flush()
             if owner is None:
                 _ensure_member_accounts(garage, new.id, 0)
+                ensure_personal_member_accounts(new.id)
             else:
                 # как garages._archive_owner_accounts_and_reuse, но без переноса остатка:
                 # исторический долг/переплата остаются за прежним собственником
@@ -160,6 +208,7 @@ def import_pages(pages):
                     s.flush()
                     s.add(MemberAccount(person_id=new.id, garage_id=garage.id, fee_type_id=old_acc.fee_type_id,
                                         account_number=old_acc.account_number))
+                ensure_personal_member_accounts(new.id)
             s.add(GarageOwnershipEvent(garage_id=garage.id, person_id=new.id, share=Decimal("1"), created_at=when,
                                        event_type=GarageOwnershipEventType.ADDED,
                                        comment=comment or "Импорт из тетради"))
@@ -175,6 +224,7 @@ def import_pages(pages):
                 s.add(GarageOwnership(garage_id=garage.id, person_id=p.id, share=Decimal(str(share))))
                 s.flush()
                 _ensure_member_accounts(garage, p.id, index)
+                ensure_personal_member_accounts(p.id)
                 s.add(GarageOwnershipEvent(garage_id=garage.id, person_id=p.id, share=Decimal(str(share)),
                                            event_type=GarageOwnershipEventType.ADDED, comment="Импорт из тетради"))
                 owner = owner or p
@@ -223,6 +273,7 @@ def import_pages(pages):
                 amount = money(amount)
                 s.add(Charge(garage_id=garage.id, fee_type_id=ft_tg.id, year=date.year, amount=amount,
                              comment=f"{note} (по тетради, {date:%d.%m.%Y})"))
+                tg_owner.append((date, owner))
                 gbal -= amount
                 totals["tg"] += amount
             elif kind == "mf":
@@ -262,10 +313,14 @@ def import_pages(pages):
             s.flush()
 
         reallocate_garage_charges(garage)
+        s.flush()
+        tbal = move_target_charges(s, garage, ft_tg, tg_owner, member_accounts)
+        gbal = balance(garage)
         for acc in member_accounts.values():
             reallocate_member_charges(acc)
-        report.append((number, owner.full_name if owner else "—", gbal,
-                       {member_accounts[a].person.full_name: b for a, b in mbal.items() if b}, flags))
+        balances = {f"взносы {member_accounts[a].person.full_name}": b for a, b in mbal.items() if b}
+        balances.update({f"целевые {member_accounts[a].person.full_name}": b for a, b in tbal.items() if b})
+        report.append((number, owner.full_name if owner else "—", gbal, balances, flags))
 
     return report, totals, created_persons, skipped
 
@@ -296,7 +351,7 @@ def main():
 
     for number, owner, gbal, mb, flags in report:
         mtxt = "; ".join(f"{k}: {v:+.2f}" for k, v in mb.items()) or "0"
-        print(f"{number:>5} | {owner:<36} | гараж {gbal:+9.2f} | взносы {mtxt}")
+        print(f"{number:>5} | {owner:<36} | гараж (ЭЭ) {gbal:+9.2f} | {mtxt}")
         for f in flags:
             print(f"        ! {f}")
     if skipped:

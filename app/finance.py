@@ -9,14 +9,15 @@ from sqlalchemy.orm import selectinload
 from . import database
 from . import audit
 from . import notifications
+from . import gifts
 from .i18n import translate as _, fmt2, parse_decimal, format_date
 from .auth import login_required, roles_required
-from .permissions import can_view_member_account, is_board, is_privileged
+from .permissions import can_view_member_account, is_board, is_chairman, is_privileged
 from .models import garage_sort_key
 from .models import (
     GarageOwnership, Charge, Payment, ChargeAllocation, Garage, PersonalAccount,
     FeeType, MemberAccount, Person, RoleEnum,
-    Cooperative, BankAccount, BankStatementLine, Counterparty,
+    Cooperative, BankAccount, BankStatementLine, Counterparty, BudgetItem,
 )
 from .bank_sync import is_aggregate_registry_payment
 from .accounting import (
@@ -511,10 +512,17 @@ def member_account_detail(account_id):
     # реально уходят деньги, не открывая отдельно каждый счёт.
     transferable_balances = {t.id: _balance(t) for t in transferable_accounts}
 
+    today = dt.date.today()
+    can_gift = is_chairman() and gifts.can_gift_dues(account)
     return render_template(
         "finance/member_account_detail.html", account=account, balance=_balance(account),
-        prev_account=prev_account, next_account=next_account, today=dt.date.today(),
+        prev_account=prev_account, next_account=next_account, today=today,
         transferable_accounts=transferable_accounts, transferable_balances=transferable_balances,
+        can_gift=can_gift,
+        gift_left=gifts.gift_limit_left(account.person, today.year) if can_gift else None,
+        gift_limit=gifts.GIFT_LIMIT,
+        gift_budget_items=(database.db_session.query(BudgetItem).filter(BudgetItem.year == today.year)
+                           .order_by(BudgetItem.position, BudgetItem.id).all() if can_gift else []),
     )
 
 
@@ -818,6 +826,9 @@ def delete_member_payment(account_id, payment_id):
         # того счёта. Нужна cancel_transfer, которая отменяет обе половины.
         flash(_("Этот платёж — часть зачёта между счетами. Используйте «Отменить зачёт»."), "danger")
         return redirect(url_for("finance.member_account_detail", account_id=account.id))
+    if payment.gift_expense_id is not None:
+        flash(_("Этот платёж — подарок в счёт взносов. Используйте «Отменить подарок»."), "danger")
+        return redirect(url_for("finance.member_account_detail", account_id=account.id))
 
     audit.record(
         "payment.delete", entity_type="member_account", entity_id=account.id,
@@ -875,6 +886,65 @@ def cancel_transfer(account_id, payment_id):
     database.db_session.commit()
     flash(_("Зачёт отменён — обе стороны возвращены к исходному состоянию."), "success")
     return redirect(url_for("finance.member_account_detail", account_id=target.id))
+
+
+# ---------------------------------------------------------------------------
+# Подарок освобождением от уплаты взносов (см. app/gifts.py) — поощрение
+# активного члена по решению правления, до 4000 ₽ на человека за год.
+# Только председатель: заводит расход кооператива.
+# ---------------------------------------------------------------------------
+
+@bp.route("/member-accounts/<int:account_id>/gift", methods=["POST"])
+@roles_required(RoleEnum.CHAIRMAN)
+def add_dues_gift(account_id):
+    account = database.db_session.get(MemberAccount, account_id)
+    if account is None:
+        abort(404)
+    f = request.form
+    try:
+        date = dt.date.fromisoformat(f.get("date") or "")
+    except ValueError:
+        date = dt.date.today()
+    try:
+        amount = parse_decimal(f.get("amount") or "")
+    except (ValueError, InvalidOperation):
+        amount = None
+    budget_item = database.db_session.get(BudgetItem, f.get("budget_item_id", type=int)) if f.get("budget_item_id") else None
+    try:
+        payment = gifts.create_dues_gift(account, date, amount, f.get("decision"), budget_item)
+    except gifts.GiftError as exc:
+        database.db_session.rollback()
+        flash(str(exc), "danger")
+        return redirect(url_for("finance.member_account_detail", account_id=account.id))
+    audit.record(
+        "member_account.gift", entity_type="member_account", entity_id=account.id,
+        summary=f"Подарок {audit.format_amount(payment.amount)} в счёт взносов на счёте {account.account_number} "
+                f"({account.person.short_name}): {f.get('decision', '').strip()}",
+    )
+    database.db_session.commit()
+    flash(_("Подарок оформлен: взнос погашен, расход «Поощрения» записан."), "success")
+    return redirect(url_for("finance.member_account_detail", account_id=account.id))
+
+
+@bp.route("/member-accounts/<int:account_id>/payments/<int:payment_id>/cancel-gift", methods=["POST"])
+@roles_required(RoleEnum.CHAIRMAN)
+def cancel_dues_gift(account_id, payment_id):
+    account = database.db_session.get(MemberAccount, account_id)
+    payment = database.db_session.get(Payment, payment_id)
+    if account is None or payment is None or payment.account_id != account.id:
+        abort(404)
+    if payment.gift_expense_id is None:
+        flash(_("Этот платёж не является подарком в счёт взносов."), "danger")
+        return redirect(url_for("finance.member_account_detail", account_id=account.id))
+    audit.record(
+        "member_account.gift_cancel", entity_type="member_account", entity_id=account.id,
+        summary=f"Отменён подарок {audit.format_amount(payment.amount)} в счёт взносов на счёте "
+                f"{account.account_number} ({account.person.short_name})",
+    )
+    gifts.cancel_dues_gift(payment)
+    database.db_session.commit()
+    flash(_("Подарок отменён: взнос снова к оплате, расход удалён."), "success")
+    return redirect(url_for("finance.member_account_detail", account_id=account.id))
 
 
 # ---------------------------------------------------------------------------
@@ -1266,6 +1336,10 @@ def delete_member_account(account_id):
         summary=f"Удалён счёт {account.account_number} ({account.person.short_name}, "
                 f"{garage_label}{account.fee_type.name})",
     )
+    # Подарки в счёт взносов — вместе с их расходом «Поощрения» (иначе
+    # расход остался бы без погашенного им взноса и занимал бы лимит).
+    for payment in [p for p in account.payments if p.gift_expense_id is not None]:
+        gifts.cancel_dues_gift(payment)
     database.db_session.delete(account)
     database.db_session.commit()
     flash(_("Счёт удалён."), "success")

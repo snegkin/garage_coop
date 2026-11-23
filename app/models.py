@@ -14,7 +14,7 @@ from decimal import Decimal
 
 from sqlalchemy import (
     String, Integer, BigInteger, Numeric, Date, DateTime, Boolean, Text, LargeBinary,
-    ForeignKey, Enum, UniqueConstraint, CheckConstraint, Index, MetaData, text, event
+    ForeignKey, Enum, UniqueConstraint, CheckConstraint, Index, MetaData, Table, Column, text, event
 )
 from sqlalchemy.orm import (
     DeclarativeBase, Mapped, mapped_column, relationship
@@ -1846,11 +1846,9 @@ class User(Base):
     notify_documents: Mapped[bool] = mapped_column(Boolean, default=True)
     # Только для is_board() — см. scripts/board_chat_digest.py.
     notify_board_chat: Mapped[bool] = mapped_column(Boolean, default=True)
-    # Только для is_board() — JSON-список кодов групп событий журнала
-    # аудита (см. notifications.BOARD_EVENT_GROUPS), о которых уведомлять.
-    # NULL — человек ещё не сохранял выбор, действует
-    # notifications.DEFAULT_BOARD_EVENT_GROUPS.
-    notify_board_events: Mapped[str | None] = mapped_column(Text)
+    # Кому уходят уведомления правления (группы событий журнала аудита,
+    # сбои, новая почта) — не личная настройка, а состав групп
+    # уведомлений: см. NotificationGroup ниже.
     # id последнего сообщения чата правления, о непрочтении которого уже
     # отправлено уведомление — без этой отметки board_chat_digest.py слал
     # бы повторное письмо на каждый свой запуск, пока сообщение остаётся
@@ -2871,6 +2869,11 @@ class Payment(Base):
     # платежом. По этой связи penalty.reconcile_amnesty_write_offs() знает,
     # сколько уже списано, и не задваивает при повторном сохранении амнистии.
     amnesty_for_charge_id: Mapped[int | None] = mapped_column(ForeignKey("charge.id", ondelete="SET NULL"), index=True)
+    # Только для подарка освобождением от уплаты взносов (см. app/gifts.py) —
+    # расход-подарок «Поощрения» у контрагента на имя человека. Денег нет:
+    # платёж гасит взнос, расход идёт в смету; удаляются только вместе
+    # (gifts.cancel_dues_gift).
+    gift_expense_id: Mapped[int | None] = mapped_column(ForeignKey("expense.id", ondelete="SET NULL"), index=True)
 
     garage: Mapped["Garage | None"] = relationship(back_populates="payments")
     account: Mapped["MemberAccount | None"] = relationship(back_populates="payments")
@@ -2878,6 +2881,7 @@ class Payment(Base):
     related_person: Mapped["Person | None"] = relationship(foreign_keys=[related_person_id])
     offset_charge: Mapped["Charge | None"] = relationship(foreign_keys=[offset_charge_id])
     amnesty_for_charge: Mapped["Charge | None"] = relationship(foreign_keys=[amnesty_for_charge_id])
+    gift_expense: Mapped["Expense | None"] = relationship(foreign_keys=[gift_expense_id])
     allocations: Mapped[list["ChargeAllocation"]] = relationship(
         back_populates="payment", cascade="all, delete-orphan"
     )
@@ -3890,6 +3894,31 @@ class PostalLetterCounter(Base):
 
     year: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
     last_number: Mapped[int] = mapped_column(Integer, default=0)
+
+
+notification_group_user = Table(
+    "notification_group_user",
+    Base.metadata,
+    Column("group_code", String(50), ForeignKey("notification_group.code", ondelete="CASCADE"), primary_key=True),
+    Column("user_id", Integer, ForeignKey("user.id", ondelete="CASCADE"), primary_key=True),
+)
+
+
+class NotificationGroup(Base):
+    """Состав получателей одной группы уведомлений правления (код — ключ
+    notifications.BOARD_EVENT_GROUPS): группы пользователей ERP (roles —
+    JSON-список кодов из notifications.RECIPIENT_ROLES: председатель,
+    правление, бухгалтер, ревизионная комиссия) плюс отдельные люди
+    (users). Получатель — каждый активный пользователь, попавший хоть в
+    одно из двух. Нет строки для кода — группа ещё не настраивалась,
+    действует notifications.DEFAULT_GROUP_ROLES. Настраивает правление на
+    странице «Группы уведомлений» (app/notification_groups.py)."""
+    __tablename__ = "notification_group"
+
+    code: Mapped[str] = mapped_column(String(50), primary_key=True)
+    roles: Mapped[str] = mapped_column(Text, default="[]")
+
+    users: Mapped[list["User"]] = relationship(secondary=notification_group_user)
 
 
 class FailureNotification(Base):

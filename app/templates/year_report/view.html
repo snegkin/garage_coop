@@ -309,7 +309,7 @@
                         <span class="yr-exp-text">
                           <span class="yr-exp-head">{{ fmt_date(pay.date) }}{% if p.garage %} · <a href="{{ url_for('garages.detail', garage_id=p.garage.id) }}">№{{ p.garage.number }}</a>{% endif %}{% if pay.account %} · <a href="{{ url_for('finance.member_account_detail', account_id=pay.account_id) }}">{{ pay.account.account_number }}</a>{% endif %}</span>
                           {% if p.person %}<span class="yr-exp-desc" title="{{ p.person.full_name }}">{{ p.person.full_name }}</span>{% endif %}
-                          {% if p.cash %}<span class="badge text-bg-light border fw-normal" title="{{ _('Не через банк: вписан вручную') }}">{{ _("наличными") }}</span>{% endif %}
+                          {% if p.gift %}<span class="badge text-bg-light border fw-normal" title="{{ _('Подарок: освобождение от уплаты взносов, денег не было') }}">{{ _("подарком") }}</span>{% elif p.cash %}<span class="badge text-bg-light border fw-normal" title="{{ _('Не через банк: вписан вручную') }}">{{ _("наличными") }}</span>{% endif %}
                         </span>
                         <span class="yr-num">{{ fmt2(pay.amount) }}</span>
                       </li>

@@ -56,6 +56,9 @@
   {% if account.fee_type.is_penalty and balance < 0 and is_privileged() %}
   <button type="button" class="btn btn-sm btn-outline-danger ms-2" data-bs-toggle="modal" data-bs-target="#writeOffPenaltyModal">{{ _("Списать") }}</button>
   {% endif %}
+  {% if can_gift and balance < 0 %}
+  <button type="button" class="btn btn-sm btn-outline-secondary ms-2" data-bs-toggle="modal" data-bs-target="#duesGiftModal"><i class="bi bi-gift me-1" aria-hidden="true"></i>{{ _("Подарок в счёт взносов") }}</button>
+  {% endif %}
 </p>
 
 <div class="row g-4">
@@ -129,7 +132,11 @@
           <td>{{ linkify_related_person(p.comment, p.related_person, is_board()) or "—" }}</td>
           {% if is_chairman() %}
           <td>
-            {% if p.offset_charge_id is not none %}
+            {% if p.gift_expense_id is not none %}
+            <form method="post" action="{{ url_for('finance.cancel_dues_gift', account_id=account.id, payment_id=p.id) }}" onsubmit="return confirm('{{ _('Отменить подарок? Взнос снова станет к оплате, расход «Поощрения» будет удалён.') }}')">
+              <button class="btn btn-sm btn-outline-danger" title="{{ _('Подарок в счёт взносов — удаляет и платёж, и расход') }}">{{ _("Отменить подарок") }}</button>
+            </form>
+            {% elif p.offset_charge_id is not none %}
             <form method="post" action="{{ url_for('finance.cancel_transfer', account_id=account.id, payment_id=p.id) }}" onsubmit="return confirm('{{ _('Отменить зачёт? Начисление на счёте-источнике тоже будет удалено — обе стороны вернутся к исходному состоянию.') }}')">
               <button class="btn btn-sm btn-outline-danger" title="{{ _('Это часть зачёта между счетами — удаляет обе половины') }}">{{ _("Отменить зачёт") }}</button>
             </form>
@@ -204,6 +211,60 @@
         <div class="modal-footer d-flex justify-content-end">
           <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
           <button class="btn btn-primary">{{ _("Зачесть") }}</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% if can_gift and balance < 0 %}
+<div class="modal fade" id="duesGiftModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" action="{{ url_for('finance.add_dues_gift', account_id=account.id) }}">
+        <div class="modal-header">
+          <h5 class="modal-title">{{ _("Подарок в счёт взносов") }}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <p class="text-muted small">
+            {{ _("Поощрение по решению правления: кооператив дарит члену освобождение от уплаты взноса (ст. 572 ГК РФ). Денег не движется — взнос погашается, в смете записывается расход «Поощрения». Подарки одному человеку — не более {limit} ₽ за год по всем его счетам, деньгами и в счёт взносов (без НДФЛ). В решении не связывайте подарок с конкретной работой.", limit=fmt2(gift_limit)) }}
+          </p>
+          <p class="small">
+            {{ _("Долг по счёту") }}: <strong>{{ fmt2(-balance) }} ₽</strong>.
+            {{ _("Осталось лимита у {name} в {year} году", name=account.person.short_name, year=today.year) }}: <strong>{{ fmt2(gift_left) }} ₽</strong>.
+          </p>
+          <div class="row g-2 mb-3">
+            <div class="col-6">
+              <label class="form-label">{{ _("Дата") }}</label>
+              <input class="form-control" type="date" name="date" value="{{ today.isoformat() }}" required>
+            </div>
+            <div class="col-6">
+              <label class="form-label">{{ _("Сумма, ₽") }}</label>
+              {% set gift_max = [gift_left, -balance]|min %}
+              <input class="form-control" inputmode="decimal" name="amount" value="{{ fmt2(gift_max) if gift_max > 0 else '' }}" required>
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">{{ _("Решение правления") }}</label>
+            <input class="form-control" name="decision" required placeholder="{{ _('например: протокол заседания правления № 3 от 20.11.2026') }}">
+          </div>
+          {% if gift_budget_items %}
+          <div class="mb-3">
+            <label class="form-label">{{ _("Позиция сметы (необязательно)") }}</label>
+            <select class="form-select" name="budget_item_id">
+              <option value="">{{ _("подобрать автоматически") }}</option>
+              {% for item in gift_budget_items %}
+              <option value="{{ item.id }}">{{ item.section }} — {{ item.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          {% endif %}
+        </div>
+        <div class="modal-footer d-flex justify-content-end">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+          <button class="btn btn-primary">{{ _("Подарить") }}</button>
         </div>
       </form>
     </div>

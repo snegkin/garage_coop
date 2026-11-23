@@ -33,7 +33,7 @@ from urllib.parse import urlsplit
 from flask import Blueprint, Response, abort, flash, g, redirect, render_template, request, url_for
 from sqlalchemy.orm import selectinload
 
-from . import audit, database
+from . import audit, database, gifts
 from .accounting import (
     available_statement_lines, counterparty_balance, current_tariff, get_electricity_settings, lighting_watts,
     night_hours, pay_counterparty,
@@ -79,6 +79,7 @@ DEFAULT_CATEGORIES = [
      "провод, кабел, гильз, сжим, клемм, изолент, щит, din-рейк, фонар, опор, sonoff, автоматическ, электротовар",
      False, False, False),
     ("Канцелярия", "#b3a9ef", "бумаг, степлер, скоб, картридж, резак, трафарет, магнит", False, False, False),
+    ("Поощрения", "#c9a227", "поощрен, подар", False, False, False),
     (OTHER_CATEGORY, "#a3a29d", None, False, False, True),
 ]
 GRAY = "#a3a29d"
@@ -771,7 +772,10 @@ def _income(year: int) -> dict:
                 or _is_tech(payment.comment, _TECH_PAYMENT_PREFIXES)):
             continue
         if payment.id not in via_bank:
-            cash_received += payment.amount
+            # Подарок в счёт взносов (app/gifts.py) — взнос погашен, но денег
+            # не было: в «принято не через банк» не входит.
+            if payment.gift_expense_id is None:
+                cash_received += payment.amount
             if bank_only:
                 continue
         fee_type = payment.account.fee_type if payment.account is not None else None
@@ -781,7 +785,7 @@ def _income(year: int) -> dict:
         # Для раскрытия строки: кто и когда заплатил (гараж, счёт, плательщик).
         account = payment.account
         row["payments"].append({
-            "payment": payment, "cash": payment.id not in via_bank,
+            "payment": payment, "cash": payment.id not in via_bank, "gift": payment.gift_expense_id is not None,
             "garage": payment.garage or (account.garage if account is not None else None),
             "person": payment.payer or (account.person if account is not None else None),
         })
@@ -2497,6 +2501,12 @@ def add_expense():
         description = f"{description} — {OWN_FUNDS_MARK}" if description else _("За свой счёт, к возмещению")
     budget_item = (database.db_session.get(BudgetItem, f.get("budget_item_id", type=int))
                    if f.get("budget_item_id") else None)
+    if person is not None and category == gifts.GIFT_CATEGORY:
+        try:
+            gifts.check_gift_limit(person, date, amount)
+        except gifts.GiftError as exc:
+            flash(str(exc), "danger")
+            return _redirect_back(date.year)
     counterparty = _person_counterparty(person) if mode in ("own", "accrued") else _cash_counterparty()
     expense = Expense(
         counterparty_id=counterparty.id, date=date, amount=amount, category=category, description=description,

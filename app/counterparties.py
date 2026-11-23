@@ -7,6 +7,7 @@ from werkzeug.utils import secure_filename
 
 from . import database
 from . import audit
+from . import gifts
 from .i18n import translate as _, parse_decimal, parse_optional_decimal as _parse_decimal
 from .auth import roles_required
 from .models import (
@@ -428,6 +429,9 @@ def edit_expense(counterparty_id, expense_id):
     expense = database.db_session.get(Expense, expense_id)
     if counterparty is None or expense is None or expense.counterparty_id != counterparty.id:
         abort(404)
+    if expense is not None and gifts.is_gift_expense(expense):
+        flash(_("Это подарок в счёт взносов — отменяется на лицевом счёте члена («Отменить подарок»)."), "danger")
+        return redirect(url_for("counterparties.detail", counterparty_id=counterparty_id))
 
     f = request.form
     from .year_report import change_expense_payment_mode, expense_payment_mode
@@ -501,6 +505,9 @@ def delete_expense(counterparty_id, expense_id):
     expense = database.db_session.get(Expense, expense_id)
     if counterparty is None or expense is None or expense.counterparty_id != counterparty.id:
         abort(404)
+    if expense is not None and gifts.is_gift_expense(expense):
+        flash(_("Это подарок в счёт взносов — отменяется на лицевом счёте члена («Отменить подарок»)."), "danger")
+        return redirect(url_for("counterparties.detail", counterparty_id=counterparty_id))
     if database.db_session.query(MasterMeterReading).filter_by(expense_id=expense.id).first() is not None:
         flash(_("Этот расход создан показанием общего счётчика — удалите показание на странице электроэнергии."), "danger")
         return redirect(url_for("counterparties.detail", counterparty_id=counterparty.id))
@@ -532,6 +539,9 @@ def move_expense(counterparty_id, expense_id):
     expense = database.db_session.get(Expense, expense_id)
     if counterparty is None or expense is None or expense.counterparty_id != counterparty.id:
         abort(404)
+    if expense is not None and gifts.is_gift_expense(expense):
+        flash(_("Это подарок в счёт взносов — отменяется на лицевом счёте члена («Отменить подарок»)."), "danger")
+        return redirect(url_for("counterparties.detail", counterparty_id=counterparty_id))
     if not counterparty.prepaid:
         abort(400)
 
@@ -622,6 +632,9 @@ def edit_payment(counterparty_id, payment_id):
     payment = database.db_session.get(CounterpartyPayment, payment_id)
     if counterparty is None or payment is None or payment.counterparty_id != counterparty.id:
         abort(404)
+    if payment is not None and gifts.is_gift_settlement(payment):
+        flash(_("Это зачёт подарка в счёт взносов — отменяется на лицевом счёте члена («Отменить подарок»)."), "danger")
+        return redirect(url_for("counterparties.detail", counterparty_id=counterparty_id))
     if payment.reverses_payment_id is not None:
         flash(_("Это отменяющая проводка (сторно) — её нельзя редактировать."), "danger")
         return redirect(url_for("counterparties.detail", counterparty_id=counterparty.id))
@@ -697,6 +710,9 @@ def reverse_payment(counterparty_id, payment_id):
     payment = database.db_session.get(CounterpartyPayment, payment_id)
     if counterparty is None or payment is None or payment.counterparty_id != counterparty.id:
         abort(404)
+    if payment is not None and gifts.is_gift_settlement(payment):
+        flash(_("Это зачёт подарка в счёт взносов — отменяется на лицевом счёте члена («Отменить подарок»)."), "danger")
+        return redirect(url_for("counterparties.detail", counterparty_id=counterparty_id))
     if payment.reverses_payment_id is not None:
         flash(_("Это уже отменяющая проводка (сторно) — сторнировать сторно нельзя."), "danger")
         return redirect(url_for("counterparties.detail", counterparty_id=counterparty.id))

@@ -71,7 +71,7 @@
 
   <div class="d-flex justify-content-end gap-2">
     <button class="btn btn-primary">{{ _("Сохранить") }}</button>
-    <a class="btn btn-outline-secondary" href="{{ url_for('annual_reports.list_reports') }}">{{ _("Отмена") }}</a>
+    <a class="btn btn-outline-secondary" href="{{ url_for('annual_reports.view', report_id=report.id) if report else url_for('annual_reports.list_reports') }}">{{ _("Отмена") }}</a>
   </div>
 </form>
 {% endblock %}

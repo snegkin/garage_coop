@@ -89,7 +89,7 @@
 
   <div class="d-flex justify-content-end gap-2">
     <button class="btn btn-primary">{{ _("Сохранить") }}</button>
-    <a class="btn btn-outline-secondary" href="{{ url_for('wiki.list_pages') }}">{{ _("Отмена") }}</a>
+    <a class="btn btn-outline-secondary" href="{{ url_for('wiki.view', slug=page.slug) if page else url_for('wiki.list_pages') }}">{{ _("Отмена") }}</a>
   </div>
 </form>
 

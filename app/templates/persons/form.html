@@ -6,7 +6,7 @@
   {% include "persons/_fields.html" %}
   <div class="d-flex justify-content-end gap-2 mt-3">
     <button class="btn btn-primary">{{ _("Сохранить") }}</button>
-    <a class="btn btn-secondary" href="{{ url_for('persons.list_persons') }}">{{ _("Отмена") }}</a>
+    <a class="btn btn-secondary" href="{{ url_for('persons.detail', person_id=person.id) if person else url_for('persons.list_persons') }}">{{ _("Отмена") }}</a>
   </div>
 </form>
 {% endblock %}

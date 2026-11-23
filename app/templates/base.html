@@ -3291,9 +3291,13 @@ document.addEventListener("submit", function (e) {
 //   - referrer подходит под data-back-inherit (регулярное выражение по
 //     pathname, напр. соседний гараж из «← Гараж №N →»): тогда
 //     наследуем адрес возврата той страницы, а не её саму;
-//   - referrer подходит под data-back-skip (подстраница самой этой
-//     страницы, напр. «Редактировать» гаража: после сохранения redirect
-//     возвращает на карточку с referrer = форма редактирования).
+//   - referrer — подстраница этой страницы (/garages/5/edit для
+//     /garages/5, /persons/7/statement для /persons/7): после сохранения
+//     формы redirect возвращает на карточку с referrer = форма, и «Назад»
+//     вёл бы обратно в редактирование;
+//   - referrer — форма …/edit или …/new с другим адресом (вики:
+//     /wiki/12/edit → /wiki/<slug>, форум: /forum/posts/3/edit →
+//     /forum/<тема>) — в форму после сохранения не возвращаемся.
 function initBackLinks(root) {
   var links = root.querySelectorAll("a[data-back-link]");
   if (!links.length) return;
@@ -3325,11 +3329,9 @@ function rememberBackTarget() {
   var ref;
   try { ref = new URL(document.referrer); } catch (e) { return; }
   if (ref.origin !== window.location.origin || ref.pathname === window.location.pathname) return;
-  var skip = false;
-  document.querySelectorAll("a[data-back-link][data-back-skip]").forEach(function (a) {
-    if (new RegExp(a.dataset.backSkip).test(ref.pathname)) skip = true;
-  });
-  if (skip) return;
+  var here = window.location.pathname.replace(/\/$/, "");
+  if (here && ref.pathname.indexOf(here + "/") === 0) return;
+  if (/\/(edit|new)\/?$/.test(ref.pathname)) return;
   var inheritFrom = null;
   document.querySelectorAll("a[data-back-link][data-back-inherit]").forEach(function (a) {
     if (new RegExp(a.dataset.backInherit).test(ref.pathname)) inheritFrom = ref.pathname;

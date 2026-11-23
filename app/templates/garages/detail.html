@@ -2,7 +2,7 @@
 {% block title %}{{ page_title }}{% endblock %}
 {% block content %}
 {% set _active_tab = request.args.get('tab', 'info') %}
-<a href="{{ url_for('garages.list_garages') if is_board() else url_for('cabinet.garages') }}" class="d-inline-block mb-3" data-back-link data-back-label="&larr; {{ _('Назад') }}" data-back-inherit="^/garages/\d+$" data-back-skip="^/garages/\d+/">&larr; {{ _("Ко всем гаражам") if is_board() else _("К моим гаражам") }}</a>
+<a href="{{ url_for('garages.list_garages') if is_board() else url_for('cabinet.garages') }}" class="d-inline-block mb-3" data-back-link data-back-label="&larr; {{ _('Назад') }}" data-back-inherit="^/garages/\d+$">&larr; {{ _("Ко всем гаражам") if is_board() else _("К моим гаражам") }}</a>
 
 {# Навигация: предыдущий / следующий гараж — только для правления: рядовой
    собственник видит эту страницу лишь для своих гаражей, а переход по

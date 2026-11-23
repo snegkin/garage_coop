@@ -185,6 +185,45 @@ def rewrite_payment_comments(s, garage, ft_by_id):
     return changed
 
 
+def first_record_date(events):
+    """Дата первой записи о гараже в тетради (показание, установка счётчика,
+    платёж) — с неё собственник со страницы считается владельцем. Год взноса
+    не годится: взносы за 2014–2017 могли оплатить в 2017-м."""
+    dates = [ev[1] for ev in events
+             if ev[0] in ("start", "meter", "r", "pay", "close", "owner") and isinstance(ev[1], dt.date)]
+    return min(dates) if dates else None
+
+
+def persons_touched(persons):
+    return [p.id for p in persons.values()]
+
+
+def archive_former_owners(s, person_ids):
+    """
+    Выбывшие из собственников, у которых не осталось ни одного гаража, — в
+    архив людей, как это делает приложение (persons.archive_person): причина
+    «умер» или «продал гараж» с номером гаража, дата — дата выбытия.
+    """
+    owners_now = {o.person_id for o in s.query(GarageOwnership).all()}
+    archived = []
+    events = (s.query(GarageOwnershipEvent)
+              .filter(GarageOwnershipEvent.event_type == GarageOwnershipEventType.REMOVED,
+                      GarageOwnershipEvent.person_id.in_(person_ids))
+              .order_by(GarageOwnershipEvent.created_at).all())
+    for ev in events:
+        person = ev.person
+        if person.id in owners_now or person.is_archived:
+            continue
+        note = f"{ev.comment or ''} {person.comment or ''}".lower()
+        reason = "умер" if "умер" in note else "продал гараж"
+        person.is_archived = True
+        person.archived_at = ev.created_at
+        person.archived_reason = f"{reason} (гараж №{ev.garage.number}, по тетради)"
+        archived.append(f"{person.full_name} — {person.archived_reason}, {ev.created_at:%d.%m.%Y}")
+    s.flush()
+    return archived
+
+
 def import_pages(pages):
     s = database.db_session
     ft = {f.code: f for f in s.query(FeeType).all()}
@@ -284,7 +323,7 @@ def import_pages(pages):
                 owner = owner or p
             s.flush()
         elif spec.get("owner"):
-            set_owner(spec["owner"], None, "Импорт из тетради")
+            set_owner(spec["owner"], first_record_date(spec["events"]), "Импорт из тетради")
         for key, relation, tenant in spec.get("contacts", []) + spec.get("extra_contacts", []):
             s.add(GarageContact(garage_id=garage.id, person_id=person(key).id, relation=relation, is_tenant=tenant))
 
@@ -379,7 +418,8 @@ def import_pages(pages):
         balances.update({f"целевые {member_accounts[a].person.full_name}": b for a, b in tbal.items() if b})
         report.append((number, owner.full_name if owner else "—", gbal, balances, flags))
 
-    return report, totals, created_persons, skipped
+    archived = archive_former_owners(s, set(persons_touched(persons)))
+    return report, totals, created_persons, skipped, archived
 
 
 def main():
@@ -392,7 +432,7 @@ def main():
     app = create_app()
     with app.test_request_context():
         from flask import g
-        report, totals, created_persons, skipped = import_pages(pages)
+        report, totals, created_persons, skipped, archived = import_pages(pages)
         if report:
             g.user = database.db_session.query(User).order_by(User.id).first()
             audit.record(
@@ -411,6 +451,10 @@ def main():
         print(f"{number:>5} | {owner:<36} | гараж (ЭЭ) {gbal:+9.2f} | {mtxt}")
         for f in flags:
             print(f"        ! {f}")
+    if archived:
+        print("\nВ архив людей (выбыли из собственников):")
+        for line in archived:
+            print(f"  {line}")
     if skipped:
         print(f"\nПропущены (уже есть в БД): {', '.join(skipped)}")
     print(f"\nГаражей: {len(report)}, новых людей: {created_persons}. Начислено: ЭЭ {totals['el']}, взносы "

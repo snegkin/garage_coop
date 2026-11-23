@@ -29,8 +29,8 @@ PAGES.py — файл расшифровки (в нём персональные
             # или owners=[("ivanov", "0.5"), ("petrov", "0.5")] — совладельцы с долями
             # (пока только для страниц без взносов и смены собственника)
             contacts=[("petrov", "съёмщик", True)],  # (ключ, отношение, is_tenant[, ключ собственника])
-            # 4-й элемент — чей это контакт (жена, дочь… собственника): если тот выбыл
-            # и ушёл в архив, контакт уходит в архив вместе с ним
+            # 4-й элемент — чей это контакт (жена, дочь… собственника): если тот выбыл,
+            # контакт снимается с гаража и уходит в архив вместе с ним
             comment="произвольная заметка к гаражу",
             events=[ ... ],                       # строго в хронологическом порядке
         ),
@@ -230,10 +230,17 @@ def archive_former_owners(s, person_ids):
 def archive_owner_contacts(s, owner_contacts):
     """
     Контакты выбывшего собственника (родственники, чьи телефоны записаны в
-    тетради) — в архив вместе с ним, если они сами не собственники и не
-    контакты действующего собственника. Дата — та же, что у собственника.
+    тетради) снимаются с гаража — как в приложении при выбытии всех
+    собственников (garages._drop_contacts_of_ownerless), — и уходят в архив
+    вместе с ним, если они сами не собственники и не контакты действующего
+    собственника. Дата — та же, что у собственника.
     """
-    owners_now = {o.person_id for o in s.query(GarageOwnership).all()}
+    owned = {(o.garage.number, o.person_id) for o in s.query(GarageOwnership).all()}
+    for number, contact, owner in owner_contacts:
+        if (number, owner.id) not in owned:
+            garage = s.query(Garage).filter_by(number=number).one()
+            s.query(GarageContact).filter_by(garage_id=garage.id, person_id=contact.id).delete()
+    owners_now = {pid for _, pid in owned}
     keep = {c.id for _, c, o in owner_contacts if not o.is_archived}
     archived = []
     for number, contact, owner in owner_contacts:

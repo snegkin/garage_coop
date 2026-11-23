@@ -613,6 +613,23 @@ def update_owner_share(garage_id, ownership_id):
     return redirect(url_for("garages.detail", garage_id=garage_id))
 
 
+def _drop_contacts_of_ownerless(garage: Garage) -> int:
+    """
+    Лица для связи (родственники, доверенные, съёмщики) — это контакты
+    тех, кто владел гаражом. Когда выбывают ВСЕ прежние собственники
+    (выбыл единственный или последний из совладельцев, гараж целиком
+    перешёл новому), они удаляются с карточки гаража — иначе новому
+    собственнику достаются чужие телефоны. Сами люди не трогаются.
+    Возвращает число удалённых. Не коммитит.
+    """
+    contacts = database.db_session.query(GarageContact).filter_by(garage_id=garage.id).all()
+    for contact in contacts:
+        database.db_session.delete(contact)
+    if contacts:
+        database.db_session.expire(garage, ["contacts"])
+    return len(contacts)
+
+
 def _remove_owner_and_redistribute(garage: Garage, ownership: GarageOwnership, reason: str | None, user_id: int,
                                    carry_balance: bool = False) -> None:
     """
@@ -642,7 +659,7 @@ def _remove_owner_and_redistribute(garage: Garage, ownership: GarageOwnership, r
     Счета выбывшего с нулевым (в т. ч. после переноса) остатком уходят в
     архив; с долгом/переплатой остаются активными, пока их не закроют.
     Если собственник был ЕДИНСТВЕННЫМ: ничего, кроме самой записи
-    GarageOwnership, не трогаем — лицевые счета остаются на нём (активными)
+    GarageOwnership и лиц для связи (_drop_contacts_of_ownerless), не трогаем — лицевые счета остаются на нём (активными)
     со всем, что на них есть — например, пока решается вопрос с
     наследством. Как только у гаража появится новый собственник, add_owner
     сам заархивирует эти счета и перенесёт остаток на новые — см.
@@ -655,12 +672,14 @@ def _remove_owner_and_redistribute(garage: Garage, ownership: GarageOwnership, r
         share=None, comment=reason, created_by_user_id=user_id,
     ))
     co_owners = len(garage.ownerships) > 1
+    dropped_contacts = 0 if co_owners else _drop_contacts_of_ownerless(garage)
     audit.record(
         "garage_owner.remove",
         f"{ownership.person.full_name} выбыл(а) из собственников гаража №{garage.number}"
         + (f" (причина: {reason})" if reason else "")
         + ((", остаток счетов перенесён на оставшихся" if carry_balance else ", остаток счетов остался за ним")
-           if co_owners else ""),
+           if co_owners else "")
+        + (f", удалены лица для связи: {dropped_contacts}" if dropped_contacts else ""),
         entity_type="person", entity_id=ownership.person_id,
     )
 
@@ -740,6 +759,8 @@ def transfer_owner(garage: Garage, ownership: GarageOwnership, new_person_id: in
     garage.ownerships.remove(ownership)
     database.db_session.delete(ownership)
     database.db_session.flush()
+    # единственный собственник передал гараж целиком — его контакты не нужны новому
+    dropped_contacts = _drop_contacts_of_ownerless(garage) if sole else 0
 
     if existing_new is not None:
         existing_new.share = existing_new.share + share
@@ -782,7 +803,8 @@ def transfer_owner(garage: Garage, ownership: GarageOwnership, new_person_id: in
         "garage_owner.transfer",
         f"Гараж №{garage.number}: доля {share} перешла от {old_person.full_name} к {new_person.full_name}"
         + (", остаток счетов перенесён" if carry_balance else ", остаток счетов остался за прежним собственником")
-        + (f" ({comment})" if comment else ""),
+        + (f" ({comment})" if comment else "")
+        + (f", удалены лица для связи: {dropped_contacts}" if dropped_contacts else ""),
         entity_type="garage", entity_id=garage.id,
     )
 

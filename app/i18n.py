@@ -2040,6 +2040,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Никто — уведомления этой группы никому не уходят.": "Nobody — this group's notifications are not sent to anyone.",
         "Нет такой группы уведомлений.": "No such notification group.",
         "Состав группы уведомлений сохранён.": "Notification group saved.",
+        "Сохранено": "Saved",
+        "Есть несохранённые изменения": "Unsaved changes",
         "Ждёт решения правления": "Awaiting a board decision",
         "Банк и выписки": "Bank and statements",
         "Начисления, платежи, пени": "Charges, payments, penalties",

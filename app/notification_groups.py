@@ -12,7 +12,7 @@ Telegram, MAX, push) у каждого получателя — его личн�
 """
 import json
 
-from flask import Blueprint, render_template, request, redirect, url_for, flash
+from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
 
 from . import audit, database, notifications
 from .auth import roles_required
@@ -33,32 +33,45 @@ def _ready_channels(user: User) -> list[str]:
     ]
 
 
+def _active_users() -> list[User]:
+    users = database.db_session.query(User).filter(User.is_active.is_(True)).all()
+    users.sort(key=_user_name)
+    return users
+
+
+def _group_context(code: str, active_users: list[User]) -> dict:
+    group = database.db_session.get(NotificationGroup, code)
+    explicit = sorted((u for u in (group.users if group else []) if u.is_active), key=_user_name)
+    explicit_ids = {u.id for u in explicit}
+    return {
+        "code": code,
+        "label": notifications.BOARD_EVENT_GROUPS[code]["label"],
+        "roles": notifications.group_roles(group, code),
+        "users": explicit,
+        "candidates": [u for u in active_users if u.id not in explicit_ids],
+        "recipients": [(u, _ready_channels(u)) for u in notifications.group_recipients(code)],
+        "chairman_only_note": code == "approvals",
+    }
+
+
 @bp.route("/")
 @roles_required(RoleEnum.BOARD)
 def view():
-    active_users = database.db_session.query(User).filter(User.is_active.is_(True)).all()
-    active_users.sort(key=_user_name)
-    groups = []
-    for code, meta in notifications.BOARD_EVENT_GROUPS.items():
-        group = database.db_session.get(NotificationGroup, code)
-        explicit = sorted((u for u in (group.users if group else []) if u.is_active), key=_user_name)
-        explicit_ids = {u.id for u in explicit}
-        groups.append({
-            "code": code,
-            "label": meta["label"],
-            "roles": notifications.group_roles(group, code),
-            "users": explicit,
-            "candidates": [u for u in active_users if u.id not in explicit_ids],
-            "recipients": [(u, _ready_channels(u)) for u in notifications.group_recipients(code)],
-            "chairman_only_note": code == "approvals",
-        })
+    active_users = _active_users()
+    groups = [_group_context(code, active_users) for code in notifications.BOARD_EVENT_GROUPS]
     return render_template("notification_groups/view.html", groups=groups, roles=notifications.RECIPIENT_ROLES)
+
+
+def _is_ajax() -> bool:
+    return request.headers.get("X-Requested-With") == "XMLHttpRequest"
 
 
 @bp.route("/<code>", methods=["POST"])
 @roles_required(RoleEnum.BOARD)
 def save(code):
     if code not in notifications.BOARD_EVENT_GROUPS:
+        if _is_ajax():
+            return jsonify(ok=False, error=_("Нет такой группы уведомлений.")), 404
         flash(_("Нет такой группы уведомлений."), "danger")
         return redirect(url_for(".view"))
     f = request.form
@@ -94,5 +107,11 @@ def save(code):
     if changes:
         audit.record("notification_group.edit", f"Группа уведомлений «{label}»: " + "; ".join(changes))
     database.db_session.commit()
+    if _is_ajax():
+        # Подменяется только эта карточка — несохранённые галочки в
+        # остальных остаются (см. скрипт в notification_groups/view.html).
+        html = render_template("notification_groups/_group_card.html", group=_group_context(code, _active_users()),
+                               roles=notifications.RECIPIENT_ROLES, saved=True)
+        return jsonify(ok=True, html=html)
     flash(_("Состав группы уведомлений сохранён."), "success")
     return redirect(url_for(".view", _anchor=f"group-{code}"))

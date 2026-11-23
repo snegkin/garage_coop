@@ -1,0 +1,61 @@
+{# Карточка одной группы уведомлений — и в полной странице, и в AJAX-ответе
+   сохранения (notification_groups.save), который подменяет только её. #}
+  <div class="col-lg-6" id="group-{{ group.code }}">
+    <div class="card h-100">
+      <div class="card-body">
+        <h5 class="card-title">{{ _(group.label) }}</h5>
+        <form method="post" action="{{ url_for('notification_groups.save', code=group.code) }}" class="js-notification-group-form" data-no-ajax>
+          <div class="mb-2">
+            <div class="form-label mb-1">{{ _("Группы пользователей") }}</div>
+            {% for role, role_label in roles.items() %}
+            <div class="form-check form-check-inline">
+              <input class="form-check-input" type="checkbox" name="role_{{ role }}" value="1" id="{{ group.code }}_role_{{ role }}" {{ 'checked' if role in group.roles }}>
+              <label class="form-check-label" for="{{ group.code }}_role_{{ role }}">{{ _(role_label) }}</label>
+            </div>
+            {% endfor %}
+          </div>
+          <div class="mb-2">
+            <div class="form-label mb-1">{{ _("Отдельные люди") }}</div>
+            {% for user in group.users %}
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" name="user_id" value="{{ user.id }}" id="{{ group.code }}_user_{{ user.id }}" checked>
+              <label class="form-check-label" for="{{ group.code }}_user_{{ user.id }}">{{ user.person.full_name if user.person else user.username }}</label>
+            </div>
+            {% else %}
+            <div class="text-body-secondary small mb-1">{{ _("Никого не добавлено.") }}</div>
+            {% endfor %}
+            <select class="form-select form-select-sm mt-1" name="add_user_id" data-searchable aria-label="{{ _('Добавить человека') }}">
+              <option value="">{{ _("Добавить человека…") }}</option>
+              {% for user in group.candidates %}
+              <option value="{{ user.id }}">{{ user.person.full_name if user.person else user.username }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          {% if group.chairman_only_note %}
+          <div class="form-text mb-2">{{ _("Заявки на изменение данных и на справки уходят только председателю, даже если в группе есть другие.") }}</div>
+          {% endif %}
+          <div class="d-flex align-items-center gap-2">
+            <button class="btn btn-primary btn-sm">{{ _("Сохранить") }}</button>
+            {% if saved %}<span class="text-success small">{{ _("Сохранено") }}</span>{% endif %}
+            <span class="text-warning-emphasis small d-none js-unsaved">{{ _("Есть несохранённые изменения") }}</span>
+          </div>
+        </form>
+
+        <div class="mt-3 small">
+          <div class="text-body-secondary mb-1">{{ _("Получают сейчас") }}:</div>
+          {% for user, channels in group.recipients %}
+          <div>
+            {{ user.person.full_name if user.person else user.username }}
+            {% if channels %}
+            <span class="text-body-secondary">— {{ channels | join(", ") }}</span>
+            {% else %}
+            <span class="badge text-bg-warning">{{ _("нет способа доставки") }}</span>
+            {% endif %}
+          </div>
+          {% else %}
+          <div class="text-body-secondary">{{ _("Никто — уведомления этой группы никому не уходят.") }}</div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>

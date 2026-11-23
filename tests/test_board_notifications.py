@@ -387,6 +387,24 @@ def test_group_page_saves_roles_and_people(app, db, client):
     assert "убраны" in entry.summary and "Ревизионная комиссия" in entry.summary
 
 
+def test_group_save_ajax_returns_only_this_card(app, db, client):
+    board = _board_user(db, "board1")
+    db.commit()
+    login(client, "board1", "pass12345")
+    resp = client.post("/notification-groups/failures", data={"add_user_id": str(board.id)},
+                       headers={"X-Requested-With": "XMLHttpRequest"})
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["ok"] is True
+    assert 'id="group-failures"' in data["html"]
+    assert 'id="group-bank"' not in data["html"]
+    assert "Сохранено" in data["html"]
+    assert notifications.group_recipient_ids("failures") == {board.id}
+
+    resp = client.post("/notification-groups/bogus", data={}, headers={"X-Requested-With": "XMLHttpRequest"})
+    assert resp.status_code == 404
+
+
 def test_group_page_board_only(app, db, client):
     _member(db)
     db.commit()

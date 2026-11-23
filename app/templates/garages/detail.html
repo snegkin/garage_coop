@@ -780,6 +780,10 @@
 <div class="row g-4 mt-2">
   <div class="col-12">
     <h5>{{ _("Журнал показаний и начисления") }}</h5>
+    <style>
+      .ledger-pay + .ledger-pay { border-top: 1px dashed var(--bs-border-color); margin-top: .15rem; padding-top: .15rem; }
+      .ledger-pay-total { border-top: 1px solid var(--bs-border-color); margin-top: .15rem; padding-top: .15rem; font-weight: 600; }
+    </style>
     <table class="table table-sm bg-body sortable">
       <thead>
         <tr>
@@ -790,7 +794,7 @@
           <th>{{ _("Сумма") }}</th>
           <th>{{ _("От кого") }}</th>
           <th>{{ _("Дата оплаты") }}</th>
-          <th>{{ _("Сумма") }}</th>
+          <th class="text-end">{{ _("Сумма") }}</th>
         </tr>
       </thead>
       <tbody>
@@ -826,14 +830,20 @@
             <span class="text-muted small">{{ row.charge_label }}</span>
             {% else %}—{% endif %}
           </td>
+          {# Несколько оплат на одно начисление — каждая отдельной строкой
+             внутри ячеек (.ledger-pay), строки трёх колонок выровнены и
+             разделены пунктиром; плательщик, совпадающий с предыдущим, не
+             повторяется. #}
           <td data-sort-value="{{ row.payments[0].payer if row.payments else '' }}">
-            {% if row.payments %}{% for pay in row.payments %}{{ pay.payer or "—" }}{% if not loop.last %}<br>{% endif %}{% endfor %}{% else %}—{% endif %}
+            {% if row.payments %}{% for pay in row.payments %}<div class="ledger-pay">{% if loop.first or pay.payer != loop.previtem.payer %}{{ pay.payer or "—" }}{% else %}<span class="text-muted">〃</span>{% endif %}</div>{% endfor %}{% else %}—{% endif %}
           </td>
           <td data-sort-value="{{ row.payments[0].date if row.payments else '' }}">
-            {% if row.payments %}{% for pay in row.payments %}{{ fmt_date(pay.date) }}{% if not loop.last %}<br>{% endif %}{% endfor %}{% else %}—{% endif %}
+            {% if row.payments %}{% for pay in row.payments %}<div class="ledger-pay">{{ fmt_date(pay.date) }}</div>{% endfor %}{% else %}—{% endif %}
           </td>
-          <td data-sort-value="{{ row.payments|sum(attribute='amount') if row.payments else '' }}">
-            {% if row.payments %}{% for pay in row.payments %}{{ fmt2(pay.amount) }} ₽{% if not loop.last %}<br>{% endif %}{% endfor %}{% else %}—{% endif %}
+          <td class="text-end text-nowrap" data-sort-value="{{ row.payments|sum(attribute='amount') if row.payments else '' }}">
+            {% if row.payments %}{% for pay in row.payments %}<div class="ledger-pay">{{ fmt2(pay.amount) }} ₽</div>{% endfor %}
+            {% if row.payments|length > 1 %}<div class="ledger-pay-total">{{ fmt2(row.payments|sum(attribute='amount')) }} ₽</div>{% endif %}
+            {% else %}—{% endif %}
           </td>
         </tr>
         {% else %}

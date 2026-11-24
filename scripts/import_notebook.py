@@ -235,9 +235,9 @@ def rewrite_payment_comments(s, garage, ft_by_id):
     Одна оплата из тетради в системе разнесена на несколько платежей (счёт
     гаража — ЭЭ, членский, целевой), а в комментарии каждого был итог строки
     тетради («По тетради: 1006 р» у части в 1000 ₽). Переписывает комментарии
-    импортированных платежей гаража: «По тетради, оплата 25.04.2026 — всего
-    1 006 ₽: 1 000 ₽ взносы, 6 ₽ электроэнергия (в тетради: …)». Части одной
-    оплаты — одна дата и одна заметка. Зачёты (фонари) не трогает.
+    импортированных платежей гаража: «По тетради — всего 1 006 ₽: 1 000 ₽
+    взносы, 6 ₽ электроэнергия (в тетради: …)» (дата — в поле «Дата»). Части
+    одной оплаты — одна дата и одна заметка. Зачёты (фонари) не трогает.
     """
     accounts = s.query(MemberAccount).filter_by(garage_id=garage.id).all()
     rows = [(p, "электроэнергия", None) for p in garage.payments]
@@ -251,7 +251,8 @@ def rewrite_payment_comments(s, garage, ft_by_id):
             text = text[len(f"Л/С {acc.account_number}: "):]
         if not text.startswith(NOTEBOOK_PREFIX):
             continue
-        if text.startswith(f"{NOTEBOOK_PREFIX}, оплата"):   # уже переписан — пересобрать (суммы частей могли измениться)
+        if text.startswith((f"{NOTEBOOK_PREFIX}, оплата", f"{NOTEBOOK_PREFIX} — всего")):
+            # уже переписан — пересобрать (суммы частей могли измениться)
             m = re.search(r" \(в тетради: (.*)\)$", text)
             note = m.group(1) if m else ""
         else:
@@ -266,12 +267,14 @@ def rewrite_payment_comments(s, garage, ft_by_id):
         for p, label, _acc in parts:
             by_label[label] += p.amount
         total = sum(by_label.values(), Decimal("0"))
-        text = f"{NOTEBOOK_PREFIX}, оплата {date:%d.%m.%Y}"
+        # дату не пишем — она в поле «Дата» платежа
         if len(by_label) > 1:
-            text += f" — всего {_rub(total)}: " + ", ".join(
+            text = f"{NOTEBOOK_PREFIX} — всего {_rub(total)}: " + ", ".join(
                 f"{_rub(v)} {k}" for k, v in sorted(by_label.items(), key=lambda kv: order[kv[0]]))
-        if note:
-            text += f" (в тетради: {note})"
+            if note:
+                text += f" (в тетради: {note})"
+        else:
+            text = f"{NOTEBOOK_PREFIX}: {note}" if note else NOTEBOOK_PREFIX
         for p, _label, acc in parts:
             p.comment = f"Л/С {acc.account_number}: {text}" if acc is not None else text
             changed += 1

@@ -236,9 +236,10 @@ def rewrite_payment_comments(s, garage, ft_by_id):
     Одна оплата из тетради в системе разнесена на несколько платежей (счёт
     гаража — ЭЭ, членский, целевой), а в комментарии каждого был итог строки
     тетради («По тетради: 1006 р» у части в 1000 ₽). Переписывает комментарии
-    импортированных платежей гаража: «По тетради — всего 1 006 ₽: 1 000 ₽
-    взносы, 6 ₽ электроэнергия (в тетради: …)» (дата — в поле «Дата»). Части
-    одной оплаты — одна дата и одна заметка. Зачёты (фонари) не трогает.
+    импортированных платежей гаража: «По тетради, всего 1 006 ₽: 1 000 ₽
+    взносы, 6 ₽ электроэнергия» или просто «По тетради» (дата — в поле «Дата»,
+    строка тетради — в расшифровке). Части одной оплаты — одна дата и одна
+    заметка. Зачёты (фонари) — отдельной записью «Зачёт за …».
     """
     accounts = s.query(MemberAccount).filter_by(garage_id=garage.id).all()
     rows = [(p, "электроэнергия", None) for p in garage.payments]
@@ -250,15 +251,18 @@ def rewrite_payment_comments(s, garage, ft_by_id):
         text = p.comment or ""
         if acc is not None and text.startswith(f"Л/С {acc.account_number}: "):
             text = text[len(f"Л/С {acc.account_number}: "):]
-        if not text.startswith(NOTEBOOK_PREFIX):
-            continue
+        if not text.startswith(NOTEBOOK_PREFIX) or text == NOTEBOOK_PREFIX or text.startswith(f"{NOTEBOOK_PREFIX}, всего"):
+            continue   # не из тетради или уже в итоговом виде
         if text.startswith((f"{NOTEBOOK_PREFIX}, оплата", f"{NOTEBOOK_PREFIX} — всего")):
-            # уже переписан — пересобрать (суммы частей могли измениться)
+            # прежний вид (с датой / цитатой тетради) — пересобрать
             m = re.search(r" \(в тетради: (.*)\)$", text)
             note = m.group(1) if m else ""
         else:
             note = text.removesuffix(MOVED_SUFFIX)[len(NOTEBOOK_PREFIX):].lstrip(":").strip()
-        if note.startswith("Зачёт"):
+        if note.startswith("Зачёт"):   # зачёт — отдельная запись: «Зачёт за уличные фонари: 157 кВт по 5 ₽»
+            m = re.match(r"Зачёт: (.+?) ([\d,]+) кВт × ([\d,]+) р$", note)
+            text = f"Зачёт за {m.group(1)}: {m.group(2)} кВт по {m.group(3)} ₽" if m else note
+            p.comment = f"Л/С {acc.account_number}: {text}" if acc is not None else text
             continue
         groups[(p.date, note)].append((p, label, acc))
     order = {"взносы": 0, "электроэнергия": 1, "целевые": 2}
@@ -268,14 +272,12 @@ def rewrite_payment_comments(s, garage, ft_by_id):
         for p, label, _acc in parts:
             by_label[label] += p.amount
         total = sum(by_label.values(), Decimal("0"))
-        # дату не пишем — она в поле «Дата» платежа
+        # Наш стиль, а не стиль тетради: без даты (она в поле «Дата»), без цитаты
+        # строки тетради, тире, кавычек и «банка» — только как оплата разнесена.
+        text = NOTEBOOK_PREFIX
         if len(by_label) > 1:
-            text = f"{NOTEBOOK_PREFIX} — всего {_rub(total)}: " + ", ".join(
+            text += f", всего {_rub(total)}: " + ", ".join(
                 f"{_rub(v)} {k}" for k, v in sorted(by_label.items(), key=lambda kv: order[kv[0]]))
-            if note:
-                text += f" (в тетради: {note})"
-        else:
-            text = f"{NOTEBOOK_PREFIX}: {note}" if note else NOTEBOOK_PREFIX
         for p, _label, acc in parts:
             p.comment = f"Л/С {acc.account_number}: {text}" if acc is not None else text
             changed += 1

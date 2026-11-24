@@ -259,6 +259,11 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Показать полностью ({n} строк)": "Show full code ({n} lines)",
         "Свернуть": "Collapse",
         "Скопировать": "Copy",
+        "Скопировать в буфер как CSV": "Copy to clipboard as CSV",
+        "Скопировать в буфер как Markdown": "Copy to clipboard as Markdown",
+        "Скачать файл CSV": "Download CSV file",
+        "Скачать файл Markdown": "Download Markdown file",
+        "Не удалось скопировать": "Copy failed",
         "Скопировано": "Copied",
         "Скопировать скрытый текст, не показывая его": "Copy hidden text without revealing it",
 

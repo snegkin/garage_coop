@@ -102,3 +102,22 @@ def test_alias_taken_by_other_instance():
 ])
 def test_cron_shift_minute(minute, offset, expected):
     assert coop.cron_shift_minute(minute, offset) == expected
+
+
+def test_landings():
+    assert coop.coop_landings([], ["main.ru"]) == []
+    [land] = coop.coop_landings([{"domain": "free.ru", "aliases": ["www.free.ru"]}], ["main.ru", None])
+    assert land == {"domain": "free.ru", "aliases": ["www.free.ru"], "service": "landing-free.ru"}
+
+
+@pytest.mark.parametrize("landings, message", [
+    ([{"domain": "main.ru"}], "уже у кооператива"),
+    ([{"domain": "free.ru", "aliases": ["main.ru"]}], "уже у кооператива"),
+    ([{"domain": "свободный.рф"}], "punycode"),
+    ([{"domain": "free.ru"}, {"domain": "x.ru", "aliases": ["free.ru"]}], "дважды"),
+    ([{"domain": "free.ru", "email": "a@b"}], "неизвестные поля"),
+    ([{"aliases": []}], "domain"),
+])
+def test_landings_validation(landings, message):
+    with pytest.raises(coop.AnsibleFilterError, match=message):
+        coop.coop_landings(landings, ["main.ru"])

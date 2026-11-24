@@ -4,6 +4,9 @@ coop_instances — проверяет coop_extra_instances из vars.yml и до
 каждый кооператив вычисляемыми полями (пользователь, служба, пути), чтобы
 соглашения об именах жили в одном месте.
 
+coop_landings — проверяет coop_landing_sites (лендинги на свободных
+доменах): punycode, не занят кооперативом, без повторов.
+
 cron_shift_minute — сдвигает поле «минута» строки cron, чтобы скрипты
 разных кооперативов не стартовали в одну и ту же минуту.
 
@@ -145,6 +148,40 @@ def cron_shift_minute(minute, offset):
     return ",".join(_shift_part(part, offset) for part in minute.split(","))
 
 
+def coop_landings(landings, taken):
+    """landings — coop_landing_sites [{domain, aliases?}]; taken — домены
+    кооперативов. Проверка и вычисляемое имя vhost (service)."""
+    if not landings:
+        return []
+    if not isinstance(landings, list):
+        raise AnsibleFilterError("coop_landing_sites — список {domain, aliases}")
+    taken = {str(d) for d in taken or [] if d}
+    seen, result = set(), []
+    for index, raw in enumerate(landings, start=1):
+        if not isinstance(raw, dict) or not raw.get("domain"):
+            raise AnsibleFilterError(f"coop_landing_sites[{index}]: нужен словарь с domain")
+        unknown = sorted(set(raw) - {"domain", "aliases"})
+        if unknown:
+            raise AnsibleFilterError(f"coop_landing_sites[{index}]: неизвестные поля {', '.join(unknown)}")
+        aliases = raw.get("aliases") or []
+        if not isinstance(aliases, list):
+            raise AnsibleFilterError(f"coop_landing_sites[{index}]: aliases — список доменов")
+        domain, aliases = str(raw["domain"]), [str(a) for a in aliases]
+        for value in [domain] + aliases:
+            if not DOMAIN_RE.match(value):
+                raise AnsibleFilterError(
+                    f"coop_landing_sites: {value} — домен в punycode: "
+                    f"python3 -c \"print('пример.рф'.encode('idna').decode())\"")
+            if value in taken:
+                raise AnsibleFilterError(f"coop_landing_sites: {value} уже у кооператива — уберите его оттуда")
+            if value in seen:
+                raise AnsibleFilterError(f"coop_landing_sites: {value} указан дважды")
+            seen.add(value)
+        result.append({"domain": domain, "aliases": aliases, "service": f"landing-{domain}"})
+    return result
+
+
 class FilterModule:
     def filters(self):
-        return {"coop_instances": coop_instances, "cron_shift_minute": cron_shift_minute}
+        return {"coop_instances": coop_instances, "cron_shift_minute": cron_shift_minute,
+                "coop_landings": coop_landings}

@@ -10,6 +10,7 @@
 #   ansible-playbook site.yml --check --diff     # что изменится
 #   ansible-playbook site.yml --tags local -K    # только агенты на этом компьютере
 #   ansible-playbook site.yml --tags instances   # только дополнительные кооперативы
+#   ansible-playbook site.yml --tags landing     # только лендинги
 
 - name: Сервер сайта кооператива
   hosts: coop
@@ -85,6 +86,22 @@
       when: extra_instances | length > 0
       tags: always
 
+    - name: Лендинги
+      ansible.builtin.set_fact:
+        landing_sites: >-
+          {{ coop_landing_sites | coop_landings([coop_domain] + coop_domain_aliases
+             + extra_instances | map(attribute='domain') | list
+             + extra_instances | map(attribute='aliases') | flatten) }}
+      tags: always
+
+    - name: Для лендингов нужны landing_email и certbot_email
+      ansible.builtin.assert:
+        that: landing_email | length > 0 and certbot_email | length > 0
+        fail_msg: "coop_landing_sites: задайте landing_email (адрес для заявок) и certbot_email"
+        quiet: true
+      when: landing_sites | length > 0
+      tags: always
+
   tasks:
     - name: Система
       ansible.builtin.import_tasks: tasks/system.yml
@@ -152,6 +169,23 @@
         restore_source_instance_dir: "{{ inst.restore_source_instance_dir }}"
         nginx_default_server: false
       tags: [instances, app]
+
+    - name: Лендинги на свободных доменах
+      ansible.builtin.include_tasks:
+        file: tasks/landing.yml
+        apply:
+          tags: [landing, nginx]
+      loop: "{{ landing_sites }}"
+      loop_control:
+        loop_var: landing
+        label: "{{ landing.domain }}"
+      vars:
+        service_name: "{{ landing.service }}"
+        coop_domain: "{{ landing.domain }}"
+        coop_domain_aliases: "{{ landing.aliases }}"
+        landing_root: "/var/www/landing/{{ landing.domain }}"
+        nginx_default_server: false
+      tags: [landing, nginx]
 
   handlers:
     - name: reload nginx

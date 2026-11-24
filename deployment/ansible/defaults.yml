@@ -53,6 +53,20 @@ certbot_email: ""
 # Добавить — deployment/add-coop.sh, убрать — deployment/remove-coop.sh
 # (remove_coop.yml: данные сначала в архив; README.md «Удаление кооператива»).
 coop_extra_instances: []
+
+# Лендинги на свободных доменах (tasks/landing.yml): статическая страница
+# «такой же сайт для вашего кооператива — напишите» со ссылкой на почту.
+# Свой vhost и сертификат, как у кооператива; домены — punycode, A-записи —
+# на этот сервер, не заняты кооперативами.
+#
+#   coop_landing_sites:
+#     - domain: xn--...xn--p1ai
+#       aliases: [www.xn--...xn--p1ai]        # редирект на domain
+#   landing_email: "сайт@пример.рф"           # обязателен при лендингах
+coop_landing_sites: []
+landing_email: ""
+landing_phone: ""                  # необязательно, «+7 900 000-00-00»
+landing_demo_url: ""               # необязательно: работающий сайт-пример
 # Общая блокировка cron всех кооперативов (scripts/_common.sh): на сервере
 # в 1 ГБ одновременно выполняется не больше одного скрипта. Ставится, только
 # если есть coop_extra_instances.

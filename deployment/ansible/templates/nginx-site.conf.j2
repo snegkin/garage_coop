@@ -24,6 +24,18 @@
     ssl_session_timeout 1d;
 {%- endmacro %}
 {% macro app_locations() %}
+{% if landing_root | default('') %}
+    # Лендинг (tasks/landing.yml): одна статическая страница на любой путь.
+    # add_header — здесь, на уровне server: в location он отменил бы HSTS.
+    root {{ landing_root }};
+    add_header Cache-Control "no-cache" always;
+    location / {
+        try_files /index.html =404;
+    }
+
+    gzip on;
+    gzip_types text/css image/svg+xml;
+{% else %}
     # Тот же предел, что MAX_CONTENT_LENGTH приложения (25 МБ), с запасом.
     client_max_body_size 30m;
 
@@ -60,6 +72,7 @@
 
     gzip on;
     gzip_types text/css application/javascript application/json image/svg+xml;
+{% endif %}
 {% endmacro %}
 
 server {

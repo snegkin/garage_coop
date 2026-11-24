@@ -1,0 +1,164 @@
+{# Лендинг на свободном домене (tasks/landing.yml). Без внешних ресурсов:
+   шрифты системные, иконки — inline SVG. Возможности — из docs/features. #}
+{% set mail_href = 'mailto:' + landing_email + '?subject=' + ('Сайт для кооператива' | urlencode) %}
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Сайт для гаражного кооператива</title>
+<meta name="description" content="Сайт и учёт для гаражного кооператива: лицевые счета, электроэнергия, кабинет члена кооператива, собрания и документы. Напишите — настроим для вашего кооператива.">
+<style>
+  :root {
+    --bg: #f6f4ef; --surface: #ffffff; --text: #1d2125; --muted: #5d656d;
+    --line: #e3dfd6; --accent: #1f6f5c; --accent-text: #ffffff; --accent-soft: #e3f0ec;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #15191c; --surface: #1d2327; --text: #e9ecee; --muted: #a3acb3;
+      --line: #2c343a; --accent: #4fb89c; --accent-text: #0e1513; --accent-soft: #1f3330;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 17px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 0 20px; }
+  header.hero { padding: 72px 0 48px; }
+  .badge {
+    display: inline-block; font-size: 14px; color: var(--accent); background: var(--accent-soft);
+    padding: 4px 12px; border-radius: 999px; margin-bottom: 20px;
+  }
+  h1 { font-size: clamp(30px, 5vw, 46px); line-height: 1.15; margin: 0 0 18px; letter-spacing: -0.01em; }
+  .lead { font-size: clamp(18px, 2.2vw, 20px); color: var(--muted); max-width: 640px; margin: 0 0 32px; }
+  .actions { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 10px; text-decoration: none; font-weight: 600;
+    padding: 14px 22px; border-radius: 10px; border: 1px solid transparent;
+  }
+  .btn-primary { background: var(--accent); color: var(--accent-text); }
+  .btn-primary:hover { filter: brightness(1.08); }
+  .btn-ghost { color: var(--text); border-color: var(--line); background: var(--surface); }
+  .btn-ghost:hover { border-color: var(--accent); }
+  .btn svg { width: 20px; height: 20px; flex: none; }
+  h2 { font-size: 24px; margin: 0 0 20px; }
+  section { padding: 32px 0; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 20px; }
+  .card svg { width: 26px; height: 26px; color: var(--accent); margin-bottom: 10px; }
+  .card h3 { font-size: 17px; margin: 0 0 6px; }
+  .card p { margin: 0; color: var(--muted); font-size: 15px; }
+  ol.steps { list-style: none; padding: 0; margin: 0; display: grid; gap: 14px;
+             grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+  ol.steps li { display: flex; gap: 14px; align-items: flex-start; }
+  ol.steps b {
+    flex: none; width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center;
+    background: var(--accent-soft); color: var(--accent);
+  }
+  ol.steps span { color: var(--muted); }
+  ol.steps strong { color: var(--text); display: block; }
+  .cta {
+    margin: 32px 0 56px; background: var(--surface); border: 1px solid var(--line); border-radius: 16px;
+    padding: 32px; display: flex; flex-wrap: wrap; gap: 20px; align-items: center; justify-content: space-between;
+  }
+  .cta h2 { margin: 0 0 6px; }
+  .cta p { margin: 0; color: var(--muted); }
+  .contact { font-size: 15px; color: var(--muted); margin-top: 6px; }
+  .contact a { color: var(--accent); }
+  footer { border-top: 1px solid var(--line); padding: 20px 0 32px; color: var(--muted); font-size: 14px; }
+  @media (max-width: 520px) {
+    header.hero { padding: 48px 0 32px; }
+    .wrap { padding: 0 16px; }
+    .cta { padding: 22px; }
+    .btn { width: 100%; justify-content: center; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="hero">
+    <span class="badge">Для гаражных кооперативов</span>
+    <h1>Хотите такой же сайт для своего кооператива?</h1>
+    <p class="lead">Учёт взносов и электроэнергии, личный кабинет для каждого члена кооператива,
+      собрания, документы и связь с правлением — в одном месте. Напишите нам, и мы настроим сайт
+      под ваш кооператив.</p>
+    <div class="actions">
+      <a class="btn btn-primary" href="{{ mail_href | e }}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>
+        Написать на почту
+      </a>
+{% if landing_demo_url %}
+      <a class="btn btn-ghost" href="{{ landing_demo_url | e }}" target="_blank" rel="noopener">Посмотреть пример сайта</a>
+{% endif %}
+    </div>
+  </header>
+
+  <section>
+    <h2>Что умеет сайт</h2>
+    <div class="grid">
+      <div class="card">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9h10M7 13h6M7 17h4"/></svg>
+        <h3>Лицевые счета и взносы</h3>
+        <p>Начисления, оплаты, долги и пени по каждому гаражу. Квитанции ПД-4 для оплаты в банке.</p>
+      </div>
+      <div class="card">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8z"/></svg>
+        <h3>Электроэнергия</h3>
+        <p>Показания счётчиков, тарифы и расчёт за свет по гаражам. Мониторинг питания со счётчиков eWeLink.</p>
+      </div>
+      <div class="card">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>
+        <h3>Кабинет члена кооператива</h3>
+        <p>Баланс, начисления и показания у каждого в телефоне. Вход по СМС, через Яндекс или VK ID.</p>
+      </div>
+      <div class="card">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/></svg>
+        <h3>Собрания и документы</h3>
+        <p>Устав, протоколы и решения, реквизиты кооператива, бланки заявлений, работа правления.</p>
+      </div>
+      <div class="card">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        <h3>Связь</h3>
+        <p>Почта правления, уведомления в Telegram и MAX, доска объявлений, форум и вики кооператива.</p>
+      </div>
+      <div class="card">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
+        <h3>Видеонаблюдение</h3>
+        <p>Снимки с камер вашего видеорегистратора прямо на сайте, для членов кооператива.</p>
+      </div>
+      <div class="card">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v18M5 7h14M5 7l-3 7a4 4 0 0 0 6 0zM19 7l-3 7a4 4 0 0 0 6 0z"/></svg>
+        <h3>Работа с должниками</h3>
+        <p>Претензии и документы для взыскания задолженности через суд — по данным лицевых счетов.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Как подключиться</h2>
+    <ol class="steps">
+      <li><b>1</b><span><strong>Напишите нам</strong>Расскажите о кооперативе: сколько гаражей, что нужно в первую очередь.</span></li>
+      <li><b>2</b><span><strong>Настроим сайт</strong>На вашем домене, с вашими реквизитами, гаражами и тарифами.</span></li>
+      <li><b>3</b><span><strong>Пользуйтесь</strong>Правление ведёт учёт, а члены кооператива видят всё в личном кабинете.</span></li>
+    </ol>
+  </section>
+
+  <div class="cta">
+    <div>
+      <h2>Обсудим ваш кооператив?</h2>
+      <p>Ответим на вопросы и расскажем, как всё устроено.</p>
+      <p class="contact"><a href="{{ mail_href | e }}">{{ landing_email | e }}</a>{% if landing_phone %} · <a href="tel:{{ landing_phone | regex_replace('[^0-9+]', '') }}">{{ landing_phone | e }}</a>{% endif %}</p>
+    </div>
+    <a class="btn btn-primary" href="{{ mail_href | e }}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>
+      Написать
+    </a>
+  </div>
+</div>
+<footer>
+  <div class="wrap">Сайт для гаражного кооператива</div>
+</footer>
+</body>
+</html>

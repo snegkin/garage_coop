@@ -7,21 +7,21 @@
   register: nginx_v
   changed_when: false
   check_mode: false
-  tags: [instances]
+  tags: [instances, landing]
 
 # `http2 on;` — с nginx 1.25.1 (Debian 13); в Ubuntu 24.04 — 1.24, там
 # только старое `listen ... http2`.
 - name: Синтаксис HTTP/2 под эту версию nginx
   ansible.builtin.set_fact:
     nginx_http2_directive: "{{ (nginx_v.stderr | regex_search('nginx/([0-9.]+)', '\\1') | first) is version('1.25.1', '>=') }}"
-  tags: [instances]
+  tags: [instances, landing]
 
 - name: Каталог для проверки Let's Encrypt
   ansible.builtin.file:
     path: /var/www/letsencrypt
     state: directory
     mode: "0755"
-  tags: [instances]
+  tags: [instances, landing]
 
 - name: Убрать сайт nginx по умолчанию
   ansible.builtin.file:

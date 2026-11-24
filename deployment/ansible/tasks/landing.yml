@@ -1,0 +1,30 @@
+# Лендинг на свободном домене (site.yml, цикл по landing_sites): страница
+# templates/landing.html.j2 в landing_root, vhost и сертификат — тот же
+# nginx_site.yml, что у кооперативов (service_name = landing-ДОМЕН,
+# coop_domain/coop_domain_aliases — домены лендинга, landing_root — вместо
+# прокси на gunicorn). Домен раньше был у кооператива — его сертификат
+# (live/ДОМЕН) подхватится, новый не выпускается.
+
+- name: "[{{ landing.domain }}] Есть ли сертификат"
+  ansible.builtin.stat:
+    path: "/etc/letsencrypt/live/{{ coop_domain }}/fullchain.pem"
+  register: landing_cert
+
+- name: "[{{ landing.domain }}] HTTPS — только если сертификат уже есть"
+  ansible.builtin.set_fact:
+    site_https: "{{ landing_cert.stat.exists }}"
+
+- name: "[{{ landing.domain }}] Каталог страницы"
+  ansible.builtin.file:
+    path: "{{ landing_root }}"
+    state: directory
+    mode: "0755"
+
+- name: "[{{ landing.domain }}] Страница"
+  ansible.builtin.template:
+    src: landing.html.j2
+    dest: "{{ landing_root }}/index.html"
+    mode: "0644"
+
+- name: "[{{ landing.domain }}] vhost"
+  ansible.builtin.import_tasks: nginx_site.yml

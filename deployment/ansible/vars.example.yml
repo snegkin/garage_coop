@@ -79,6 +79,13 @@ app_env_extra:
 #     secret_key: "<openssl rand -hex 32>"
 #     bank_api_encryption_key: "<openssl rand -hex 32>"
 
+# Лендинг «такой же сайт для вашего кооператива» на свободном домене —
+# поля в defaults.yml (coop_landing_sites), README.md «Лендинг»:
+# coop_landing_sites:
+#   - domain: xn--...xn--p1ai
+#     aliases: [www.xn--...xn--p1ai]
+# landing_email: "почта@пример.рф"
+
 # Данные со своего компьютера
 restore_db_file: /home/sne/work/garage_coop/instance/coop.db
 restore_source_instance_dir: /home/sne/work/garage_coop/instance

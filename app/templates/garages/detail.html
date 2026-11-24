@@ -835,7 +835,7 @@
              разделены пунктиром; плательщик, совпадающий с предыдущим, не
              повторяется. #}
           <td data-sort-value="{{ row.payments[0].payer if row.payments else '' }}">
-            {% if row.payments %}{% for pay in row.payments %}<div class="ledger-pay">{% if loop.first or pay.payer != loop.previtem.payer %}{{ pay.payer or "—" }}{% else %}<span class="text-muted">〃</span>{% endif %}</div>{% endfor %}{% else %}—{% endif %}
+            {% if row.payments %}{% for pay in row.payments %}<div class="ledger-pay">{% if loop.first or pay.payer != loop.previtem.payer %}{{ pay.payer or "—" }}{% else %}<span class="text-muted" data-export-text="{{ pay.payer or '—' }}">〃</span>{% endif %}</div>{% endfor %}{% else %}—{% endif %}
           </td>
           <td data-sort-value="{{ row.payments[0].date if row.payments else '' }}">
             {% if row.payments %}{% for pay in row.payments %}<div class="ledger-pay">{{ fmt_date(pay.date) }}</div>{% endfor %}{% else %}—{% endif %}

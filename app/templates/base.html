@@ -2519,6 +2519,15 @@ tr.table-info-subtle { --bs-table-bg: var(--bs-info-bg-subtle); --bs-table-borde
 @media print {
   .table-responsive { overflow: visible !important; }
 }
+/* Экспорт таблиц (см. initTableExport): кнопки над правым верхним и под
+   правым нижним углом таблицы, показываются по задержке мыши у угла. */
+.table-export-host { position: relative; }
+.table-export-tools { position: absolute; right: 0; z-index: 6; opacity: 0; pointer-events: none; transition: opacity .15s; }
+.table-export-tools.is-top { bottom: 100%; padding-bottom: 2px; }
+.table-export-tools.is-bottom { top: 100%; padding-top: 2px; }
+.table-export-tools.is-visible { opacity: 1; pointer-events: auto; }
+.table-export-tools .btn { white-space: nowrap; }
+@media print { .table-export-tools { display: none !important; } }
 </style>
 <script>
 // Скрытый текст (.wiki-spoiler, см. <style> выше и news_format.py:
@@ -2886,6 +2895,7 @@ function initFilterableTables(root) {
         return matchesQuery && matchesSelect && !isNoise;
       });
 
+      table._exportRows = visibleRows;  // для экспорта таблицы — все отфильтрованные, со всех страниц
       allRows.forEach(function (row) { row.classList.add("d-none"); });
       if (noResults) noResults.classList.toggle("d-none", visibleRows.length > 0);
 
@@ -2951,6 +2961,274 @@ function initActiveAccountsToggle(root) {
   });
 }
 document.addEventListener("DOMContentLoaded", function () { initActiveAccountsToggle(document); });
+
+// Экспорт любой таблицы .table в контенте — в буфер или файл, в CSV или
+// Markdown (копировать таблицы скриншотами неудобно). Кнопки появляются,
+// когда мышь задерживается у правого верхнего или правого нижнего угла
+// таблицы (над/под таблицей, чтобы не закрывать ячейки); на сенсорном
+// экране — после касания таблицы, на несколько секунд. .no-export на
+// таблице — отказаться.
+// Текст ячейки — видимый текст без кнопок, меню и модальных окон;
+// data-export-text на элементе подменяет его текст (например, «〃» в
+// журнале показаний → настоящий плательщик). Ячейка с несколькими
+// строками-блоками (.ledger-pay/.ledger-pay-total или [data-export-line])
+// разворачивается в несколько строк экспорта, как на экране. Строки —
+// те, что прошли фильтр таблицы (у постраничных — со всех страниц, см.
+// table._exportRows в initFilterableTables), иначе видимые. Колонки, пустые
+// целиком (кнопки действий), отбрасываются. CSV — через «;» и с BOM в
+// файле, как его ждёт русский Excel.
+var TABLE_EXPORT_SKIP = "button, .btn, script, style, template, .modal, .dropdown-menu, .no-export, .visually-hidden, .table-export-tools, .d-none, input[type=hidden]";
+var TABLE_EXPORT_LINE = ".ledger-pay, .ledger-pay-total, [data-export-line]";
+var TABLE_EXPORT_BLOCK = /^(DIV|P|LI|UL|OL|TABLE|TR|H[1-6])$/;
+
+function tableExportText(node) {
+  if (node.nodeType === 3) return node.data;
+  if (node.nodeType !== 1) return "";
+  if (node.matches(TABLE_EXPORT_SKIP)) return "";
+  if (node.hasAttribute("data-export-text")) return node.getAttribute("data-export-text");
+  var tag = node.tagName;
+  if (tag === "BR") return " ";
+  if (tag === "SELECT") return node.selectedIndex >= 0 ? node.options[node.selectedIndex].text : "";
+  if (tag === "TEXTAREA") return node.value;
+  if (tag === "INPUT") {
+    if (node.type === "checkbox" || node.type === "radio") return node.checked ? "✓" : "";
+    return node.value;
+  }
+  var out = "";
+  node.childNodes.forEach(function (child) { out += tableExportText(child); });
+  return TABLE_EXPORT_BLOCK.test(tag) ? " " + out + " " : out;
+}
+
+function tableExportClean(s) {
+  return s.replace(/[   ]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+// Ячейка → массив строк (обычно одна).
+function tableExportCellLines(cell) {
+  var lines = Array.from(cell.querySelectorAll(TABLE_EXPORT_LINE)).filter(function (el) {
+    return el.closest("td, th") === cell && !el.closest(TABLE_EXPORT_SKIP);
+  });
+  if (lines.length > 1) return lines.map(function (el) { return tableExportClean(tableExportText(el)); });
+  return [tableExportClean(tableExportText(cell))];
+}
+
+// Строка таблицы → одна или несколько строк значений (с учётом colspan).
+function tableExportRow(tr) {
+  var cells = [];
+  Array.from(tr.cells).forEach(function (cell) {
+    var lines = tableExportCellLines(cell);
+    cells.push(lines);
+    for (var i = 1; i < (cell.colSpan || 1); i++) cells.push([""]);
+  });
+  var height = Math.max.apply(null, cells.map(function (c) { return c.length; }).concat([1]));
+  var out = [];
+  for (var r = 0; r < height; r++) {
+    out.push(cells.map(function (lines) {
+      if (lines.length > 1) return lines[r] || "";
+      return r === 0 ? lines[0] : "";
+    }));
+  }
+  return out;
+}
+
+function tableExportRowHidden(tr) {
+  return tr.hidden || tr.classList.contains("d-none") || tr.style.display === "none";
+}
+
+function tableExportData(table) {
+  var header = null, align = [];
+  if (table.tHead && table.tHead.rows.length) {
+    var headRow = table.tHead.rows[table.tHead.rows.length - 1];
+    header = tableExportRow(headRow)[0];
+    Array.from(headRow.cells).forEach(function (cell) {
+      var right = cell.classList.contains("text-end");
+      for (var i = 0; i < (cell.colSpan || 1); i++) align.push(right);
+    });
+  }
+  var filtered = table._exportRows ? new Set(table._exportRows) : null;
+  var body = [];
+  Array.from(table.tBodies).concat(table.tFoot ? [table.tFoot] : []).forEach(function (section) {
+    Array.from(section.rows).forEach(function (tr) {
+      var include = filtered && tr.hasAttribute("data-filter-text") ? filtered.has(tr) : !tableExportRowHidden(tr);
+      if (include) body = body.concat(tableExportRow(tr));
+    });
+  });
+  var width = Math.max.apply(null, body.concat(header ? [header] : []).map(function (r) { return r.length; }).concat([0]));
+  var keep = [];
+  for (var c = 0; c < width; c++) {
+    var used = (header && header[c]) || body.some(function (r) { return r[c]; });
+    if (used) keep.push(c);
+  }
+  function pick(row) { return keep.map(function (c) { return row[c] || ""; }); }
+  return {
+    header: header ? pick(header) : null,
+    align: keep.map(function (c) { return !!align[c]; }),
+    rows: body.map(pick),
+  };
+}
+
+function tableExportCsv(data) {
+  function q(v) { return /[";\n\r]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }
+  return (data.header ? [data.header] : []).concat(data.rows).map(function (r) { return r.map(q).join(";"); }).join("\r\n") + "\r\n";
+}
+
+function tableExportMd(data) {
+  function esc(v) { return v.replace(/\\/g, "\\\\").replace(/\|/g, "\\|"); }
+  function line(r) { return "| " + r.map(esc).join(" | ") + " |"; }
+  var rows = data.rows.slice();
+  var header = data.header || rows.shift() || [];
+  var sep = header.map(function (_, i) { return data.align[i] ? "---:" : "---"; });
+  return [line(header), "|" + sep.map(function (s) { return " " + s + " "; }).join("|") + "|"].concat(rows.map(line)).join("\n") + "\n";
+}
+
+// Имя файла — по ближайшему заголовку перед таблицей, иначе по заголовку страницы.
+function tableExportName(host) {
+  var title = "";
+  for (var el = host; el && el.id !== "mainContent" && !title; el = el.parentElement) {
+    for (var prev = el.previousElementSibling; prev && !title; prev = prev.previousElementSibling) {
+      var h = prev.matches("h1, h2, h3, h4, h5, h6") ? prev : prev.querySelector("h1, h2, h3, h4, h5, h6");
+      if (h) title = tableExportClean(tableExportText(h));
+    }
+  }
+  title = title || document.title || "table";
+  var d = new Date();
+  var stamp = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+  return title.replace(/[\\/:*?"<>|]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 80) + " " + stamp;
+}
+
+function tableExportCopy(text) {
+  if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text);
+  return new Promise(function (resolve, reject) {
+    var ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    var ok = false;
+    try { ok = document.execCommand("copy"); } catch (e) {}
+    ta.remove();
+    ok ? resolve() : reject();
+  });
+}
+
+function tableExportDownload(text, name, mime) {
+  var url = URL.createObjectURL(new Blob([text], { type: mime }));
+  var a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+}
+
+var TABLE_EXPORT_LABELS = {
+  copyCsv: {{ _("Скопировать в буфер как CSV")|tojson }},
+  copyMd: {{ _("Скопировать в буфер как Markdown")|tojson }},
+  fileCsv: {{ _("Скачать файл CSV")|tojson }},
+  fileMd: {{ _("Скачать файл Markdown")|tojson }},
+  copied: {{ _("Скопировано")|tojson }},
+  failed: {{ _("Не удалось скопировать")|tojson }},
+};
+
+function tableExportToolbar(pos) {
+  var bar = document.createElement("div");
+  bar.className = "table-export-tools is-" + pos;
+  bar.innerHTML =
+    '<div class="btn-group btn-group-sm shadow-sm">' +
+    '<button type="button" class="btn btn-light border" data-table-export="copy-csv"><i class="bi bi-clipboard" aria-hidden="true"></i> CSV</button>' +
+    '<button type="button" class="btn btn-light border" data-table-export="copy-md"><i class="bi bi-clipboard" aria-hidden="true"></i> MD</button>' +
+    '<button type="button" class="btn btn-light border" data-table-export="file-csv"><i class="bi bi-download" aria-hidden="true"></i> CSV</button>' +
+    '<button type="button" class="btn btn-light border" data-table-export="file-md"><i class="bi bi-download" aria-hidden="true"></i> MD</button>' +
+    "</div>";
+  var titles = { "copy-csv": "copyCsv", "copy-md": "copyMd", "file-csv": "fileCsv", "file-md": "fileMd" };
+  bar.querySelectorAll("[data-table-export]").forEach(function (btn) {
+    btn.title = TABLE_EXPORT_LABELS[titles[btn.getAttribute("data-table-export")]];
+  });
+  return bar;
+}
+
+function initTableExport(root) {
+  root.querySelectorAll("table.table:not(.no-export)").forEach(function (table) {
+    if (!table.closest("#mainContent") || table.dataset.exportInit) return;
+    if (table.parentElement.closest("table")) return;  // вложенные таблицы — вместе с внешней
+    table.dataset.exportInit = "1";
+    var target = table.closest(".table-responsive") || table;
+    var host = document.createElement("div");
+    host.className = "table-export-host";
+    target.parentNode.insertBefore(host, target);
+    host.appendChild(target);
+    var top = tableExportToolbar("top"), bottom = tableExportToolbar("bottom");
+    host.appendChild(top);
+    host.appendChild(bottom);
+
+    var ZONE_X = 220, ZONE_Y = 48, DELAY = 250;
+    var timer = null, pending = null, hideTimer = null;
+    function show(bars) {
+      clearTimeout(hideTimer);
+      [top, bottom].forEach(function (b) { b.classList.toggle("is-visible", bars.indexOf(b) >= 0); });
+    }
+    function hideSoon(ms) {
+      clearTimeout(hideTimer);
+      hideTimer = setTimeout(function () {
+        if (!top.matches(":hover, :focus-within") && !bottom.matches(":hover, :focus-within")) show([]);
+      }, ms);
+    }
+    host.addEventListener("mousemove", function (e) {
+      if (e.target.closest(".table-export-tools")) { clearTimeout(hideTimer); return; }
+      var r = table.getBoundingClientRect();
+      var right = Math.min(r.right, document.documentElement.clientWidth);
+      var bar = null;
+      if (right - e.clientX <= ZONE_X) {
+        if (e.clientY - r.top <= ZONE_Y) bar = top;
+        else if (r.bottom - e.clientY <= ZONE_Y) bar = bottom;
+      }
+      if (bar === pending) return;
+      pending = bar;
+      clearTimeout(timer);
+      if (bar) {
+        timer = setTimeout(function () { show([bar]); }, DELAY);
+      } else {
+        hideSoon(300);
+      }
+    });
+    host.addEventListener("mouseleave", function () { pending = null; clearTimeout(timer); hideSoon(300); });
+    host.addEventListener("pointerdown", function (e) {
+      if (e.pointerType === "mouse" || e.target.closest(".table-export-tools")) return;
+      show([top]);
+      hideSoon(5000);
+    });
+
+    host.addEventListener("click", function (e) {
+      var btn = e.target.closest("[data-table-export]");
+      if (!btn || !host.contains(btn)) return;
+      var kind = btn.getAttribute("data-table-export");
+      var data = tableExportData(table);
+      var isMd = kind.slice(-2) === "md";
+      var text = isMd ? tableExportMd(data) : tableExportCsv(data);
+      if (kind.indexOf("file") === 0) {
+        tableExportDownload(isMd ? text : "﻿" + text, tableExportName(host) + (isMd ? ".md" : ".csv"),
+          isMd ? "text/markdown;charset=utf-8" : "text/csv;charset=utf-8");
+        return;
+      }
+      var icon = btn.querySelector("i");
+      tableExportCopy(text).then(function () {
+        icon.className = "bi bi-check-lg";
+        btn.title = TABLE_EXPORT_LABELS.copied;
+      }, function () {
+        icon.className = "bi bi-x-lg";
+        btn.title = TABLE_EXPORT_LABELS.failed;
+      }).then(function () {
+        setTimeout(function () {
+          icon.className = "bi bi-clipboard";
+          btn.title = TABLE_EXPORT_LABELS[isMd ? "copyMd" : "copyCsv"];
+        }, 1500);
+      });
+    });
+  });
+}
+document.addEventListener("DOMContentLoaded", function () { initTableExport(document); });
 
 // Галка «все» в заголовке колонки таблицы: <th class="no-sort"><input
 // type="checkbox" class="form-check-input" data-check-column></th> отмечает/
@@ -3238,6 +3516,7 @@ function submitFormAjax(form, opts) {
       initSortableTables(mainContent);
       initFilterableTables(mainContent);
       initActiveAccountsToggle(mainContent);
+      initTableExport(mainContent);
       initSearchableSelects(mainContent);
       initUtcDatetimes(mainContent);
       initToasts(mainContent);

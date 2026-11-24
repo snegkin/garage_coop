@@ -18,6 +18,36 @@
      app/static/vendor/vendor.json (ведёт scripts/vendor.py) — путь
      <пакет>-<версия>/ меняется вместе с версией, поэтому браузер кэширует
      файлы надолго (см. app/__init__.py: get_send_file_max_age). #}
+  {% if theme_auto %}
+  {# Тема не выбрана кнопкой — следуем настройкам ОС. Скрипт в <head>, чтобы
+     тема встала до отрисовки (без вспышки светлой); при смене темы в ОС
+     переключаемся на лету. Кнопку-переключатель (#themeToggle) правим под
+     фактическую тему: клик фиксирует противоположную. #}
+  <script>
+  (function () {
+    var mq = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)");
+    if (!mq) return;
+    var icons = {{ THEME_TOGGLE_ICONS|tojson }};
+    var urls = {
+      light: {{ url_for('set_theme', theme='light')|tojson }},
+      dark: {{ url_for('set_theme', theme='dark')|tojson }}
+    };
+    function apply() {
+      var theme = mq.matches ? "dark" : "light";
+      document.documentElement.setAttribute("data-bs-theme", theme);
+      var a = document.getElementById("themeToggle");
+      if (!a) return;
+      a.href = urls[theme === "dark" ? "light" : "dark"];
+      var i = a.querySelector("i");
+      if (i) i.className = "bi bi-" + icons[theme];
+    }
+    apply();
+    document.addEventListener("DOMContentLoaded", apply);
+    if (mq.addEventListener) mq.addEventListener("change", apply);
+    else if (mq.addListener) mq.addListener(apply);
+  })();
+  </script>
+  {% endif %}
   <link href="{{ vendor_url('bootstrap', 'bootstrap.min.css') }}" rel="stylesheet">
   <link href="{{ vendor_url('bootstrap-icons', 'bootstrap-icons.min.css') }}" rel="stylesheet">
 </head>
@@ -169,7 +199,7 @@
            .navbar-nav в столбец) значки оказываются на отдельных строках;
            так они всегда в одну строку, сначала тема, потом язык. #}
         <li class="nav-item d-flex align-items-center gap-3">
-          <a class="nav-link text-white" href="{{ url_for('set_theme', theme=next_theme(current_theme)) }}" title="{{ _('Переключить тему') }}" aria-label="{{ _('Переключить тему') }}">
+          <a id="themeToggle" class="nav-link text-white" href="{{ url_for('set_theme', theme=next_theme(current_theme)) }}" title="{{ _('Переключить тему') }}" aria-label="{{ _('Переключить тему') }}">
             <i class="bi bi-{{ THEME_TOGGLE_ICONS[current_theme] }}" aria-hidden="true"></i>
           </a>
           <div class="dropdown">

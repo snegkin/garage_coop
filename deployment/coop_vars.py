@@ -348,8 +348,12 @@ def check_dns(hosts, inventory):
             print(f"  {shown} → {', '.join(ips)}")
 
 
-def _yes(prompt, default="д"):
-    return ask(prompt, default).lower() in ("д", "да", "y", "yes")
+# «да»: y/yes; «н» — та же клавиша Y в русской раскладке; д/да — по-русски.
+YES = ("y", "yes", "н", "д", "да")
+
+
+def _yes(prompt, default="y"):
+    return ask(f"{prompt} (y/n)", default).lower() in YES
 
 
 class Editor:
@@ -604,16 +608,16 @@ class Editor:
             print(f"\n{title} {self.item['name']}:")
             for n, (label, value, _) in enumerate(entries, 1):
                 print(f"  {n:2}) {label:<30} {value}")
-            print("   с) Сохранить   в) Выйти без сохранения")
+            print("   s) Сохранить   q) Выйти без сохранения")
             choice = ask("Пункт").lower()
-            if choice in ("с", "c", "s"):
+            if choice in ("s", "ы", "с"):
                 error = validate(self.item)
                 if error:
                     print(f"  ! {error}")
                     continue
                 return True
-            if choice in ("в", "q"):
-                if _yes("Выйти без сохранения? (д/н)", "н"):
+            if choice in ("q", "й", "в"):
+                if _yes("Выйти без сохранения?", "n"):
                     return False
                 continue
             if choice.isdigit() and 1 <= int(choice) <= len(entries):
@@ -713,7 +717,7 @@ def cmd_add(vars_path, defaults_path, inventory):
         key = line.lstrip("- ").split(":")[0]
         hidden = key in ("secret_key", "bank_api_encryption_key", "recaptcha_secret_key", "rclone_yandex_token")
         print("  " + (line.split(":")[0] + ": <скрыто>" if hidden else line))
-    if not _yes("\nЗаписать? (д/н)"):
+    if not _yes("\nЗаписать?"):
         die("отменено, vars.yml не изменён")
 
     if target is None:

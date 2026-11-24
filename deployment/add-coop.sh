@@ -36,10 +36,11 @@ fi
 python3 -I "$SCRIPT_DIR/coop_vars.py" add "$VARS_FILE" "$ANSIBLE_DIR/defaults.yml" "$INVENTORY" || exit 1
 
 echo
-printf 'Настроить сервер сейчас (setup.sh --tags instances)? (д/н) [д]: '
-read -r answer || answer="н"
-case "${answer:-д}" in
-    д|Д|да|y|Y|yes) ;;
+printf 'Настроить сервер сейчас (setup.sh --tags instances)? (y/n) [y]: '
+read -r answer || answer="n"
+# н — клавиша Y в русской раскладке
+case "${answer:-y}" in
+    y|Y|yes|YES|н|Н|д|Д|да) ;;
     *)
         echo "Позже: $SCRIPT_DIR/setup.sh --tags instances"
         exit 0

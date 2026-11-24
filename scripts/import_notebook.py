@@ -199,7 +199,8 @@ def regroup_target_payments(s, garage, ft_tg):
                 el[d][0].amount -= delta
             else:
                 src = ps[0].comment.split(": ", 1)[1] if ps[0].comment.startswith("Л/С") else ps[0].comment
-                np_ = Payment(garage_id=garage.id, date=d, amount=-delta, comment=src)
+                np_ = Payment(garage_id=garage.id, date=d, amount=-delta, comment=src,
+                              payer_person_id=s.get(MemberAccount, aid).person_id)  # владелец на дату
                 s.add(np_)
                 el[d] = [np_]
         comment = ps[0].comment if ps else f"Л/С {s.get(MemberAccount, aid).account_number}: {el[d][0].comment}"

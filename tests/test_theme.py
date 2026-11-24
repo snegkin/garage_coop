@@ -1,28 +1,41 @@
-"""Тема: пока не выбрана кнопкой — по настройкам ОС (prefers-color-scheme)."""
+"""Тема: светлая / тёмная / как в системе (по умолчанию — по prefers-color-scheme)."""
+import pytest
+
 from app.models import RoleEnum
+from app.theme import next_theme_mode
 
 from tests.conftest import make_user, login
 
-AUTO_MARK = 'matchMedia("(prefers-color-scheme: dark)")'
 
-
-def _dashboard(client, db):
+def _login(client, db):
     make_user(db, "board1", "pass12345", role=RoleEnum.BOARD)
     db.commit()
     login(client, "board1", "pass12345")
 
 
-def test_theme_follows_os_until_chosen(client, db):
-    _dashboard(client, db)
+@pytest.mark.parametrize("os_theme, cycle", [
+    ("light", ["auto", "dark", "light", "auto"]),
+    ("dark", ["auto", "light", "dark", "auto"]),
+])
+def test_cycle_first_click_always_changes_look(os_theme, cycle):
+    for cur, nxt in zip(cycle, cycle[1:]):
+        assert next_theme_mode(cur, os_theme) == nxt
+
+
+def test_default_mode_is_auto(client, db):
+    _login(client, db)
     body = client.get("/dashboard").get_data(as_text=True)
-    assert AUTO_MARK in body
-    assert 'id="themeToggle"' in body
+    assert 'var mode = "auto";' in body
+    assert 'href="/set-theme/dark"' in body  # сервер считает ОС светлой
 
 
-def test_forced_theme_disables_os_detection(client, db):
-    _dashboard(client, db)
+def test_forced_theme_and_back_to_auto(client, db):
+    _login(client, db)
     client.get("/set-theme/dark")
     body = client.get("/dashboard").get_data(as_text=True)
-    assert AUTO_MARK not in body
+    assert 'var mode = "dark";' in body
     assert 'data-bs-theme="dark"' in body
-    assert "/set-theme/light" in body
+
+    client.get("/set-theme/auto")
+    body = client.get("/dashboard").get_data(as_text=True)
+    assert 'var mode = "auto";' in body

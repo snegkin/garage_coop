@@ -18,28 +18,39 @@
      app/static/vendor/vendor.json (ведёт scripts/vendor.py) — путь
      <пакет>-<версия>/ меняется вместе с версией, поэтому браузер кэширует
      файлы надолго (см. app/__init__.py: get_send_file_max_age). #}
-  {% if theme_auto %}
-  {# Тема не выбрана кнопкой — следуем настройкам ОС. Скрипт в <head>, чтобы
-     тема встала до отрисовки (без вспышки светлой); при смене темы в ОС
-     переключаемся на лету. Кнопку-переключатель (#themeToggle) правим под
-     фактическую тему: клик фиксирует противоположную. #}
+  {# Тема: в режиме «как в системе» (auto) ставим её по настройкам ОС —
+     скрипт в <head>, чтобы тема встала до отрисовки (без вспышки светлой),
+     и при смене темы в ОС переключаемся на лету. Следующий режим кнопки
+     (#themeToggle) зависит от темы ОС, поэтому ссылку, значок и подсказку
+     пересчитываем здесь — та же логика, что next_theme_mode в app/theme.py. #}
   <script>
   (function () {
+    var mode = {{ theme_mode|tojson }};
     var mq = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)");
     if (!mq) return;
     var icons = {{ THEME_TOGGLE_ICONS|tojson }};
+    var titles = {
+      {%- for m in THEME_MODES %}
+      {{ m|tojson }}: {{ _(THEME_TOGGLE_TITLES[m])|tojson }}{{ "," if not loop.last }}
+      {%- endfor %}
+    };
     var urls = {
-      light: {{ url_for('set_theme', theme='light')|tojson }},
-      dark: {{ url_for('set_theme', theme='dark')|tojson }}
+      {%- for m in THEME_MODES %}
+      {{ m|tojson }}: {{ url_for('set_theme', theme=m)|tojson }}{{ "," if not loop.last }}
+      {%- endfor %}
     };
     function apply() {
-      var theme = mq.matches ? "dark" : "light";
-      document.documentElement.setAttribute("data-bs-theme", theme);
+      var os = mq.matches ? "dark" : "light";
+      var other = os === "dark" ? "light" : "dark";
+      if (mode === "auto") document.documentElement.setAttribute("data-bs-theme", os);
+      var next = mode === "auto" ? other : (mode === other ? os : "auto");
       var a = document.getElementById("themeToggle");
       if (!a) return;
-      a.href = urls[theme === "dark" ? "light" : "dark"];
+      a.href = urls[next];
+      a.title = titles[next];
+      a.setAttribute("aria-label", titles[next]);
       var i = a.querySelector("i");
-      if (i) i.className = "bi bi-" + icons[theme];
+      if (i) i.className = "bi bi-" + icons[next];
     }
     apply();
     document.addEventListener("DOMContentLoaded", apply);
@@ -47,7 +58,6 @@
     else if (mq.addListener) mq.addListener(apply);
   })();
   </script>
-  {% endif %}
   <link href="{{ vendor_url('bootstrap', 'bootstrap.min.css') }}" rel="stylesheet">
   <link href="{{ vendor_url('bootstrap-icons', 'bootstrap-icons.min.css') }}" rel="stylesheet">
 </head>
@@ -199,8 +209,9 @@
            .navbar-nav в столбец) значки оказываются на отдельных строках;
            так они всегда в одну строку, сначала тема, потом язык. #}
         <li class="nav-item d-flex align-items-center gap-3">
-          <a id="themeToggle" class="nav-link text-white" href="{{ url_for('set_theme', theme=next_theme(current_theme)) }}" title="{{ _('Переключить тему') }}" aria-label="{{ _('Переключить тему') }}">
-            <i class="bi bi-{{ THEME_TOGGLE_ICONS[current_theme] }}" aria-hidden="true"></i>
+          {% set next_mode = next_theme_mode(theme_mode) %}
+          <a id="themeToggle" class="nav-link text-white" href="{{ url_for('set_theme', theme=next_mode) }}" title="{{ _(THEME_TOGGLE_TITLES[next_mode]) }}" aria-label="{{ _(THEME_TOGGLE_TITLES[next_mode]) }}">
+            <i class="bi bi-{{ THEME_TOGGLE_ICONS[next_mode] }}" aria-hidden="true"></i>
           </a>
           <div class="dropdown">
             <a class="nav-link dropdown-toggle text-white" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">

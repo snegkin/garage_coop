@@ -360,18 +360,30 @@ def detail(garage_id):
     # Charge.reading (FK reading_id, а не текстовым сопоставлением); начисления без
     # привязки к показанию (ручные, любого вида взноса) идут отдельными строками той
     # же таблицы. Платежи, закрывающие начисление (через ChargeAllocation), показаны
-    # в столбцах «От кого/Дата оплаты/Сумма» ЭТОЙ ЖЕ строки начисления, а не отдельной
+    # в столбцах «От кого/Дата оплаты/Сумма» ЭТОЙ ЖЕ строки начисления одной записью
+    # (_charge_payment: последняя оплата, итог, «N ₽ с баланса»), а не отдельной
     # строкой — так по одному начислению не возникает лишней строки на каждый платёж.
     # Отдельной строкой платёж идёт только на ту часть суммы, которая не пошла ни на
     # одно начисление (аванс/переплата).
     ledger_rows = []
 
-    def _charge_payments(charge_obj):
-        return [{
-            "payer": a.payment.payer.full_name if a.payment.payer else None,
-            "date": a.payment.date,
-            "amount": a.amount,
-        } for a in sorted(charge_obj.allocations, key=lambda a: a.payment.date)]
+    def _charge_payment(charge_obj, charge_date):
+        """
+        Оплата начисления — одной записью: плательщик и дата последней оплаты,
+        которая его закрыла, сумма — всё, что на него разнесено. Часть,
+        закрытая переплатой (платёж раньше даты начисления — «баланс»), не
+        выносится отдельной строкой, а указывается пометкой «N ₽ с баланса».
+        """
+        allocs = sorted(charge_obj.allocations, key=lambda a: (a.payment.date, a.payment.id))
+        if not allocs:
+            return None
+        last = allocs[-1].payment
+        return {
+            "payer": last.payer.full_name if last.payer else None,
+            "date": last.date,
+            "amount": sum((a.amount for a in allocs), Decimal("0")),
+            "from_balance": sum((a.amount for a in allocs if a.payment.date < charge_date), Decimal("0")),
+        }
 
     for r in all_readings:
         charge_obj = r.charge
@@ -382,7 +394,7 @@ def detail(garage_id):
             "tariff": r.tariff,
             "charge_amount": charge_obj.amount if charge_obj else None,
             "charge_paid": charge_paid_amount(charge_obj) if charge_obj else None,
-            "payments": _charge_payments(charge_obj) if charge_obj else [],
+            "payment": _charge_payment(charge_obj, r.reading_date) if charge_obj else None,
             "meter_number": r.meter.meter_number,
             "deduction": r.control_meter_deduction,
             "self_consumption": r.meter_self_consumption,
@@ -398,7 +410,7 @@ def detail(garage_id):
             "charge_amount": c.amount,
             "charge_paid": charge_paid_amount(c),
             "charge_label": c.fee_type.name if c.fee_type else None,
-            "payments": _charge_payments(c),
+            "payment": _charge_payment(c, dt.date(c.year, 1, 1)),
         })
     for p in payments:
         allocated = sum((a.amount for a in p.allocations), Decimal("0"))
@@ -411,7 +423,8 @@ def detail(garage_id):
                 "tariff": None,
                 "charge_amount": None,
                 "charge_label": _("аванс") if allocated > 0 else None,
-                "payments": [{"payer": p.payer.full_name if p.payer else None, "date": p.date, "amount": unallocated}],
+                "payment": {"payer": p.payer.full_name if p.payer else None, "date": p.date, "amount": unallocated,
+                            "from_balance": Decimal("0")},
             })
     ledger_rows.sort(key=lambda row: row["sort_date"], reverse=True)
 

@@ -916,6 +916,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "оплачено": "paid",
         "частично": "partial",
         "не оплачено": "unpaid",
+        "в т. ч. {sum} ₽ с баланса": "incl. {sum} ₽ from balance",
         "Добавить прибор учета": "Add meter",
         "Заменить прибор учета": "Replace meter",
         "Показания": "Reading",

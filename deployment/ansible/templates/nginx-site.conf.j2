@@ -131,3 +131,34 @@ server {
 }
 {% endif %}
 {% endif %}
+{% if landing_root | default('') %}
+
+# Несуществующие поддомены лендинга (DNS-запись «*») — на лендинг, а не на
+# сайт по умолчанию. Точные имена (кооперативы 1.…, 2.…, www) у nginx
+# важнее «*.». По HTTPS браузер предупредит о сертификате (wildcard через
+# HTTP-проверку не выпустить), но после — тоже лендинг.
+server {
+    listen 80;
+    listen [::]:80;
+    server_name *.{{ coop_domain }};
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/letsencrypt;
+    }
+
+    location / {
+        return 301 {{ 'https' if nginx_https | bool else 'http' }}://{{ coop_domain }}/;
+    }
+}
+{% if nginx_https | bool %}
+
+server {
+{{ listen_443() }}
+    server_name *.{{ coop_domain }};
+
+{{ tls() }}
+
+    return 301 https://{{ coop_domain }}/;
+}
+{% endif %}
+{% endif %}

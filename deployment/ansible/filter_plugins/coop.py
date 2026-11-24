@@ -181,7 +181,28 @@ def coop_landings(landings, taken):
     return result
 
 
+def _natural_key(text):
+    return [int(part) if part.isdigit() else part for part in re.split(r"(\d+)", text)]
+
+
+def idna_label(domain):
+    """Домен для показа людям: xn--…  → кириллица; не вышло — как есть."""
+    try:
+        return str(domain).encode("ascii").decode("idna")
+    except UnicodeError:
+        return str(domain)
+
+
+def landing_links(domains, landing_domain):
+    """Ссылки лендинга на сайты кооперативов — домены из domains, которые
+    являются поддоменами landing_domain: [{url, label}], 2.… раньше 10.…"""
+    suffix = "." + str(landing_domain)
+    links = [{"url": f"https://{d}", "label": idna_label(d)}
+             for d in dict.fromkeys(str(d) for d in domains or [] if d) if d.endswith(suffix)]
+    return sorted(links, key=lambda link: _natural_key(link["label"]))
+
+
 class FilterModule:
     def filters(self):
         return {"coop_instances": coop_instances, "cron_shift_minute": cron_shift_minute,
-                "coop_landings": coop_landings}
+                "coop_landings": coop_landings, "landing_links": landing_links}

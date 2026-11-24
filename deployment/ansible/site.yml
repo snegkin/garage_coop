@@ -86,12 +86,19 @@
       when: extra_instances | length > 0
       tags: always
 
+    # Основные домены кооперативов — для ссылок с лендинга (set_fact, а не
+    # vars: в цикле лендингов coop_domain переопределён доменом лендинга).
+    - name: Домены кооперативов
+      ansible.builtin.set_fact:
+        coop_main_domains: "{{ ([coop_domain] + extra_instances | map(attribute='domain') | list) | select | list }}"
+        coop_all_domains: >-
+          {{ ([coop_domain] + coop_domain_aliases + extra_instances | map(attribute='domain') | list
+              + extra_instances | map(attribute='aliases') | flatten) | select | list }}
+      tags: always
+
     - name: Лендинги
       ansible.builtin.set_fact:
-        landing_sites: >-
-          {{ coop_landing_sites | coop_landings([coop_domain] + coop_domain_aliases
-             + extra_instances | map(attribute='domain') | list
-             + extra_instances | map(attribute='aliases') | flatten) }}
+        landing_sites: "{{ coop_landing_sites | coop_landings(coop_all_domains) }}"
       tags: always
 
     - name: Для лендингов нужны landing_email и certbot_email
@@ -174,7 +181,7 @@
       ansible.builtin.include_tasks:
         file: tasks/landing.yml
         apply:
-          tags: [landing, nginx]
+          tags: [landing, nginx, instances]
       loop: "{{ landing_sites }}"
       loop_control:
         loop_var: landing
@@ -184,8 +191,10 @@
         coop_domain: "{{ landing.domain }}"
         coop_domain_aliases: "{{ landing.aliases }}"
         landing_root: "/var/www/landing/{{ landing.domain }}"
+        landing_coop_links: "{{ coop_main_domains | landing_links(landing.domain) }}"
         nginx_default_server: false
-      tags: [landing, nginx]
+      # instances — чтобы новый кооператив на поддомене сразу появился в ссылках
+      tags: [landing, nginx, instances]
 
   handlers:
     - name: reload nginx

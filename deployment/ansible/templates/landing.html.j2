@@ -44,6 +44,16 @@
   .btn-ghost:hover { border-color: var(--accent); }
   .btn svg { width: 20px; height: 20px; flex: none; }
   h2 { font-size: 24px; margin: 0 0 20px; }
+  .coops { padding-top: 0; }
+  .coops h2 { font-size: 20px; margin-bottom: 14px; }
+  .coop-links { display: flex; flex-wrap: wrap; gap: 10px; }
+  .coop-link {
+    display: inline-flex; align-items: center; gap: 10px; padding: 12px 16px; border-radius: 10px;
+    background: var(--surface); border: 1px solid var(--line); color: var(--text);
+    text-decoration: none; font-weight: 600; overflow-wrap: anywhere;
+  }
+  .coop-link:hover { border-color: var(--accent); }
+  .coop-link svg { width: 18px; height: 18px; color: var(--accent); flex: none; }
   section { padding: 32px 0; }
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
   .card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 20px; }
@@ -72,7 +82,8 @@
     header.hero { padding: 48px 0 32px; }
     .wrap { padding: 0 16px; }
     .cta { padding: 22px; }
-    .btn { width: 100%; justify-content: center; }
+    .btn, .coop-link { width: 100%; justify-content: space-between; }
+    .btn { justify-content: center; }
   }
 </style>
 </head>
@@ -94,6 +105,20 @@
 {% endif %}
     </div>
   </header>
+{% if landing_coop_links | default([]) %}
+
+  <section class="coops" aria-labelledby="coops-title">
+    <h2 id="coops-title">Ищете сайт своего кооператива?</h2>
+    <div class="coop-links">
+{% for link in landing_coop_links %}
+      <a class="coop-link" href="{{ link.url | e }}">
+        <span>{{ link.label | e }}</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+      </a>
+{% endfor %}
+    </div>
+  </section>
+{% endif %}
 
   <section>
     <h2>Что умеет сайт</h2>

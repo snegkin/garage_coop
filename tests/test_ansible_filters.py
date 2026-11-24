@@ -121,3 +121,12 @@ def test_landings():
 def test_landings_validation(landings, message):
     with pytest.raises(coop.AnsibleFilterError, match=message):
         coop.coop_landings(landings, ["main.ru"])
+
+
+def test_landing_links():
+    land = "xn--80accnoqddrba8bde6m0a.xn--p1ai"
+    domains = [f"10.{land}", "xn----dtbbg1boax0b.xn--p1ai", f"2.{land}", land, f"2.{land}", "", None]
+    links = coop.landing_links(domains, land)
+    assert [link["label"] for link in links] == ["2.автомотолюбитель.рф", "10.автомотолюбитель.рф"]
+    assert links[0]["url"] == f"https://2.{land}"
+    assert coop.landing_links([], land) == []

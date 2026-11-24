@@ -60,6 +60,7 @@ PAGES.py — файл расшифровки (в нём персональные
 import datetime as dt
 import importlib.util
 import os
+import re
 import sys
 from collections import defaultdict
 from decimal import Decimal, ROUND_HALF_UP
@@ -135,6 +136,91 @@ def move_target_charges(s, garage, ft_tg, tg_owner, member_accounts):
     return tbal
 
 
+def regroup_target_payments(s, garage, ft_tg):
+    """
+    После move_target_charges целевой счёт получает по куску от каждой
+    оплаты, которой FIFO счёта гаража закрыло целевое начисление, — с датой
+    той оплаты (взнос за фонари 2021 г. — кусками из оплат 2019–2020).
+    В тетради же целевой сбор оплачивается в строке, где он записан.
+    Перекладывает: на целевой счёт — одна оплата в дату начисления, сколько
+    начислено (но не больше суммы ЭЭ+целевые этой даты), остаток той же
+    оплаты — на счёт гаража; «банк», которым целевой был оплачен раньше,
+    остаётся на прежней дате. Сумма каждой оплаты тетради и итог гараж +
+    целевые не меняются. Возвращает список изменений.
+    """
+    Z = Decimal("0")
+    taccs = s.query(MemberAccount).filter_by(garage_id=garage.id, fee_type_id=ft_tg.id).all()
+    tpays = [p for a in taccs for p in a.payments if NOTEBOOK_PREFIX in (p.comment or "")]
+    if not tpays:
+        return []
+    el = defaultdict(list)
+    for p in garage.payments:
+        if (p.comment or "").startswith(NOTEBOOK_PREFIX):
+            el[p.date].append(p)
+    cur, need = defaultdict(Decimal), defaultdict(Decimal)
+    for p in tpays:
+        cur[(p.account_id, p.date)] += p.amount
+    for a in taccs:
+        for c in a.charges:
+            m = re.search(r"по тетради, (\d\d\.\d\d\.\d{4})", c.comment or "")
+            if m:
+                need[(a.id, dt.datetime.strptime(m.group(1), "%d.%m.%Y").date())] += c.amount
+    final = defaultdict(Decimal)
+    for key, amt in need.items():
+        final[key] = min(amt, cur.get(key, Z) + sum((p.amount for p in el.get(key[1], [])), Z))
+    left = sum(cur.values()) - sum(final.values())
+    for key in sorted(final, key=lambda k: k[1], reverse=True):   # FIFO не дотянулся — урезаем поздние даты
+        if left >= 0:
+            break
+        cut = min(final[key], -left)
+        final[key] -= cut
+        left += cut
+    for key in sorted(cur, key=lambda k: k[1]):                    # ранний «банк» — остаётся где был
+        if left <= 0:
+            break
+        take = min(max(cur[key] - final.get(key, Z), Z), left)
+        final[key] += take
+        left -= take
+    changes = []
+    for key in sorted(set(cur) | set(final), key=lambda k: k[1]):
+        aid, d = key
+        delta = final.get(key, Z) - cur.get(key, Z)   # > 0 — забрать с оплаты ЭЭ той же даты
+        ps = [p for p in tpays if (p.account_id, p.date) == key]
+        if delta == 0 and len(ps) <= 1:
+            continue
+        if delta > 0:
+            for p in sorted(el[d], key=lambda p: -p.amount):
+                t = min(p.amount, delta)
+                p.amount -= t
+                delta -= t
+            assert delta == 0, (garage.number, d)
+        elif delta < 0:
+            if el.get(d):
+                el[d][0].amount -= delta
+            else:
+                src = ps[0].comment.split(": ", 1)[1] if ps[0].comment.startswith("Л/С") else ps[0].comment
+                np_ = Payment(garage_id=garage.id, date=d, amount=-delta, comment=src)
+                s.add(np_)
+                el[d] = [np_]
+        comment = ps[0].comment if ps else f"Л/С {s.get(MemberAccount, aid).account_number}: {el[d][0].comment}"
+        for p in ps:
+            s.delete(p)
+        if final.get(key, Z) > 0:
+            s.add(Payment(account_id=aid, date=d, amount=final[key], comment=comment))
+        changes.append(f"{d:%d.%m.%Y}: {cur.get(key, Z)} → {final.get(key, Z)} ₽ ({len(ps)} шт.)")
+    for ps in el.values():
+        for p in ps:
+            if p.amount == 0:
+                s.delete(p)
+    s.flush()
+    s.expire_all()
+    reallocate_garage_charges(s.get(Garage, garage.id))
+    for a in taccs:
+        reallocate_member_charges(s.get(MemberAccount, a.id))
+    s.flush()
+    return changes
+
+
 def _rub(x: Decimal) -> str:
     text = f"{x:,.2f}".replace(",", " ").replace(".", ",")
     return (text[:-3] if text.endswith(",00") else text) + " ₽"
@@ -163,9 +249,13 @@ def rewrite_payment_comments(s, garage, ft_by_id):
         text = p.comment or ""
         if acc is not None and text.startswith(f"Л/С {acc.account_number}: "):
             text = text[len(f"Л/С {acc.account_number}: "):]
-        if not text.startswith(NOTEBOOK_PREFIX) or text.startswith(f"{NOTEBOOK_PREFIX}, оплата"):
+        if not text.startswith(NOTEBOOK_PREFIX):
             continue
-        note = text.removesuffix(MOVED_SUFFIX)[len(NOTEBOOK_PREFIX):].lstrip(":").strip()
+        if text.startswith(f"{NOTEBOOK_PREFIX}, оплата"):   # уже переписан — пересобрать (суммы частей могли измениться)
+            m = re.search(r" \(в тетради: (.*)\)$", text)
+            note = m.group(1) if m else ""
+        else:
+            note = text.removesuffix(MOVED_SUFFIX)[len(NOTEBOOK_PREFIX):].lstrip(":").strip()
         if note.startswith("Зачёт"):
             continue
         groups[(p.date, note)].append((p, label, acc))
@@ -441,10 +531,13 @@ def import_pages(pages):
         reallocate_garage_charges(garage)
         s.flush()
         tbal = move_target_charges(s, garage, ft_tg, tg_owner, member_accounts)
-        gbal = balance(garage)
         for acc in member_accounts.values():
             reallocate_member_charges(acc)
         s.flush()
+        regroup_target_payments(s, garage, ft_tg)
+        garage = s.get(Garage, garage.id)
+        gbal = balance(garage)
+        tbal = {a: balance(s.get(MemberAccount, a)) for a in tbal}
         s.expire(garage, ["payments"])
         rewrite_payment_comments(s, garage, ft_by_id)
         balances = {f"взносы {member_accounts[a].person.full_name}": b for a, b in mbal.items() if b}

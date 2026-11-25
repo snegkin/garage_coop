@@ -71,7 +71,7 @@ def create_app(config_class=Config):
     _database.STRICT_STRING_LENGTHS = bool(app.config.get("STRICT_STRING_LENGTHS"))
     init_db_lifecycle(app)
 
-    from . import auth, i18n, theme, news_format, contact_format, comment_format, audit, mail_client, name_declension, accounting, vendor, chat_emoji
+    from . import auth, i18n, theme, news_format, contact_format, comment_format, audit, mail_client, name_declension, accounting, vendor, chat_emoji, wiki_vars
     app.register_blueprint(auth.bp)
     i18n.init_app(app)
     vendor.init_app(app)
@@ -91,7 +91,11 @@ def create_app(config_class=Config):
     # длинные страницы вики (например, конфиги устройств) чаще всего и есть
     # причина сворачивать листинги; новости короче, кнопка сворачивания там
     # не нужна (см. news_format.render_html docstring).
-    app.jinja_env.globals["render_wiki_html"] = lambda text: news_format.render_html(text, collapse_long_code=True)
+    # wiki_vars.substitute — живые данные ({{тариф_членам}} и т.п.) до
+    # markdown-рендера, чтобы статьи не устаревали при смене тарифа.
+    app.jinja_env.globals["render_wiki_html"] = lambda text: news_format.render_html(
+        wiki_vars.substitute(text), collapse_long_code=True)
+    app.jinja_env.globals["wiki_variables"] = wiki_vars.variable_list
     app.jinja_env.globals["phone_link"] = contact_format.phone_link
     app.jinja_env.globals["phones_html"] = contact_format.phones_html
     app.jinja_env.globals["email_link"] = contact_format.email_link

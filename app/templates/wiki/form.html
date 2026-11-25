@@ -55,6 +55,21 @@
     <textarea id="wiki-body" class="form-control" name="body" rows="14" required>{{ page.body if page else '' }}</textarea>
     <div class="form-text">{{ _("Поддерживается упрощённая разметка: **жирный**, *курсив*, <u>подчёркнутый</u>, `код`, [текст](ссылка), списки («- » или «1. »), цитата («> »), блок кода (отступ 4 пробела или строки ``` до и после), таблица (| A | B |, под заголовком |---|---|), заголовки (### и ####), горизонтальная линия (---), ||скрытый текст|| (например, пароль — раскрывается по клику). Между абзацами оставляйте пустую строку.") }} {{ _("Кнопка с камерой загружает картинку и сразу вставляет её в текст в месте курсора.") }}</div>
     <div id="wiki-image-status" class="form-text text-danger"></div>
+    <details class="form-text mt-2">
+      <summary>{{ _("Подстановки из данных системы") }}</summary>
+      <p class="mb-1 mt-1">{{ _("Подставляются при каждом показе страницы, поэтому текст не устаревает, когда меняется тариф или поставщик. Арифметика для примеров: {{100 * тариф_членам}} → сумма с копейками. Внутри `кода` не подставляются.") }}</p>
+      <table class="table table-sm mb-0">
+        <tbody>
+        {% for key, desc, value in wiki_variables() %}
+          <tr>
+            <td class="text-nowrap"><code role="button" data-wiki-var="{{ key }}" title="{{ _('Вставить в текст') }}">{{ '{{' }}{{ key }}{{ '}}' }}</code></td>
+            <td>{{ desc }}</td>
+            <td class="text-nowrap">{{ value }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </details>
   </div>
 
   <div class="mb-3 form-check">
@@ -151,6 +166,15 @@
   document.querySelectorAll("[data-md-wrap]").forEach(function (btn) {
     btn.addEventListener("click", function () {
       wrapSelection(btn.dataset.mdWrap, btn.dataset.mdWrapClose || btn.dataset.mdWrap);
+    });
+  });
+  document.querySelectorAll("[data-wiki-var]").forEach(function (el) {
+    el.addEventListener("click", function () {
+      var start = textarea.selectionStart, end = textarea.selectionEnd;
+      var text = "{{" + el.dataset.wikiVar + "}}";
+      textarea.value = textarea.value.slice(0, start) + text + textarea.value.slice(end);
+      textarea.selectionStart = textarea.selectionEnd = start + text.length;
+      textarea.focus();
     });
   });
   document.querySelectorAll("[data-md-prefix]").forEach(function (btn) {

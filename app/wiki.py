@@ -28,6 +28,7 @@ from flask import (
 from . import audit
 from . import database
 from . import notifications
+from . import wiki_vars
 from .i18n import translate as _
 from .auth import login_required, roles_required
 from .permissions import is_board
@@ -221,7 +222,7 @@ def preview():
     вики использует тот же markdown-рендер). collapse_long_code=True — тем
     же приёмом, что и render_wiki_html в app/__init__.py, иначе предпросмотр
     длинного блока кода выглядел бы иначе, чем сохранённая страница."""
-    return jsonify(html=render_html(request.form.get("body", ""), collapse_long_code=True))
+    return jsonify(html=render_html(wiki_vars.substitute(request.form.get("body", "")), collapse_long_code=True))
 
 
 @bp.route("/attachments/upload", methods=["POST"])

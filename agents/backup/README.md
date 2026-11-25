@@ -96,28 +96,124 @@ restic-репозитории с историей версий.
    `backup_agent_pubkeys`; без ansible запустите вручную:
    `scripts/backup_offsite.sh` под пользователем сайта.
 
+## Где что лежит
+
+| Что | Путь |
+|---|---|
+| конфиг агента | `/etc/coop-backup/coop_backup.ini` |
+| пароль репозитория | `/etc/coop-backup/restic-password` |
+| ssh-ключ агента | `/etc/coop-backup/id_ed25519` |
+| restic-репозиторий (история) | `/var/lib/coop-backup/restic` (или `repository` из конфига) |
+| зеркало последнего состояния сервера | `/var/lib/coop-backup/mirror` |
+| итог последнего прохода | `/var/lib/coop-backup/status.json` |
+| программа агента | `/opt/coop-backup/coop_backup_agent.py` |
+
+Политика хранения — `keep_*` в конфиге (по умолчанию 14 ежедневных,
+8 еженедельных, 12 ежемесячных, 5 ежегодных). Лишние снимки агент
+удаляет сам после каждого прохода (`forget --prune`), но только с меткой
+`coop` и хостом `coop-server`.
+
 ## Повседневное
 
 ```bash
-systemctl list-timers coop-backup.timer   # когда следующий запуск
+systemctl list-timers coop-backup.timer   # когда был последний запуск и когда следующий
 systemctl status coop-backup              # итог последнего
+journalctl -u coop-backup -n 50           # журнал последнего прохода
 sudo -u coop-backup python3 /opt/coop-backup/coop_backup_agent.py status
 sudo -u coop-backup python3 /opt/coop-backup/coop_backup_agent.py snapshots
+sudo systemctl start coop-backup          # снимок вне расписания (несколько минут)
 ```
 
 `failed` у службы бывает в двух случаях: ошибка (нет сети, сервер
-недоступен) или код 2, когда бэкап сделан, но снимок БД на сервере старше
-`max_age_hours`. Второе значит, что на сервере не работает cron `backup_offsite`.
+недоступен, кончилось место; текст в `journalctl`) или код 2, когда бэкап
+сделан, но снимок БД на сервере старше `max_age_hours`. Второе значит, что
+на сервере не работает cron `backup_offsite`, и чинить надо там.
 
 На сервере видно, когда агент последний раз забирал данные:
 `instance/logs/backup_pull.log`.
 
-## Восстановление
+## Команды restic
+
+Репозиторий принадлежит пользователю `coop-backup`. Команды restic,
+которые пишут в репозиторий (`forget`, `prune`, `check`, `tag`, `unlock`),
+запускать **от его имени**: от root в репозитории появятся файлы root, и
+агент потом не сможет их прочитать. Удобно завести псевдоним (можно в
+`~/.bashrc`):
 
 ```bash
-export RESTIC_REPOSITORY=/var/lib/coop-backup/restic RESTIC_PASSWORD_FILE=/etc/coop-backup/restic-password
-sudo -E -u coop-backup restic snapshots
-sudo -E restic restore latest --target /tmp/coop-restore   # или id снимка
+alias rs='sudo -u coop-backup env RESTIC_REPOSITORY=/var/lib/coop-backup/restic RESTIC_PASSWORD_FILE=/etc/coop-backup/restic-password restic'
+```
+
+### Просмотр снимков
+
+```bash
+rs snapshots                        # список снимков: ID, дата, размер
+rs snapshots --latest 5             # последние 5
+rs ls latest                        # файлы последнего снимка
+rs ls latest /uploads               # содержимое одного каталога
+rs ls 1a2b3c4d /backup_staging      # то же для конкретного снимка
+rs find '*.pdf'                     # в каких снимках встречается файл
+rs diff 1a2b3c4d 5e6f7a8b           # что изменилось между двумя снимками
+rs stats                            # размер данных в последнем состоянии
+rs stats --mode raw-data            # сколько репозиторий занимает на диске
+```
+
+Пути внутри снимка начинаются с корня: `/backup_staging/coop.db` (база),
+`/backup_staging/env` (файл окружения), `/uploads/…`, `/bank_certs/…`,
+`/bundles/…`, `/mail_backup/…`.
+
+Снимки как обычные папки (`mount` только читает, поэтому можно от root):
+
+```bash
+sudo mkdir -p /mnt/restic
+sudo env RESTIC_REPOSITORY=/var/lib/coop-backup/restic RESTIC_PASSWORD_FILE=/etc/coop-backup/restic-password restic mount /mnt/restic
+# в другом терминале: sudo ls /mnt/restic/snapshots/   (папки по датам, latest — последний)
+# закончить — Ctrl+C в первом терминале
+```
+
+### Управление историей
+
+```bash
+rs forget 1a2b3c4d --prune          # удалить один снимок и освободить место
+rs forget --host coop-server --tag coop --keep-daily 14 --keep-weekly 8 --keep-monthly 12 --keep-yearly 5 --dry-run
+                                    # что удалила бы политика хранения (ничего не удаляет)
+rs prune                            # убрать данные, на которые не ссылается ни один снимок
+rs check                            # проверка структуры репозитория (быстро)
+rs check --read-data-subset=10%     # плюс чтение 10 % данных (раз в месяц-два)
+rs unlock                           # снять зависшую блокировку («repository is already locked»)
+```
+
+**Сохранить снимок навсегда** (перед годовым собранием, до крупного
+изменения на сайте): агент чистит только снимки с меткой `coop`, поэтому
+снимок с другой меткой он не тронет.
+
+```bash
+rs tag --set archive 1a2b3c4d       # у снимка будет новый ID, см. rs snapshots
+rs tag --set coop <новый ID>        # вернуть под общую политику
+```
+
+**Изменить, сколько хранить:** `keep_*` в `/etc/coop-backup/coop_backup.ini`.
+Если агент ставился через ansible — `local_backup_keep_*` в `vars.yml`,
+иначе плейбук вернёт старые значения. Применится на следующем проходе.
+
+**Место на диске:** `df -h /var/lib/coop-backup` и `rs stats --mode raw-data`.
+Снимки хранят только изменения, поэтому каждый новый обычно добавляет немного.
+
+## Восстановление
+
+**Один файл или каталог**, например базу на нужную дату:
+
+```bash
+rs snapshots                                                  # выбрать ID по дате
+rs dump 1a2b3c4d /backup_staging/coop.db | sudo tee /tmp/coop.db > /dev/null
+rs restore latest --target /tmp/coop-restore --include /uploads/news
+```
+
+**Всё целиком** (переезд на новый сервер):
+
+```bash
+rs restore latest --target /tmp/coop-restore      # или ID снимка вместо latest
+sudo chown -R "$USER" /tmp/coop-restore           # чтобы файлы открывались без sudo
 ```
 
 В `/tmp/coop-restore` будет:
@@ -134,5 +230,21 @@ sudo -E restic restore latest --target /tmp/coop-restore   # или id сним�
 `restore_source_instance_dir` — на `/tmp/coop-restore`, а `SECRET_KEY` и
 `BANK_API_ENCRYPTION_KEY` из `backup_staging/env` переносятся в `vars.yml`.
 
+`/tmp` очищается при перезагрузке: если восстановленное нужно сохранить,
+укажите в `--target` другой каталог.
+
 Тот же снимок есть во внешнем репозитории на Яндекс.Диске, см.
 [docs/deployment.md](../../docs/deployment.md), «Внешний бэкап».
+
+## Если умер сам компьютер председателя
+
+1. Сайт работает как прежде: копии на сервере и на Яндекс.Диске на месте.
+2. Если репозиторий был на отдельном диске, подключить его к новому
+   компьютеру и открыть тем же паролем:
+   `sudo env RESTIC_REPOSITORY=/путь/к/restic RESTIC_PASSWORD_FILE=/путь/к/паролю restic snapshots`.
+3. Поставить агента заново (раздел «Установка» выше или плейбуком) и
+   добавить новый ssh-ключ агента на сервер (`backup_agent_pubkeys` в
+   `vars.yml`).
+
+Та же памятка для правления — в вики, страница «Резервные копии на
+компьютере председателя» (раздел «Сайт»).

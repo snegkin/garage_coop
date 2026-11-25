@@ -19,8 +19,6 @@ import csv
 import datetime as dt
 import io
 import json
-import secrets
-import string
 from decimal import Decimal, InvalidOperation
 
 from flask import Blueprint, render_template, request, redirect, url_for, flash, abort, Response, g
@@ -36,7 +34,7 @@ from .models import (
     MasterMeterReading, Garage, GarageOwnership, Person, PersonalAccount, BoardTerm, RoleEnum,
     CsvImportProfile, User,
 )
-from .login_generation import default_login, login_key
+from .login_generation import default_login, generate_password, login_key
 from .accounting import (
     get_electricity_settings, current_tariff, electricity_account_number, compact_requisite, tidy_account_number,
     ensure_personal_member_accounts,
@@ -758,11 +756,6 @@ def board_link_me():
 # persons.reset_password).
 
 
-def _generate_password(length: int = 10) -> str:
-    alphabet = string.ascii_letters + string.digits
-    return "".join(secrets.choice(alphabet) for _ in range(length))
-
-
 def _unlinked_persons():
     """Люди без учётной записи (User.person_id) — «если у кого-то уже
     создан аккаунт, его не трогать» реализовано тем, что такие люди сюда
@@ -832,7 +825,7 @@ def accounts_create():
     created = []
     for r in selected_rows:
         person = r["person"]
-        password = _generate_password()
+        password = generate_password()
         initial_role = RoleEnum.CHAIRMAN if person.is_chairman else (
             RoleEnum.ACCOUNTANT if person.is_accountant else (
                 RoleEnum.BOARD if person.is_board_member else RoleEnum.MEMBER

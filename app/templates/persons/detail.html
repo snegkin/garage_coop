@@ -123,8 +123,10 @@
       {% else %}
         <p class="text-muted small">{{ _("У этого человека пока нет доступа к системе.") }}</p>
         <form method="post" action="{{ url_for('persons.create_account', person_id=person.id) }}" class="d-flex gap-2" data-ajax>
-          <input class="form-control form-control-sm" name="username" placeholder="{{ _('логин') }}" required>
-          <input class="form-control form-control-sm" type="password" name="password" placeholder="{{ _('пароль') }}" required minlength="4">
+          <input class="form-control form-control-sm" name="username" placeholder="{{ _('логин (авто)') }}"
+                 title="{{ _('Пусто — логин из ФИО: первая буква имени + фамилия') }}">
+          <input class="form-control form-control-sm" type="password" name="password" placeholder="{{ _('пароль (авто)') }}" minlength="4"
+                 title="{{ _('Пусто — случайный пароль, при первом входе его попросят сменить') }}">
           <button class="btn btn-sm btn-primary text-nowrap">{{ _("Создать доступ") }}</button>
         </form>
       {% endif %}

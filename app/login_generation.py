@@ -15,8 +15,21 @@
   при занятости — первые буквы имени И отчества + фамилия, если и это
   занято — числовой суффикс у последнего варианта. Отсюда нужен
   generate_unique_login().
+- persons.create_account (кнопка «Создать доступ» на странице человека) —
+  если логин/пароль не введены, они генерируются: логин —
+  generate_unique_login(), пароль — generate_password().
 """
+import secrets
+import string
+
 from .translit import transliterate
+
+
+def generate_password(length: int = 10) -> str:
+    """Случайный пароль из латинских букв и цифр. В БД хранится только хеш,
+    показать его можно один раз — сразу после создания."""
+    alphabet = string.ascii_letters + string.digits
+    return "".join(secrets.choice(alphabet) for _ in range(length))
 
 
 def login_key(login: str) -> str:

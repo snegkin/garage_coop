@@ -97,3 +97,33 @@ def test_change_username_rejects_key_collision_but_allows_own_case_change(db, cl
     client.post(f"/persons/{person.id}/account/change-username", data={"username": "PPetrov"})
     db.refresh(user)
     assert user.username == "PPetrov"
+
+
+def test_create_account_generates_login_and_password_when_empty(db, client):
+    from werkzeug.security import check_password_hash
+    make_user(db, "SStarasov", "secret", role=RoleEnum.MEMBER)
+    person = make_person(db, full_name="Старасов Сергей Иванович")
+    _board_client(db, client)
+
+    resp = client.post(f"/persons/{person.id}/account/create",
+                       data={"username": "", "password": ""}, follow_redirects=True)
+    user = db.query(User).filter_by(person_id=person.id).one()
+    assert user.username == "sistarasov"  # sstarasov занят — с первой буквой отчества
+    assert user.must_change_password
+    html = resp.get_data(as_text=True)
+    assert "sistarasov" in html
+    import re
+    password = re.search(r"пароль: ([A-Za-z0-9]{10})", html).group(1)
+    assert check_password_hash(user.password_hash, password)
+
+
+def test_create_account_keeps_entered_password_with_generated_login(db, client):
+    from werkzeug.security import check_password_hash
+    person = make_person(db, full_name="Петров Пётр")
+    _board_client(db, client)
+
+    client.post(f"/persons/{person.id}/account/create", data={"username": "", "password": "mypass"})
+    user = db.query(User).filter_by(person_id=person.id).one()
+    assert user.username == "ppetrov"
+    assert check_password_hash(user.password_hash, "mypass")
+    assert not user.must_change_password

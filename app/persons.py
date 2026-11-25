@@ -12,6 +12,7 @@ from . import notifications
 from . import person_revisions
 from .i18n import translate as _
 from .auth import login_required, roles_required, is_safe_next_url, login_taken
+from .login_generation import generate_password, generate_unique_login
 from .permissions import is_board, is_chairman, sync_user_role
 from .models import garage_number_key, garage_sort_key
 from .models import (
@@ -658,12 +659,22 @@ def create_account(person_id):
         flash(_("У этого человека уже есть учётная запись."), "warning")
         return redirect(url_for("persons.detail", person_id=person.id))
 
-    username = request.form["username"].strip()
-    password = request.form["password"]
-
-    if login_taken(username):
+    # Пустые поля — сгенерировать по тем же правилам, что и мастер настройки
+    # (см. login_generation): логин из ФИО со сменой при занятости, пароль
+    # случайный, при первом входе человек обязан его сменить.
+    username = request.form.get("username", "").strip()
+    password = request.form.get("password", "")
+    login_generated = not username
+    password_generated = not password
+    if login_generated:
+        username = generate_unique_login(
+            person.full_name, (u for (u,) in database.db_session.query(User.username)),
+        )
+    elif login_taken(username):
         flash(_("Такой логин уже занят."), "danger")
         return redirect(url_for("persons.detail", person_id=person.id))
+    if password_generated:
+        password = generate_password()
 
     initial_role = RoleEnum.CHAIRMAN if person.is_chairman else (
         RoleEnum.ACCOUNTANT if person.is_accountant else (
@@ -676,6 +687,7 @@ def create_account(person_id):
         role=initial_role,
         person_id=person.id,
         is_active=True,
+        must_change_password=password_generated,
     )
     database.db_session.add(user)
     database.db_session.flush()
@@ -684,7 +696,13 @@ def create_account(person_id):
         summary=f"Создана учётная запись «{username}» для {person.full_name}, роль — {initial_role.value}",
     )
     database.db_session.commit()
-    flash(_("Учётная запись создана. Сообщите человеку логин и пароль."), "alert-success")  # плашкой: надо успеть прочитать
+    if login_generated or password_generated:
+        # Пароль в открытом виде больше нигде не сохраняется — показать сейчас.
+        flash(_("Учётная запись создана. Логин: {login}, пароль: {password}. Сообщите их человеку — пароль больше показан не будет.",
+                login=username, password=password if password_generated else _("введённый вами")),
+              "alert-success")  # плашкой: надо успеть прочитать
+    else:
+        flash(_("Учётная запись создана. Сообщите человеку логин и пароль."), "alert-success")  # плашкой: надо успеть прочитать
     return redirect(url_for("persons.detail", person_id=person.id))
 
 

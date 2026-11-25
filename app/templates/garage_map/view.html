@@ -1,0 +1,471 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Схема территории") }}{% endblock %}
+{% block content %}
+<style>
+  #gmWrap { overflow: auto; max-height: calc(100vh - 220px); border: 1px solid var(--bs-border-color); border-radius: .5rem; background: var(--bs-body-bg); touch-action: pan-x pan-y; }
+  #gmSvg { display: block; user-select: none; }
+  #gmSvg .gm-shape { stroke: var(--bs-border-color); stroke-width: 2; vector-effect: non-scaling-stroke; }
+  #gmSvg .gm-road { fill: var(--bs-tertiary-bg); stroke: none; }
+  #gmSvg .gm-building { fill: var(--bs-secondary-bg); stroke: var(--bs-secondary-color); stroke-dasharray: 4 3; }
+  #gmSvg .gm-area { fill: none; stroke: var(--bs-secondary-color); stroke-width: 2; stroke-dasharray: 10 6; pointer-events: none; }
+  #gmSvg .gm-garage { cursor: pointer; fill: var(--bs-secondary-bg); }
+  #gmSvg .gm-garage:hover { stroke: var(--bs-emphasis-color); stroke-width: 3; }
+  #gmSvg .gm-gate { stroke: var(--bs-emphasis-color); stroke-width: 2.5; vector-effect: non-scaling-stroke; stroke-linecap: round; pointer-events: none; }
+  #gmSvg .gm-label { fill: var(--bs-emphasis-color); font-family: var(--bs-body-font-family); font-weight: 600; text-anchor: middle; dominant-baseline: central; pointer-events: none; paint-order: stroke; stroke: var(--bs-body-bg); stroke-width: 3px; stroke-linejoin: round; }
+  #gmSvg .gm-label-muted { fill: var(--bs-secondary-color); font-weight: 400; }
+  #gmSvg .s-inside { fill: var(--bs-primary-bg-subtle); stroke: var(--bs-primary-border-subtle); }
+  #gmSvg .s-outside { fill: var(--bs-warning-bg-subtle); stroke: var(--bs-warning-border-subtle); }
+  #gmSvg .s-none { fill: var(--bs-body-bg); stroke: var(--bs-secondary-color); stroke-dasharray: 5 4; }
+  #gmSvg .s-debt { fill: var(--bs-danger-bg-subtle); stroke: var(--bs-danger-border-subtle); }
+  #gmSvg .s-ok, #gmSvg .s-fresh, #gmSvg .s-privatized { fill: var(--bs-success-bg-subtle); stroke: var(--bs-success-border-subtle); }
+  #gmSvg .s-stale { fill: var(--bs-warning-bg-subtle); stroke: var(--bs-warning-border-subtle); }
+  #gmSvg .s-nometer, #gmSvg .s-notprivatized { fill: var(--bs-secondary-bg); stroke: var(--bs-border-color); }
+  #gmSvg .gm-hit { stroke: var(--bs-emphasis-color) !important; stroke-width: 5 !important; }
+  #gmSvg .gm-selected { stroke: var(--bs-primary) !important; stroke-width: 4 !important; }
+  #gmSvg .gm-handle { fill: var(--bs-primary); stroke: var(--bs-body-bg); stroke-width: 2; vector-effect: non-scaling-stroke; cursor: move; }
+  #gmSvg.gm-editing .gm-garage, #gmSvg.gm-editing .gm-road, #gmSvg.gm-editing .gm-building { cursor: move; }
+  #gmSvg.gm-editing .gm-area { pointer-events: visibleStroke; cursor: move; }
+  .gm-legend-swatch { display: inline-block; width: 14px; height: 14px; border-radius: 3px; border: 1px solid; vertical-align: -2px; }
+  #gmPanel { position: sticky; top: 1rem; }
+</style>
+
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+  <h3 class="mb-0">{{ _("Схема территории") }}</h3>
+  <div class="d-flex flex-wrap gap-2 align-items-center">
+    <input class="form-control form-control-sm" style="width: 9rem" id="gmSearch" placeholder="{{ _('№ гаража') }}" autocomplete="off">
+    <select class="form-select form-select-sm w-auto" id="gmMode" aria-label="{{ _('Окраска') }}">
+      <option value="territory">{{ _("Территория") }}</option>
+      <option value="debt">{{ _("Долг") }}</option>
+      <option value="power">{{ _("Показания") }}</option>
+      <option value="land">{{ _("Земля") }}</option>
+    </select>
+    <div class="btn-group btn-group-sm" role="group">
+      <button type="button" class="btn btn-outline-secondary" id="gmZoomOut" title="{{ _('Мельче') }}"><i class="bi bi-zoom-out"></i></button>
+      <button type="button" class="btn btn-outline-secondary" id="gmZoomIn" title="{{ _('Крупнее') }}"><i class="bi bi-zoom-in"></i></button>
+      <button type="button" class="btn btn-outline-secondary" id="gmRotate" title="{{ _('Повернуть: север вверху / слева') }}"><i class="bi bi-arrow-repeat"></i></button>
+    </div>
+    <button type="button" class="btn btn-sm btn-outline-primary" id="gmEditToggle"><i class="bi bi-pencil"></i> {{ _("Правка") }}</button>
+  </div>
+</div>
+
+<div id="gmLegend" class="small d-flex flex-wrap gap-3 mb-2"></div>
+
+<div id="gmEditBar" class="d-none border rounded p-2 mb-2 bg-body-tertiary small">
+  <div class="d-flex flex-wrap gap-2 align-items-center">
+    <button type="button" class="btn btn-sm btn-outline-secondary" id="gmAddGarage">{{ _("+ Бокс") }}</button>
+    <button type="button" class="btn btn-sm btn-outline-secondary" id="gmAddRoad">{{ _("+ Проезд") }}</button>
+    <button type="button" class="btn btn-sm btn-outline-secondary" id="gmAddBuilding">{{ _("+ Здание") }}</button>
+    <span class="vr"></span>
+    <label class="d-flex align-items-center gap-1 mb-0">{{ _("Подложка") }}
+      <input type="range" min="0" max="100" step="5" id="gmOpacity" value="{{ settings.background_opacity }}" style="width: 7rem">
+    </label>
+    <label class="btn btn-sm btn-outline-secondary mb-0">{{ _("Загрузить снимок") }}
+      <input type="file" id="gmBgFile" accept=".jpg,.jpeg,.png,.webp" class="d-none">
+    </label>
+    <span class="vr"></span>
+    <button type="button" class="btn btn-sm btn-primary" id="gmSave">{{ _("Сохранить") }}</button>
+    <button type="button" class="btn btn-sm btn-outline-secondary" id="gmCancel">{{ _("Отменить правки") }}</button>
+    <span id="gmDirty" class="text-warning d-none">{{ _("есть несохранённые изменения") }}</span>
+  </div>
+  <div class="text-muted mt-1">{{ _("Тяните бокс за середину или за углы. Жирная линия — сторона ворот.") }}</div>
+</div>
+
+<div class="row g-3">
+  <div class="col-lg-9">
+    <div id="gmWrap"><svg id="gmSvg" xmlns="http://www.w3.org/2000/svg"></svg></div>
+    {% if unplaced %}
+    <div class="small text-muted mt-2">
+      {{ _("Нет на схеме") }} ({{ unplaced|length }}):
+      {% for g in unplaced %}<a href="{{ url_for('garages.detail', garage_id=g.id) }}">{{ g.number }}</a>{% if not loop.last %}, {% endif %}{% endfor %}
+    </div>
+    {% endif %}
+  </div>
+  <div class="col-lg-3">
+    <div id="gmPanel">
+      <div id="gmCard" class="text-muted small">{{ _("Нажмите на бокс, чтобы увидеть карточку гаража.") }}</div>
+      <div id="gmShapeForm" class="d-none card card-body">
+        <div class="mb-2">
+          <label class="form-label small mb-1">{{ _("Что это") }}</label>
+          <select class="form-select form-select-sm" id="gmFKind">
+            <option value="garage">{{ _("Бокс") }}</option>
+            <option value="road">{{ _("Проезд") }}</option>
+            <option value="building">{{ _("Здание") }}</option>
+            <option value="area">{{ _("Граница участка") }}</option>
+          </select>
+        </div>
+        <div class="mb-2" id="gmFGarageRow">
+          <label class="form-label small mb-1">{{ _("Гараж") }}</label>
+          <select class="form-select form-select-sm" id="gmFGarage"></select>
+        </div>
+        <div class="mb-2">
+          <label class="form-label small mb-1">{{ _("Подпись (если гараж не из реестра)") }}</label>
+          <input class="form-control form-control-sm" id="gmFLabel" maxlength="100">
+        </div>
+        <div class="d-flex flex-wrap gap-1">
+          <button type="button" class="btn btn-sm btn-outline-secondary" id="gmFGate" title="{{ _('Перенести ворота на соседнюю сторону') }}">{{ _("Ворота ↻") }}</button>
+          <button type="button" class="btn btn-sm btn-outline-secondary" id="gmFCopy" title="{{ _('Такой же бокс рядом по ряду') }}">{{ _("Копия рядом") }}</button>
+          <button type="button" class="btn btn-sm btn-outline-danger" id="gmFDelete">{{ _("Удалить") }}</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var W = {{ settings.width }}, H = {{ settings.height }};
+  var BG = {{ (url_for('garage_map.background_file') if settings.background_file else '')|tojson }};
+  var shapes = {{ shapes_json|safe }};
+  var garages = {{ garages_json|safe }};
+  var states = {{ states_json|safe }};
+  var T = {
+    inside: {{ _("в кооперативе")|tojson }}, outside: {{ _("за территорией")|tojson }}, none: {{ _("не привязан к реестру")|tojson }},
+    debt: {{ _("есть долг")|tojson }}, ok: {{ _("без долга")|tojson }},
+    fresh: {{ _("показания свежие")|tojson }}, stale: {{ _("показания давно не подавались")|tojson }}, nometer: {{ _("нет счётчика")|tojson }},
+    privatized: {{ _("земля приватизирована")|tojson }}, notprivatized: {{ _("земля не приватизирована")|tojson }},
+    noGarage: {{ _("— не выбран —")|tojson }}, saved: {{ _("Схема сохранена.")|tojson }}, saveError: {{ _("Не удалось сохранить схему.")|tojson }},
+    leave: {{ _("Есть несохранённые изменения схемы. Уйти без сохранения?")|tojson }}, loading: {{ _("Загрузка…")|tojson }},
+    confirmDelete: {{ _("Удалить эту фигуру со схемы?")|tojson }}
+  };
+  var MODES = {
+    territory: ["inside", "outside", "none"], debt: ["debt", "ok", "none"],
+    power: ["fresh", "stale", "nometer", "none"], land: ["privatized", "notprivatized", "none"]
+  };
+  var MODE_FIELD = { territory: "territory", debt: "debt", power: "power", land: "land" };
+  var NS = "http://www.w3.org/2000/svg";
+  var svg = document.getElementById("gmSvg");
+  var wrap = document.getElementById("gmWrap");
+  var csrf = document.querySelector('meta[name="csrf-token"]');
+  var store = {
+    get: function (k, d) { try { var v = localStorage.getItem(k); return v === null ? d : v; } catch (e) { return d; } },
+    set: function (k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+  };
+  var rotated = store.get("gmRotated", window.innerWidth >= 992 ? "1" : "0") === "1";
+  var zoom = parseFloat(store.get("gmZoom", "1")) || 1;
+  var mode = store.get("gmMode", "territory");
+  if (!MODES[mode]) mode = "territory";
+  document.getElementById("gmMode").value = mode;
+  var editing = false, dirty = false, selected = null, tempId = 0;
+  var garageById = {};
+  garages.forEach(function (g) { garageById[g.id] = g; });
+
+  // --- координаты: схема хранится «север вверху»; повёрнутый вид — север слева (как на плане 2003 г.)
+  function view(p) { return rotated ? [p[1], W - p[0]] : [p[0], p[1]]; }
+  function unview(p) { return rotated ? [W - p[1], p[0]] : [p[0], p[1]]; }
+  function vw() { return rotated ? H : W; }
+  function vh() { return rotated ? W : H; }
+
+  function el(name, attrs, parent) {
+    var e = document.createElementNS(NS, name);
+    for (var k in attrs) e.setAttribute(k, attrs[k]);
+    if (parent) parent.appendChild(e);
+    return e;
+  }
+  function centroid(pts) {
+    var x = 0, y = 0;
+    pts.forEach(function (p) { x += p[0]; y += p[1]; });
+    return [x / pts.length, y / pts.length];
+  }
+  function stateOf(shape) {
+    if (!shape.garage_id || !states[shape.garage_id]) return "none";
+    return states[shape.garage_id][MODE_FIELD[mode]];
+  }
+  function labelOf(shape) {
+    if (shape.garage_id && garageById[shape.garage_id]) return garageById[shape.garage_id].number;
+    return shape.label || "";
+  }
+
+  function render() {
+    svg.innerHTML = "";
+    svg.setAttribute("viewBox", "0 0 " + vw() + " " + vh());
+    var baseWidth = wrap.clientWidth - 2;
+    var natural = rotated ? baseWidth : Math.min(baseWidth, 520);
+    svg.setAttribute("width", Math.round(natural * zoom));
+    svg.setAttribute("height", Math.round(natural * zoom * vh() / vw()));
+    svg.classList.toggle("gm-editing", editing);
+    if (BG) {
+      var g = el("g", { opacity: (document.getElementById("gmOpacity").value / 100) }, svg);
+      var img = el("image", { href: BG, x: 0, y: 0, width: W, height: H, preserveAspectRatio: "none" }, g);
+      if (rotated) img.setAttribute("transform", "translate(0 " + W + ") rotate(-90)");
+    }
+    var order = { area: 0, road: 1, building: 2, garage: 3 };
+    var sorted = shapes.slice().sort(function (a, b) { return order[a.kind] - order[b.kind]; });
+    var labels = [];
+    sorted.forEach(function (shape) {
+      var pts = shape.points.map(view);
+      var cls = "gm-shape gm-" + shape.kind;
+      if (shape.kind === "garage") cls += " s-" + stateOf(shape);
+      if (selected === shape) cls += " gm-selected";
+      var poly = el("polygon", { points: pts.map(function (p) { return p.join(","); }).join(" "), "class": cls }, svg);
+      poly.__shape = shape;
+      shape.__el = poly;
+      if (shape.kind === "garage") {
+        el("line", { x1: pts[0][0], y1: pts[0][1], x2: pts[1][0], y2: pts[1][1], "class": "gm-gate" }, svg);
+        var st = shape.garage_id && states[shape.garage_id];
+        var title = el("title", {}, poly);
+        title.textContent = labelOf(shape) + (st && st.owners ? " — " + st.owners : "");
+      }
+      var text = labelOf(shape);
+      if (text) labels.push([shape, pts, text]);
+    });
+    // Номера боксов — одним кеглем (по типичной ширине бокса), уменьшаем только длинные.
+    function dims(pts) {
+      var xs = pts.map(function (p) { return p[0]; }), ys = pts.map(function (p) { return p[1]; });
+      return [Math.max.apply(null, xs) - Math.min.apply(null, xs), Math.max.apply(null, ys) - Math.min.apply(null, ys)];
+    }
+    var widths = labels.filter(function (i) { return i[0].kind === "garage"; })
+      .map(function (i) { var d = dims(i[1]); return Math.min(d[0], d[1]); }).sort(function (a, b) { return a - b; });
+    var common = widths.length ? widths[Math.floor(widths.length / 2)] / 2.1 : 20;
+    labels.forEach(function (item) {
+      var shape = item[0], pts = item[1], text = item[2], c = centroid(pts), d = dims(pts);
+      var size = shape.kind === "garage"
+        ? Math.min(common, d[0] / (text.length * 0.62 + 0.3), d[1] * 0.7)
+        : Math.min(Math.min(d[0], d[1]) * 0.3, common * 1.5);
+      var t = el("text", { x: c[0], y: c[1], "font-size": Math.max(size, 6).toFixed(1),
+        "class": "gm-label" + (shape.garage_id || shape.kind !== "garage" ? "" : " gm-label-muted") }, svg);
+      t.textContent = text;
+    });
+    if (editing && selected) {
+      selected.points.forEach(function (p, i) {
+        var v = view(p);
+        var hnd = el("circle", { cx: v[0], cy: v[1], r: Math.max(vw(), vh()) / 600 + 6, "class": "gm-handle" }, svg);
+        hnd.__vertex = i;
+      });
+    }
+    renderLegend();
+    applySearch(false);
+  }
+
+  function renderLegend() {
+    var box = document.getElementById("gmLegend");
+    var counts = {};
+    shapes.forEach(function (s) { if (s.kind === "garage") { var k = stateOf(s); counts[k] = (counts[k] || 0) + 1; } });
+    box.innerHTML = "";
+    MODES[mode].forEach(function (k) {
+      if (!counts[k] && k === "none") return;
+      var span = document.createElement("span");
+      var probe = el("polygon", { "class": "s-" + k }, svg);
+      var cs = getComputedStyle(probe);
+      span.innerHTML = '<span class="gm-legend-swatch"></span> ';
+      span.firstChild.style.background = cs.fill;
+      span.firstChild.style.borderColor = cs.stroke;
+      probe.remove();
+      span.appendChild(document.createTextNode(T[k] + " — " + (counts[k] || 0)));
+      box.appendChild(span);
+    });
+  }
+
+  // --- поиск по номеру
+  function applySearch(scroll) {
+    var q = document.getElementById("gmSearch").value.trim().toLowerCase();
+    var first = null;
+    shapes.forEach(function (s) {
+      if (!s.__el) return;
+      var hit = q && labelOf(s).toLowerCase() === q;
+      s.__el.classList.toggle("gm-hit", !!hit);
+      if (hit && !first) first = s;
+    });
+    if (scroll && first) {
+      var r = first.__el.getBoundingClientRect(), wr = wrap.getBoundingClientRect();
+      wrap.scrollLeft += r.left - wr.left - wr.width / 2 + r.width / 2;
+      wrap.scrollTop += r.top - wr.top - wr.height / 2 + r.height / 2;
+      if (!editing && first.garage_id) showCard(first.garage_id);
+    }
+  }
+  document.getElementById("gmSearch").addEventListener("input", function () { applySearch(true); });
+
+  // --- карточка гаража
+  function showCard(garageId) {
+    var box = document.getElementById("gmCard");
+    box.classList.remove("text-muted", "small");
+    box.textContent = T.loading;
+    fetch({{ url_for('garage_map.card', garage_id=0)|tojson }}.replace(/0$/, garageId), { headers: { "X-Requested-With": "fetch" } })
+      .then(function (r) { return r.text(); })
+      .then(function (html) { box.innerHTML = html; });
+  }
+
+  // --- правка
+  function markDirty() {
+    dirty = true;
+    document.getElementById("gmDirty").classList.remove("d-none");
+  }
+  function svgPoint(evt) {
+    var pt = svg.createSVGPoint();
+    pt.x = evt.clientX; pt.y = evt.clientY;
+    var p = pt.matrixTransform(svg.getScreenCTM().inverse());
+    return [p.x, p.y];
+  }
+  var drag = null;
+  svg.addEventListener("pointerdown", function (evt) {
+    var target = evt.target;
+    if (!editing) {
+      if (target.__shape && target.__shape.garage_id) showCard(target.__shape.garage_id);
+      return;
+    }
+    if (target.__vertex !== undefined && selected) {
+      drag = { kind: "vertex", index: target.__vertex, start: svgPoint(evt), orig: selected.points.map(function (p) { return p.slice(); }) };
+    } else if (target.__shape) {
+      select(target.__shape);
+      drag = { kind: "move", start: svgPoint(evt), orig: selected.points.map(function (p) { return p.slice(); }) };
+    } else {
+      select(null);
+      return;
+    }
+    svg.setPointerCapture(evt.pointerId);
+    evt.preventDefault();
+  });
+  svg.addEventListener("pointermove", function (evt) {
+    if (!drag || !selected) return;
+    var now = svgPoint(evt);
+    var a = unview(drag.start), b = unview(now), dx = b[0] - a[0], dy = b[1] - a[1];
+    if (Math.abs(dx) + Math.abs(dy) < 0.5) return;
+    if (drag.kind === "vertex") {
+      selected.points[drag.index] = [drag.orig[drag.index][0] + dx, drag.orig[drag.index][1] + dy];
+    } else {
+      selected.points = drag.orig.map(function (p) { return [p[0] + dx, p[1] + dy]; });
+    }
+    drag.moved = true;
+    render();
+  });
+  svg.addEventListener("pointerup", function () {
+    if (drag && drag.moved) markDirty();
+    drag = null;
+  });
+
+  function select(shape) {
+    selected = shape;
+    var form = document.getElementById("gmShapeForm");
+    form.classList.toggle("d-none", !shape);
+    document.getElementById("gmCard").classList.toggle("d-none", !!shape);
+    if (shape) {
+      document.getElementById("gmFKind").value = shape.kind;
+      fillGarageSelect(shape);
+      document.getElementById("gmFLabel").value = shape.label || "";
+      document.getElementById("gmFGarageRow").classList.toggle("d-none", shape.kind !== "garage");
+    }
+    render();
+  }
+  function fillGarageSelect(shape) {
+    var sel = document.getElementById("gmFGarage");
+    var used = {};
+    shapes.forEach(function (s) { if (s !== shape && s.garage_id) used[s.garage_id] = true; });
+    sel.innerHTML = "";
+    var o = document.createElement("option");
+    o.value = ""; o.textContent = T.noGarage; sel.appendChild(o);
+    garages.forEach(function (g) {
+      var opt = document.createElement("option");
+      opt.value = g.id;
+      opt.textContent = g.number + (used[g.id] ? " ✓" : "");
+      sel.appendChild(opt);
+    });
+    sel.value = shape.garage_id || "";
+  }
+  document.getElementById("gmFKind").addEventListener("change", function () {
+    if (!selected) return;
+    selected.kind = this.value;
+    if (selected.kind !== "garage") selected.garage_id = null;
+    document.getElementById("gmFGarageRow").classList.toggle("d-none", selected.kind !== "garage");
+    markDirty(); render();
+  });
+  document.getElementById("gmFGarage").addEventListener("change", function () {
+    if (!selected) return;
+    var id = this.value ? parseInt(this.value, 10) : null;
+    // Гараж может стоять только в одном контуре — с прежнего снимаем.
+    if (id) shapes.forEach(function (s) { if (s !== selected && s.garage_id === id) s.garage_id = null; });
+    selected.garage_id = id;
+    fillGarageSelect(selected);
+    markDirty(); render();
+  });
+  document.getElementById("gmFLabel").addEventListener("input", function () {
+    if (!selected) return;
+    selected.label = this.value;
+    markDirty(); render();
+  });
+  document.getElementById("gmFGate").addEventListener("click", function () {
+    if (!selected) return;
+    selected.points.push(selected.points.shift());
+    markDirty(); render();
+  });
+  document.getElementById("gmFCopy").addEventListener("click", function () {
+    if (!selected) return;
+    var p = selected.points, dx = p[1][0] - p[0][0], dy = p[1][1] - p[0][1];
+    var copy = { id: null, tmp: ++tempId, kind: selected.kind, garage_id: null, label: "", points: p.map(function (q) { return [q[0] + dx, q[1] + dy]; }) };
+    shapes.push(copy);
+    markDirty(); select(copy);
+  });
+  document.getElementById("gmFDelete").addEventListener("click", function () {
+    if (!selected || !confirm(T.confirmDelete)) return;
+    shapes.splice(shapes.indexOf(selected), 1);
+    markDirty(); select(null);
+  });
+
+  function addShape(kind, w, h) {
+    var wr = wrap.getBoundingClientRect();
+    var c = unview(svgPoint({ clientX: wr.left + wr.width / 2, clientY: wr.top + wr.height / 2 }));
+    var shape = { id: null, tmp: ++tempId, kind: kind, garage_id: null, label: "",
+      points: [[c[0] - w / 2, c[1] - h / 2], [c[0] + w / 2, c[1] - h / 2], [c[0] + w / 2, c[1] + h / 2], [c[0] - w / 2, c[1] + h / 2]] };
+    shapes.push(shape);
+    markDirty(); select(shape);
+  }
+  document.getElementById("gmAddGarage").addEventListener("click", function () { addShape("garage", W / 13, W / 6); });
+  document.getElementById("gmAddRoad").addEventListener("click", function () { addShape("road", W / 8, W / 3); });
+  document.getElementById("gmAddBuilding").addEventListener("click", function () { addShape("building", W / 5, W / 5); });
+  document.getElementById("gmOpacity").addEventListener("input", function () { markDirty(); render(); });
+
+  document.getElementById("gmBgFile").addEventListener("change", function () {
+    if (!this.files.length) return;
+    var fd = new FormData();
+    fd.append("file", this.files[0]);
+    fetch({{ url_for('garage_map.upload_background')|tojson }}, { method: "POST", body: fd, headers: csrf ? { "X-CSRFToken": csrf.content } : {} })
+      .then(function (r) { return r.json(); })
+      .then(function (res) {
+        if (!res.ok) { alert(res.error); return; }
+        BG = {{ url_for('garage_map.background_file')|tojson }} + "?t=" + Date.now();
+        render();
+      });
+  });
+
+  document.getElementById("gmSave").addEventListener("click", function () {
+    var btn = this;
+    btn.disabled = true;
+    var body = {
+      background_opacity: parseInt(document.getElementById("gmOpacity").value, 10),
+      shapes: shapes.map(function (s) { return { id: s.id, kind: s.kind, garage_id: s.garage_id, label: s.label, points: s.points }; })
+    };
+    var headers = { "Content-Type": "application/json" };
+    if (csrf) headers["X-CSRFToken"] = csrf.content;
+    fetch({{ url_for('garage_map.save')|tojson }}, { method: "POST", headers: headers, body: JSON.stringify(body) })
+      .then(function (r) { return r.json(); })
+      .then(function (res) {
+        btn.disabled = false;
+        if (!res.ok) { alert(res.error || T.saveError); return; }
+        dirty = false;
+        location.reload();
+      })
+      .catch(function () { btn.disabled = false; alert(T.saveError); });
+  });
+  document.getElementById("gmCancel").addEventListener("click", function () {
+    if (!dirty || confirm(T.leave)) { dirty = false; location.reload(); }
+  });
+  window.addEventListener("beforeunload", function (e) { if (dirty) { e.preventDefault(); e.returnValue = ""; } });
+
+  document.getElementById("gmEditToggle").addEventListener("click", function () {
+    if (editing && dirty && !confirm(T.leave)) return;
+    if (editing && dirty) { dirty = false; location.reload(); return; }
+    editing = !editing;
+    this.classList.toggle("active", editing);
+    document.getElementById("gmEditBar").classList.toggle("d-none", !editing);
+    select(null);
+  });
+
+  // --- вид
+  document.getElementById("gmMode").addEventListener("change", function () { mode = this.value; store.set("gmMode", mode); render(); });
+  function setZoom(z) { zoom = Math.max(0.5, Math.min(6, z)); store.set("gmZoom", String(zoom)); render(); }
+  document.getElementById("gmZoomIn").addEventListener("click", function () { setZoom(zoom * 1.4); });
+  document.getElementById("gmZoomOut").addEventListener("click", function () { setZoom(zoom / 1.4); });
+  document.getElementById("gmRotate").addEventListener("click", function () { rotated = !rotated; store.set("gmRotated", rotated ? "1" : "0"); render(); });
+  window.addEventListener("resize", function () { if (document.body.contains(svg)) render(); });
+  render();
+})();
+</script>
+{% endblock %}

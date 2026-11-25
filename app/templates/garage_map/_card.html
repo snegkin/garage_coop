@@ -1,0 +1,47 @@
+<div class="card">
+  {% if photos %}
+  {% set photo = photos[0] %}
+  <a href="{{ url_for('garages.detail', garage_id=garage.id) }}#photos">
+    <img src="{{ url_for('garages.photo_file', photo_id=photo.id, v=photo.file_path) }}" class="card-img-top bg-body-tertiary" style="max-height: 220px; object-fit: cover" alt="{{ photo.caption or _('Фото гаража') }}">
+  </a>
+  {% endif %}
+  <div class="card-body">
+    <h5 class="card-title mb-1">
+      {{ _("Гараж №{number}", number=garage.number) }}
+      {% if garage.outside_territory %}<span class="badge text-bg-secondary align-middle">{{ _("вне терр.") }}</span>{% endif %}
+    </h5>
+    {% if photos|length > 1 %}<div class="small text-muted mb-2">{{ _("Фото: {count}", count=photos|length) }}</div>{% endif %}
+    <div class="mb-2">
+      {% for o in garage.ownerships %}
+      <div><a href="{{ url_for('persons.detail', person_id=o.person.id) }}">{{ o.person.full_name }}</a>{% if garage.ownerships|length > 1 %} <span class="text-muted small">({{ (o.share * 100)|round(0)|int }}%)</span>{% endif %}</div>
+      {% else %}
+      <div class="text-muted">{{ _("Собственник не указан") }}</div>
+      {% endfor %}
+      {% for c in garage.contacts %}
+      <div class="small text-muted">{{ c.person.full_name }}{% if c.relation %} — {{ c.relation }}{% endif %}</div>
+      {% endfor %}
+    </div>
+    <table class="table table-sm small mb-2">
+      <tr>
+        <td>{{ _("Электричество") }}</td>
+        <td class="text-end {{ 'text-danger' if power_balance < 0 else 'text-success' }}">{{ fmt2(power_balance) }} ₽</td>
+      </tr>
+      {% for account, bal in fee_rows %}
+      <tr>
+        <td>{{ account.fee_type.name }}{% if garage.ownerships|length > 1 %} <span class="text-muted">· {{ account.person.short_name }}</span>{% endif %}</td>
+        <td class="text-end {{ 'text-danger' if bal < 0 else 'text-success' }}">{{ fmt2(bal) }} ₽</td>
+      </tr>
+      {% endfor %}
+    </table>
+    <div class="small mb-2">
+      {% if meter %}
+      {{ _("Счётчик") }} {{ meter.meter_number }}{% if last_reading %}: {{ fmt2(last_reading.reading) }} {{ _("от") }} {{ last_reading.reading_date.strftime("%d.%m.%Y") }}{% endif %}
+      {% else %}
+      <span class="text-muted">{{ _("Счётчика нет") }}</span>
+      {% endif %}
+      <br>{{ _("Земля приватизирована") if garage.land_privatized else _("Земля не приватизирована") }}
+    </div>
+    {% if garage.comment %}<div class="small text-muted mb-2">{{ garage.comment }}</div>{% endif %}
+    <a class="btn btn-sm btn-outline-primary" href="{{ url_for('garages.detail', garage_id=garage.id) }}">{{ _("Открыть гараж") }}</a>
+  </div>
+</div>

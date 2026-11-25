@@ -2304,6 +2304,50 @@ class GarageFeeExclusion(Base):
     fee_type_id: Mapped[int] = mapped_column(ForeignKey("fee_type.id", ondelete="CASCADE"), primary_key=True)
 
 
+class GarageMapShape(Base):
+    """
+    Фигура на схеме территории (страница «Схема», app/garage_map.py):
+    контур бокса, проезд, здание или граница участка — многоугольник в
+    координатах схемы (GarageMapSettings.width × height, y вниз).
+
+    У бокса (kind="garage") первое ребро — points[0]→points[1] — сторона
+    ворот: на схеме она отмечена, а в режиме правки её можно перенести на
+    другое ребро. garage_id может быть пустым — контур нарисован, а гараж в
+    реестр ещё не заведён (или стоит чужой, не наш) — тогда на схеме
+    показывается label. Удаление гаража не удаляет контур, только отвязывает.
+    """
+    __tablename__ = "garage_map_shape"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    kind: Mapped[str] = mapped_column(String(20), default="garage")  # garage / road / building / area
+    garage_id: Mapped[int | None] = mapped_column(
+        ForeignKey("garage.id", ondelete="SET NULL"), unique=True, index=True,
+    )
+    label: Mapped[str | None] = mapped_column(String(100))
+    points: Mapped[str] = mapped_column(Text)  # JSON [[x, y], ...]
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+
+    garage: Mapped["Garage | None"] = relationship()
+
+    def point_list(self) -> list[list[float]]:
+        try:
+            return json.loads(self.points or "[]")
+        except ValueError:
+            return []
+
+
+class GarageMapSettings(Base):
+    """Общие параметры схемы (одна строка, id=1): размер полотна и подложка."""
+    __tablename__ = "garage_map_settings"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    width: Mapped[int] = mapped_column(Integer, default=1000)
+    height: Mapped[int] = mapped_column(Integer, default=1000)
+    # Подложка — снимок местности в UPLOAD_FOLDER, растягивается на всё полотно.
+    background_file: Mapped[str | None] = mapped_column(String(500))
+    background_opacity: Mapped[int] = mapped_column(Integer, default=50)  # 0–100 %
+
+
 class GaragePhoto(Base):
     __tablename__ = "garage_photo"
 

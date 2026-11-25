@@ -299,9 +299,11 @@ def create_app(config_class=Config):
     from .year_report import bp as year_report_bp
     from . import budget_plan  # noqa: F401 — маршруты планирования сметы на том же blueprint
     from .system_logs import bp as system_logs_bp
+    from .garage_map import bp as garage_map_bp
 
     app.register_blueprint(main_bp)
     app.register_blueprint(garages_bp)
+    app.register_blueprint(garage_map_bp)
     app.register_blueprint(persons_bp)
     app.register_blueprint(finance_bp)
 

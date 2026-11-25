@@ -362,6 +362,7 @@ def import_pages(pages):
                                     effective_date=dt.date.fromisoformat(eff), comment="По тетради учёта (импорт)"))
 
     persons, created_persons = {}, 0
+    restored = []  # люди, возвращённые из архива
     owner_contacts = []  # (номер гаража, контакт, чей это контакт)
 
     def person(key):
@@ -409,6 +410,9 @@ def import_pages(pages):
         def set_owner(key, date, comment):
             nonlocal owner
             new = person(key)
+            if new.is_archived:  # человек из архива снова собственник (вторая тетрадь, другой ряд)
+                restored.append(f"{new.full_name} — снова собственник (гараж №{number}), возвращён из архива")
+                new.is_archived, new.archived_at, new.archived_reason = False, None, None
             when = dt.datetime.combine(date, dt.time(12)) if date else dt.datetime.utcnow()
             if owner is not None:
                 s.delete(s.query(GarageOwnership).filter_by(garage_id=garage.id, person_id=owner.id).one())
@@ -552,6 +556,7 @@ def import_pages(pages):
 
     archived = archive_former_owners(s, set(persons_touched(persons)))
     archived += archive_owner_contacts(s, owner_contacts)
+    archived += restored
     return report, totals, created_persons, skipped, archived
 
 
@@ -585,7 +590,7 @@ def main():
         for f in flags:
             print(f"        ! {f}")
     if archived:
-        print("\nВ архив людей (выбывшие собственники и их контакты):")
+        print("\nАрхив людей (выбывшие собственники и их контакты; возвращённые из архива):")
         for line in archived:
             print(f"  {line}")
     if skipped:

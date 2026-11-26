@@ -716,13 +716,31 @@ def reset_password(person_id):
     if user is None:
         abort(404)
 
-    user.password_hash = generate_password_hash(request.form["password"])
+    # Пустое поле — случайный пароль. Обычно его генерирует JS на карточке
+    # (data-random-password в base.html), чтобы скопировать в буфер прямо в
+    # обработчике клика, и присылает generated=1; без JS генерируем здесь.
+    # Случайный пароль, как и в create_account, при входе нужно сменить.
+    password = request.form.get("password", "")
+    copied = request.form.get("generated") == "1" and bool(password)
+    password_generated = copied or not password
+    if not password:
+        password = generate_password()
+    user.password_hash = generate_password_hash(password)
+    if password_generated:
+        user.must_change_password = True
     audit.record(
         "account.password_reset", entity_type="user", entity_id=user.id,
         summary=f"Правление сбросило пароль пользователю «{user.username}» ({person.short_name})",
     )
     database.db_session.commit()
-    flash(_("Пароль обновлён."), "success")
+    if copied:
+        flash(_("Новый пароль: {password}. Он скопирован в буфер обмена — сообщите его человеку, при входе пароль нужно будет сменить.",
+                password=password), "alert-success")  # плашкой: надо успеть прочитать
+    elif password_generated:
+        flash(_("Новый пароль: {password}. Сообщите его человеку — пароль больше показан не будет, при входе его нужно будет сменить.",
+                password=password), "alert-success")
+    else:
+        flash(_("Пароль обновлён."), "success")
     return redirect(url_for("persons.detail", person_id=person.id))
 
 

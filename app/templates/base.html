@@ -3576,6 +3576,45 @@ function submitFormAjax(form, opts) {
     });
 }
 
+// Форма с data-random-password (сброс пароля на карточке человека): пустое
+// поле password — генерируем случайный пароль здесь, а не на сервере, чтобы
+// скопировать его в буфер обмена, пока не истекла «активация» от клика
+// (после fetch браузер запись в буфер уже может не разрешить). Фаза capture —
+// чтобы успеть до общего AJAX-перехвата ниже. generated=1 говорит серверу,
+// что пароль случайный (сменить при входе) и уже скопирован.
+document.addEventListener("submit", function (e) {
+  var form = e.target;
+  if (!form.hasAttribute || !form.hasAttribute("data-random-password")) return;
+  var input = form.querySelector('input[name="password"]');
+  if (!input || input.value) return;
+  var alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
+  var bytes = new Uint32Array(10);
+  window.crypto.getRandomValues(bytes);
+  var password = "";
+  for (var i = 0; i < bytes.length; i++) password += alphabet[bytes[i] % alphabet.length];
+  input.value = password;
+  var flag = form.querySelector('input[name="generated"]');
+  if (!flag) {
+    flag = document.createElement("input");
+    flag.type = "hidden"; flag.name = "generated";
+    form.appendChild(flag);
+  }
+  flag.value = "1";
+  function fallbackCopy() {
+    var ta = document.createElement("textarea");
+    ta.value = password;
+    ta.setAttribute("readonly", "");
+    ta.style.position = "fixed"; ta.style.top = "-1000px"; ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand("copy"); } catch (err) {}
+    document.body.removeChild(ta);
+  }
+  // navigator.clipboard — только в secure context (не по http в сети)
+  if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(password).catch(fallbackCopy);
+  else fallbackCopy();
+}, true);
+
 document.addEventListener("submit", function (e) {
   var form = e.target;
   if (form.classList.contains("js-quick-charge-form") || form.classList.contains("js-quick-payment-form")) return;

@@ -111,8 +111,8 @@
           <input class="form-control form-control-sm" name="username" value="{{ account.username }}" placeholder="{{ _('новый логин') }}" required>
           <button class="btn btn-sm btn-primary text-nowrap">{{ _("Сменить логин") }}</button>
         </form>
-        <form method="post" action="{{ url_for('persons.reset_password', person_id=person.id) }}" class="d-flex gap-2 mb-2" data-ajax>
-          <input class="form-control form-control-sm" type="password" name="password" placeholder="{{ _('новый пароль') }}" required minlength="4">
+        <form method="post" action="{{ url_for('persons.reset_password', person_id=person.id) }}" class="d-flex gap-2 mb-2" data-ajax data-random-password>
+          <input class="form-control form-control-sm" type="password" name="password" placeholder="{{ _('новый пароль (пусто — случайный)') }}" minlength="4" autocomplete="new-password">
           <button class="btn btn-sm btn-primary text-nowrap">{{ _("Сбросить пароль") }}</button>
         </form>
         <form method="post" action="{{ url_for('persons.toggle_active', person_id=person.id) }}" data-ajax>

@@ -37,7 +37,7 @@ from .uploads import WIKI_ATTACHMENT_ALLOWED_EXT, save_upload
 
 bp = Blueprint("garage_map", __name__, url_prefix="/garages/map")
 
-SHAPE_KINDS = ("garage", "road", "building", "area")
+SHAPE_KINDS = ("garage", "road", "building", "area", "cable")  # cable — линия электропитания (ломаная)
 # switch — рубильник; сетевой коммутатор — netswitch
 OBJECT_KINDS = ("panel", "lamp", "meter", "switch", "wifi", "netswitch", "dvr", "camera", "mark")
 METER_KINDS = ("panel", "meter", "switch")  # у них бывает привязка к счётчику в учёте
@@ -111,7 +111,7 @@ def _garage_states(garages: list[Garage]) -> dict[int, dict]:
 def _shape_dict(shape: GarageMapShape) -> dict:
     return {
         "id": shape.id, "kind": shape.kind, "garage_id": shape.garage_id,
-        "label": shape.label or "", "points": shape.point_list(),
+        "label": shape.label or "", "points": shape.point_list(), "phases": shape.phases or "",
     }
 
 
@@ -471,8 +471,14 @@ def _clean_objects(items, valid_meter_ids: set[int], valid_wiki_ids: set[int], v
     return cleaned, None
 
 
-def _clean_points(raw) -> list[list[float]] | None:
-    if not isinstance(raw, list) or len(raw) < 3 or len(raw) > 200:
+def _clean_phases(raw) -> str | None:
+    """Фазы линии: оставляем A/B/C (и русские А/В/С), по порядку, без повторов."""
+    text = str(raw or "").upper().replace("А", "A").replace("В", "B").replace("С", "C")
+    return "".join(p for p in "ABC" if p in text) or None
+
+
+def _clean_points(raw, min_points: int = 3) -> list[list[float]] | None:
+    if not isinstance(raw, list) or len(raw) < min_points or len(raw) > 200:
         return None
     points = []
     for point in raw:
@@ -504,10 +510,11 @@ def save():
     for index, item in enumerate(items):
         if not isinstance(item, dict):
             return jsonify(ok=False, error=_("Неверные данные схемы.")), 400
-        points = _clean_points(item.get("points"))
+        kind = item.get("kind") if item.get("kind") in SHAPE_KINDS else "garage"
+        points = _clean_points(item.get("points"), min_points=2 if kind == "cable" else 3)
         if points is None:
             return jsonify(ok=False, error=_("У фигуры неверный контур.")), 400
-        kind = item.get("kind") if item.get("kind") in SHAPE_KINDS else "garage"
+        phases = _clean_phases(item.get("phases")) if kind == "cable" else None
         garage_id = item.get("garage_id")
         if garage_id in ("", None) or kind != "garage":
             garage_id = None
@@ -529,7 +536,7 @@ def save():
         shape = existing.get(shape_id) if isinstance(shape_id, int) else None
         if shape is not None:
             keep_ids.add(shape.id)
-        prepared.append((shape, kind, garage_id, label, points, index))
+        prepared.append((shape, kind, garage_id, label, points, index, phases))
 
     # Сначала удаляем и отвязываем — иначе уникальный garage_id споткнётся,
     # когда гараж переносят с одного контура на другой.
@@ -540,13 +547,14 @@ def save():
             shape.garage_id = None
     database.db_session.flush()
 
-    for shape, kind, garage_id, label, points, index in prepared:
+    for shape, kind, garage_id, label, points, index, phases in prepared:
         if shape is None:
             shape = GarageMapShape()
             database.db_session.add(shape)
         shape.kind = kind
         shape.garage_id = garage_id
         shape.label = label
+        shape.phases = phases
         shape.points = json.dumps(points)
         shape.sort_order = index
 

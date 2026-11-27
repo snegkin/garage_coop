@@ -302,3 +302,19 @@ def test_network_switch_as_uplink(db, client):
     link, sw, dvr, hotspot = db.query(GarageMapObject).order_by(GarageMapObject.id).all()
     assert sw.kind == "netswitch" and sw.uplink_id == link.id and sw.net_role is None
     assert dvr.uplink_id == sw.id and hotspot.uplink_id == sw.id
+
+
+def test_save_power_cables_with_phases(db, client):
+    _board(db, client)
+    line = [[0, 0], [0, 100], [20, 150]]
+    resp = _save(client, [
+        {"kind": "cable", "label": "ряд 34–63", "phases": "авс", "points": line},  # русские буквы тоже
+        {"kind": "cable", "phases": "b", "points": [[0, 0], [5, 5]]},
+        {"kind": "road", "phases": "ABC", "points": SQUARE},
+    ])
+    assert resp.get_json() == {"ok": True}
+    three, one, road = db.query(GarageMapShape).order_by(GarageMapShape.sort_order).all()
+    assert three.phases == "ABC" and three.label == "ряд 34–63" and three.point_list() == line
+    assert one.phases == "B" and road.phases is None
+    # у контура (не линии) двух точек мало
+    assert _save(client, [{"kind": "garage", "points": [[0, 0], [5, 5]]}]).status_code == 400

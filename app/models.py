@@ -2348,13 +2348,16 @@ class GarageMapShape(Base):
     __tablename__ = "garage_map_shape"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    kind: Mapped[str] = mapped_column(String(20), default="garage")  # garage / road / building / area
+    kind: Mapped[str] = mapped_column(String(20), default="garage")  # garage / road / building / area / cable
     garage_id: Mapped[int | None] = mapped_column(
         ForeignKey("garage.id", ondelete="SET NULL"), unique=True, index=True,
     )
     label: Mapped[str | None] = mapped_column(String(100))
     points: Mapped[str] = mapped_column(Text)  # JSON [[x, y], ...]
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    # Линия электропитания (kind="cable") — незамкнутая ломаная вдоль ряда;
+    # phases — проложенные фазы: "A", "B", "C" или их сочетание ("ABC" — все три).
+    phases: Mapped[str | None] = mapped_column(String(3))
 
     garage: Mapped["Garage | None"] = relationship()
 

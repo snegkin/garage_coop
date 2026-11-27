@@ -43,6 +43,7 @@
   #gmSvg .gm-obj.gm-selected circle { stroke: var(--bs-primary); stroke-width: 4; }
   #gmSvg .gm-obj.gm-hit circle { stroke: var(--bs-emphasis-color); stroke-width: 5; }
   #gmSvg.gm-editing .gm-obj { cursor: move; }
+  #gmSvg .gm-obj.gm-offline circle { stroke: var(--bs-danger); stroke-width: 4; stroke-dasharray: 4 3; }
   #gmSvg .gm-snap { fill: none; stroke: var(--bs-danger); stroke-width: 2; vector-effect: non-scaling-stroke; pointer-events: none; }
 </style>
 
@@ -64,6 +65,7 @@
     <div class="form-check form-switch mb-0 small">
       <input class="form-check-input" type="checkbox" id="gmShowObjects">
       <label class="form-check-label" for="gmShowObjects">{{ _("Оборудование") }}</label>
+      <span id="gmNetSummary" class="text-muted ms-1"></span>
     </div>
     <button type="button" class="btn btn-sm btn-outline-primary" id="gmEditToggle"><i class="bi bi-pencil"></i> {{ _("Правка") }}</button>
   </div>
@@ -256,6 +258,7 @@
     confirmDeleteObject: {{ _("Удалить этот объект со схемы вместе с фото?")|tojson }},
     confirmDeletePhoto: {{ _("Удалить это фото?")|tojson }}, confirmDeleteFile: {{ _("Удалить этот файл?")|tojson }},
     saveFirst: {{ _("Фото и бэкапы можно добавить после сохранения схемы.")|tojson }},
+    offline: {{ _("не в сети")|tojson }}, online: {{ _("в сети")|tojson }}, netSummary: {{ _("в сети {up} из {total}")|tojson }},
     noUplink: {{ _("— никуда / вне схемы —")|tojson }}, noWiki: {{ _("— нет —")|tojson }},
     noMeter: {{ _("— не привязан —")|tojson }}, masterMeter: {{ _("Главный счётчик кооператива")|tojson }},
     controlGroup: {{ _("Контрольные счётчики")|tojson }}, photoError: {{ _("Не удалось загрузить фото.")|tojson }},
@@ -270,6 +273,7 @@
   var NET_KINDS = { panel: 1, meter: 1, "switch": 1, wifi: 1, netswitch: 1, dvr: 1, camera: 1 };
   var UPLINK_KINDS = { wifi: 1, netswitch: 1, dvr: 1 };
   var WIFI_GLYPH = { router: "\uf6eb", bridge: "\uf1d5" };
+  var netStatus = {};
   var objects = {{ objects_json|safe }};
   var controlMeters = {{ meters_json|safe }};
   var GLYPH = { panel: "\uf46c", lamp: "\uf468", meter: "\uf580", "switch": "\uf5d6", wifi: "\uf61c", netswitch: "\uf2ed", dvr: "\uf40c", camera: "\uf21c", mark: "\uf3e7" };
@@ -383,14 +387,16 @@
       });
       objects.forEach(function (obj) {
         var v = view([obj.x, obj.y]);
-        var cls = "gm-obj gm-obj-" + obj.kind + (obj === selectedObj ? " gm-selected" : "");
+        var cls = "gm-obj gm-obj-" + obj.kind + (obj === selectedObj ? " gm-selected" : "") +
+          (obj.id && netStatus[obj.id] === false ? " gm-offline" : "");
         var grp = el("g", { "class": cls }, svg);
         var c = el("circle", { cx: v[0], cy: v[1], r: R }, grp);
         var ic = el("text", { x: v[0], y: v[1], "font-size": (R * 1.15).toFixed(1) }, grp);
         ic.textContent = (obj.kind === "wifi" && WIFI_GLYPH[obj.net_role]) || GLYPH[obj.kind] || GLYPH.mark;
         var tt = el("title", {}, grp);
         tt.textContent = (T.kinds[obj.kind] || "") + (obj.title ? ": " + obj.title : "") +
-          (obj.kind === "wifi" && obj.ip_address ? " — " + obj.ip_address : "");
+          (obj.ip_address ? " — " + obj.ip_address : "") +
+          (obj.id && netStatus[obj.id] === false ? " — " + T.offline : obj.id && netStatus[obj.id] ? " — " + T.online : "");
         c.__obj = obj; grp.__obj = obj;
         obj.__el = grp;
       });
@@ -483,7 +489,34 @@
     return obj;
   }
   var panel = document.getElementById("gmPanel");
+  // --- настройки устройства (камеры, регистраторы) — в карточке объекта
+  function loadDevice(box) {
+    box.innerHTML = '<div class="small text-muted">' + T.loading + "</div>";
+    fetch(box.getAttribute("data-url"), { headers: { "X-Requested-With": "fetch" } })
+      .then(function (r) { return r.text(); })
+      .then(function (html) { box.innerHTML = html; });
+  }
   panel.addEventListener("submit", function (evt) {
+    var dform = evt.target.closest(".gm-device-form");
+    if (dform) {
+      evt.preventDefault();
+      var question = dform.getAttribute("data-confirm");
+      if (question && !confirm(question)) return;
+      var dbtn = dform.querySelector("button[type=submit]");
+      dbtn.disabled = true;
+      fetch(dform.getAttribute("data-url"), { method: "POST", body: new FormData(dform),
+        headers: csrf ? { "X-CSRFToken": csrf.content } : {} })
+        .then(function (r) { return r.json(); })
+        .then(function (res) {
+          dbtn.disabled = false;
+          if (!res.ok) { alert(res.error || T.saveError); return; }
+          if (res.message) alert(res.message);
+          var box = dform.closest(".gm-device");
+          if (box && !/reboot/.test(dform.getAttribute("data-url"))) loadDevice(box);
+        })
+        .catch(function () { dbtn.disabled = false; alert(T.saveError); });
+      return;
+    }
     var form = evt.target.closest(".gm-upload-form");
     if (!form) return;
     evt.preventDefault();
@@ -501,7 +534,17 @@
       })
       .catch(function () { btn.disabled = false; alert(T.photoError); });
   });
+  panel.addEventListener("change", function (evt) {
+    if (evt.target.classList.contains("gm-dhcp-toggle")) {
+      evt.target.closest("form").querySelector(".gm-static-fields").classList.toggle("d-none", evt.target.checked);
+    }
+  });
+  panel.addEventListener("input", function (evt) {
+    if (evt.target.classList.contains("gm-password-field")) evt.target.form.querySelector("[name=password_set]").value = "1";
+  });
   panel.addEventListener("click", function (evt) {
+    var load = evt.target.closest(".gm-device-load");
+    if (load) { loadDevice(load.closest(".gm-device")); return; }
     var link = evt.target.closest(".gm-object-link");
     if (link) {
       evt.preventDefault();
@@ -1062,6 +1105,17 @@
   objects.forEach(function (o) { keyById[o.id] = keyOf(o); });
   objects.forEach(function (o) { o.uplink_key = o.uplink_id ? keyById[o.uplink_id] || null : null; });
   render();
+  // В сети ли устройства — только если сайт видит локальную сеть территории (VPN, GARAGE_MAP_LAN_SUBNETS).
+  fetch({{ url_for('garage_map.net_status')|tojson }}, { headers: { "X-Requested-With": "fetch" } })
+    .then(function (r) { return r.json(); })
+    .then(function (res) {
+      if (!res.ok || !res.enabled) return;
+      netStatus = res.status;
+      var ids = Object.keys(netStatus), up = ids.filter(function (k) { return netStatus[k]; }).length;
+      if (ids.length) document.getElementById("gmNetSummary").textContent = "(" + T.netSummary.replace("{up}", up).replace("{total}", ids.length) + ")";
+      if (!drag) render();
+    })
+    .catch(function () {});
 })();
 </script>
 {% endblock %}

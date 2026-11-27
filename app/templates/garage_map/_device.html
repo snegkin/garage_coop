@@ -1,0 +1,71 @@
+<div class="border-top pt-2 mt-2" id="gmDeviceBody">
+  <div class="small fw-semibold mb-1"><i class="bi bi-sliders"></i> {{ _("Настройки устройства") }}</div>
+  {% if not lan_enabled %}
+  <div class="small text-muted mb-2">{{ _("Сайт не видит локальную сеть территории: нужен VPN от сервера до роутера кооператива и подсеть в настройке GARAGE_MAP_LAN_SUBNETS.") }}</div>
+  {% elif not object_ip %}
+  <div class="small text-muted mb-2">{{ _("Укажите IP устройства в режиме правки схемы.") }}</div>
+  {% elif not ip %}
+  <div class="small text-muted mb-2">{{ _("Адрес {ip} вне подсетей, которые видит сайт.", ip=object_ip) }}</div>
+  {% elif error %}
+  <div class="small text-danger mb-2">{{ error }}</div>
+  {% else %}
+  <table class="table table-sm small mb-2">
+    {% if info.DeviceType or info.HardWare %}<tr><th class="fw-normal text-muted">{{ _("Модель") }}</th><td>{{ info.HardWare or info.DeviceType }}</td></tr>{% endif %}
+    {% if info.SoftWareVersion %}<tr><th class="fw-normal text-muted">{{ _("Прошивка") }}</th><td class="text-break">{{ info.SoftWareVersion }}</td></tr>{% endif %}
+    {% if info.SerialNo %}<tr><th class="fw-normal text-muted">{{ _("Серийный №") }}</th><td class="text-break">{{ info.SerialNo }}</td></tr>{% endif %}
+    <tr><th class="fw-normal text-muted">{{ _("Сеть") }}</th>
+      <td>{% if net.dhcp %}DHCP{% else %}{{ _("статический") }}{% endif %} · <code>{{ net.ip }}</code> / {{ net.mask }}<br>{{ _("шлюз") }} {{ net.gateway }}</td></tr>
+  </table>
+
+  <form class="gm-device-form border rounded p-2 mb-2" data-url="{{ url_for('garage_map.object_device_network', object_id=obj.id) }}"
+        data-confirm="{{ _('Записать сетевые настройки на устройство? При ошибке оно пропадёт из сети.') }}">
+    <div class="form-check form-switch small mb-1">
+      <input class="form-check-input gm-dhcp-toggle" type="checkbox" name="dhcp" value="1" id="gmDhcp{{ obj.id }}" {{ 'checked' if net.dhcp }}>
+      <label class="form-check-label" for="gmDhcp{{ obj.id }}">{{ _("Получать адрес по DHCP") }}</label>
+    </div>
+    <div class="form-text mt-0 mb-1 gm-dhcp-note">{{ _("Перед включением DHCP закрепите за MAC устройства адрес на роутере — иначе адрес сменится.") }}</div>
+    <div class="row g-1 gm-static-fields {{ 'd-none' if net.dhcp }}">
+      <div class="col-12"><input class="form-control form-control-sm font-monospace" name="ip" value="{{ net.ip or '' }}" placeholder="IP" aria-label="IP"></div>
+      <div class="col-6"><input class="form-control form-control-sm font-monospace" name="mask" value="{{ net.mask or '255.255.255.0' }}" placeholder="{{ _('маска') }}" aria-label="{{ _('маска') }}"></div>
+      <div class="col-6"><input class="form-control form-control-sm font-monospace" name="gateway" value="{{ net.gateway or '' }}" placeholder="{{ _('шлюз') }}" aria-label="{{ _('шлюз') }}"></div>
+    </div>
+    <button class="btn btn-sm btn-outline-primary mt-1" type="submit">{{ _("Записать сеть") }}</button>
+  </form>
+
+  <div class="d-flex flex-wrap gap-1 mb-2">
+    <form class="gm-device-form" data-url="{{ url_for('garage_map.object_device_time', object_id=obj.id) }}">
+      <button class="btn btn-sm btn-outline-secondary" type="submit"><i class="bi bi-clock"></i> {{ _("Время по серверу") }}</button>
+    </form>
+    <form class="gm-device-form" data-url="{{ url_for('garage_map.object_device_reboot', object_id=obj.id) }}"
+          data-confirm="{{ _('Перезагрузить устройство? Около минуты оно будет недоступно.') }}">
+      <button class="btn btn-sm btn-outline-danger" type="submit"><i class="bi bi-arrow-repeat"></i> {{ _("Перезагрузить") }}</button>
+    </form>
+  </div>
+
+  <details class="small mb-2">
+    <summary>{{ _("Сменить пароль на устройстве") }}</summary>
+    <form class="gm-device-form mt-1" data-url="{{ url_for('garage_map.object_device_password', object_id=obj.id) }}"
+          data-confirm="{{ _('Сменить пароль на устройстве? Регистратор потеряет камеру, пока в его канале не указан новый пароль.') }}">
+      <input type="password" class="form-control form-control-sm mb-1" name="new_password" autocomplete="new-password" placeholder="{{ _('Новый пароль') }}" aria-label="{{ _('Новый пароль') }}">
+      <input type="password" class="form-control form-control-sm mb-1" name="new_password2" autocomplete="new-password" placeholder="{{ _('Повторите пароль') }}" aria-label="{{ _('Повторите пароль') }}">
+      <button class="btn btn-sm btn-outline-warning" type="submit">{{ _("Сменить пароль") }}</button>
+    </form>
+  </details>
+  {% endif %}
+
+  <details class="small" {{ 'open' if lan_enabled and ip and error }}>
+    <summary>{{ _("Доступ к устройству") }}{% if obj.device_username %} · {{ obj.device_username }}{% endif %}</summary>
+    <form class="gm-device-form mt-1" data-url="{{ url_for('garage_map.object_device_credentials', object_id=obj.id) }}">
+      <div class="row g-1">
+        <div class="col-7"><input class="form-control form-control-sm" name="username" value="{{ obj.device_username or 'admin' }}" placeholder="{{ _('Логин') }}" aria-label="{{ _('Логин') }}" autocomplete="off"></div>
+        <div class="col-5"><input class="form-control form-control-sm" name="port" value="{{ obj.device_port or '' }}" placeholder="34567" aria-label="{{ _('Порт') }}" inputmode="numeric"></div>
+        <div class="col-12">
+          <input type="password" class="form-control form-control-sm gm-password-field" name="password" autocomplete="new-password"
+                 placeholder="{{ _('пароль сохранён — введите, чтобы заменить') if obj.device_password_encrypted else _('пароль (пусто — без пароля)') }}" aria-label="{{ _('Пароль') }}">
+          <input type="hidden" name="password_set" value="0">
+        </div>
+      </div>
+      <button class="btn btn-sm btn-outline-secondary mt-1" type="submit">{{ _("Сохранить доступ") }}</button>
+    </form>
+  </details>
+</div>

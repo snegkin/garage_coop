@@ -2430,6 +2430,11 @@ class GarageMapObject(Base):
 
     control_meter: Mapped["ControlMeter | None"] = relationship()
     power_device: Mapped["PowerPhaseDevice | None"] = relationship()
+    # Доступ к самому устройству (DVRIP Xiongmai, порт 34567) для настройки с сайта; пароль — зашифрован.
+    device_username: Mapped[str | None] = mapped_column(String(100))
+    device_password_encrypted: Mapped[str | None] = mapped_column(Text)
+    device_port: Mapped[int | None] = mapped_column(Integer)
+
     dvr_recorder: Mapped["DvrRecorder | None"] = relationship()
     dvr_camera: Mapped["DvrCamera | None"] = relationship()
     uplink: Mapped["GarageMapObject | None"] = relationship(remote_side=[id], back_populates="downlinks")

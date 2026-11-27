@@ -524,7 +524,8 @@ BOARD_EVENT_GROUPS = {
     },
     "garages": {
         "label": "Гаражи и владельцы",
-        "actions": ("garage.*", "garage_owner.*", "garage_contact.*", "garage_document.*", "garage_photo.*"),
+        "actions": ("garage.*", "garage_owner.*", "garage_contact.*", "garage_document.*", "garage_photo.*",
+                    "garage_map.*"),
     },
     "electricity": {
         "label": "Электроэнергия",

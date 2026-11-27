@@ -66,6 +66,19 @@
     key_options: 'command="{{ app_dir }}/scripts/backup_pull_gate.sh",restrict'
   delegate_to: "{{ coop_server }}"
 
+# Дополнительные кооперативы: тот же ключ, но у своего пользователя и
+# гейт со своим ENV_FILE (как backup_agent_pubkeys в tasks/instance.yml).
+- name: "[бэкап] Ключ агента у дополнительных кооперативов"
+  ansible.posix.authorized_key:
+    user: "{{ inst.user }}"
+    key: "{{ backup_pubkey.content | b64decode | trim }}"
+    key_options: 'command="ENV_FILE={{ inst.env_file }} {{ app_dir }}/scripts/backup_pull_gate.sh",restrict'
+  loop: "{{ local_backup_instances }}"
+  loop_control:
+    loop_var: inst
+    label: "{{ inst.name }}"
+  delegate_to: "{{ coop_server }}"
+
 # Ключ берём у самого сервера, а не ssh-keyscan по сети: подменить его
 # по дороге нельзя, сверять отпечаток руками не нужно.
 - name: "[бэкап] Ключ ssh сервера"
@@ -114,6 +127,21 @@
     group: coop-backup
     mode: "0640"
 
+# До списка кооперативов зеркало единственного лежало прямо в mirror/;
+# теперь у каждого mirror/ИМЯ/. Перенос, а не новая выкачка с нуля.
+- name: "[бэкап] Зеркало основного кооператива — в mirror/{{ app_user }}"
+  ansible.builtin.shell: |
+    set -eu
+    cd /var/lib/coop-backup/mirror 2>/dev/null || exit 0
+    [ -d backup_staging ] || exit 0
+    install -d -m 0700 -o coop-backup -g coop-backup {{ app_user | quote }}
+    find . -mindepth 1 -maxdepth 1 ! -name {{ app_user | quote }} \
+      {% for inst in local_backup_instances %}! -name {{ inst.name | quote }} {% endfor %}\
+      -exec mv -t {{ app_user | quote }} {} +
+    echo moved
+  register: mirror_moved
+  changed_when: "'moved' in mirror_moved.stdout"
+
 - name: "[бэкап] Конфиг агента"
   ansible.builtin.template:
     src: coop_backup.ini.j2
@@ -122,6 +150,7 @@
     group: coop-backup
     mode: "0640"
     backup: true
+  register: backup_config
 
 # --- первый проход и таймер ----------------------------------------------------
 
@@ -133,6 +162,18 @@
   args:
     creates: "{{ app_instance_dir }}/backup_staging/MANIFEST.json"
   become_user: "{{ app_user }}"
+  delegate_to: "{{ coop_server }}"
+  failed_when: false
+
+- name: "[бэкап] Снимок на сервере есть у дополнительных кооперативов"
+  ansible.builtin.command: "/usr/bin/env ENV_FILE={{ inst.env_file }} {{ app_dir }}/scripts/backup_offsite.sh"
+  args:
+    creates: "{{ inst.instance_dir }}/backup_staging/MANIFEST.json"
+  become_user: "{{ inst.user }}"
+  loop: "{{ local_backup_instances }}"
+  loop_control:
+    loop_var: inst
+    label: "{{ inst.name }}"
   delegate_to: "{{ coop_server }}"
   failed_when: false
 
@@ -150,7 +191,8 @@
   failed_when: false
 
 # Первый проход — сразу, а не завтра в 12:00; и повторно, пока последний
-# проход неудачный. Удачный — дальше только таймер.
+# проход неудачный или в конфиге появился кооператив (конфиг изменился).
+# Удачный — дальше только таймер.
 - name: "[бэкап] Проход агента (первый — несколько минут)"
   ansible.builtin.command: systemctl start coop-backup.service
   register: backup_run
@@ -158,6 +200,7 @@
   when: >-
     backup_status_old.content is not defined
     or not ((backup_status_old.content | b64decode | from_json).ok | default(false))
+    or backup_config is changed
 
 - name: "[бэкап] Итог прохода"
   ansible.builtin.slurp:
@@ -173,7 +216,8 @@
       if backup_status.content is defined else 'нет status.json' }}.
       Подробности — journalctl -u coop-backup -n 50
     success_msg: >-
-      Агент бэкапа работает: снимок {{ (backup_status.content | b64decode | from_json).snapshot_id }},
+      Агент бэкапа работает: {{ (backup_status.content | b64decode | from_json).coops | default({})
+      | dict2items | map(attribute='key') | join(', ') }},
       {{ (backup_status.content | b64decode | from_json).warning or 'без предупреждений' }}
 
 - name: "[бэкап] Пароль репозитория создан — сохраните его"

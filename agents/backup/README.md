@@ -1,8 +1,16 @@
 # Агент локального бэкапа
 
 Программа для компьютера председателя (Linux, systemd). Раз в сутки
-забирает с сервера кооператива копию данных и хранит её в локальном
+забирает с сервера копии данных кооперативов и хранит их в локальном
 restic-репозитории с историей версий.
+
+Кооперативов может быть несколько: по секции `[coop:ИМЯ]` в конфиге
+(через ansible — основной и все `coop_extra_instances`). Служба, таймер,
+ключ ssh, пароль и репозиторий у всех одни. У каждого кооператива своё
+зеркало `mirror/ИМЯ/` и свои снимки (`--host` в restic): у основного
+`coop-server`, у остальных имя кооператива. Политика хранения действует
+для каждого кооператива отдельно. Если один кооператив не забрался,
+остальные всё равно сохраняются.
 
 | Копия | Где | Что защищает |
 |---|---|---|
@@ -53,6 +61,11 @@ restic-репозитории с историей версий.
    ```
    command="/home/coop/garage_coop/scripts/backup_pull_gate.sh",restrict ssh-ed25519 AAAA… coop-backup
    ```
+   У дополнительного кооператива строку добавить его пользователю, в
+   гейт передать его `ENV_FILE`:
+   ```
+   command="ENV_FILE=/home/coop2/coop.env /home/coop/garage_coop/scripts/backup_pull_gate.sh",restrict ssh-ed25519 AAAA… coop-backup
+   ```
    Через ansible: `backup_agent_pubkeys` в `vars.yml`, плейбук добавит строку сам.
 
    Ключ сервера в known_hosts агента:
@@ -78,7 +91,7 @@ restic-репозитории с историей версий.
    ```bash
    sudo install -m 0640 -o root -g coop-backup coop_backup.example.ini /etc/coop-backup/coop_backup.ini
    ```
-   Вписать `host`. Репозиторий лучше держать на отдельном диске:
+   Вписать `host` и по секции `[coop:ИМЯ]` на каждый кооператив. Репозиторий лучше держать на отдельном диске:
    `repository = /mnt/backup/coop-restic`, владелец каталога — `coop-backup`.
    Диск должен монтироваться при загрузке (fstab), иначе restic создаст
    новый пустой репозиторий в точке монтирования.
@@ -104,14 +117,14 @@ restic-репозитории с историей версий.
 | пароль репозитория | `/etc/coop-backup/restic-password` |
 | ssh-ключ агента | `/etc/coop-backup/id_ed25519` |
 | restic-репозиторий (история) | `/var/lib/coop-backup/restic` (или `repository` из конфига) |
-| зеркало последнего состояния сервера | `/var/lib/coop-backup/mirror` |
+| зеркала последнего состояния сервера | `/var/lib/coop-backup/mirror/ИМЯ/` |
 | итог последнего прохода | `/var/lib/coop-backup/status.json` |
 | программа агента | `/opt/coop-backup/coop_backup_agent.py` |
 
 Политика хранения — `keep_*` в конфиге (по умолчанию 14 ежедневных,
-8 еженедельных, 12 ежемесячных, 5 ежегодных). Лишние снимки агент
-удаляет сам после каждого прохода (`forget --prune`), но только с меткой
-`coop` и хостом `coop-server`.
+8 еженедельных, 12 ежемесячных, 5 ежегодных), для каждого кооператива
+отдельно. Лишние снимки агент удаляет сам после каждого прохода (`forget`
+по каждому кооперативу, затем один `prune`), но только с меткой `coop`.
 
 ## Повседневное
 
@@ -124,13 +137,16 @@ sudo -u coop-backup python3 /opt/coop-backup/coop_backup_agent.py snapshots
 sudo systemctl start coop-backup          # снимок вне расписания (несколько минут)
 ```
 
-`failed` у службы бывает в двух случаях: ошибка (нет сети, сервер
-недоступен, кончилось место; текст в `journalctl`) или код 2, когда бэкап
-сделан, но снимок БД на сервере старше `max_age_hours`. Второе значит, что
-на сервере не работает cron `backup_offsite`, и чинить надо там.
+`failed` у службы бывает в двух случаях: ошибка хотя бы у одного
+кооператива (нет сети, сервер недоступен, кончилось место; текст в
+`journalctl`) или код 2, когда бэкап сделан, но снимок БД на сервере старше
+`max_age_hours`. Второе значит, что на сервере не работает cron
+`backup_offsite`, и чинить надо там. В `status.json` общий итог (`ok`,
+`error`, `warning` в виде «имя: текст») и подробности по каждому
+кооперативу в `coops`.
 
 На сервере видно, когда агент последний раз забирал данные:
-`instance/logs/backup_pull.log`.
+`instance/logs/backup_pull.log` каждого кооператива.
 
 ## Команды restic
 
@@ -146,11 +162,17 @@ alias rs='sudo -u coop-backup env RESTIC_REPOSITORY=/var/lib/coop-backup/restic 
 
 ### Просмотр снимков
 
+В репозитории снимки всех кооперативов. Кооператив выбирается через
+`--host`: `coop-server` у основного, имя у остальных (`rs snapshots`
+показывает снимки по группам). **`latest` без `--host` означает последний
+снимок любого кооператива.**
+
 ```bash
-rs snapshots                        # список снимков: ID, дата, размер
+rs snapshots                        # список снимков: ID, дата, размер, по кооперативам
+rs snapshots --host coop-auto-moto-2   # только одного кооператива
 rs snapshots --latest 5             # последние 5
-rs ls latest                        # файлы последнего снимка
-rs ls latest /uploads               # содержимое одного каталога
+rs ls latest --host coop-server     # файлы последнего снимка основного
+rs ls latest --host coop-server /uploads   # содержимое одного каталога
 rs ls 1a2b3c4d /backup_staging      # то же для конкретного снимка
 rs find '*.pdf'                     # в каких снимках встречается файл
 rs diff 1a2b3c4d 5e6f7a8b           # что изменилось между двумя снимками
@@ -175,7 +197,7 @@ sudo env RESTIC_REPOSITORY=/var/lib/coop-backup/restic RESTIC_PASSWORD_FILE=/etc
 
 ```bash
 rs forget 1a2b3c4d --prune          # удалить один снимок и освободить место
-rs forget --host coop-server --tag coop --keep-daily 14 --keep-weekly 8 --keep-monthly 12 --keep-yearly 5 --dry-run
+rs forget --host coop-server --tag coop --group-by host,tags --keep-daily 14 --keep-weekly 8 --keep-monthly 12 --keep-yearly 5 --dry-run
                                     # что удалила бы политика хранения (ничего не удаляет)
 rs prune                            # убрать данные, на которые не ссылается ни один снимок
 rs check                            # проверка структуры репозитория (быстро)
@@ -206,13 +228,13 @@ rs tag --set coop <новый ID>        # вернуть под общую по
 ```bash
 rs snapshots                                                  # выбрать ID по дате
 rs dump 1a2b3c4d /backup_staging/coop.db | sudo tee /tmp/coop.db > /dev/null
-rs restore latest --target /tmp/coop-restore --include /uploads/news
+rs restore latest --host coop-server --target /tmp/coop-restore --include /uploads/news
 ```
 
 **Всё целиком** (переезд на новый сервер):
 
 ```bash
-rs restore latest --target /tmp/coop-restore      # или ID снимка вместо latest
+rs restore latest --host coop-server --target /tmp/coop-restore   # или ID снимка вместо latest
 sudo chown -R "$USER" /tmp/coop-restore           # чтобы файлы открывались без sudo
 ```
 

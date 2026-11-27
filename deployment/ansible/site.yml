@@ -241,6 +241,13 @@
     repo_root: "{{ (playbook_dir + '/../..') | realpath }}"
     coop_server: "{{ groups['coop'] | first }}"
     local_backup_server_host: "{{ coop_domain or hostvars[coop_server].ansible_host | default(coop_server) }}"
+    # Агент забирает данные всех кооперативов сервера (пользователь,
+    # ENV_FILE, instance — как в play сервера).
+    local_backup_instances: >-
+      {{ coop_extra_instances | coop_instances({'app_user': app_user, 'app_port': app_port,
+         'coop_domain': coop_domain, 'coop_domain_aliases': coop_domain_aliases,
+         'app_secret_key': app_secret_key,
+         'service_name': service_name, 'cron_jobs': cron_jobs}) }}
 
   tasks:
     - name: Агент локального бэкапа

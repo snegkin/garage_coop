@@ -4,7 +4,6 @@
 [server]
 host = {{ local_backup_server_host }}
 port = {{ ssh_port }}
-user = {{ app_user }}
 identity_file = /etc/coop-backup/id_ed25519
 known_hosts = /etc/coop-backup/known_hosts
 
@@ -18,3 +17,14 @@ keep_weekly = {{ local_backup_keep_weekly }}
 keep_monthly = {{ local_backup_keep_monthly }}
 keep_yearly = {{ local_backup_keep_yearly }}
 max_age_hours = {{ local_backup_max_age_hours }}
+
+# Кооперативы на сервере: основной и coop_extra_instances.
+# snapshot_host основного — coop-server, как до списка: история та же.
+[coop:{{ app_user }}]
+user = {{ app_user }}
+snapshot_host = coop-server
+{% for inst in local_backup_instances %}
+
+[coop:{{ inst.name }}]
+user = {{ inst.user }}
+{% endfor %}

@@ -16,7 +16,7 @@ from .models import (
     BankAccount, BankStatementLine, Document, DocumentTemplate, DocumentType, IssuedDocument, MasterMeterReading, Person, RoleEnum,
 )
 from .accounting import (
-    counterparty_balance, counterparty_amount_to_pay, counterparty_unbilled_usage,
+    counterparty_balance, counterparty_amount_to_pay, counterparty_unbilled_usage, counterparty_ledger,
     reallocate_counterparty_expenses, pay_counterparty,
     expense_paid_amount, edit_counterparty_payment, edit_counterparty_payment_details,
     reverse_counterparty_payment, delete_counterparty_payment_reversal,
@@ -345,6 +345,8 @@ def detail(counterparty_id):
         balance=counterparty_balance(counterparty),
         amount_to_pay=counterparty_amount_to_pay(counterparty),
         unbilled_usage=counterparty_unbilled_usage(counterparty),
+        # История баланса расчётов — новые сверху, как остальные таблицы карточки.
+        ledger=list(reversed(counterparty_ledger(counterparty))),
         act_ledger_balance=act_ledger_balance,
         expense_kinds=ExpenseKind,
         invoices=[e for e in expenses if e.kind == ExpenseKind.INVOICE],

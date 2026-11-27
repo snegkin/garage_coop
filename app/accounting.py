@@ -592,6 +592,43 @@ def counterparty_balance(counterparty: Counterparty, as_of: dt.date | None = Non
     return opening + paid - charged
 
 
+def counterparty_ledger(counterparty: Counterparty) -> list[dict]:
+    """История баланса расчётов с контрагентом: начальный баланс, начисления
+    (ExpenseKind.CHARGE) и платежи (со сторно) по порядку дат с балансом
+    после каждой операции — те же слагаемые, что у counterparty_balance(),
+    так что последняя строка всегда равна текущему балансу. Счета на оплату
+    (INVOICE) не входят: баланс они не меняют. Внутри одного дня —
+    начисления раньше платежей, дальше по порядку внесения (id).
+
+    Строка: {"date", "kind" ("opening"/"charge"/"payment"/"reversal"),
+    "description", "delta", "balance", "obj"} (obj — Expense/CounterpartyPayment
+    или None для начального баланса). Порядок — от старых к новым."""
+    rows: list[dict] = []
+    balance = Decimal("0")
+    if counterparty.opening_balance is not None:
+        balance = counterparty.opening_balance
+        rows.append({
+            "date": counterparty.opening_balance_date, "kind": "opening", "description": None,
+            "delta": counterparty.opening_balance, "balance": balance, "obj": None,
+        })
+    ops = [(e.date, 0, e.id, e) for e in counterparty.expenses if e.kind == ExpenseKind.CHARGE]
+    ops += [(p.date, 1, p.id, p) for p in counterparty.payments]
+    for _date, order, _id, obj in sorted(ops, key=lambda op: op[:3]):
+        if order == 0:
+            delta, kind = -obj.amount, "charge"
+            description = " — ".join(x for x in (obj.category, obj.description) if x) or None
+        else:
+            delta = obj.amount
+            kind = "reversal" if obj.reverses_payment_id else "payment"
+            description = obj.comment or None
+        balance += delta
+        rows.append({
+            "date": obj.date, "kind": kind, "description": description,
+            "delta": delta, "balance": balance, "obj": obj,
+        })
+    return rows
+
+
 def counterparty_amount_to_pay(counterparty: Counterparty) -> Decimal:
     """Сколько сейчас нужно заплатить контрагенту — подсказка и значение
     «пустой суммы» в форме платежа. На предоплате — неоплаченные остатки

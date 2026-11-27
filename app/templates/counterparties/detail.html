@@ -49,6 +49,7 @@
         <div class="text-muted small">
           {% if balance < 0 %}{{ _("кооператив должен контрагенту") }}{% elif balance > 0 %}{{ _("аванс у контрагента") if counterparty.prepaid else _("переплата в пользу кооператива") }}{% else %}{{ _("расчёты закрыты") }}{% endif %}
         </div>
+        {% if ledger %}<a class="small mt-1" href="#ledgerSection">{{ _("История баланса") }}</a>{% endif %}
         {% if counterparty.prepaid %}
         <div class="text-muted small mt-2">{{ _("Предоплата: счета на оплату баланс не меняют, его уменьшают только акты/УПД.") }}</div>
         {% if amount_to_pay > 0 %}<div class="small text-danger">{{ _("Не оплачено по счетам: {amount} ₽", amount=fmt2(amount_to_pay)) }}</div>{% endif %}
@@ -88,6 +89,28 @@
       {% endif %}
       {% if counterparty.external_balance_error %}
         <div class="text-danger small">{{ _("Последняя ошибка") }}: {{ counterparty.external_balance_error }}</div>
+      {% endif %}
+      {% if counterparty.balance_snapshots %}
+        <a class="small" data-bs-toggle="collapse" href="#externalBalanceHistory" role="button" aria-expanded="false" aria-controls="externalBalanceHistory">{{ _("История баланса") }} ({{ counterparty.balance_snapshots|length }})</a>
+        <div class="collapse mt-2" id="externalBalanceHistory">
+          <table class="table table-sm mb-0" id="externalBalanceHistoryTable" data-page-size="10">
+            <thead><tr><th>{{ _("Дата") }}</th><th class="text-end">{{ _("Баланс") }}</th><th class="text-end">{{ _("Изменение") }}</th></tr></thead>
+            <tbody>
+              {% set snaps = counterparty.balance_snapshots %}
+              {% for snap in snaps %}
+              {% set prev = snaps[loop.index] if not loop.last else none %}
+              <tr>
+                <td>{{ fmt_date(snap.recorded_at.date()) }}</td>
+                <td class="text-end {{ 'text-danger' if snap.amount < 0 }}">{{ fmt2(snap.amount) }} ₽</td>
+                <td class="text-end">
+                  {% if prev is not none %}{% set d = snap.amount - prev.amount %}<span class="{{ 'text-danger' if d < 0 else 'text-success' }}">{{ "+" if d > 0 }}{{ fmt2(d) }} ₽</span>{% else %}—{% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          <nav class="d-none" data-pager-for="externalBalanceHistoryTable"><ul class="pagination pagination-sm mb-0"></ul></nav>
+        </div>
       {% endif %}
     </div>
     <div class="text-end">
@@ -279,6 +302,39 @@
 </table>
 <p class="text-muted d-none" data-no-results-for="paymentsTable">{{ _("Ничего не найдено.") }}</p>
 <nav class="d-none" data-pager-for="paymentsTable"><ul class="pagination pagination-sm mb-0"></ul></nav>
+</div>
+
+<h5 class="mb-2" id="ledgerSection">{{ _("История баланса расчётов") }}</h5>
+<div class="mb-4">
+{% if ledger %}
+<div class="mb-2">
+  <input class="form-control form-control-sm" data-table-filter-for="ledgerTable" placeholder="{{ _('Поиск по описанию, сумме...') }}">
+</div>
+{% endif %}
+{# Без sortable: баланс после операции имеет смысл только в порядке дат. #}
+<table class="table table-sm bg-body mb-2" id="ledgerTable" data-page-size="15">
+  <thead><tr><th>{{ _("Дата") }}</th><th>{{ _("Операция") }}</th><th>{{ _("Описание") }}</th><th class="text-end">{{ _("Изменение") }}</th><th class="text-end">{{ _("Баланс после") }}</th></tr></thead>
+  <tbody>
+    {% for row in ledger %}
+    <tr data-filter-text="{{ ((row.description or '') ~ ' ' ~ row.delta ~ ' ' ~ row.balance)|lower }}">
+      <td class="text-nowrap">{{ fmt_date(row.date) if row.date else "—" }}</td>
+      <td>
+        {% if row.kind == "opening" %}{{ _("Начальный баланс") }}
+        {% elif row.kind == "charge" %}{{ _("Акт / УПД") if counterparty.prepaid else _("Начислено") }}
+        {% elif row.kind == "reversal" %}{{ _("Сторно платежа") }}
+        {% else %}{{ _("Платёж") }}{% endif %}
+      </td>
+      <td>{{ (row.description or "—")|order_links(counterparty.inn) if row.kind in ("payment", "reversal") else (row.description or "—") }}</td>
+      <td class="text-end text-nowrap {{ 'text-danger' if row.delta < 0 else 'text-success' }}">{{ "+" if row.delta > 0 }}{{ fmt2(row.delta) }} ₽</td>
+      <td class="text-end text-nowrap {{ 'text-danger' if row.balance < 0 }}">{{ fmt2(row.balance) }} ₽</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="5" class="text-muted">{{ _("Операций пока нет.") }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+<p class="text-muted d-none" data-no-results-for="ledgerTable">{{ _("Ничего не найдено.") }}</p>
+<nav class="d-none" data-pager-for="ledgerTable"><ul class="pagination pagination-sm mb-0"></ul></nav>
 </div>
 
 <div class="d-flex justify-content-between align-items-center mb-2">

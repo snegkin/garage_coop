@@ -2015,6 +2015,17 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Логин/пароль или API-ключ вводятся отдельно, кнопкой «Настроить API» на карточке контрагента после сохранения.":
             "The login/password or API key are entered separately, via the «Configure API» button on the vendor's page after saving.",
         "Баланс личного кабинета": "Personal-cabinet balance",
+        # история баланса контрагента
+        "История баланса": "Balance history",
+        "История баланса расчётов": "Settlement balance history",
+        "Баланс после": "Balance after",
+        "Операций пока нет.": "No transactions yet.",
+        "Изменение": "Change",
+        "Операция": "Transaction",
+        "Платёж": "Payment",
+        "Сторно платежа": "Payment reversal",
+        "Акт / УПД": "Act / UTD",
+        "Поиск по описанию, сумме...": "Search by description, amount...",
         "Баланс р-ов": "Settlement bal.",
         "Баланс ЛК": "Cabinet bal.",
         "не путать с балансом расчётов выше": "not to be confused with the settlement balance above",

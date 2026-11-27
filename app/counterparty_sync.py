@@ -14,7 +14,7 @@ from . import database, audit
 from . import progress as progress_ui
 from .i18n import translate as _
 from .auth import roles_required
-from .models import RoleEnum, Counterparty
+from .models import RoleEnum, Counterparty, CounterpartyBalanceSnapshot
 from .counterparty_api import get_client, unsupported_reason
 from .counterparty_api.base import CounterpartyApiError
 
@@ -62,10 +62,16 @@ def sync_counterparty_balance(counterparty: Counterparty, progress=progress_ui.N
     # находит, писать запись на каждый такой "пустой" синк только шумело
     # бы в журнале.
     balance_changed = counterparty.external_balance != info.amount
+    now = dt.datetime.utcnow()
     counterparty.external_balance = info.amount
-    counterparty.external_balance_updated_at = dt.datetime.utcnow()
+    counterparty.external_balance_updated_at = now
     counterparty.external_balance_error = None
     if balance_changed:
+        # История баланса ЛК (см. CounterpartyBalanceSnapshot) — по тому же
+        # критерию, что и журнал: только смена суммы.
+        database.db_session.add(CounterpartyBalanceSnapshot(
+            counterparty_id=counterparty.id, recorded_at=now, amount=info.amount,
+        ))
         audit.record(
             "counterparty_api.balance_sync", entity_type="counterparty", entity_id=counterparty.id,
             summary=f"Баланс личного кабинета контрагента {counterparty.name} обновлён: "

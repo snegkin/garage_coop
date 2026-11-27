@@ -581,6 +581,30 @@ class Counterparty(Base):
     api_credential: Mapped["CounterpartyApiCredential | None"] = relationship(
         back_populates="counterparty", cascade="all, delete-orphan",
     )
+    balance_snapshots: Mapped[list["CounterpartyBalanceSnapshot"]] = relationship(
+        back_populates="counterparty", cascade="all, delete-orphan",
+        order_by="CounterpartyBalanceSnapshot.recorded_at.desc()",
+    )
+
+
+class CounterpartyBalanceSnapshot(Base):
+    """
+    История баланса ЛИЧНОГО КАБИНЕТА контрагента (Counterparty.external_balance
+    хранит только последнее значение): строка пишется
+    counterparty_sync.sync_counterparty_balance() при каждом успешном
+    обновлении, когда сумма изменилась (или это первое значение) — тот же
+    критерий, что и для записи в журнал аудита, повторы одной и той же
+    суммы историю не засоряют. История баланса РАСЧЁТОВ здесь не хранится:
+    она целиком выводится из расходов/платежей (accounting.counterparty_ledger()).
+    """
+    __tablename__ = "counterparty_balance_snapshot"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    counterparty_id: Mapped[int] = mapped_column(ForeignKey("counterparty.id", ondelete="CASCADE"), index=True)
+    recorded_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.utcnow)  # UTC, как external_balance_updated_at
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+
+    counterparty: Mapped["Counterparty"] = relationship(back_populates="balance_snapshots")
 
 
 class CounterpartyApiCredential(Base):

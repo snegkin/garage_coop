@@ -719,3 +719,31 @@ def test_get_client_returns_tns_energo_client_when_configured(db):
     assert client.password == "mypassword"
     assert client.region == "yar"
     assert client.base_url == "https://lk-b2b-yar.tns-e.ru"
+
+
+def test_sync_counterparty_balance_records_history_only_on_change(db, monkeypatch):
+    """История баланса ЛК: строка на первое значение и на каждую смену суммы,
+    повтор той же суммы новую строку не добавляет."""
+    from app.models import CounterpartyBalanceSnapshot
+    counterparty = _make_counterparty(db, provider=CounterpartyApiProvider.SMSAERO)
+    db.commit()
+
+    amounts = iter([Decimal("500.00"), Decimal("500.00"), Decimal("450.50")])
+    monkeypatch.setattr(counterparty_sync, "get_client", lambda cp: _StubClient(
+        balance_result=BalanceInfo(amount=next(amounts), as_of=dt.date(2026, 11, 27))))
+    for _ in range(3):
+        counterparty_sync.sync_counterparty_balance(counterparty)
+
+    snaps = (db.query(CounterpartyBalanceSnapshot).filter_by(counterparty_id=counterparty.id)
+             .order_by(CounterpartyBalanceSnapshot.id).all())
+    assert [s.amount for s in snaps] == [Decimal("500.00"), Decimal("450.50")]
+
+
+def test_sync_counterparty_balance_error_does_not_record_history(db, monkeypatch):
+    from app.models import CounterpartyBalanceSnapshot
+    counterparty = _make_counterparty(db, provider=CounterpartyApiProvider.SMSAERO)
+    db.commit()
+    monkeypatch.setattr(counterparty_sync, "get_client",
+                        lambda cp: _StubClient(balance_error=CounterpartyApiError("нет связи")))
+    counterparty_sync.sync_counterparty_balance(counterparty)
+    assert db.query(CounterpartyBalanceSnapshot).count() == 0

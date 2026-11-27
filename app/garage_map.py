@@ -7,15 +7,19 @@
 
 Объекты (GarageMapObject) — значки в точке: электрощит, фонарь, счётчик
 (со ссылкой на главный счётчик кооператива или контрольный счётчик ряда),
-рубильник, отметка; у каждого описание «за что отвечает» и фото. Положение
+рубильник, отметка, Wi-Fi (роутер/хотспот/мост/репитер с моделью, IP,
+MAC, подключением к другому устройству — по нему рисуется топология сети —
+ссылкой на вики и файлами бэкапа настроек); у каждого описание и фото. Положение
 и свойства сохраняются вместе со схемой, фото — сразу (у сохранённого объекта).
 
 Данные — GarageMapShape/GarageMapSettings/GarageMapObject (см. их докстринги). Первичная
 раскладка загружается скриптом scripts/import_garage_map.py.
 """
 import datetime as dt
+import ipaddress
 import json
 import os
+import re
 from decimal import Decimal
 
 from flask import Blueprint, render_template, request, jsonify, abort, current_app, send_from_directory
@@ -26,15 +30,22 @@ from .accounting import balance
 from .auth import roles_required
 from .i18n import translate as _
 from .models import (
-    ControlMeter, Garage, GarageMapObject, GarageMapObjectPhoto, GarageMapShape, GarageMapSettings,
-    GarageOwnership, MasterMeterReading, MemberAccount, RoleEnum, garage_sort_key,
+    ControlMeter, Garage, GarageMapObject, PowerPhaseDevice, PowerPhaseReading, GarageMapObjectFile, GarageMapObjectPhoto, GarageMapShape,
+    GarageMapSettings, GarageOwnership, MasterMeterReading, MemberAccount, RoleEnum, WikiPage, garage_sort_key,
 )
-from .uploads import save_upload
+from .uploads import WIKI_ATTACHMENT_ALLOWED_EXT, save_upload
 
 bp = Blueprint("garage_map", __name__, url_prefix="/garages/map")
 
 SHAPE_KINDS = ("garage", "road", "building", "area")
-OBJECT_KINDS = ("panel", "lamp", "meter", "switch", "mark")
+OBJECT_KINDS = ("panel", "lamp", "meter", "switch", "wifi", "mark")
+METER_KINDS = ("panel", "meter", "switch")  # у них бывает привязка к счётчику в учёте
+NET_KINDS = ("panel", "meter", "switch", "wifi")  # у них бывают IP/MAC и подключение к сети
+# Назначение Wi-Fi-устройства: роутер, раздача Wi-Fi, Wi-Fi мост, репитер (подписи — в шаблонах).
+NET_ROLES = ("router", "hotspot", "bridge", "repeater")
+# Бэкапы настроек: форматы как у вложений вики плюс бинарные бэкапы прошивок.
+BACKUP_EXT = WIKI_ATTACHMENT_ALLOWED_EXT | {".bin", ".bak", ".backup", ".dat"}
+MAC_RE = re.compile(r"^[0-9A-F]{2}([:-]?[0-9A-F]{2}){5}$")
 BACKGROUND_EXT = {".jpg", ".jpeg", ".png", ".webp"}
 PHOTO_EXT = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 # Показания старше стольких дней на схеме считаются «давно не подавались».
@@ -107,6 +118,9 @@ def _object_dict(obj: GarageMapObject) -> dict:
         "id": obj.id, "kind": obj.kind, "x": obj.x, "y": obj.y, "title": obj.title or "",
         "description": obj.description or "", "master": bool(obj.master),
         "control_meter_id": obj.control_meter_id, "photos": len(obj.photos),
+        "model": obj.model or "", "hostname": obj.hostname or "", "ip_address": obj.ip_address or "",
+        "mac": obj.mac or "", "net_role": obj.net_role or "", "uplink_id": obj.uplink_id,
+        "wiki_page_id": obj.wiki_page_id, "power_device_id": obj.power_device_id,
     }
 
 
@@ -137,6 +151,8 @@ def view():
         .all()
     )
     control_meters = database.db_session.query(ControlMeter).order_by(ControlMeter.name).all()
+    wiki_pages = database.db_session.query(WikiPage.id, WikiPage.title).order_by(WikiPage.title).all()
+    power_devices = database.db_session.query(PowerPhaseDevice).order_by(PowerPhaseDevice.sort_order, PowerPhaseDevice.id).all()
     placed = {s.garage_id for s in shapes if s.garage_id}
     unplaced = [g for g in garages if g.id not in placed]
     database.db_session.commit()  # get_settings мог завести строку настроек
@@ -147,6 +163,8 @@ def view():
         garages_json=json.dumps([{"id": g.id, "number": g.number} for g in garages], ensure_ascii=False),
         objects_json=json.dumps([_object_dict(o) for o in objects], ensure_ascii=False),
         meters_json=json.dumps([{"id": m.id, "name": m.name} for m in control_meters], ensure_ascii=False),
+        wiki_json=json.dumps([{"id": pid, "title": title} for pid, title in wiki_pages], ensure_ascii=False),
+        power_json=json.dumps([{"id": d.id, "name": d.label} for d in power_devices], ensure_ascii=False),
         states_json=json.dumps(
             {g_id: {k: v for k, v in st.items() if k != "total"} for g_id, st in states.items()}, ensure_ascii=False,
         ),
@@ -197,8 +215,19 @@ def object_card(object_id):
     last_control = None
     if not obj.master and obj.control_meter is not None and obj.control_meter.readings:
         last_control = max(obj.control_meter.readings, key=lambda r: (r.reading_date, r.id))
+    last_power = None
+    if obj.power_device is not None:
+        last_power = (
+            database.db_session.query(PowerPhaseReading)
+            .filter(PowerPhaseReading.device_id == obj.power_device_id)
+            .order_by(PowerPhaseReading.ts.desc())
+            .first()
+        )
     return render_template(
         "garage_map/_object_card.html", obj=obj, last_master=last_master, last_control=last_control,
+        last_power=last_power,
+        # показания POWCT пишутся в UTC — в карточке местное время сервера
+        power_at=last_power.ts.replace(tzinfo=dt.timezone.utc).astimezone() if last_power else None,
     )
 
 
@@ -242,6 +271,49 @@ def object_photo_file(photo_id):
     return send_from_directory(current_app.config["UPLOAD_FOLDER"], photo.file_path)
 
 
+@bp.route("/object/<int:object_id>/files", methods=["POST"])
+@roles_required(RoleEnum.BOARD)
+def object_add_files(object_id):
+    obj = _get_object(object_id)
+    uploads = [f for f in request.files.getlist("file") if f and f.filename]
+    if not uploads:
+        return jsonify(ok=False, error=_("Выберите файл.")), 400
+    for upload in uploads:
+        if os.path.splitext(upload.filename)[1].lower() not in BACKUP_EXT:
+            return jsonify(ok=False, error=_("Такой тип файла не поддерживается: {name}", name=upload.filename)), 400
+    for upload in uploads:
+        stored = save_upload(upload, current_app.config["UPLOAD_FOLDER"], allowed_ext=BACKUP_EXT)
+        database.db_session.add(GarageMapObjectFile(
+            object_id=obj.id, file_path=stored, original_name=os.path.basename(upload.filename)[:255],
+        ))
+    database.db_session.commit()
+    return jsonify(ok=True)
+
+
+@bp.route("/object/files/<int:file_id>/remove", methods=["POST"])
+@roles_required(RoleEnum.BOARD)
+def object_remove_file(file_id):
+    item = database.db_session.get(GarageMapObjectFile, file_id)
+    if item is None:
+        abort(404)
+    path = item.file_path
+    database.db_session.delete(item)
+    database.db_session.commit()
+    _remove_upload(path)
+    return jsonify(ok=True)
+
+
+@bp.route("/object/files/<int:file_id>/download")
+@roles_required(RoleEnum.BOARD)
+def object_file_download(file_id):
+    item = database.db_session.get(GarageMapObjectFile, file_id)
+    if item is None:
+        abort(404)
+    return send_from_directory(
+        current_app.config["UPLOAD_FOLDER"], item.file_path, as_attachment=True, download_name=item.original_name,
+    )
+
+
 def _remove_upload(path: str | None) -> None:
     if not path:
         return
@@ -251,8 +323,34 @@ def _remove_upload(path: str | None) -> None:
         pass
 
 
-def _clean_objects(items, valid_meter_ids: set[int]):
-    """Проверяет присланные объекты; возвращает (список, ошибка)."""
+def _clean_ip(raw) -> tuple[str | None, bool]:
+    """«192.168.2.151/24» или «192.168.2.151/255.255.255.0» → «192.168.2.151/24»;
+    без маски — просто адрес. Возвращает (значение, ok)."""
+    value = str(raw or "").strip()
+    if not value:
+        return None, True
+    try:
+        if "/" in value:
+            return ipaddress.ip_interface(value).with_prefixlen, True
+        return str(ipaddress.ip_address(value)), True
+    except ValueError:
+        return None, False
+
+
+def _clean_mac(raw) -> tuple[str | None, bool]:
+    value = str(raw or "").strip().upper()
+    if not value:
+        return None, True
+    if not MAC_RE.match(value):
+        return None, False
+    digits = re.sub(r"[^0-9A-F]", "", value)
+    return ":".join(digits[i:i + 2] for i in range(0, 12, 2)), True
+
+
+def _clean_objects(items, valid_meter_ids: set[int], valid_wiki_ids: set[int], valid_power_ids: set[int]):
+    """Проверяет присланные объекты; возвращает (список, ошибка).
+    Подключение (uplink) приходит индексом в этом же списке — так можно
+    связать и только что добавленные, ещё без id, устройства."""
     if not isinstance(items, list) or len(items) > 2000:
         return None, _("Неверные данные объектов схемы.")
     cleaned = []
@@ -264,9 +362,9 @@ def _clean_objects(items, valid_meter_ids: set[int]):
         except (TypeError, ValueError):
             return None, _("У объекта неверное положение.")
         kind = item.get("kind") if item.get("kind") in OBJECT_KINDS else "mark"
-        master = bool(item.get("master")) and kind != "lamp" and kind != "mark"
+        master = bool(item.get("master")) and kind in METER_KINDS
         meter_id = item.get("control_meter_id")
-        if master or kind in ("lamp", "mark") or meter_id in ("", None):
+        if master or kind not in METER_KINDS or meter_id in ("", None):
             meter_id = None
         else:
             try:
@@ -275,13 +373,66 @@ def _clean_objects(items, valid_meter_ids: set[int]):
                 return None, _("Неверный контрольный счётчик.")
             if meter_id not in valid_meter_ids:
                 return None, _("Контрольный счётчик не найден.")
+        net = {"model": None, "hostname": None, "ip_address": None, "mac": None, "net_role": None,
+               "uplink_index": None, "wiki_page_id": None, "power_device_id": None}
+        if kind in NET_KINDS:
+            title_hint = str(item.get("title") or "").strip() or str(item.get("ip_address") or "")
+            ip, ok = _clean_ip(item.get("ip_address"))
+            if not ok:
+                return None, _("Неверный IP-адрес у «{name}»: укажите вида 192.168.2.151/24.", name=title_hint)
+            mac, ok = _clean_mac(item.get("mac"))
+            if not ok:
+                return None, _("Неверный MAC-адрес у «{name}».", name=title_hint)
+            uplink_index = item.get("uplink_index")
+            if uplink_index is not None:
+                if not isinstance(uplink_index, int) or not 0 <= uplink_index < len(items) \
+                        or uplink_index == len(cleaned):
+                    return None, _("Неверное подключение у «{name}».", name=title_hint)
+            wiki_id = item.get("wiki_page_id")
+            if wiki_id in ("", None):
+                wiki_id = None
+            else:
+                try:
+                    wiki_id = int(wiki_id)
+                except (TypeError, ValueError):
+                    wiki_id = -1
+                if wiki_id not in valid_wiki_ids:
+                    return None, _("Страница вики не найдена.")
+            power_id = item.get("power_device_id") if kind == "meter" else None
+            if power_id not in ("", None):
+                try:
+                    power_id = int(power_id)
+                except (TypeError, ValueError):
+                    power_id = -1
+                if power_id not in valid_power_ids:
+                    return None, _("Устройство мониторинга не найдено.")
+            else:
+                power_id = None
+            net = {
+                "model": str(item.get("model") or "").strip()[:200] or None,
+                "hostname": str(item.get("hostname") or "").strip()[:100] or None,
+                "ip_address": ip, "mac": mac,
+                "net_role": item.get("net_role") if kind == "wifi" and item.get("net_role") in NET_ROLES else None,
+                "uplink_index": uplink_index, "wiki_page_id": wiki_id, "power_device_id": power_id,
+            }
         cleaned.append({
             "id": item.get("id") if isinstance(item.get("id"), int) else None,
             "kind": kind, "x": x, "y": y,
             "title": str(item.get("title") or "").strip()[:200] or None,
             "description": str(item.get("description") or "").strip()[:5000] or None,
-            "master": master, "control_meter_id": meter_id,
+            "master": master, "control_meter_id": meter_id, **net,
         })
+    # подключение — только к Wi-Fi-устройству и без петель
+    for index, data in enumerate(cleaned):
+        seen = {index}
+        current = data["uplink_index"]
+        while current is not None:
+            if cleaned[current]["kind"] != "wifi":
+                return None, _("Подключать можно только к Wi-Fi-устройству.")
+            if current in seen:
+                return None, _("Подключения устройств замкнуты в кольцо.")
+            seen.add(current)
+            current = cleaned[current]["uplink_index"]
     return cleaned, None
 
 
@@ -367,7 +518,9 @@ def save():
     removed_files: list[str] = []
     if "objects" in payload:
         valid_meter_ids = {mid for (mid,) in database.db_session.query(ControlMeter.id).all()}
-        objects, error = _clean_objects(payload.get("objects"), valid_meter_ids)
+        valid_wiki_ids = {pid for (pid,) in database.db_session.query(WikiPage.id).all()}
+        valid_power_ids = {did for (did,) in database.db_session.query(PowerPhaseDevice.id).all()}
+        objects, error = _clean_objects(payload.get("objects"), valid_meter_ids, valid_wiki_ids, valid_power_ids)
         if error:
             database.db_session.rollback()
             return jsonify(ok=False, error=error), 400
@@ -376,14 +529,24 @@ def save():
         for obj_id, obj in existing_objects.items():
             if obj_id not in keep_objects:
                 removed_files.extend(p.file_path for p in obj.photos)
+                removed_files.extend(f.file_path for f in obj.files)
+                for child in obj.downlinks:
+                    child.uplink_id = None
                 database.db_session.delete(obj)
+        database.db_session.flush()
+        saved = []
         for data in objects:
             obj = existing_objects.get(data["id"]) if data["id"] in keep_objects else None
             if obj is None:
                 obj = GarageMapObject()
                 database.db_session.add(obj)
-            for field in ("kind", "x", "y", "title", "description", "master", "control_meter_id"):
+            for field in ("kind", "x", "y", "title", "description", "master", "control_meter_id",
+                          "model", "hostname", "ip_address", "mac", "net_role", "wiki_page_id", "power_device_id"):
                 setattr(obj, field, data[field])
+            saved.append(obj)
+        database.db_session.flush()
+        for obj, data in zip(saved, objects):
+            obj.uplink_id = saved[data["uplink_index"]].id if data["uplink_index"] is not None else None
 
     settings = get_settings()
     opacity = payload.get("background_opacity")

@@ -2388,6 +2388,14 @@ class GarageMapObject(Base):
     MasterMeterReading, страница «Электричество»); control_meter_id —
     контрольный счётчик ряда/узла (ControlMeter). Взаимоисключающие:
     при master=True control_meter_id игнорируется.
+
+    Сетевые поля (IP с маской «192.168.2.151/24», MAC, имя в сети, модель,
+    подключение uplink) — у Wi-Fi и у любого сетевого устройства (например,
+    счётчик Sonoff POWCT, подключённый к хотспоту); у Wi-Fi ещё назначение net_role (router — роутер,
+    hotspot — раздача Wi-Fi, bridge — Wi-Fi мост, repeater — репитер),
+    uplink — устройство, к которому подключено (по этим связям схема рисует
+    топологию сети), wiki_page — страница вики об устройстве, files —
+    бэкапы настроек.
     """
     __tablename__ = "garage_map_object"
 
@@ -2402,9 +2410,30 @@ class GarageMapObject(Base):
         ForeignKey("control_meter.id", ondelete="SET NULL"), index=True,
     )
 
+    model: Mapped[str | None] = mapped_column(String(200))
+    hostname: Mapped[str | None] = mapped_column(String(100))
+    ip_address: Mapped[str | None] = mapped_column(String(50))
+    mac: Mapped[str | None] = mapped_column(String(17))
+    net_role: Mapped[str | None] = mapped_column(String(20))
+    uplink_id: Mapped[int | None] = mapped_column(
+        ForeignKey("garage_map_object.id", ondelete="SET NULL"), index=True,
+    )
+    wiki_page_id: Mapped[int | None] = mapped_column(ForeignKey("wiki_page.id", ondelete="SET NULL"), index=True)
+    # Счётчик-монитор фазы Sonoff POWCT (страница мониторинга фаз) — карточка показывает его текущую мощность.
+    power_device_id: Mapped[int | None] = mapped_column(
+        ForeignKey("power_phase_device.id", ondelete="SET NULL"), index=True,
+    )
+
     control_meter: Mapped["ControlMeter | None"] = relationship()
+    power_device: Mapped["PowerPhaseDevice | None"] = relationship()
+    uplink: Mapped["GarageMapObject | None"] = relationship(remote_side=[id], back_populates="downlinks")
+    downlinks: Mapped[list["GarageMapObject"]] = relationship(back_populates="uplink", order_by="GarageMapObject.id")
+    wiki_page: Mapped["WikiPage | None"] = relationship()
     photos: Mapped[list["GarageMapObjectPhoto"]] = relationship(
         back_populates="object", cascade="all, delete-orphan", order_by="GarageMapObjectPhoto.id",
+    )
+    files: Mapped[list["GarageMapObjectFile"]] = relationship(
+        back_populates="object", cascade="all, delete-orphan", order_by="GarageMapObjectFile.id",
     )
 
 
@@ -2418,6 +2447,20 @@ class GarageMapObjectPhoto(Base):
     caption: Mapped[str | None] = mapped_column(String(255))
 
     object: Mapped["GarageMapObject"] = relationship(back_populates="photos")
+
+
+class GarageMapObjectFile(Base):
+    """Файл к объекту схемы — бэкап настроек роутера/точки доступа и т.п.
+    Хранится в UPLOAD_FOLDER под случайным именем, отдаётся с исходным."""
+    __tablename__ = "garage_map_object_file"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    object_id: Mapped[int] = mapped_column(ForeignKey("garage_map_object.id", ondelete="CASCADE"), index=True)
+    file_path: Mapped[str] = mapped_column(String(500))
+    original_name: Mapped[str] = mapped_column(String(255))
+    uploaded_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.now)
+
+    object: Mapped["GarageMapObject"] = relationship(back_populates="files")
 
 
 class GaragePhoto(Base):

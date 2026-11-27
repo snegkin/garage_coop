@@ -6,8 +6,8 @@ import os
 from decimal import Decimal
 
 from app.models import (
-    ControlMeter, ControlMeterReading, GarageMapObject, GarageMapObjectPhoto, GarageMapSettings, GarageMapShape,
-    RoleEnum,
+    ControlMeter, ControlMeterReading, GarageMapObject, GarageMapObjectFile, GarageMapObjectPhoto, GarageMapSettings,
+    GarageMapShape, PowerPhaseDevice, PowerPhaseReading, RoleEnum, WikiPage,
 )
 
 from tests.conftest import make_garage, make_person, make_ownership, make_user, login
@@ -175,3 +175,87 @@ def test_object_card_and_photos(db, client, app):
     # удаление объекта при сохранении схемы уносит и файлы фото
     assert _save(client, [], objects=[]).get_json() == {"ok": True}
     assert db.query(GarageMapObjectPhoto).count() == 0 and not os.path.exists(path)
+
+
+def test_save_network_devices_with_uplinks(db, client):
+    wiki = WikiPage(title="Сеть кооператива", slug="set", body="")
+    phase = PowerPhaseDevice(label="Фаза A", ewelink_device_id="1000abc")
+    db.add_all([wiki, phase])
+    db.flush()
+    _board(db, client)
+
+    resp = _save(client, [], objects=[
+        {"kind": "wifi", "x": 1, "y": 1, "title": "GM-Voschod-Link1", "net_role": "bridge",
+         "model": "Ubiquiti LiteBeam AC Gen2", "ip_address": "192.168.1.9/255.255.255.0", "wiki_page_id": wiki.id},
+        {"kind": "wifi", "x": 2, "y": 2, "title": "Хотспот 26и", "net_role": "hotspot", "ip_address": "192.168.2.150/24",
+         "mac": "f0-b4-29-ed-42-6c", "uplink_index": 0},
+        {"kind": "meter", "x": 3, "y": 3, "title": "POWCT", "net_role": "router", "uplink_index": 1,
+         "power_device_id": phase.id},
+        {"kind": "lamp", "x": 4, "y": 4, "ip_address": "10.0.0.1", "uplink_index": 1},
+    ])
+    assert resp.get_json() == {"ok": True}
+    db.expire_all()
+    link, hotspot, powct, lamp = db.query(GarageMapObject).order_by(GarageMapObject.id).all()
+    assert link.ip_address == "192.168.1.9/24" and link.net_role == "bridge" and link.wiki_page_id == wiki.id
+    assert hotspot.mac == "F0:B4:29:ED:42:6C" and hotspot.uplink_id == link.id
+    assert powct.uplink_id == hotspot.id and powct.net_role is None and powct.power_device_id == phase.id
+    assert lamp.ip_address is None and lamp.uplink_id is None  # у фонаря сетевых полей нет
+
+    # удаление устройства отвязывает подключённые к нему
+    keep = [{"id": o.id, "kind": o.kind, "x": o.x, "y": o.y, "title": o.title, "net_role": o.net_role,
+             "ip_address": o.ip_address, "uplink_index": None} for o in (hotspot, powct)]
+    keep[1]["uplink_index"] = 0
+    assert _save(client, [], objects=keep).get_json() == {"ok": True}
+    db.expire_all()
+    hotspot, powct = db.query(GarageMapObject).order_by(GarageMapObject.id).all()
+    assert hotspot.uplink_id is None and powct.uplink_id == hotspot.id
+
+
+def test_save_network_rejects_bad_ip_mac_and_loops(db, client):
+    _board(db, client)
+    bad_ip = _save(client, [], objects=[{"kind": "wifi", "x": 1, "y": 1, "title": "A", "ip_address": "192.168.2.300/24"}])
+    assert bad_ip.status_code == 400 and "IP" in bad_ip.get_json()["error"]
+    bad_mac = _save(client, [], objects=[{"kind": "wifi", "x": 1, "y": 1, "mac": "zz:11"}])
+    assert bad_mac.status_code == 400
+    loop = _save(client, [], objects=[
+        {"kind": "wifi", "x": 1, "y": 1, "uplink_index": 1},
+        {"kind": "wifi", "x": 1, "y": 1, "uplink_index": 0},
+    ])
+    assert loop.status_code == 400 and "кольцо" in loop.get_json()["error"]
+    to_lamp = _save(client, [], objects=[{"kind": "lamp", "x": 1, "y": 1}, {"kind": "wifi", "x": 1, "y": 1, "uplink_index": 0}])
+    assert to_lamp.status_code == 400
+    assert db.query(GarageMapObject).count() == 0
+
+
+def test_object_backup_files_and_network_card(db, client, app):
+    phase = PowerPhaseDevice(label="Фаза B", ewelink_device_id="1000def")
+    db.add(phase)
+    db.flush()
+    db.add(PowerPhaseReading(device_id=phase.id, power_w=Decimal("190.50"), voltage_v=Decimal("228.00"), is_online=True))
+    up = GarageMapObject(kind="wifi", x=1, y=1, title="Link1", net_role="bridge", ip_address="192.168.2.1/24")
+    db.add(up)
+    db.flush()
+    obj = GarageMapObject(kind="wifi", x=1, y=1, title="Хотспот 4", net_role="hotspot", model="Xiaomi MiWiFi Nano",
+                          ip_address="192.168.2.151/24", mac="F0:B4:29:5D:79:16", uplink_id=up.id)
+    meter = GarageMapObject(kind="meter", x=2, y=2, title="POWCT", power_device_id=phase.id, uplink_id=None)
+    db.add_all([obj, meter])
+    db.flush()
+    _board(db, client)
+
+    card = client.get(f"/garages/map/object/{obj.id}").get_data(as_text=True)
+    assert "Раздача Wi-Fi" in card and "Xiaomi MiWiFi Nano" in card and "192.168.2.151/24" in card
+    assert "F0:B4:29:5D:79:16" in card and "Link1" in card and "Бэкапы настроек" in card
+    assert "Подключены" in client.get(f"/garages/map/object/{up.id}").get_data(as_text=True)
+    assert "190,50" in client.get(f"/garages/map/object/{meter.id}").get_data(as_text=True)
+
+    resp = client.post(f"/garages/map/object/{obj.id}/files",
+                       data={"file": (io.BytesIO(b"config"), "backup_2026.bin")}, content_type="multipart/form-data")
+    assert resp.get_json() == {"ok": True}
+    item = db.query(GarageMapObjectFile).one()
+    download = client.get(f"/garages/map/object/files/{item.id}/download")
+    assert download.data == b"config" and "backup_2026.bin" in download.headers["Content-Disposition"]
+    assert client.post(f"/garages/map/object/{obj.id}/files",
+                       data={"file": (io.BytesIO(b"x"), "a.html")}, content_type="multipart/form-data").status_code == 400
+    path = os.path.join(app.config["UPLOAD_FOLDER"], item.file_path)
+    assert client.post(f"/garages/map/object/files/{item.id}/remove").get_json() == {"ok": True}
+    assert db.query(GarageMapObjectFile).count() == 0 and not os.path.exists(path)

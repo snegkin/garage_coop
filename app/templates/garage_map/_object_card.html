@@ -1,9 +1,37 @@
-{% set kind_names = {"panel": _("Электрощит"), "lamp": _("Фонарь"), "meter": _("Счётчик"), "switch": _("Рубильник"), "mark": _("Отметка")} %}
+{% set kind_names = {"panel": _("Электрощит"), "lamp": _("Фонарь"), "meter": _("Счётчик"), "switch": _("Рубильник"), "wifi": _("Wi-Fi"), "mark": _("Отметка")} %}
+{% set role_names = {"router": _("Роутер"), "hotspot": _("Раздача Wi-Fi"), "bridge": _("Wi-Fi мост"), "repeater": _("Репитер")} %}
+{% macro obj_name(o) %}{{ o.title or o.hostname or o.ip_address or kind_names.get(o.kind, o.kind) }}{% endmacro %}
 <div class="card" id="gmObjectCard" data-object-id="{{ obj.id }}">
   <div class="card-body">
-    <div class="small text-muted">{{ kind_names.get(obj.kind, obj.kind) }}</div>
-    <h5 class="card-title mb-2">{{ obj.title or kind_names.get(obj.kind, obj.kind) }}</h5>
+    <div class="small text-muted">{{ kind_names.get(obj.kind, obj.kind) }}{% if obj.net_role %} · {{ role_names.get(obj.net_role) }}{% endif %}</div>
+    <h5 class="card-title mb-2">{{ obj_name(obj) }}</h5>
     {% if obj.description %}<div class="small mb-2" style="white-space: pre-line">{{ obj.description }}</div>{% endif %}
+
+    {% if obj.model or obj.hostname or obj.ip_address or obj.mac or obj.uplink or obj.downlinks %}
+    <table class="table table-sm small mb-2">
+      {% if obj.model %}<tr><th class="fw-normal text-muted">{{ _("Модель") }}</th><td>{{ obj.model }}</td></tr>{% endif %}
+      {% if obj.hostname %}<tr><th class="fw-normal text-muted">{{ _("Имя в сети") }}</th><td>{{ obj.hostname }}</td></tr>{% endif %}
+      {% if obj.ip_address %}<tr><th class="fw-normal text-muted">{{ _("IP/маска") }}</th><td><code>{{ obj.ip_address }}</code></td></tr>{% endif %}
+      {% if obj.mac %}<tr><th class="fw-normal text-muted">MAC</th><td><code>{{ obj.mac }}</code></td></tr>{% endif %}
+      {% if obj.uplink %}<tr><th class="fw-normal text-muted">{{ _("Подключён к") }}</th>
+        <td><a href="#" class="gm-object-link" data-object-id="{{ obj.uplink.id }}">{{ obj_name(obj.uplink) }}</a>{% if obj.uplink.ip_address %} <span class="text-muted">{{ obj.uplink.ip_address }}</span>{% endif %}</td></tr>{% endif %}
+      {% if obj.downlinks %}<tr><th class="fw-normal text-muted">{{ _("Подключены") }}</th>
+        <td>{% for d in obj.downlinks %}<a href="#" class="gm-object-link" data-object-id="{{ d.id }}">{{ obj_name(d) }}</a>{% if not loop.last %}, {% endif %}{% endfor %}</td></tr>{% endif %}
+    </table>
+    {% endif %}
+    {% if obj.wiki_page %}
+    <div class="small mb-2"><i class="bi bi-journal-text"></i> <a href="{{ url_for('wiki.view', slug=obj.wiki_page.slug) }}" target="_blank" rel="noopener">{{ obj.wiki_page.title }}</a></div>
+    {% endif %}
+
+    {% if obj.power_device %}
+    <div class="small mb-2">
+      <i class="bi bi-activity"></i> {{ _("Мониторинг") }}: {{ obj.power_device.label }}
+      {% if last_power %}<br><span class="{{ '' if last_power.is_online else 'text-danger' }}">
+        {% if last_power.is_online %}{% if last_power.power_w is not none %}{{ fmt2(last_power.power_w) }} {{ _("Вт") }}{% endif %}{% if last_power.voltage_v is not none %} · {{ fmt2(last_power.voltage_v) }} {{ _("В") }}{% endif %}{% else %}{{ _("не в сети") }}{% endif %}
+      </span> <span class="text-muted">{{ power_at.strftime("%d.%m.%Y %H:%M") }}</span>{% endif %}
+      <br><a href="{{ url_for('electricity_monitor.view') }}">{{ _("Мониторинг фаз") }}</a>
+    </div>
+    {% endif %}
 
     {% if obj.master %}
     <div class="small mb-2">
@@ -34,7 +62,29 @@
     </div>
     {% endif %}
 
-    <form class="gm-photo-form" data-url="{{ url_for('garage_map.object_add_photos', object_id=obj.id) }}">
+    {% if obj.kind == "wifi" or obj.files %}
+    <div class="small fw-semibold mb-1">{{ _("Бэкапы настроек") }}</div>
+    {% if obj.files %}
+    <ul class="list-unstyled small mb-1">
+      {% for f in obj.files %}
+      <li class="d-flex align-items-center gap-1">
+        <i class="bi bi-file-earmark-arrow-down"></i>
+        <a href="{{ url_for('garage_map.object_file_download', file_id=f.id) }}" class="text-truncate">{{ f.original_name }}</a>
+        <span class="text-muted text-nowrap">{{ f.uploaded_at.strftime("%d.%m.%Y") }}</span>
+        <button type="button" class="btn btn-sm btn-link text-danger p-0 ms-auto gm-file-remove" title="{{ _('Удалить файл') }}"
+                data-url="{{ url_for('garage_map.object_remove_file', file_id=f.id) }}">&times;</button>
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+    <form class="gm-upload-form mb-2" data-url="{{ url_for('garage_map.object_add_files', object_id=obj.id) }}">
+      <input type="file" name="file" class="form-control form-control-sm" multiple aria-label="{{ _('Файл бэкапа') }}">
+      <button class="btn btn-sm btn-outline-secondary mt-1" type="submit"><i class="bi bi-upload"></i> {{ _("Прикрепить бэкап") }}</button>
+    </form>
+    {% endif %}
+
+    <div class="small fw-semibold mb-1">{{ _("Фото") }}</div>
+    <form class="gm-photo-form gm-upload-form" data-url="{{ url_for('garage_map.object_add_photos', object_id=obj.id) }}">
       <input type="file" name="file" class="form-control form-control-sm" accept=".jpg,.jpeg,.png,.webp,.gif" multiple aria-label="{{ _('Фото') }}">
       <input type="text" name="caption" class="form-control form-control-sm mt-1" maxlength="255" placeholder="{{ _('Подпись к фото (необязательно)') }}">
       <button class="btn btn-sm btn-outline-secondary mt-1" type="submit"><i class="bi bi-camera"></i> {{ _("Добавить фото") }}</button>

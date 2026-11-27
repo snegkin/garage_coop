@@ -35,6 +35,8 @@
   #gmSvg .gm-obj-meter circle { fill: #0d6efd; }
   #gmSvg .gm-obj-switch circle { fill: #dc3545; }
   #gmSvg .gm-obj-mark circle { fill: #6c757d; }
+  #gmSvg .gm-obj-wifi circle { fill: #6f42c1; }
+  #gmSvg .gm-link { stroke: #6f42c1; stroke-width: 2; stroke-dasharray: 6 4; vector-effect: non-scaling-stroke; pointer-events: none; opacity: .8; }
   #gmSvg .gm-obj.gm-selected circle { stroke: var(--bs-primary); stroke-width: 4; }
   #gmSvg .gm-obj.gm-hit circle { stroke: var(--bs-emphasis-color); stroke-width: 5; }
   #gmSvg.gm-editing .gm-obj { cursor: move; }
@@ -76,6 +78,7 @@
     <button type="button" class="btn btn-sm btn-outline-secondary gm-add-obj" data-kind="lamp" title="{{ _('Фонарь') }}"><i class="bi bi-lightbulb-fill text-info"></i> {{ _("Фонарь") }}</button>
     <button type="button" class="btn btn-sm btn-outline-secondary gm-add-obj" data-kind="meter" title="{{ _('Счётчик') }}"><i class="bi bi-speedometer2 text-primary"></i> {{ _("Счётчик") }}</button>
     <button type="button" class="btn btn-sm btn-outline-secondary gm-add-obj" data-kind="switch" title="{{ _('Рубильник') }}"><i class="bi bi-toggle-on text-danger"></i> {{ _("Рубильник") }}</button>
+    <button type="button" class="btn btn-sm btn-outline-secondary gm-add-obj" data-kind="wifi" title="{{ _('Wi-Fi: роутер, хотспот, мост') }}"><i class="bi bi-wifi" style="color: #6f42c1"></i> {{ _("Wi-Fi") }}</button>
     <button type="button" class="btn btn-sm btn-outline-secondary gm-add-obj" data-kind="mark" title="{{ _('Отметка') }}"><i class="bi bi-geo-alt-fill text-secondary"></i> {{ _("Отметка") }}</button>
     <span class="vr"></span>
     <label class="d-flex align-items-center gap-1 mb-0">{{ _("Подложка") }}
@@ -152,6 +155,7 @@
               <option value="lamp">{{ _("Фонарь") }}</option>
               <option value="meter">{{ _("Счётчик") }}</option>
               <option value="switch">{{ _("Рубильник") }}</option>
+              <option value="wifi">{{ _("Wi-Fi") }}</option>
               <option value="mark">{{ _("Отметка") }}</option>
             </select>
           </div>
@@ -162,6 +166,48 @@
           <div class="mb-2">
             <label class="form-label small mb-1">{{ _("Описание: за что отвечает") }}</label>
             <textarea class="form-control form-control-sm" id="gmODescription" rows="4" maxlength="5000"></textarea>
+          </div>
+          <div class="mb-2 d-none" id="gmOPowerRow">
+            <label class="form-label small mb-1">{{ _("Мониторинг (Sonoff POWCT)") }}</label>
+            <select class="form-select form-select-sm" id="gmOPower"></select>
+          </div>
+          <div id="gmONetRow" class="d-none">
+            <div class="mb-2" id="gmONetRoleRow">
+              <label class="form-label small mb-1">{{ _("Назначение") }}</label>
+              <select class="form-select form-select-sm" id="gmONetRole">
+                <option value="">—</option>
+                <option value="router">{{ _("Роутер") }}</option>
+                <option value="hotspot">{{ _("Раздача Wi-Fi") }}</option>
+                <option value="bridge">{{ _("Wi-Fi мост") }}</option>
+                <option value="repeater">{{ _("Репитер") }}</option>
+              </select>
+            </div>
+            <div class="mb-2">
+              <label class="form-label small mb-1">{{ _("Модель") }}</label>
+              <input class="form-control form-control-sm" id="gmOModel" maxlength="200" placeholder="Ubiquiti LiteBeam AC Gen2">
+            </div>
+            <div class="row g-1 mb-2">
+              <div class="col-7">
+                <label class="form-label small mb-1">{{ _("IP/маска") }}</label>
+                <input class="form-control form-control-sm font-monospace" id="gmOIp" maxlength="50" placeholder="192.168.2.151/24">
+              </div>
+              <div class="col-5">
+                <label class="form-label small mb-1">{{ _("Имя в сети") }}</label>
+                <input class="form-control form-control-sm" id="gmOHostname" maxlength="100">
+              </div>
+            </div>
+            <div class="mb-2">
+              <label class="form-label small mb-1">MAC</label>
+              <input class="form-control form-control-sm font-monospace" id="gmOMac" maxlength="17" placeholder="F0:B4:29:5D:79:16">
+            </div>
+            <div class="mb-2">
+              <label class="form-label small mb-1">{{ _("Подключён к") }}</label>
+              <select class="form-select form-select-sm" id="gmOUplink"></select>
+            </div>
+            <div class="mb-2">
+              <label class="form-label small mb-1">{{ _("Страница вики") }}</label>
+              <select class="form-select form-select-sm" id="gmOWiki"></select>
+            </div>
           </div>
           <div class="mb-2" id="gmOMeterRow">
             <label class="form-label small mb-1">{{ _("Счётчик в учёте") }}</label>
@@ -191,16 +237,22 @@
     leave: {{ _("Есть несохранённые изменения схемы. Уйти без сохранения?")|tojson }}, loading: {{ _("Загрузка…")|tojson }},
     confirmDelete: {{ _("Удалить эту фигуру со схемы?")|tojson }},
     confirmDeleteObject: {{ _("Удалить этот объект со схемы вместе с фото?")|tojson }},
-    confirmDeletePhoto: {{ _("Удалить это фото?")|tojson }},
-    saveFirst: {{ _("Фото можно добавить после сохранения схемы.")|tojson }},
+    confirmDeletePhoto: {{ _("Удалить это фото?")|tojson }}, confirmDeleteFile: {{ _("Удалить этот файл?")|tojson }},
+    saveFirst: {{ _("Фото и бэкапы можно добавить после сохранения схемы.")|tojson }},
+    noUplink: {{ _("— никуда / вне схемы —")|tojson }}, noWiki: {{ _("— нет —")|tojson }},
     noMeter: {{ _("— не привязан —")|tojson }}, masterMeter: {{ _("Главный счётчик кооператива")|tojson }},
     controlGroup: {{ _("Контрольные счётчики")|tojson }}, photoError: {{ _("Не удалось загрузить фото.")|tojson }},
     kinds: { panel: {{ _("Электрощит")|tojson }}, lamp: {{ _("Фонарь")|tojson }}, meter: {{ _("Счётчик")|tojson }},
-      "switch": {{ _("Рубильник")|tojson }}, mark: {{ _("Отметка")|tojson }} }
+      "switch": {{ _("Рубильник")|tojson }}, wifi: {{ _("Wi-Fi")|tojson }}, mark: {{ _("Отметка")|tojson }} }
   };
+  var wikiPages = {{ wiki_json|safe }};
+  var powerDevices = {{ power_json|safe }};
+  var METER_KINDS = { panel: 1, meter: 1, "switch": 1 };
+  var NET_KINDS = { panel: 1, meter: 1, "switch": 1, wifi: 1 };
+  var WIFI_GLYPH = { router: "\uf6eb", bridge: "\uf1d5" };
   var objects = {{ objects_json|safe }};
   var controlMeters = {{ meters_json|safe }};
-  var GLYPH = { panel: "\uf46c", lamp: "\uf468", meter: "\uf580", "switch": "\uf5d6", mark: "\uf3e7" };
+  var GLYPH = { panel: "\uf46c", lamp: "\uf468", meter: "\uf580", "switch": "\uf5d6", wifi: "\uf61c", mark: "\uf3e7" };
   var MODES = {
     territory: ["inside", "outside", "none"], debt: ["debt", "ok", "none"],
     power: ["fresh", "stale", "nometer", "none"], land: ["privatized", "notprivatized", "none"]
@@ -303,15 +355,22 @@
     });
     if (showObjects || editing) {
       var R = Math.max(common * 0.5, 8);
+      objects.forEach(function (obj) {  // связи сети — пунктиром от устройства к тому, к чему подключено
+        var up = obj.uplink_key && objectByKey(obj.uplink_key);
+        if (!up) return;
+        var a = view([obj.x, obj.y]), b = view([up.x, up.y]);
+        el("line", { x1: a[0], y1: a[1], x2: b[0], y2: b[1], "class": "gm-link" }, svg);
+      });
       objects.forEach(function (obj) {
         var v = view([obj.x, obj.y]);
         var cls = "gm-obj gm-obj-" + obj.kind + (obj === selectedObj ? " gm-selected" : "");
         var grp = el("g", { "class": cls }, svg);
         var c = el("circle", { cx: v[0], cy: v[1], r: R }, grp);
         var ic = el("text", { x: v[0], y: v[1], "font-size": (R * 1.15).toFixed(1) }, grp);
-        ic.textContent = GLYPH[obj.kind] || GLYPH.mark;
+        ic.textContent = (obj.kind === "wifi" && WIFI_GLYPH[obj.net_role]) || GLYPH[obj.kind] || GLYPH.mark;
         var tt = el("title", {}, grp);
-        tt.textContent = (T.kinds[obj.kind] || "") + (obj.title ? ": " + obj.title : "");
+        tt.textContent = (T.kinds[obj.kind] || "") + (obj.title ? ": " + obj.title : "") +
+          (obj.kind === "wifi" && obj.ip_address ? " — " + obj.ip_address : "");
         c.__obj = obj; grp.__obj = obj;
         obj.__el = grp;
       });
@@ -363,7 +422,8 @@
     });
     objects.forEach(function (o) {
       if (!o.__el) return;
-      var hit = q.length > 1 && (o.title || "").toLowerCase().indexOf(q) !== -1;
+      var hay = [o.title, o.ip_address, o.hostname, o.model, o.mac].join(" ").toLowerCase();
+      var hit = q.length > 1 && hay.indexOf(q) !== -1;
       o.__el.classList.toggle("gm-hit", !!hit);
       if (hit && !first) first = { __el: o.__el, obj: o };
     });
@@ -404,7 +464,7 @@
   }
   var panel = document.getElementById("gmPanel");
   panel.addEventListener("submit", function (evt) {
-    var form = evt.target.closest(".gm-photo-form");
+    var form = evt.target.closest(".gm-upload-form");
     if (!form) return;
     evt.preventDefault();
     var fd = new FormData(form);
@@ -417,19 +477,28 @@
         btn.disabled = false;
         if (!res.ok) { alert(res.error || T.photoError); return; }
         var obj = reloadObjectCard(form.closest("#gmObjectCard"));
-        if (obj) obj.photos += fd.getAll("file").length;
+        if (obj && form.classList.contains("gm-photo-form")) obj.photos += fd.getAll("file").length;
       })
       .catch(function () { btn.disabled = false; alert(T.photoError); });
   });
   panel.addEventListener("click", function (evt) {
-    var btn = evt.target.closest(".gm-photo-remove");
-    if (!btn || !confirm(T.confirmDeletePhoto)) return;
+    var link = evt.target.closest(".gm-object-link");
+    if (link) {
+      evt.preventDefault();
+      var box = link.closest("#gmObjectCard").parentNode;
+      var target = objects.filter(function (o) { return String(o.id) === link.getAttribute("data-object-id"); })[0];
+      if (editing && target) selectObject(target);
+      else showObjectCard(link.getAttribute("data-object-id"), box);
+      return;
+    }
+    var btn = evt.target.closest(".gm-photo-remove, .gm-file-remove");
+    if (!btn || !confirm(btn.classList.contains("gm-file-remove") ? T.confirmDeleteFile : T.confirmDeletePhoto)) return;
     fetch(btn.getAttribute("data-url"), { method: "POST", headers: csrf ? { "X-CSRFToken": csrf.content } : {} })
       .then(function (r) { return r.json(); })
       .then(function (res) {
         if (!res.ok) return;
         var obj = reloadObjectCard(btn.closest("#gmObjectCard"));
-        if (obj) obj.photos = Math.max(0, obj.photos - 1);
+        if (obj && btn.classList.contains("gm-photo-remove")) obj.photos = Math.max(0, obj.photos - 1);
       });
   });
 
@@ -493,12 +562,12 @@
     else if (((key === "z" || key === "я") && evt.shiftKey) || key === "y" || key === "н") { evt.preventDefault(); redo(); }
   });
   // текстовые поля: один снимок на серию ввода (до потери фокуса)
-  ["gmFLabel", "gmOTitle", "gmODescription"].forEach(function (id) {
+  ["gmFLabel", "gmOTitle", "gmODescription", "gmOModel", "gmOIp", "gmOHostname", "gmOMac"].forEach(function (id) {
     var field = document.getElementById(id);
     field.addEventListener("focus", function () { field.__typed = false; });
     field.addEventListener("input", function () { if (!field.__typed) { field.__typed = true; checkpoint(); } }, true);
   });
-  ["gmFKind", "gmFGarage", "gmOKind", "gmOMeter"].forEach(function (id) {
+  ["gmFKind", "gmFGarage", "gmOKind", "gmOMeter", "gmONetRole", "gmOUplink", "gmOWiki", "gmOPower"].forEach(function (id) {
     // снимок до того, как обработчик change поменяет модель
     document.getElementById(id).addEventListener("change", function () { checkpoint(); }, true);
   });
@@ -715,7 +784,8 @@
       document.getElementById("gmOTitle").value = obj.title || "";
       document.getElementById("gmODescription").value = obj.description || "";
       fillMeterSelect(obj);
-      document.getElementById("gmOMeterRow").classList.toggle("d-none", obj.kind === "lamp" || obj.kind === "mark");
+      document.getElementById("gmOMeterRow").classList.toggle("d-none", !METER_KINDS[obj.kind]);
+      fillNetFields(obj);
       var extra = document.getElementById("gmObjectExtra");
       if (obj.id) showObjectCard(obj.id, extra);
       else { extra.className = "small text-muted"; extra.textContent = T.saveFirst; }
@@ -725,10 +795,71 @@
   document.getElementById("gmOKind").addEventListener("change", function () {
     if (!selectedObj) return;
     selectedObj.kind = this.value;
-    var noMeter = this.value === "lamp" || this.value === "mark";
+    var noMeter = !METER_KINDS[this.value];
     if (noMeter) { selectedObj.master = false; selectedObj.control_meter_id = null; fillMeterSelect(selectedObj); }
     document.getElementById("gmOMeterRow").classList.toggle("d-none", noMeter);
+    fillNetFields(selectedObj);
     markDirty(); render();
+  });
+
+  // --- Wi-Fi: сетевые поля, подключение к другому устройству, вики
+  function objectByKey(key) { return objects.filter(function (o) { return o.__k === key; })[0]; }
+  function objectName(o) { return o.title || o.hostname || o.ip_address || T.kinds[o.kind]; }
+  function fillNetFields(obj) {
+    var isNet = !!NET_KINDS[obj.kind];
+    document.getElementById("gmONetRow").classList.toggle("d-none", !isNet);
+    document.getElementById("gmONetRoleRow").classList.toggle("d-none", obj.kind !== "wifi");
+    var power = document.getElementById("gmOPower");
+    document.getElementById("gmOPowerRow").classList.toggle("d-none", obj.kind !== "meter" || !powerDevices.length);
+    power.innerHTML = "";
+    [{ id: "", name: T.noWiki }].concat(powerDevices).forEach(function (d) {
+      var o = document.createElement("option"); o.value = d.id; o.textContent = d.name; power.appendChild(o);
+    });
+    power.value = obj.power_device_id ? String(obj.power_device_id) : "";
+    if (!isNet) return;
+    document.getElementById("gmONetRole").value = obj.net_role || "";
+    document.getElementById("gmOModel").value = obj.model || "";
+    document.getElementById("gmOIp").value = obj.ip_address || "";
+    document.getElementById("gmOHostname").value = obj.hostname || "";
+    document.getElementById("gmOMac").value = obj.mac || "";
+    var up = document.getElementById("gmOUplink");
+    up.innerHTML = "";
+    function opt(sel, value, text) { var o = document.createElement("option"); o.value = value; o.textContent = text; sel.appendChild(o); }
+    opt(up, "", T.noUplink);
+    objects.forEach(function (o) {
+      if (o === obj || o.kind !== "wifi") return;
+      opt(up, String(keyOf(o)), objectName(o) + (o.ip_address ? " — " + o.ip_address : ""));
+    });
+    up.value = obj.uplink_key ? String(obj.uplink_key) : "";
+    var wiki = document.getElementById("gmOWiki");
+    wiki.innerHTML = "";
+    opt(wiki, "", T.noWiki);
+    wikiPages.forEach(function (p) { opt(wiki, String(p.id), p.title); });
+    wiki.value = obj.wiki_page_id ? String(obj.wiki_page_id) : "";
+  }
+  [["gmONetRole", "net_role"], ["gmOModel", "model"], ["gmOIp", "ip_address"], ["gmOHostname", "hostname"], ["gmOMac", "mac"]]
+    .forEach(function (pair) {
+      var field = document.getElementById(pair[0]);
+      field.addEventListener(field.tagName === "SELECT" ? "change" : "input", function () {
+        if (!selectedObj) return;
+        selectedObj[pair[1]] = this.value;
+        markDirty(); render();
+      });
+    });
+  document.getElementById("gmOUplink").addEventListener("change", function () {
+    if (!selectedObj) return;
+    selectedObj.uplink_key = this.value ? parseInt(this.value, 10) : null;
+    markDirty(); render();
+  });
+  document.getElementById("gmOPower").addEventListener("change", function () {
+    if (!selectedObj) return;
+    selectedObj.power_device_id = this.value ? parseInt(this.value, 10) : null;
+    markDirty();
+  });
+  document.getElementById("gmOWiki").addEventListener("change", function () {
+    if (!selectedObj) return;
+    selectedObj.wiki_page_id = this.value ? parseInt(this.value, 10) : null;
+    markDirty();
   });
   document.getElementById("gmOTitle").addEventListener("input", function () {
     if (!selectedObj) return;
@@ -759,7 +890,8 @@
       checkpoint();
       var c = viewCenter();
       var obj = { id: null, kind: btn.getAttribute("data-kind"), x: c[0], y: c[1], title: "", description: "",
-        master: false, control_meter_id: null, photos: 0 };
+        master: false, control_meter_id: null, photos: 0, model: "", hostname: "", ip_address: "", mac: "",
+        net_role: "", uplink_key: null, wiki_page_id: null, power_device_id: null };
       objects.push(obj);
       markDirty(); selectObject(obj);
     });
@@ -824,8 +956,11 @@
       background_opacity: parseInt(document.getElementById("gmOpacity").value, 10),
       shapes: shapes.map(function (s) { return { id: s.id, kind: s.kind, garage_id: s.garage_id, label: s.label, points: s.points }; }),
       objects: objects.map(function (o) {
+        var upIndex = o.uplink_key ? objects.indexOf(objectByKey(o.uplink_key)) : -1;
         return { id: o.id, kind: o.kind, x: o.x, y: o.y, title: o.title, description: o.description,
-          master: o.master, control_meter_id: o.control_meter_id };
+          master: o.master, control_meter_id: o.control_meter_id,
+          model: o.model, hostname: o.hostname, ip_address: o.ip_address, mac: o.mac, net_role: o.net_role,
+          uplink_index: upIndex >= 0 ? upIndex : null, wiki_page_id: o.wiki_page_id, power_device_id: o.power_device_id };
       })
     };
     var headers = { "Content-Type": "application/json" };
@@ -865,6 +1000,10 @@
   document.getElementById("gmZoomOut").addEventListener("click", function () { setZoom(zoom / 1.4); });
   document.getElementById("gmRotate").addEventListener("click", function () { rotated = !rotated; store.set("gmRotated", rotated ? "1" : "0"); render(); });
   window.addEventListener("resize", function () { if (document.body.contains(svg)) render(); });
+  // подключения устройств — по ключу объекта, чтобы работали и для ещё не сохранённых, и после отмены
+  var keyById = {};
+  objects.forEach(function (o) { keyById[o.id] = keyOf(o); });
+  objects.forEach(function (o) { o.uplink_key = o.uplink_id ? keyById[o.uplink_id] || null : null; });
   render();
 })();
 </script>

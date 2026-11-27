@@ -27,6 +27,17 @@
   #gmSvg.gm-editing .gm-area { pointer-events: visibleStroke; cursor: move; }
   .gm-legend-swatch { display: inline-block; width: 14px; height: 14px; border-radius: 3px; border: 1px solid; vertical-align: -2px; }
   #gmPanel { position: sticky; top: 1rem; }
+  #gmSvg .gm-obj { cursor: pointer; }
+  #gmSvg .gm-obj circle { stroke: var(--bs-body-bg); stroke-width: 2; vector-effect: non-scaling-stroke; }
+  #gmSvg .gm-obj text { font-family: "bootstrap-icons"; fill: #fff; text-anchor: middle; dominant-baseline: central; pointer-events: none; }
+  #gmSvg .gm-obj-panel circle { fill: #d39e00; }
+  #gmSvg .gm-obj-lamp circle { fill: #0aa2c0; }
+  #gmSvg .gm-obj-meter circle { fill: #0d6efd; }
+  #gmSvg .gm-obj-switch circle { fill: #dc3545; }
+  #gmSvg .gm-obj-mark circle { fill: #6c757d; }
+  #gmSvg .gm-obj.gm-selected circle { stroke: var(--bs-primary); stroke-width: 4; }
+  #gmSvg .gm-obj.gm-hit circle { stroke: var(--bs-emphasis-color); stroke-width: 5; }
+  #gmSvg.gm-editing .gm-obj { cursor: move; }
 </style>
 
 <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
@@ -44,6 +55,10 @@
       <button type="button" class="btn btn-outline-secondary" id="gmZoomIn" title="{{ _('Крупнее') }}"><i class="bi bi-zoom-in"></i></button>
       <button type="button" class="btn btn-outline-secondary" id="gmRotate" title="{{ _('Повернуть: север вверху / слева') }}"><i class="bi bi-arrow-repeat"></i></button>
     </div>
+    <div class="form-check form-switch mb-0 small">
+      <input class="form-check-input" type="checkbox" id="gmShowObjects">
+      <label class="form-check-label" for="gmShowObjects">{{ _("Оборудование") }}</label>
+    </div>
     <button type="button" class="btn btn-sm btn-outline-primary" id="gmEditToggle"><i class="bi bi-pencil"></i> {{ _("Правка") }}</button>
   </div>
 </div>
@@ -56,6 +71,12 @@
     <button type="button" class="btn btn-sm btn-outline-secondary" id="gmAddRoad">{{ _("+ Проезд") }}</button>
     <button type="button" class="btn btn-sm btn-outline-secondary" id="gmAddBuilding">{{ _("+ Здание") }}</button>
     <span class="vr"></span>
+    <button type="button" class="btn btn-sm btn-outline-secondary gm-add-obj" data-kind="panel" title="{{ _('Электрощит') }}"><i class="bi bi-lightning-charge-fill text-warning"></i> {{ _("Щит") }}</button>
+    <button type="button" class="btn btn-sm btn-outline-secondary gm-add-obj" data-kind="lamp" title="{{ _('Фонарь') }}"><i class="bi bi-lightbulb-fill text-info"></i> {{ _("Фонарь") }}</button>
+    <button type="button" class="btn btn-sm btn-outline-secondary gm-add-obj" data-kind="meter" title="{{ _('Счётчик') }}"><i class="bi bi-speedometer2 text-primary"></i> {{ _("Счётчик") }}</button>
+    <button type="button" class="btn btn-sm btn-outline-secondary gm-add-obj" data-kind="switch" title="{{ _('Рубильник') }}"><i class="bi bi-toggle-on text-danger"></i> {{ _("Рубильник") }}</button>
+    <button type="button" class="btn btn-sm btn-outline-secondary gm-add-obj" data-kind="mark" title="{{ _('Отметка') }}"><i class="bi bi-geo-alt-fill text-secondary"></i> {{ _("Отметка") }}</button>
+    <span class="vr"></span>
     <label class="d-flex align-items-center gap-1 mb-0">{{ _("Подложка") }}
       <input type="range" min="0" max="100" step="5" id="gmOpacity" value="{{ settings.background_opacity }}" style="width: 7rem">
     </label>
@@ -67,7 +88,7 @@
     <button type="button" class="btn btn-sm btn-outline-secondary" id="gmCancel">{{ _("Отменить правки") }}</button>
     <span id="gmDirty" class="text-warning d-none">{{ _("есть несохранённые изменения") }}</span>
   </div>
-  <div class="text-muted mt-1">{{ _("Тяните бокс за середину или за углы. Жирная линия — сторона ворот.") }}</div>
+  <div class="text-muted mt-1">{{ _("Тяните бокс за середину или за углы. Жирная линия — сторона ворот. Значки оборудования тоже перетаскиваются; новый появляется в центре видимой части схемы.") }}</div>
 </div>
 
 <div class="row g-3">
@@ -82,7 +103,7 @@
   </div>
   <div class="col-lg-3">
     <div id="gmPanel">
-      <div id="gmCard" class="text-muted small">{{ _("Нажмите на бокс, чтобы увидеть карточку гаража.") }}</div>
+      <div id="gmCard" class="text-muted small">{{ _("Нажмите на бокс, чтобы увидеть карточку гаража, или на значок оборудования.") }}</div>
       <div id="gmShapeForm" class="d-none card card-body">
         <div class="mb-2">
           <label class="form-label small mb-1">{{ _("Что это") }}</label>
@@ -106,6 +127,39 @@
           <button type="button" class="btn btn-sm btn-outline-secondary" id="gmFCopy" title="{{ _('Такой же бокс рядом по ряду') }}">{{ _("Копия рядом") }}</button>
           <button type="button" class="btn btn-sm btn-outline-danger" id="gmFDelete">{{ _("Удалить") }}</button>
         </div>
+        <div class="d-flex flex-wrap gap-1 mt-1">
+          <button type="button" class="btn btn-sm btn-outline-secondary" id="gmFAddVertex" title="{{ _('Добавить угол посередине стороны после выбранного угла') }}">{{ _("+ угол") }}</button>
+          <button type="button" class="btn btn-sm btn-outline-secondary" id="gmFDelVertex" title="{{ _('Убрать выбранный угол') }}">{{ _("− угол") }}</button>
+        </div>
+        <div class="form-text">{{ _("Нажмите на угол, чтобы выбрать его, затем «+ угол» или «− угол» — так контур дорисовывается до любой формы.") }}</div>
+      </div>
+      <div id="gmObjectForm" class="d-none">
+        <div class="card card-body mb-2">
+          <div class="mb-2">
+            <label class="form-label small mb-1">{{ _("Что это") }}</label>
+            <select class="form-select form-select-sm" id="gmOKind">
+              <option value="panel">{{ _("Электрощит") }}</option>
+              <option value="lamp">{{ _("Фонарь") }}</option>
+              <option value="meter">{{ _("Счётчик") }}</option>
+              <option value="switch">{{ _("Рубильник") }}</option>
+              <option value="mark">{{ _("Отметка") }}</option>
+            </select>
+          </div>
+          <div class="mb-2">
+            <label class="form-label small mb-1">{{ _("Название") }}</label>
+            <input class="form-control form-control-sm" id="gmOTitle" maxlength="200">
+          </div>
+          <div class="mb-2">
+            <label class="form-label small mb-1">{{ _("Описание: за что отвечает") }}</label>
+            <textarea class="form-control form-control-sm" id="gmODescription" rows="4" maxlength="5000"></textarea>
+          </div>
+          <div class="mb-2" id="gmOMeterRow">
+            <label class="form-label small mb-1">{{ _("Счётчик в учёте") }}</label>
+            <select class="form-select form-select-sm" id="gmOMeter"></select>
+          </div>
+          <button type="button" class="btn btn-sm btn-outline-danger align-self-start" id="gmODelete">{{ _("Удалить") }}</button>
+        </div>
+        <div id="gmObjectExtra" class="small"></div>
       </div>
     </div>
   </div>
@@ -125,8 +179,18 @@
     privatized: {{ _("земля приватизирована")|tojson }}, notprivatized: {{ _("земля не приватизирована")|tojson }},
     noGarage: {{ _("— не выбран —")|tojson }}, saved: {{ _("Схема сохранена.")|tojson }}, saveError: {{ _("Не удалось сохранить схему.")|tojson }},
     leave: {{ _("Есть несохранённые изменения схемы. Уйти без сохранения?")|tojson }}, loading: {{ _("Загрузка…")|tojson }},
-    confirmDelete: {{ _("Удалить эту фигуру со схемы?")|tojson }}
+    confirmDelete: {{ _("Удалить эту фигуру со схемы?")|tojson }},
+    confirmDeleteObject: {{ _("Удалить этот объект со схемы вместе с фото?")|tojson }},
+    confirmDeletePhoto: {{ _("Удалить это фото?")|tojson }},
+    saveFirst: {{ _("Фото можно добавить после сохранения схемы.")|tojson }},
+    noMeter: {{ _("— не привязан —")|tojson }}, masterMeter: {{ _("Главный счётчик кооператива")|tojson }},
+    controlGroup: {{ _("Контрольные счётчики")|tojson }}, photoError: {{ _("Не удалось загрузить фото.")|tojson }},
+    kinds: { panel: {{ _("Электрощит")|tojson }}, lamp: {{ _("Фонарь")|tojson }}, meter: {{ _("Счётчик")|tojson }},
+      "switch": {{ _("Рубильник")|tojson }}, mark: {{ _("Отметка")|tojson }} }
   };
+  var objects = {{ objects_json|safe }};
+  var controlMeters = {{ meters_json|safe }};
+  var GLYPH = { panel: "\uf46c", lamp: "\uf468", meter: "\uf580", "switch": "\uf5d6", mark: "\uf3e7" };
   var MODES = {
     territory: ["inside", "outside", "none"], debt: ["debt", "ok", "none"],
     power: ["fresh", "stale", "nometer", "none"], land: ["privatized", "notprivatized", "none"]
@@ -145,7 +209,9 @@
   var mode = store.get("gmMode", "territory");
   if (!MODES[mode]) mode = "territory";
   document.getElementById("gmMode").value = mode;
-  var editing = false, dirty = false, selected = null, tempId = 0;
+  var editing = false, dirty = false, selected = null, selectedObj = null, selVertex = null, tempId = 0;
+  var showObjects = store.get("gmShowObjects", "1") === "1";
+  document.getElementById("gmShowObjects").checked = showObjects;
   var garageById = {};
   garages.forEach(function (g) { garageById[g.id] = g; });
 
@@ -225,10 +291,26 @@
         "class": "gm-label" + (shape.garage_id || shape.kind !== "garage" ? "" : " gm-label-muted") }, svg);
       t.textContent = text;
     });
+    if (showObjects || editing) {
+      var R = Math.max(common * 0.5, 8);
+      objects.forEach(function (obj) {
+        var v = view([obj.x, obj.y]);
+        var cls = "gm-obj gm-obj-" + obj.kind + (obj === selectedObj ? " gm-selected" : "");
+        var grp = el("g", { "class": cls }, svg);
+        var c = el("circle", { cx: v[0], cy: v[1], r: R }, grp);
+        var ic = el("text", { x: v[0], y: v[1], "font-size": (R * 1.15).toFixed(1) }, grp);
+        ic.textContent = GLYPH[obj.kind] || GLYPH.mark;
+        var tt = el("title", {}, grp);
+        tt.textContent = (T.kinds[obj.kind] || "") + (obj.title ? ": " + obj.title : "");
+        c.__obj = obj; grp.__obj = obj;
+        obj.__el = grp;
+      });
+    }
     if (editing && selected) {
       selected.points.forEach(function (p, i) {
         var v = view(p);
         var hnd = el("circle", { cx: v[0], cy: v[1], r: Math.max(vw(), vh()) / 600 + 6, "class": "gm-handle" }, svg);
+        if (i === selVertex) hnd.setAttribute("style", "fill: var(--bs-danger)");
         hnd.__vertex = i;
       });
     }
@@ -265,11 +347,18 @@
       s.__el.classList.toggle("gm-hit", !!hit);
       if (hit && !first) first = s;
     });
+    objects.forEach(function (o) {
+      if (!o.__el) return;
+      var hit = q.length > 1 && (o.title || "").toLowerCase().indexOf(q) !== -1;
+      o.__el.classList.toggle("gm-hit", !!hit);
+      if (hit && !first) first = { __el: o.__el, obj: o };
+    });
     if (scroll && first) {
       var r = first.__el.getBoundingClientRect(), wr = wrap.getBoundingClientRect();
       wrap.scrollLeft += r.left - wr.left - wr.width / 2 + r.width / 2;
       wrap.scrollTop += r.top - wr.top - wr.height / 2 + r.height / 2;
       if (!editing && first.garage_id) showCard(first.garage_id);
+      if (!editing && first.obj && first.obj.id) showObjectCard(first.obj.id, document.getElementById("gmCard"));
     }
   }
   document.getElementById("gmSearch").addEventListener("input", function () { applySearch(true); });
@@ -283,6 +372,52 @@
       .then(function (r) { return r.text(); })
       .then(function (html) { box.innerHTML = html; });
   }
+
+  // --- карточка объекта (щит, фонарь…) и фото к нему
+  var OBJ_CARD_URL = {{ url_for('garage_map.object_card', object_id=0)|tojson }};
+  function showObjectCard(objectId, box) {
+    box.classList.remove("text-muted", "small", "d-none");
+    box.textContent = T.loading;
+    fetch(OBJ_CARD_URL.replace(/0$/, objectId), { headers: { "X-Requested-With": "fetch" } })
+      .then(function (r) { return r.text(); })
+      .then(function (html) { box.innerHTML = html; });
+  }
+  function reloadObjectCard(card) {
+    var box = card.parentNode, id = card.getAttribute("data-object-id");
+    var obj = objects.filter(function (o) { return String(o.id) === id; })[0];
+    showObjectCard(id, box);
+    return obj;
+  }
+  var panel = document.getElementById("gmPanel");
+  panel.addEventListener("submit", function (evt) {
+    var form = evt.target.closest(".gm-photo-form");
+    if (!form) return;
+    evt.preventDefault();
+    var fd = new FormData(form);
+    if (!form.querySelector("input[type=file]").files.length) return;
+    var btn = form.querySelector("button[type=submit]");
+    btn.disabled = true;
+    fetch(form.getAttribute("data-url"), { method: "POST", body: fd, headers: csrf ? { "X-CSRFToken": csrf.content } : {} })
+      .then(function (r) { return r.json(); })
+      .then(function (res) {
+        btn.disabled = false;
+        if (!res.ok) { alert(res.error || T.photoError); return; }
+        var obj = reloadObjectCard(form.closest("#gmObjectCard"));
+        if (obj) obj.photos += fd.getAll("file").length;
+      })
+      .catch(function () { btn.disabled = false; alert(T.photoError); });
+  });
+  panel.addEventListener("click", function (evt) {
+    var btn = evt.target.closest(".gm-photo-remove");
+    if (!btn || !confirm(T.confirmDeletePhoto)) return;
+    fetch(btn.getAttribute("data-url"), { method: "POST", headers: csrf ? { "X-CSRFToken": csrf.content } : {} })
+      .then(function (r) { return r.json(); })
+      .then(function (res) {
+        if (!res.ok) return;
+        var obj = reloadObjectCard(btn.closest("#gmObjectCard"));
+        if (obj) obj.photos = Math.max(0, obj.photos - 1);
+      });
+  });
 
   // --- правка
   function markDirty() {
@@ -299,15 +434,22 @@
   svg.addEventListener("pointerdown", function (evt) {
     var target = evt.target;
     if (!editing) {
-      if (target.__shape && target.__shape.garage_id) showCard(target.__shape.garage_id);
+      if (target.__obj && target.__obj.id) showObjectCard(target.__obj.id, document.getElementById("gmCard"));
+      else if (target.__shape && target.__shape.garage_id) showCard(target.__shape.garage_id);
       return;
     }
-    if (target.__vertex !== undefined && selected) {
+    if (target.__obj) {
+      selectObject(target.__obj);
+      drag = { kind: "obj", start: svgPoint(evt), orig: [selectedObj.x, selectedObj.y] };
+    } else if (target.__vertex !== undefined && selected) {
+      selVertex = target.__vertex;
       drag = { kind: "vertex", index: target.__vertex, start: svgPoint(evt), orig: selected.points.map(function (p) { return p.slice(); }) };
+      render();
     } else if (target.__shape) {
       select(target.__shape);
       drag = { kind: "move", start: svgPoint(evt), orig: selected.points.map(function (p) { return p.slice(); }) };
     } else {
+      selectObject(null);
       select(null);
       return;
     }
@@ -315,11 +457,14 @@
     evt.preventDefault();
   });
   svg.addEventListener("pointermove", function (evt) {
-    if (!drag || !selected) return;
+    if (!drag || !(selected || selectedObj)) return;
     var now = svgPoint(evt);
     var a = unview(drag.start), b = unview(now), dx = b[0] - a[0], dy = b[1] - a[1];
     if (Math.abs(dx) + Math.abs(dy) < 0.5) return;
-    if (drag.kind === "vertex") {
+    if (drag.kind === "obj") {
+      selectedObj.x = Math.max(0, Math.min(W, drag.orig[0] + dx));
+      selectedObj.y = Math.max(0, Math.min(H, drag.orig[1] + dy));
+    } else if (drag.kind === "vertex") {
       selected.points[drag.index] = [drag.orig[drag.index][0] + dx, drag.orig[drag.index][1] + dy];
     } else {
       selected.points = drag.orig.map(function (p) { return [p[0] + dx, p[1] + dy]; });
@@ -333,10 +478,12 @@
   });
 
   function select(shape) {
+    if (shape !== selected) selVertex = null;
     selected = shape;
+    if (shape) { selectedObj = null; document.getElementById("gmObjectForm").classList.add("d-none"); }
     var form = document.getElementById("gmShapeForm");
     form.classList.toggle("d-none", !shape);
-    document.getElementById("gmCard").classList.toggle("d-none", !!shape);
+    document.getElementById("gmCard").classList.toggle("d-none", !!shape || !!selectedObj);
     if (shape) {
       document.getElementById("gmFKind").value = shape.kind;
       fillGarageSelect(shape);
@@ -399,6 +546,106 @@
     markDirty(); select(null);
   });
 
+  // --- объекты: форма свойств
+  function fillMeterSelect(obj) {
+    var sel = document.getElementById("gmOMeter");
+    sel.innerHTML = "";
+    function opt(value, text, parent) {
+      var o = document.createElement("option");
+      o.value = value; o.textContent = text; (parent || sel).appendChild(o);
+    }
+    opt("", T.noMeter);
+    opt("master", T.masterMeter);
+    if (controlMeters.length) {
+      var grp = document.createElement("optgroup");
+      grp.label = T.controlGroup;
+      controlMeters.forEach(function (m) { opt(String(m.id), m.name, grp); });
+      sel.appendChild(grp);
+    }
+    sel.value = obj.master ? "master" : (obj.control_meter_id ? String(obj.control_meter_id) : "");
+  }
+  function selectObject(obj) {
+    if (selected) select(null);
+    selectedObj = obj;
+    var form = document.getElementById("gmObjectForm");
+    form.classList.toggle("d-none", !obj);
+    document.getElementById("gmCard").classList.toggle("d-none", !!obj);
+    if (obj) {
+      document.getElementById("gmOKind").value = obj.kind;
+      document.getElementById("gmOTitle").value = obj.title || "";
+      document.getElementById("gmODescription").value = obj.description || "";
+      fillMeterSelect(obj);
+      document.getElementById("gmOMeterRow").classList.toggle("d-none", obj.kind === "lamp" || obj.kind === "mark");
+      var extra = document.getElementById("gmObjectExtra");
+      if (obj.id) showObjectCard(obj.id, extra);
+      else { extra.className = "small text-muted"; extra.textContent = T.saveFirst; }
+    }
+    render();
+  }
+  document.getElementById("gmOKind").addEventListener("change", function () {
+    if (!selectedObj) return;
+    selectedObj.kind = this.value;
+    var noMeter = this.value === "lamp" || this.value === "mark";
+    if (noMeter) { selectedObj.master = false; selectedObj.control_meter_id = null; fillMeterSelect(selectedObj); }
+    document.getElementById("gmOMeterRow").classList.toggle("d-none", noMeter);
+    markDirty(); render();
+  });
+  document.getElementById("gmOTitle").addEventListener("input", function () {
+    if (!selectedObj) return;
+    selectedObj.title = this.value; markDirty(); render();
+  });
+  document.getElementById("gmODescription").addEventListener("input", function () {
+    if (!selectedObj) return;
+    selectedObj.description = this.value; markDirty();
+  });
+  document.getElementById("gmOMeter").addEventListener("change", function () {
+    if (!selectedObj) return;
+    selectedObj.master = this.value === "master";
+    selectedObj.control_meter_id = (this.value && this.value !== "master") ? parseInt(this.value, 10) : null;
+    markDirty();
+  });
+  document.getElementById("gmODelete").addEventListener("click", function () {
+    if (!selectedObj || !confirm(T.confirmDeleteObject)) return;
+    objects.splice(objects.indexOf(selectedObj), 1);
+    markDirty(); selectObject(null);
+  });
+  function viewCenter() {
+    var wr = wrap.getBoundingClientRect();
+    return unview(svgPoint({ clientX: wr.left + wr.width / 2, clientY: wr.top + wr.height / 2 }));
+  }
+  Array.prototype.forEach.call(document.querySelectorAll(".gm-add-obj"), function (btn) {
+    btn.addEventListener("click", function () {
+      var c = viewCenter();
+      var obj = { id: null, kind: btn.getAttribute("data-kind"), x: c[0], y: c[1], title: "", description: "",
+        master: false, control_meter_id: null, photos: 0 };
+      objects.push(obj);
+      markDirty(); selectObject(obj);
+    });
+  });
+
+  // --- углы контура
+  document.getElementById("gmFAddVertex").addEventListener("click", function () {
+    if (!selected) return;
+    var p = selected.points, i = selVertex;
+    if (i === null || i === undefined) {  // без выбранного угла — середина самой длинной стороны
+      var best = -1;
+      p.forEach(function (q, k) {
+        var r = p[(k + 1) % p.length], d = Math.pow(r[0] - q[0], 2) + Math.pow(r[1] - q[1], 2);
+        if (d > best) { best = d; i = k; }
+      });
+    }
+    var a = p[i], b = p[(i + 1) % p.length];
+    p.splice(i + 1, 0, [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]);
+    selVertex = i + 1;
+    markDirty(); render();
+  });
+  document.getElementById("gmFDelVertex").addEventListener("click", function () {
+    if (!selected || selVertex === null || selected.points.length <= 3) return;
+    selected.points.splice(selVertex, 1);
+    selVertex = null;
+    markDirty(); render();
+  });
+
   function addShape(kind, w, h) {
     var wr = wrap.getBoundingClientRect();
     var c = unview(svgPoint({ clientX: wr.left + wr.width / 2, clientY: wr.top + wr.height / 2 }));
@@ -430,7 +677,11 @@
     btn.disabled = true;
     var body = {
       background_opacity: parseInt(document.getElementById("gmOpacity").value, 10),
-      shapes: shapes.map(function (s) { return { id: s.id, kind: s.kind, garage_id: s.garage_id, label: s.label, points: s.points }; })
+      shapes: shapes.map(function (s) { return { id: s.id, kind: s.kind, garage_id: s.garage_id, label: s.label, points: s.points }; }),
+      objects: objects.map(function (o) {
+        return { id: o.id, kind: o.kind, x: o.x, y: o.y, title: o.title, description: o.description,
+          master: o.master, control_meter_id: o.control_meter_id };
+      })
     };
     var headers = { "Content-Type": "application/json" };
     if (csrf) headers["X-CSRFToken"] = csrf.content;
@@ -455,11 +706,15 @@
     editing = !editing;
     this.classList.toggle("active", editing);
     document.getElementById("gmEditBar").classList.toggle("d-none", !editing);
+    selectObject(null);
     select(null);
   });
 
   // --- вид
   document.getElementById("gmMode").addEventListener("change", function () { mode = this.value; store.set("gmMode", mode); render(); });
+  document.getElementById("gmShowObjects").addEventListener("change", function () {
+    showObjects = this.checked; store.set("gmShowObjects", showObjects ? "1" : "0"); render();
+  });
   function setZoom(z) { zoom = Math.max(0.5, Math.min(6, z)); store.set("gmZoom", String(zoom)); render(); }
   document.getElementById("gmZoomIn").addEventListener("click", function () { setZoom(zoom * 1.4); });
   document.getElementById("gmZoomOut").addEventListener("click", function () { setZoom(zoom / 1.4); });

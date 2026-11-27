@@ -1,0 +1,43 @@
+{% set kind_names = {"panel": _("Электрощит"), "lamp": _("Фонарь"), "meter": _("Счётчик"), "switch": _("Рубильник"), "mark": _("Отметка")} %}
+<div class="card" id="gmObjectCard" data-object-id="{{ obj.id }}">
+  <div class="card-body">
+    <div class="small text-muted">{{ kind_names.get(obj.kind, obj.kind) }}</div>
+    <h5 class="card-title mb-2">{{ obj.title or kind_names.get(obj.kind, obj.kind) }}</h5>
+    {% if obj.description %}<div class="small mb-2" style="white-space: pre-line">{{ obj.description }}</div>{% endif %}
+
+    {% if obj.master %}
+    <div class="small mb-2">
+      <i class="bi bi-speedometer2"></i> {{ _("Главный счётчик кооператива") }}
+      {% if last_master %}<br><span class="text-muted">{{ _("Последнее показание") }}: {{ fmt2(last_master.reading) }} {{ _("за") }} {{ "%02d.%d"|format(last_master.month, last_master.year) }}</span>{% endif %}
+      <br><a href="{{ url_for('power.view') }}">{{ _("Электричество") }}</a>
+    </div>
+    {% elif obj.control_meter %}
+    <div class="small mb-2">
+      <i class="bi bi-speedometer2"></i> {{ _("Контрольный счётчик") }}: {{ obj.control_meter.name }}
+      {% if last_control %}<br><span class="text-muted">{{ _("Последнее показание") }}: {{ fmt2(last_control.reading) }} {{ _("от") }} {{ last_control.reading_date.strftime("%d.%m.%Y") }}</span>{% endif %}
+      <br><a href="{{ url_for('control_meters.detail', node_id=obj.control_meter.id) }}">{{ _("Открыть счётчик") }}</a>
+    </div>
+    {% endif %}
+
+    {% if obj.photos %}
+    <div class="d-flex flex-wrap gap-2 mb-2">
+      {% for photo in obj.photos %}
+      <div class="position-relative">
+        <a href="{{ url_for('garage_map.object_photo_file', photo_id=photo.id, v=photo.file_path) }}" target="_blank" rel="noopener">
+          <img src="{{ url_for('garage_map.object_photo_file', photo_id=photo.id, v=photo.file_path) }}" alt="{{ photo.caption or _('Фото') }}"
+               title="{{ photo.caption or '' }}" class="rounded border" style="width: 88px; height: 88px; object-fit: cover">
+        </a>
+        <button type="button" class="btn btn-sm btn-light border position-absolute top-0 end-0 p-0 px-1 gm-photo-remove"
+                data-url="{{ url_for('garage_map.object_remove_photo', photo_id=photo.id) }}" title="{{ _('Удалить фото') }}">&times;</button>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    <form class="gm-photo-form" data-url="{{ url_for('garage_map.object_add_photos', object_id=obj.id) }}">
+      <input type="file" name="file" class="form-control form-control-sm" accept=".jpg,.jpeg,.png,.webp,.gif" multiple aria-label="{{ _('Фото') }}">
+      <input type="text" name="caption" class="form-control form-control-sm mt-1" maxlength="255" placeholder="{{ _('Подпись к фото (необязательно)') }}">
+      <button class="btn btn-sm btn-outline-secondary mt-1" type="submit"><i class="bi bi-camera"></i> {{ _("Добавить фото") }}</button>
+    </form>
+  </div>
+</div>

@@ -1,7 +1,14 @@
 """Схема территории (app/garage_map.py): страница, карточка, сохранение правок, импорт раскладки."""
+import datetime as dt
+import io
 import json
+import os
+from decimal import Decimal
 
-from app.models import GarageMapSettings, GarageMapShape, RoleEnum
+from app.models import (
+    ControlMeter, ControlMeterReading, GarageMapObject, GarageMapObjectPhoto, GarageMapSettings, GarageMapShape,
+    RoleEnum,
+)
 
 from tests.conftest import make_garage, make_person, make_ownership, make_user, login
 
@@ -93,3 +100,78 @@ def test_import_layout_matches_numbers(db, app):
     assert shapes[1].garage_id == garage.id
     assert shapes[2].label == "2к" and shapes[2].garage_id is None
     assert db.get(GarageMapSettings, 1).height == 200
+
+
+def _png_bytes():
+    from PIL import Image
+    buf = io.BytesIO()
+    Image.new("RGB", (4, 4), "red").save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def test_save_objects_create_update_delete(db, client):
+    node = ControlMeter(name="Ряд 34–63")
+    keep = GarageMapObject(kind="mark", x=1, y=2, title="старое")
+    drop = GarageMapObject(kind="lamp", x=5, y=5)
+    db.add_all([node, keep, drop])
+    db.flush()
+    _board(db, client)
+
+    resp = _save(client, [], objects=[
+        {"id": keep.id, "kind": "panel", "x": 10.04, "y": 20, "title": " Щит ряда ", "description": "Питает 34–63",
+         "master": False, "control_meter_id": node.id},
+        {"id": None, "kind": "meter", "x": 3, "y": 4, "title": "Ввод", "master": True, "control_meter_id": node.id},
+        {"id": None, "kind": "lamp", "x": 7, "y": 8, "master": True, "control_meter_id": node.id},
+    ])
+    assert resp.get_json() == {"ok": True}
+
+    db.expire_all()
+    objs = db.query(GarageMapObject).order_by(GarageMapObject.id).all()
+    assert [o.kind for o in objs] == ["panel", "meter", "lamp"]
+    panel, meter, lamp = objs
+    assert panel.id == keep.id and (panel.x, panel.y) == (10.0, 20.0)
+    assert panel.title == "Щит ряда" and panel.description == "Питает 34–63" and panel.control_meter_id == node.id
+    assert meter.master and meter.control_meter_id is None  # главный счётчик — без контрольного
+    assert not lamp.master and lamp.control_meter_id is None  # у фонаря привязки нет
+
+
+def test_save_without_objects_keeps_them_and_rejects_unknown_meter(db, client):
+    db.add(GarageMapObject(kind="switch", x=1, y=1))
+    _board(db, client)
+    assert _save(client, []).get_json() == {"ok": True}
+    assert db.query(GarageMapObject).count() == 1
+
+    resp = _save(client, [], objects=[{"kind": "meter", "x": 1, "y": 1, "control_meter_id": 999}])
+    assert resp.status_code == 400
+    assert db.query(GarageMapObject).count() == 1
+
+
+def test_object_card_and_photos(db, client, app):
+    node = ControlMeter(name="Контроль ряда А")
+    db.add(node)
+    db.flush()
+    db.add(ControlMeterReading(control_meter_id=node.id, reading=Decimal("123.40"), reading_date=dt.date(2026, 11, 1)))
+    obj = GarageMapObject(kind="meter", x=1, y=1, title="Счётчик ряда", description="Ряд 1–33", control_meter_id=node.id)
+    db.add(obj)
+    db.flush()
+    _board(db, client)
+
+    card = client.get(f"/garages/map/object/{obj.id}").get_data(as_text=True)
+    assert "Счётчик ряда" in card and "Ряд 1–33" in card and "Контроль ряда А" in card and "123,40" in card
+
+    resp = client.post(f"/garages/map/object/{obj.id}/photos",
+                       data={"file": (io.BytesIO(_png_bytes()), "щит.png"), "caption": "вид спереди"},
+                       content_type="multipart/form-data")
+    assert resp.get_json() == {"ok": True}
+    photo = db.query(GarageMapObjectPhoto).one()
+    path = os.path.join(app.config["UPLOAD_FOLDER"], photo.file_path)
+    assert os.path.exists(path) and photo.caption == "вид спереди"
+    assert client.get(f"/garages/map/object/photos/{photo.id}/file").status_code == 200
+
+    bad = client.post(f"/garages/map/object/{obj.id}/photos",
+                      data={"file": (io.BytesIO(b"x"), "a.exe")}, content_type="multipart/form-data")
+    assert bad.status_code == 400
+
+    # удаление объекта при сохранении схемы уносит и файлы фото
+    assert _save(client, [], objects=[]).get_json() == {"ok": True}
+    assert db.query(GarageMapObjectPhoto).count() == 0 and not os.path.exists(path)

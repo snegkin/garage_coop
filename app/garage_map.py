@@ -2,9 +2,15 @@
 Схема территории кооператива для правления: контуры боксов на SVG-полотне,
 клик по боксу — карточка гаража, окраска по долгу/электричеству/земле,
 поиск по номеру. В режиме правки контуры двигаются мышью, привязываются к
-гаражам реестра, добавляются и удаляются; сохраняется всё разом (AJAX).
+гаражам реестра, добавляются и удаляются, углы добавляются и убираются;
+сохраняется всё разом (AJAX).
 
-Данные — GarageMapShape/GarageMapSettings (см. их докстринги). Первичная
+Объекты (GarageMapObject) — значки в точке: электрощит, фонарь, счётчик
+(со ссылкой на главный счётчик кооператива или контрольный счётчик ряда),
+рубильник, отметка; у каждого описание «за что отвечает» и фото. Положение
+и свойства сохраняются вместе со схемой, фото — сразу (у сохранённого объекта).
+
+Данные — GarageMapShape/GarageMapSettings/GarageMapObject (см. их докстринги). Первичная
 раскладка загружается скриптом scripts/import_garage_map.py.
 """
 import datetime as dt
@@ -20,14 +26,17 @@ from .accounting import balance
 from .auth import roles_required
 from .i18n import translate as _
 from .models import (
-    Garage, GarageMapShape, GarageMapSettings, GarageOwnership, MemberAccount, RoleEnum, garage_sort_key,
+    ControlMeter, Garage, GarageMapObject, GarageMapObjectPhoto, GarageMapShape, GarageMapSettings,
+    GarageOwnership, MasterMeterReading, MemberAccount, RoleEnum, garage_sort_key,
 )
 from .uploads import save_upload
 
 bp = Blueprint("garage_map", __name__, url_prefix="/garages/map")
 
 SHAPE_KINDS = ("garage", "road", "building", "area")
+OBJECT_KINDS = ("panel", "lamp", "meter", "switch", "mark")
 BACKGROUND_EXT = {".jpg", ".jpeg", ".png", ".webp"}
+PHOTO_EXT = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 # Показания старше стольких дней на схеме считаются «давно не подавались».
 STALE_READING_DAYS = 62
 
@@ -93,6 +102,14 @@ def _shape_dict(shape: GarageMapShape) -> dict:
     }
 
 
+def _object_dict(obj: GarageMapObject) -> dict:
+    return {
+        "id": obj.id, "kind": obj.kind, "x": obj.x, "y": obj.y, "title": obj.title or "",
+        "description": obj.description or "", "master": bool(obj.master),
+        "control_meter_id": obj.control_meter_id, "photos": len(obj.photos),
+    }
+
+
 @bp.route("/")
 @roles_required(RoleEnum.BOARD)
 def view():
@@ -113,6 +130,13 @@ def view():
         key=garage_sort_key,
     )
     states = _garage_states(garages)
+    objects = (
+        database.db_session.query(GarageMapObject)
+        .options(joinedload(GarageMapObject.photos))
+        .order_by(GarageMapObject.id)
+        .all()
+    )
+    control_meters = database.db_session.query(ControlMeter).order_by(ControlMeter.name).all()
     placed = {s.garage_id for s in shapes if s.garage_id}
     unplaced = [g for g in garages if g.id not in placed]
     database.db_session.commit()  # get_settings мог завести строку настроек
@@ -121,6 +145,8 @@ def view():
         settings=settings, shapes=shapes, states=states, garages=garages, unplaced=unplaced,
         shapes_json=json.dumps([_shape_dict(s) for s in shapes], ensure_ascii=False),
         garages_json=json.dumps([{"id": g.id, "number": g.number} for g in garages], ensure_ascii=False),
+        objects_json=json.dumps([_object_dict(o) for o in objects], ensure_ascii=False),
+        meters_json=json.dumps([{"id": m.id, "name": m.name} for m in control_meters], ensure_ascii=False),
         states_json=json.dumps(
             {g_id: {k: v for k, v in st.items() if k != "total"} for g_id, st in states.items()}, ensure_ascii=False,
         ),
@@ -148,6 +174,115 @@ def card(garage_id):
         fee_rows=fee_rows, meter=meter, last_reading=last_reading,
         photos=sorted(garage.photos, key=lambda p: p.id, reverse=True),
     )
+
+
+def _get_object(object_id: int) -> GarageMapObject:
+    obj = database.db_session.get(GarageMapObject, object_id)
+    if obj is None:
+        abort(404)
+    return obj
+
+
+@bp.route("/object/<int:object_id>")
+@roles_required(RoleEnum.BOARD)
+def object_card(object_id):
+    obj = _get_object(object_id)
+    last_master = None
+    if obj.master:
+        last_master = (
+            database.db_session.query(MasterMeterReading)
+            .order_by(MasterMeterReading.reading_date.desc(), MasterMeterReading.id.desc())
+            .first()
+        )
+    last_control = None
+    if not obj.master and obj.control_meter is not None and obj.control_meter.readings:
+        last_control = max(obj.control_meter.readings, key=lambda r: (r.reading_date, r.id))
+    return render_template(
+        "garage_map/_object_card.html", obj=obj, last_master=last_master, last_control=last_control,
+    )
+
+
+@bp.route("/object/<int:object_id>/photos", methods=["POST"])
+@roles_required(RoleEnum.BOARD)
+def object_add_photos(object_id):
+    obj = _get_object(object_id)
+    uploads = [f for f in request.files.getlist("file") if f and f.filename]
+    if not uploads:
+        return jsonify(ok=False, error=_("Выберите фотографию.")), 400
+    for upload in uploads:
+        if os.path.splitext(upload.filename)[1].lower() not in PHOTO_EXT:
+            return jsonify(ok=False, error=_("Поддерживаются только изображения (jpg, png, webp, gif).")), 400
+    caption = (request.form.get("caption") or "").strip()[:255] or None
+    for upload in uploads:
+        stored = save_upload(upload, current_app.config["UPLOAD_FOLDER"], allowed_ext=PHOTO_EXT)
+        database.db_session.add(GarageMapObjectPhoto(object_id=obj.id, file_path=stored, caption=caption))
+    database.db_session.commit()
+    return jsonify(ok=True)
+
+
+@bp.route("/object/photos/<int:photo_id>/remove", methods=["POST"])
+@roles_required(RoleEnum.BOARD)
+def object_remove_photo(photo_id):
+    photo = database.db_session.get(GarageMapObjectPhoto, photo_id)
+    if photo is None:
+        abort(404)
+    path = photo.file_path
+    database.db_session.delete(photo)
+    database.db_session.commit()
+    _remove_upload(path)
+    return jsonify(ok=True)
+
+
+@bp.route("/object/photos/<int:photo_id>/file")
+@roles_required(RoleEnum.BOARD)
+def object_photo_file(photo_id):
+    photo = database.db_session.get(GarageMapObjectPhoto, photo_id)
+    if photo is None:
+        abort(404)
+    return send_from_directory(current_app.config["UPLOAD_FOLDER"], photo.file_path)
+
+
+def _remove_upload(path: str | None) -> None:
+    if not path:
+        return
+    try:
+        os.remove(os.path.join(current_app.config["UPLOAD_FOLDER"], path))
+    except OSError:
+        pass
+
+
+def _clean_objects(items, valid_meter_ids: set[int]):
+    """Проверяет присланные объекты; возвращает (список, ошибка)."""
+    if not isinstance(items, list) or len(items) > 2000:
+        return None, _("Неверные данные объектов схемы.")
+    cleaned = []
+    for item in items:
+        if not isinstance(item, dict):
+            return None, _("Неверные данные объектов схемы.")
+        try:
+            x, y = round(float(item.get("x")), 1), round(float(item.get("y")), 1)
+        except (TypeError, ValueError):
+            return None, _("У объекта неверное положение.")
+        kind = item.get("kind") if item.get("kind") in OBJECT_KINDS else "mark"
+        master = bool(item.get("master")) and kind != "lamp" and kind != "mark"
+        meter_id = item.get("control_meter_id")
+        if master or kind in ("lamp", "mark") or meter_id in ("", None):
+            meter_id = None
+        else:
+            try:
+                meter_id = int(meter_id)
+            except (TypeError, ValueError):
+                return None, _("Неверный контрольный счётчик.")
+            if meter_id not in valid_meter_ids:
+                return None, _("Контрольный счётчик не найден.")
+        cleaned.append({
+            "id": item.get("id") if isinstance(item.get("id"), int) else None,
+            "kind": kind, "x": x, "y": y,
+            "title": str(item.get("title") or "").strip()[:200] or None,
+            "description": str(item.get("description") or "").strip()[:5000] or None,
+            "master": master, "control_meter_id": meter_id,
+        })
+    return cleaned, None
 
 
 def _clean_points(raw) -> list[list[float]] | None:
@@ -229,6 +364,27 @@ def save():
         shape.points = json.dumps(points)
         shape.sort_order = index
 
+    removed_files: list[str] = []
+    if "objects" in payload:
+        valid_meter_ids = {mid for (mid,) in database.db_session.query(ControlMeter.id).all()}
+        objects, error = _clean_objects(payload.get("objects"), valid_meter_ids)
+        if error:
+            database.db_session.rollback()
+            return jsonify(ok=False, error=error), 400
+        existing_objects = {o.id: o for o in database.db_session.query(GarageMapObject).all()}
+        keep_objects = {o["id"] for o in objects if o["id"] in existing_objects}
+        for obj_id, obj in existing_objects.items():
+            if obj_id not in keep_objects:
+                removed_files.extend(p.file_path for p in obj.photos)
+                database.db_session.delete(obj)
+        for data in objects:
+            obj = existing_objects.get(data["id"]) if data["id"] in keep_objects else None
+            if obj is None:
+                obj = GarageMapObject()
+                database.db_session.add(obj)
+            for field in ("kind", "x", "y", "title", "description", "master", "control_meter_id"):
+                setattr(obj, field, data[field])
+
     settings = get_settings()
     opacity = payload.get("background_opacity")
     if opacity is not None:
@@ -237,6 +393,8 @@ def save():
         except (TypeError, ValueError):
             pass
     database.db_session.commit()
+    for path in removed_files:
+        _remove_upload(path)
     return jsonify(ok=True)
 
 

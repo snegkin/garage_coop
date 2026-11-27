@@ -13,7 +13,7 @@ import json
 from decimal import Decimal
 
 from sqlalchemy import (
-    String, Integer, BigInteger, Numeric, Date, DateTime, Boolean, Text, LargeBinary,
+    String, Integer, BigInteger, Numeric, Float, Date, DateTime, Boolean, Text, LargeBinary,
     ForeignKey, Enum, UniqueConstraint, CheckConstraint, Index, MetaData, Table, Column, text, event
 )
 from sqlalchemy.orm import (
@@ -2375,6 +2375,49 @@ class GarageMapSettings(Base):
     # Подложка — снимок местности в UPLOAD_FOLDER, растягивается на всё полотно.
     background_file: Mapped[str | None] = mapped_column(String(500))
     background_opacity: Mapped[int] = mapped_column(Integer, default=50)  # 0–100 %
+
+
+class GarageMapObject(Base):
+    """
+    Точечный объект на схеме территории: электрощит, фонарь, счётчик,
+    рубильник или просто отметка — значок в точке (x, y) в координатах схемы,
+    с названием, описанием «за что отвечает» и фотографиями.
+
+    Привязка к учёту электричества — для щита/счётчика/рубильника:
+    master=True — это главный (вводной) счётчик кооператива (показания —
+    MasterMeterReading, страница «Электричество»); control_meter_id —
+    контрольный счётчик ряда/узла (ControlMeter). Взаимоисключающие:
+    при master=True control_meter_id игнорируется.
+    """
+    __tablename__ = "garage_map_object"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    kind: Mapped[str] = mapped_column(String(20), default="mark")  # panel / lamp / meter / switch / mark
+    x: Mapped[float] = mapped_column(Float, default=0)
+    y: Mapped[float] = mapped_column(Float, default=0)
+    title: Mapped[str | None] = mapped_column(String(200))
+    description: Mapped[str | None] = mapped_column(Text)
+    master: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    control_meter_id: Mapped[int | None] = mapped_column(
+        ForeignKey("control_meter.id", ondelete="SET NULL"), index=True,
+    )
+
+    control_meter: Mapped["ControlMeter | None"] = relationship()
+    photos: Mapped[list["GarageMapObjectPhoto"]] = relationship(
+        back_populates="object", cascade="all, delete-orphan", order_by="GarageMapObjectPhoto.id",
+    )
+
+
+class GarageMapObjectPhoto(Base):
+    """Фото объекта схемы (щита, фонаря…), файл — в UPLOAD_FOLDER."""
+    __tablename__ = "garage_map_object_photo"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    object_id: Mapped[int] = mapped_column(ForeignKey("garage_map_object.id", ondelete="CASCADE"), index=True)
+    file_path: Mapped[str] = mapped_column(String(500))
+    caption: Mapped[str | None] = mapped_column(String(255))
+
+    object: Mapped["GarageMapObject"] = relationship(back_populates="photos")
 
 
 class GaragePhoto(Base):

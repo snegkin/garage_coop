@@ -5,8 +5,46 @@
 <form method="post" class="bg-body p-4 rounded border" style="max-width:700px">
   {% include "persons/_fields.html" %}
   <div class="d-flex justify-content-end gap-2 mt-3">
+    {% if delete_info is defined and delete_info %}
+    <button type="button" class="btn btn-danger me-auto" data-bs-toggle="modal" data-bs-target="#deletePersonModal">{{ _("Удалить") }}</button>
+    {% endif %}
     <button class="btn btn-primary">{{ _("Сохранить") }}</button>
     <a class="btn btn-secondary" href="{{ url_for('persons.detail', person_id=person.id) if person else url_for('persons.list_persons') }}">{{ _("Отмена") }}</a>
   </div>
 </form>
+{% if delete_info is defined and delete_info %}
+<div class="modal fade" id="deletePersonModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" action="{{ url_for('persons.delete_person', person_id=person.id) }}">
+        <div class="modal-header">
+          <h5 class="modal-title">{{ _("Удалить: {name}", name=person.full_name) }}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="alert alert-danger small mb-3">
+            {{ _("Удаление безвозвратно: человек исчезнет из базы вместе со всем, что на нём записано. Если нужно лишь убрать его из списков — отправьте в архив.") }}
+          </div>
+          <ul class="small mb-3">
+            {% if delete_info.owned %}<li>{{ _("собственник гаражей") }}: {{ delete_info.owned|join(", ") }}</li>{% endif %}
+            {% if delete_info.co_owned %}<li class="text-danger">{{ _("доли остальных совладельцев гаражей {list} не пересчитаются — поправьте их на карточке гаража", list=delete_info.co_owned|join(", ")) }}</li>{% endif %}
+            {% if delete_info.contacts %}<li>{{ _("лицо для связи по гаражам") }}: {{ delete_info.contacts }}</li>{% endif %}
+            <li>{{ _("лицевых счетов") }}: {{ delete_info.accounts }}, {{ _("начислений") }}: {{ delete_info.charges }}, {{ _("оплат") }}: {{ delete_info.payments }}</li>
+            {% if delete_info.user %}<li>{{ _("учётная запись {login} будет заблокирована и отвязана", login=delete_info.user.username) }}</li>{% endif %}
+            <li>{{ _("телефоны, членство в правлении и ревизионной комиссии, бюллетени, правки данных") }}</li>
+          </ul>
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="confirm" value="1" id="deletePersonConfirm" required>
+            <label class="form-check-label" for="deletePersonConfirm">{{ _("Понимаю, удалить безвозвратно") }}</label>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ _("Отмена") }}</button>
+          <button class="btn btn-danger">{{ _("Удалить") }}</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
 {% endblock %}

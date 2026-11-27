@@ -644,7 +644,80 @@ def edit(person_id):
         flash(_("Изменения сохранены."), "success")
         return redirect(url_for("persons.detail", person_id=person.id))
 
-    return render_template("persons/form.html", person=person)
+    delete_info = _delete_info(person) if is_chairman() else None
+    return render_template("persons/form.html", person=person, delete_info=delete_info)
+
+
+def _delete_info(person):
+    """Что удалится вместе с человеком — для предупреждения в окне удаления."""
+    from .models import Payment
+    s = database.db_session
+    account_ids = [a.id for a in s.query(MemberAccount.id).filter_by(person_id=person.id)]
+    owned = (s.query(GarageOwnership).options(joinedload(GarageOwnership.garage))
+             .filter_by(person_id=person.id).all())
+    return {
+        "owned": sorted((o.garage.number for o in owned), key=garage_number_key),
+        "co_owned": sorted((o.garage.number for o in owned if o.share < 1), key=garage_number_key),
+        "contacts": s.query(GarageContact).filter_by(person_id=person.id).count(),
+        "accounts": len(account_ids),
+        "charges": s.query(Charge).filter(Charge.account_id.in_(account_ids)).count() if account_ids else 0,
+        "payments": s.query(Payment).filter(Payment.account_id.in_(account_ids)).count() if account_ids else 0,
+        "user": s.query(User).filter_by(person_id=person.id).first(),
+    }
+
+
+@bp.route("/<int:person_id>/delete", methods=["POST"])
+@roles_required(RoleEnum.CHAIRMAN)
+def delete_person(person_id):
+    """
+    Полное удаление человека из базы — только председатель и только с
+    подтверждением (галочка в окне предупреждения). В отличие от архива
+    удаляется всё, что на нём: телефоны, доли в гаражах (доли остальных
+    совладельцев НЕ пересчитываются — поправить на карточке гаража), лица для
+    связи, членство в правлении и ревизионной комиссии, бюллетени, правки
+    данных и лицевые счета вместе с начислениями и оплатами (каскадом в БД).
+    Учётная запись для входа не удаляется (на ней журнал действий), а
+    отвязывается и блокируется. Себя удалить нельзя.
+    """
+    from sqlalchemy import delete as sql_delete
+    from .models import BoardMember, RevisionCommissionMember, VoteBallot, VoteBallotEvent
+    s = database.db_session
+    person = s.get(Person, person_id)
+    if person is None:
+        abort(404)
+    if g.user.person_id == person.id:
+        flash(_("Нельзя удалить самого себя."), "danger")
+        return redirect(url_for("persons.edit", person_id=person.id))
+    if request.form.get("confirm") != "1":
+        flash(_("Подтвердите удаление галочкой."), "warning")
+        return redirect(url_for("persons.edit", person_id=person.id))
+
+    info = _delete_info(person)
+    name = person.full_name
+    user = info["user"]
+    if user is not None:
+        user.is_active = False
+        user.person_id = None
+        s.flush()
+    for model in (VoteBallotEvent, VoteBallot, BoardMember, RevisionCommissionMember, GarageContact,
+                  GarageOwnership, PersonDataRevision, MemberAccount, Phone):
+        s.execute(sql_delete(model).where(model.person_id == person.id))
+    s.execute(sql_delete(Person).where(Person.id == person.id))
+    parts = []
+    if info["owned"]:
+        parts.append("собственник гаражей " + ", ".join(info["owned"]))
+    if info["accounts"]:
+        parts.append(f"лицевых счетов {info['accounts']}, начислений {info['charges']}, оплат {info['payments']}")
+    if user is not None:
+        parts.append(f"учётная запись {user.username} заблокирована")
+    audit.record(
+        "person.delete", entity_type="person", entity_id=person_id,
+        summary=f"Удалён человек «{name}»" + (f" ({'; '.join(parts)})" if parts else ""),
+    )
+    s.commit()
+    s.expire_all()
+    flash(_("Человек «{name}» удалён.", name=name), "success")
+    return redirect(url_for("persons.list_persons"))
 
 
 @bp.route("/<int:person_id>/account/create", methods=["POST"])

@@ -315,7 +315,7 @@
     get: function (k, d) { try { var v = localStorage.getItem(k); return v === null ? d : v; } catch (e) { return d; } },
     set: function (k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
   };
-  var rotated = store.get("gmRotated", window.innerWidth >= 992 ? "1" : "0") === "1";
+  var rotated = store.get("gmRotated", "0") === "1";  // по умолчанию север вверху, как на снимке; поворот — кнопкой
   var zoom = parseFloat(store.get("gmZoom", "1")) || 1;
   var mode = store.get("gmMode", "territory");
   if (!MODES[mode]) mode = "territory";

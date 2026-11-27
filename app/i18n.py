@@ -19,6 +19,11 @@ LANGUAGE_FLAGS = {"ru": "🇷🇺", "en": "🇬🇧"}
 TRANSLATIONS: dict[str, dict[str, str]] = {
     "en": {
         # схема территории (garage_map)
+        "Отменить (Ctrl+Z)": "Undo (Ctrl+Z)",
+        "Вернуть (Ctrl+Shift+Z)": "Redo (Ctrl+Shift+Z)",
+        "Углы и стороны прилипают к соседним фигурам. Alt при перетаскивании — без прилипания.": "Corners and sides snap to neighbouring shapes. Hold Alt while dragging to disable snapping.",
+        "Прилипание": "Snapping",
+        "Углы прилипают к соседним углам и сторонам (Alt — без прилипания). Ctrl+Z — отменить, Ctrl+Shift+Z — вернуть.": "Corners snap to neighbouring corners and sides (Alt disables snapping). Ctrl+Z undoes, Ctrl+Shift+Z redoes.",
         "+ угол": "+ corner",
         "− угол": "− corner",
         "Выберите фотографию.": "Choose a photo.",

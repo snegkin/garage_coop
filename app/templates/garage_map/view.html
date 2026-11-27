@@ -38,6 +38,7 @@
   #gmSvg .gm-obj.gm-selected circle { stroke: var(--bs-primary); stroke-width: 4; }
   #gmSvg .gm-obj.gm-hit circle { stroke: var(--bs-emphasis-color); stroke-width: 5; }
   #gmSvg.gm-editing .gm-obj { cursor: move; }
+  #gmSvg .gm-snap { fill: none; stroke: var(--bs-danger); stroke-width: 2; vector-effect: non-scaling-stroke; pointer-events: none; }
 </style>
 
 <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
@@ -84,11 +85,20 @@
       <input type="file" id="gmBgFile" accept=".jpg,.jpeg,.png,.webp" class="d-none">
     </label>
     <span class="vr"></span>
+    <div class="btn-group btn-group-sm" role="group">
+      <button type="button" class="btn btn-outline-secondary" id="gmUndo" title="{{ _('Отменить (Ctrl+Z)') }}" disabled><i class="bi bi-arrow-counterclockwise"></i></button>
+      <button type="button" class="btn btn-outline-secondary" id="gmRedo" title="{{ _('Вернуть (Ctrl+Shift+Z)') }}" disabled><i class="bi bi-arrow-clockwise"></i></button>
+    </div>
+    <div class="form-check form-switch mb-0">
+      <input class="form-check-input" type="checkbox" id="gmSnap" checked>
+      <label class="form-check-label" for="gmSnap" title="{{ _('Углы и стороны прилипают к соседним фигурам. Alt при перетаскивании — без прилипания.') }}">{{ _("Прилипание") }}</label>
+    </div>
+    <span class="vr"></span>
     <button type="button" class="btn btn-sm btn-primary" id="gmSave">{{ _("Сохранить") }}</button>
     <button type="button" class="btn btn-sm btn-outline-secondary" id="gmCancel">{{ _("Отменить правки") }}</button>
     <span id="gmDirty" class="text-warning d-none">{{ _("есть несохранённые изменения") }}</span>
   </div>
-  <div class="text-muted mt-1">{{ _("Тяните бокс за середину или за углы. Жирная линия — сторона ворот. Значки оборудования тоже перетаскиваются; новый появляется в центре видимой части схемы.") }}</div>
+  <div class="text-muted mt-1">{{ _("Тяните бокс за середину или за углы. Жирная линия — сторона ворот. Значки оборудования тоже перетаскиваются; новый появляется в центре видимой части схемы.") }} {{ _("Углы прилипают к соседним углам и сторонам (Alt — без прилипания). Ctrl+Z — отменить, Ctrl+Shift+Z — вернуть.") }}</div>
 </div>
 
 <div class="row g-3">
@@ -306,6 +316,10 @@
         obj.__el = grp;
       });
     }
+    if (editing && drag && drag.snapAt) {
+      var sv = view(drag.snapAt);
+      el("circle", { cx: sv[0], cy: sv[1], r: Math.max(vw(), vh()) / 400 + 8, "class": "gm-snap" }, svg);
+    }
     if (editing && selected) {
       selected.points.forEach(function (p, i) {
         var v = view(p);
@@ -431,6 +445,113 @@
     return [p.x, p.y];
   }
   var drag = null;
+
+  // --- отмена/возврат: снимки фигур и объектов до каждой правки
+  var undoStack = [], redoStack = [], keySeq = 0;
+  function keyOf(item) { if (!item.__k) item.__k = ++keySeq; return item.__k; }
+  function cloneItem(item) {
+    keyOf(item);
+    var c = {};
+    for (var k in item) {
+      if (k === "__el") continue;
+      c[k] = k === "points" ? item[k].map(function (p) { return p.slice(); }) : item[k];
+    }
+    return c;
+  }
+  function snapshot() { return { shapes: shapes.map(cloneItem), objects: objects.map(cloneItem) }; }
+  function updateHistoryButtons() {
+    document.getElementById("gmUndo").disabled = !undoStack.length;
+    document.getElementById("gmRedo").disabled = !redoStack.length;
+  }
+  function checkpoint() {
+    undoStack.push(snapshot());
+    if (undoStack.length > 200) undoStack.shift();
+    redoStack = [];
+    updateHistoryButtons();
+  }
+  function restore(snap) {
+    var selKey = selected && selected.__k, objKey = selectedObj && selectedObj.__k;
+    shapes = snap.shapes.map(cloneItem);
+    objects = snap.objects.map(cloneItem);
+    var s = selKey && shapes.filter(function (x) { return x.__k === selKey; })[0];
+    var o = objKey && objects.filter(function (x) { return x.__k === objKey; })[0];
+    selVertex = null;
+    if (o) selectObject(o); else { selectObject(null); select(s || null); }
+    markDirty();
+    updateHistoryButtons();
+  }
+  function undo() { if (!undoStack.length) return; redoStack.push(snapshot()); restore(undoStack.pop()); }
+  function redo() { if (!redoStack.length) return; undoStack.push(snapshot()); restore(redoStack.pop()); }
+  document.getElementById("gmUndo").addEventListener("click", undo);
+  document.getElementById("gmRedo").addEventListener("click", redo);
+  document.addEventListener("keydown", function (evt) {
+    if (!editing || !(evt.ctrlKey || evt.metaKey)) return;
+    var tag = (evt.target.tagName || "").toLowerCase();
+    if (tag === "input" || tag === "textarea" || tag === "select") return;  // там своя отмена браузера
+    var key = evt.key.toLowerCase();
+    if ((key === "z" || key === "я") && !evt.shiftKey) { evt.preventDefault(); undo(); }
+    else if (((key === "z" || key === "я") && evt.shiftKey) || key === "y" || key === "н") { evt.preventDefault(); redo(); }
+  });
+  // текстовые поля: один снимок на серию ввода (до потери фокуса)
+  ["gmFLabel", "gmOTitle", "gmODescription"].forEach(function (id) {
+    var field = document.getElementById(id);
+    field.addEventListener("focus", function () { field.__typed = false; });
+    field.addEventListener("input", function () { if (!field.__typed) { field.__typed = true; checkpoint(); } }, true);
+  });
+  ["gmFKind", "gmFGarage", "gmOKind", "gmOMeter"].forEach(function (id) {
+    // снимок до того, как обработчик change поменяет модель
+    document.getElementById(id).addEventListener("change", function () { checkpoint(); }, true);
+  });
+
+  // --- прилипание: к углам других фигур, а если рядом угла нет — к их сторонам
+  function snapEnabled(evt) { return document.getElementById("gmSnap").checked && !(evt && evt.altKey); }
+  function snapThreshold() {
+    var px = parseFloat(svg.getAttribute("width")) || 1;
+    return 10 * vw() / px;  // ~10 экранных пикселей в единицах схемы
+  }
+  function snapTargets(exclude) {
+    var verts = [], edges = [];
+    shapes.forEach(function (s) {
+      if (s === exclude) return;
+      var p = s.points;
+      p.forEach(function (q, i) { verts.push(q); edges.push([q, p[(i + 1) % p.length]]); });
+    });
+    return { verts: verts, edges: edges };
+  }
+  function nearestVertex(p, targets, thr) {
+    var best = null, bd = thr;
+    targets.verts.forEach(function (v) {
+      var d = Math.hypot(v[0] - p[0], v[1] - p[1]);
+      if (d < bd) { bd = d; best = v; }
+    });
+    return best ? { p: best.slice(), d: bd } : null;
+  }
+  function nearestEdge(p, targets, thr) {
+    var best = null, bd = thr;
+    targets.edges.forEach(function (e) {
+      var ax = e[0][0], ay = e[0][1], bx = e[1][0] - ax, by = e[1][1] - ay, len = bx * bx + by * by;
+      if (!len) return;
+      var t = Math.max(0, Math.min(1, ((p[0] - ax) * bx + (p[1] - ay) * by) / len));
+      var q = [ax + t * bx, ay + t * by], d = Math.hypot(q[0] - p[0], q[1] - p[1]);
+      if (d < bd) { bd = d; best = q; }
+    });
+    return best ? { p: best, d: bd } : null;
+  }
+  function snapPoint(p, targets, thr) { return nearestVertex(p, targets, thr) || nearestEdge(p, targets, thr); }
+  // Сдвиг всей фигуры: ищем лучший угол фигуры — сперва совпадение углов, потом угол на сторону.
+  function snapShift(points, targets, thr) {
+    var finders = [nearestVertex, nearestEdge];
+    for (var f = 0; f < finders.length; f++) {
+      var best = null;
+      points.forEach(function (p) {
+        var s = finders[f](p, targets, thr);
+        if (s && (!best || s.d < best.d)) best = { d: s.d, at: s.p, dx: s.p[0] - p[0], dy: s.p[1] - p[1] };
+      });
+      if (best) return best;
+    }
+    return null;
+  }
+
   svg.addEventListener("pointerdown", function (evt) {
     var target = evt.target;
     if (!editing) {
@@ -440,14 +561,16 @@
     }
     if (target.__obj) {
       selectObject(target.__obj);
-      drag = { kind: "obj", start: svgPoint(evt), orig: [selectedObj.x, selectedObj.y] };
+      drag = { kind: "obj", start: svgPoint(evt), orig: [selectedObj.x, selectedObj.y], targets: snapTargets(null) };
     } else if (target.__vertex !== undefined && selected) {
       selVertex = target.__vertex;
-      drag = { kind: "vertex", index: target.__vertex, start: svgPoint(evt), orig: selected.points.map(function (p) { return p.slice(); }) };
+      drag = { kind: "vertex", index: target.__vertex, start: svgPoint(evt), orig: selected.points.map(function (p) { return p.slice(); }),
+        targets: snapTargets(selected) };
       render();
     } else if (target.__shape) {
       select(target.__shape);
-      drag = { kind: "move", start: svgPoint(evt), orig: selected.points.map(function (p) { return p.slice(); }) };
+      drag = { kind: "move", start: svgPoint(evt), orig: selected.points.map(function (p) { return p.slice(); }),
+        targets: snapTargets(selected) };
     } else {
       selectObject(null);
       select(null);
@@ -460,21 +583,35 @@
     if (!drag || !(selected || selectedObj)) return;
     var now = svgPoint(evt);
     var a = unview(drag.start), b = unview(now), dx = b[0] - a[0], dy = b[1] - a[1];
-    if (Math.abs(dx) + Math.abs(dy) < 0.5) return;
+    if (!drag.moved && Math.abs(dx) + Math.abs(dy) < 0.5) return;
+    if (!drag.moved) checkpoint();  // снимок до первого сдвига — одна отмена на всё перетаскивание
+    var snap = snapEnabled(evt), thr = snapThreshold(), s;
+    drag.snapAt = null;
     if (drag.kind === "obj") {
-      selectedObj.x = Math.max(0, Math.min(W, drag.orig[0] + dx));
-      selectedObj.y = Math.max(0, Math.min(H, drag.orig[1] + dy));
+      var q = [drag.orig[0] + dx, drag.orig[1] + dy];
+      if (snap && (s = snapPoint(q, drag.targets, thr))) { q = s.p; drag.snapAt = s.p; }
+      selectedObj.x = Math.max(0, Math.min(W, q[0]));
+      selectedObj.y = Math.max(0, Math.min(H, q[1]));
     } else if (drag.kind === "vertex") {
-      selected.points[drag.index] = [drag.orig[drag.index][0] + dx, drag.orig[drag.index][1] + dy];
+      var v = [drag.orig[drag.index][0] + dx, drag.orig[drag.index][1] + dy];
+      if (snap && (s = snapPoint(v, drag.targets, thr))) { v = s.p; drag.snapAt = s.p; }
+      selected.points[drag.index] = v;
     } else {
-      selected.points = drag.orig.map(function (p) { return [p[0] + dx, p[1] + dy]; });
+      var moved = drag.orig.map(function (p) { return [p[0] + dx, p[1] + dy]; });
+      if (snap && (s = snapShift(moved, drag.targets, thr))) {
+        moved = moved.map(function (p) { return [p[0] + s.dx, p[1] + s.dy]; });
+        drag.snapAt = s.at;
+      }
+      selected.points = moved;
     }
     drag.moved = true;
     render();
   });
   svg.addEventListener("pointerup", function () {
+    var wasSnapped = drag && drag.snapAt;
     if (drag && drag.moved) markDirty();
     drag = null;
+    if (wasSnapped) render();  // убрать кружок прилипания
   });
 
   function select(shape) {
@@ -530,11 +667,13 @@
   });
   document.getElementById("gmFGate").addEventListener("click", function () {
     if (!selected) return;
+    checkpoint();
     selected.points.push(selected.points.shift());
     markDirty(); render();
   });
   document.getElementById("gmFCopy").addEventListener("click", function () {
     if (!selected) return;
+    checkpoint();
     var p = selected.points, dx = p[1][0] - p[0][0], dy = p[1][1] - p[0][1];
     var copy = { id: null, tmp: ++tempId, kind: selected.kind, garage_id: null, label: "", points: p.map(function (q) { return [q[0] + dx, q[1] + dy]; }) };
     shapes.push(copy);
@@ -542,6 +681,7 @@
   });
   document.getElementById("gmFDelete").addEventListener("click", function () {
     if (!selected || !confirm(T.confirmDelete)) return;
+    checkpoint();
     shapes.splice(shapes.indexOf(selected), 1);
     markDirty(); select(null);
   });
@@ -606,6 +746,7 @@
   });
   document.getElementById("gmODelete").addEventListener("click", function () {
     if (!selectedObj || !confirm(T.confirmDeleteObject)) return;
+    checkpoint();
     objects.splice(objects.indexOf(selectedObj), 1);
     markDirty(); selectObject(null);
   });
@@ -615,6 +756,7 @@
   }
   Array.prototype.forEach.call(document.querySelectorAll(".gm-add-obj"), function (btn) {
     btn.addEventListener("click", function () {
+      checkpoint();
       var c = viewCenter();
       var obj = { id: null, kind: btn.getAttribute("data-kind"), x: c[0], y: c[1], title: "", description: "",
         master: false, control_meter_id: null, photos: 0 };
@@ -626,6 +768,7 @@
   // --- углы контура
   document.getElementById("gmFAddVertex").addEventListener("click", function () {
     if (!selected) return;
+    checkpoint();
     var p = selected.points, i = selVertex;
     if (i === null || i === undefined) {  // без выбранного угла — середина самой длинной стороны
       var best = -1;
@@ -641,12 +784,14 @@
   });
   document.getElementById("gmFDelVertex").addEventListener("click", function () {
     if (!selected || selVertex === null || selected.points.length <= 3) return;
+    checkpoint();
     selected.points.splice(selVertex, 1);
     selVertex = null;
     markDirty(); render();
   });
 
   function addShape(kind, w, h) {
+    checkpoint();
     var wr = wrap.getBoundingClientRect();
     var c = unview(svgPoint({ clientX: wr.left + wr.width / 2, clientY: wr.top + wr.height / 2 }));
     var shape = { id: null, tmp: ++tempId, kind: kind, garage_id: null, label: "",

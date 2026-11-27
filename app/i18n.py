@@ -3112,6 +3112,14 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "К моим гаражам": "Back to my garages",
         "Собственник, доля": "Owner, share",
         "Лицо для связи": "Contact person",
+        # подсказка на карточке человека: номер гаража в имени или комментарии
+        "В имени или комментарии указан": "The name or comment mentions",
+        "гараж №{n}": "garage No. {n}",
+        "Собственник": "Owner",
+        "Собственника у гаража нет.": "The garage has no owner.",
+        "Добавить в этот гараж?": "Add to this garage?",
+        "Собственником": "As owner",
+        "Лицом для связи": "As contact person",
         "лицо для связи": "contact person",
         "Гаражей нет.": "No garages.",
         # pd4/print.html — «Оплатить» (сохранить/поделиться QR)

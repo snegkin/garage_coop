@@ -304,6 +304,38 @@ def test_service_worker_navigates_to_notification_url(client):
     assert "notificationclick" in js and "navigate(url)" in js
 
 
+def test_service_worker_skips_non_page_windows(client):
+    js = client.get("/service-worker.js").get_data(as_text=True)
+    assert "u.pathname === '/service-worker.js'" in js
+
+
+def test_service_worker_opened_as_page_redirects_home(client):
+    resp = client.get("/service-worker.js", headers={"Sec-Fetch-Dest": "document"})
+    assert resp.status_code == 302 and resp.headers["Location"].endswith("/")
+    resp = client.get("/service-worker.js", headers={"Sec-Fetch-Dest": "serviceworker"})
+    assert resp.status_code == 200 and resp.mimetype == "application/javascript"
+
+
+def test_back_path_leads_to_parent_section(app):
+    with app.app_context():
+        assert notifications.back_path("/mailbox/messages/12?folder=INBOX") == "/mailbox/"
+        assert notifications.back_path("/persons/7") == "/persons/"
+        assert notifications.back_path("/finance/member-accounts/4") == "/finance/member-accounts"
+        assert notifications.back_path("/forum/5#post-12") == "/forum/"
+        assert notifications.back_path("/surveillance/") == "/"
+        assert notifications.back_path("/logs/surveillance/") == "/surveillance/"
+        assert notifications.back_path("/logs/server/app.log") == "/logs/server/"
+        assert notifications.back_path("/logs/server/") == "/"
+        assert notifications.back_path("/#board-chat") is None
+
+
+def test_failure_push_opens_logs_and_goes_back_to_source(app):
+    with app.app_context():
+        assert notifications.failure_logs_url("dvr:2") == "/logs/surveillance/"
+        assert notifications.failure_logs_url("bank:3") == "/logs/bank/"
+        assert notifications.failure_logs_url("что-то другое") == "/logs/server/"
+
+
 def test_failure_url_points_to_section(app):
     with app.app_context():
         assert notifications.failure_url("bank:3") == "/cooperative/bank-accounts/3/statement"

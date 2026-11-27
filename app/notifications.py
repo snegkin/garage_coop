@@ -123,6 +123,46 @@ def _push_url(url: str | None, body_text: str) -> str | None:
     return path
 
 
+def back_path(path: str | None) -> str | None:
+    """Куда ведёт «Назад» со страницы, открытой по клику на push:
+    раздел, к которому она относится (письмо → входящие, карточка
+    человека → «Люди», журнал → страница раздела, чей это журнал), а не
+    то, что было в истории вкладки до уведомления (см. pushBack в
+    base.html). Ближайший вышестоящий адрес, который сам — страница без
+    параметров; для журналов (/logs/<раздел>/…) — страница раздела из
+    system_logs.SECTIONS. None — сама главная, назад некуда."""
+    from werkzeug.exceptions import HTTPException
+    from werkzeug.routing import RequestRedirect
+    from .system_logs import SECTIONS
+
+    parts = urlsplit(path or "/")
+    segments = [seg for seg in parts.path.split("/") if seg]
+    if not segments:
+        return None
+    if segments[0] == "logs" and len(segments) >= 2 and segments[1] in SECTIONS:
+        sec = SECTIONS[segments[1]]
+        if sec["back"]:
+            return path_for(sec["back"])
+        return path_for("system_logs.index", section=segments[1]) if len(segments) > 2 else "/"
+    adapter = current_app.url_map.bind("localhost")
+    for depth in range(len(segments) - 1, 0, -1):
+        candidate = "/" + "/".join(segments[:depth])
+        for attempt in (candidate, candidate + "/"):
+            try:
+                endpoint, args = adapter.match(attempt, method="GET")
+            except RequestRedirect as redirect:
+                attempt = urlsplit(redirect.new_url).path
+                try:
+                    endpoint, args = adapter.match(attempt, method="GET")
+                except HTTPException:
+                    continue
+            except HTTPException:
+                continue
+            if not args and endpoint != "static":
+                return attempt
+    return "/"
+
+
 def notify_subscribers(event: str, subject: str, body_text: str, exclude_user_id: int | None = None,
                        board_group: str | None = None, url: str | None = None) -> None:
     """Рассылка всем, кто подписан на это событие (notify_<event>=True) —
@@ -189,7 +229,8 @@ def notify(user: User | None, event: str, subject: str, body_text: str, url: str
     _deliver(user, event, subject, body_text, url=url)
 
 
-def _deliver(user: User, event: str, subject: str, body_text: str, url: str | None = None) -> None:
+def _deliver(user: User, event: str, subject: str, body_text: str, url: str | None = None,
+             back_url: str | None = None) -> None:
     """Отправка по всем отмеченным и готовым каналам без проверки подписки
     на событие — её делает вызывающий код: notify() по колонке
     notify_<event>, _dispatch_board_event() по группе в notify_board_events."""
@@ -201,7 +242,7 @@ def _deliver(user: User, event: str, subject: str, body_text: str, url: str | No
         # pywebpush) иначе откатывало загрузку выписки целиком — и не
         # должно мешать доставке по остальным каналам.
         try:
-            _send(user, channel, event, subject, body_text, url=url)
+            _send(user, channel, event, subject, body_text, url=url, back_url=back_url)
         except Exception:
             current_app.logger.exception(
                 "Не удалось отправить уведомление user_id=%s канал=%s событие=%s", user.id, channel.value, event,
@@ -209,7 +250,7 @@ def _deliver(user: User, event: str, subject: str, body_text: str, url: str | No
 
 
 def _send(user: User, channel: NotificationChannel, event: str, subject: str, body_text: str,
-          url: str | None = None) -> None:
+          url: str | None = None, back_url: str | None = None) -> None:
     if channel == NotificationChannel.EMAIL:
         settings = database.db_session.query(MailboxSettings).first()
         if settings is None:
@@ -241,7 +282,9 @@ def _send(user: User, channel: NotificationChannel, event: str, subject: str, bo
         subscriptions = database.db_session.query(WebPushSubscription).filter_by(user_id=user.id).all()
         for subscription in subscriptions:
             try:
-                webpush.send(settings, subscription, subject, body_text, url=_push_url(url, body_text))
+                push_url = _push_url(url, body_text)
+                webpush.send(settings, subscription, subject, body_text, url=push_url,
+                             back=back_url or back_path(push_url))
             except webpush.WebPushError as exc:
                 if webpush.is_expired(exc):
                     database.db_session.delete(subscription)
@@ -671,7 +714,7 @@ def _dispatch_board_event(action: str, group: str, summary: str, link: str | Non
 
 def _send_to_board(group: str, event: str, subject: str, body_text: str,
                    min_level: int = ROLE_LEVEL[RoleEnum.BOARD], exclude_user_id: int | None = None,
-                   url: str | None = None) -> int:
+                   url: str | None = None, back_url: str | None = None) -> int:
     """Разослать составу группы уведомлений group (см. group_recipients).
     min_level — дополнительный фильтр по роли: решения только
     председателя (CHAIRMAN_ONLY_BOARD_ACTIONS) остальным из группы не
@@ -682,7 +725,7 @@ def _send_to_board(group: str, event: str, subject: str, body_text: str,
             continue
         if exclude_user_id is not None and user.id == exclude_user_id:
             continue
-        _deliver(user, event, subject, body_text, url=url)
+        _deliver(user, event, subject, body_text, url=url, back_url=back_url)
         sent += 1
     return sent
 
@@ -739,12 +782,28 @@ def notify_failure(source: str, title: str, error: str, threshold: int = 1,
         minutes = int((now - mark.failing_since).total_seconds() // 60)
         body_text += f" Сбой длится уже {minutes} мин."
     body_text += "\n\nСледующее сообщение об этом сбое — не раньше чем через сутки."
-    _send_to_board("failures", f"failure:{source}", f"Сбой: {title}", body_text, url=failure_url(source))
+    _send_to_board("failures", f"failure:{source}", f"Сбой: {title}", body_text,
+                   url=failure_logs_url(source), back_url=failure_url(source))
     return True
 
 
+# Раздел журналов (system_logs.SECTIONS) по источнику сбоя.
+_FAILURE_LOG_SECTIONS = {
+    "bank": "bank", "ewelink": "electricity", "power_phase": "electricity",
+    "dvr": "surveillance", "counterparty_api": "counterparties",
+}
+
+
+def failure_logs_url(source: str) -> str:
+    """Куда ведёт клик по push о сбое — журнал задачи, которая сбоит
+    (там видна сама ошибка); «Назад» оттуда — то, что сбоит (failure_url),
+    а без него — раздел этих журналов (back_path). Неизвестный источник — журналы «Сервера»."""
+    kind = source.partition(":")[0]
+    return path_for("system_logs.index", section=_FAILURE_LOG_SECTIONS.get(kind, "server"))
+
+
 def failure_url(source: str) -> str | None:
-    """Куда ведёт клик по push о сбое — раздел, где сбой видно и чинят:
+    """Куда из журнала сбоя (failure_logs_url) ведёт «Назад» — раздел, где сбой видно и чинят:
     банк — выписка этого счёта, eWeLink и фазы электропитания — мониторинг
     электроэнергии, регистратор — страница с кадрами камер, личный кабинет
     контрагента — его карточка. Неизвестный источник — None (главная)."""

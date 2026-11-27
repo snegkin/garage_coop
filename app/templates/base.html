@@ -58,6 +58,33 @@
     else if (mq.addListener) mq.addListener(apply);
   })();
   </script>
+  <script>
+  // pushBack: страница открыта кликом по push-уведомлению (service worker
+  // добавил ?push_back=<раздел>, см. notificationclick в app/main.py) —
+  // подставляем перед ней в историю вкладки раздел, к которому она
+  // относится (письмо → входящие, карточка → список), чтобы «Назад» вёл
+  // туда, а не на то, что было открыто в окне до уведомления. Сама запись
+  // раздела — от этой же страницы (replaceState), поэтому при переходе на
+  // неё перезагружаемся, чтобы показать сам раздел.
+  (function () {
+    try {
+      var here = new URL(location.href);
+      var back = here.searchParams.get("push_back");
+      if (back === null) return;
+      here.searchParams.delete("push_back");
+      var target = new URL(back, location.origin);
+      if (target.origin !== location.origin || target.pathname + target.search === here.pathname + here.search) {
+        history.replaceState(history.state, "", here.href);
+        return;
+      }
+      history.replaceState({ pushBack: true }, "", target.href);
+      history.pushState(null, "", here.href);
+      window.addEventListener("popstate", function (event) {
+        if (event.state && event.state.pushBack) location.reload();
+      });
+    } catch (e) {}
+  })();
+  </script>
   <link href="{{ vendor_url('bootstrap', 'bootstrap.min.css') }}" rel="stylesheet">
   <link href="{{ vendor_url('bootstrap-icons', 'bootstrap-icons.min.css') }}" rel="stylesheet">
 </head>

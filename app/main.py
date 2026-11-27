@@ -52,7 +52,7 @@ self.addEventListener('push', function (event) {
   event.waitUntil(self.registration.showNotification(title, {
     body: data.body || '',
     icon: '/app-icon/icon-192.png',
-    data: { url: data.url || '/' }
+    data: { url: data.url || '/', back: data.back || null }
   }));
 });
 // Клик — переходим туда, откуда пришло уведомление (data.url — путь на
@@ -63,11 +63,25 @@ self.addEventListener('push', function (event) {
 // внутри scope открывается в окне приложения.
 self.addEventListener('notificationclick', function (event) {
   event.notification.close();
-  var url = new URL((event.notification.data && event.notification.data.url) || '/', self.location.origin).href;
+  var data = event.notification.data || {};
+  var target = new URL(data.url || '/', self.location.origin);
+  // «Назад» с открытой страницы — в раздел, к которому она относится
+  // (notifications.back_path), а не на то, что было в окне до уведомления:
+  // страница сама подставит его в историю (pushBack в base.html).
+  if (data.back) target.searchParams.set('push_back', data.back);
+  var url = target.href;
   event.waitUntil(clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function (list) {
+    // Только окна с обычными страницами сайта: вкладка, где когда-то открыли
+    // сам этот скрипт (/service-worker.js — тоже в scope «/»), манифест или
+    // файл из /static/, не годится — иначе письмо открывалось в ней и «Назад»
+    // возвращал на исходник JS. Видимое окно — в приоритете.
     var client = null;
     for (var i = 0; i < list.length; i++) {
-      if (new URL(list[i].url).origin === self.location.origin) { client = list[i]; break; }
+      var u = new URL(list[i].url);
+      if (u.origin !== self.location.origin) continue;
+      if (u.pathname === '/service-worker.js' || u.pathname === '/manifest.webmanifest'
+          || u.pathname.indexOf('/static/') === 0 || u.pathname.indexOf('/app-icon/') === 0) continue;
+      if (!client || (list[i].visibilityState === 'visible' && client.visibilityState !== 'visible')) client = list[i];
     }
     if (!client) return clients.openWindow(url);
     var focused = client.focus ? client.focus() : Promise.resolve(client);
@@ -86,7 +100,14 @@ self.addEventListener('notificationclick', function (event) {
 
 @bp.route("/service-worker.js")
 def service_worker():
-    return Response(_SERVICE_WORKER_JS, mimetype="application/javascript")
+    # Открыли адрес скрипта как страницу (вручную, из истории вкладки) —
+    # на главную: показывать исходник незачем. Браузер, регистрируя
+    # worker, шлёт Sec-Fetch-Dest: serviceworker, его это не касается.
+    if request.headers.get("Sec-Fetch-Dest") == "document":
+        return redirect(url_for("main.index"))
+    resp = Response(_SERVICE_WORKER_JS, mimetype="application/javascript")
+    resp.headers["Cache-Control"] = "no-cache"
+    return resp
 
 
 @bp.route("/manifest.webmanifest")

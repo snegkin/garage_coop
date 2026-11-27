@@ -11,6 +11,7 @@
 #   ansible-playbook site.yml --tags local -K    # только агенты на этом компьютере
 #   ansible-playbook site.yml --tags instances   # только дополнительные кооперативы
 #   ansible-playbook site.yml --tags landing     # только лендинги
+#   ansible-playbook site.yml --tags vpn,app     # VPN до роутеров (+ .env с их подсетями)
 
 - name: Сервер сайта кооператива
   hosts: coop
@@ -96,6 +97,11 @@
               + extra_instances | map(attribute='aliases') | flatten) | select | list }}
       tags: always
 
+    - name: Роутеры кооперативов в VPN
+      ansible.builtin.set_fact:
+        lan_vpn: "{{ lan_vpn_peers | coop_lan_vpn(lan_vpn_address, extra_instances | map(attribute='name') | list) }}"
+      tags: always
+
     - name: Лендинги
       ansible.builtin.set_fact:
         landing_sites: "{{ coop_landing_sites | coop_landings(coop_all_domains) }}"
@@ -113,6 +119,14 @@
     - name: Система
       ansible.builtin.import_tasks: tasks/system.yml
       tags: system
+
+    - name: VPN до роутеров кооперативов
+      ansible.builtin.include_tasks:
+        file: tasks/lan_vpn.yml
+        apply:
+          tags: [vpn, system]
+      when: lan_vpn_enabled | bool
+      tags: [vpn, system]
 
     - name: Код и окружение
       ansible.builtin.import_tasks: tasks/code.yml
@@ -171,6 +185,7 @@
         recaptcha_site_key: "{{ inst.recaptcha_site_key }}"
         recaptcha_secret_key: "{{ inst.recaptcha_secret_key }}"
         app_env_extra: "{{ inst.env_extra }}"
+        lan_vpn_coop: "{{ inst.name }}"
         rclone_yandex_token: "{{ inst.rclone_yandex_token }}"
         restore_db_file: "{{ inst.restore_db_file }}"
         restore_source_instance_dir: "{{ inst.restore_source_instance_dir }}"

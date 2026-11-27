@@ -1,0 +1,12 @@
+# {{ ansible_managed }} — роутеры в lan_vpn_peers (vars.yml), не здесь.
+[Interface]
+Address = {{ lan_vpn_address }}
+ListenPort = {{ lan_vpn_port }}
+PostUp = wg set %i private-key /etc/wireguard/wg-coop.key
+{% for peer in lan_vpn %}
+
+[Peer]
+# {{ peer.name }}{{ (' — ' + peer.coop) if peer.coop else '' }}
+PublicKey = {{ peer.public_key }}
+AllowedIPs = {{ peer.allowed_ips }}
+{% endfor %}

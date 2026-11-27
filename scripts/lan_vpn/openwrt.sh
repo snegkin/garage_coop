@@ -1,12 +1,15 @@
 #!/bin/sh
 # Роутер кооператива (OpenWrt) — клиент VPN до сервера сайта.
-# Запускать на роутере от root:  sh openwrt.sh <ключ сервера> <IP сервера>
+# Запускать на роутере от root:
+#   sh openwrt.sh <ключ сервера> <IP или домен сервера> [адрес в туннеле, по умолчанию 10.77.0.2]
+# Адрес в туннеле у каждого роутера свой (10.77.0.2, .3, …) — тот же, что
+# в lan_vpn_peers (deployment/ansible) или в server.sh peer.
 # Ничего существующего не меняет: добавляет интерфейс wgcoop, зону vpn с
 # доступом в lan и подмену адреса (устройства видят запросы сервера как от
 # роутера — так ответ дойдёт даже у камер со странным шлюзом).
 # Копии настроек: /etc/config/{network,firewall}.bak-<дата>.
 set -eu
-SERVER_KEY="${1:?ключ сервера}"; SERVER_IP="${2:?IP сервера}"; PORT=51820
+SERVER_KEY="${1:?ключ сервера}"; SERVER_IP="${2:?IP сервера}"; ADDR="${3:-10.77.0.2}"; PORT=51820
 
 if ! command -v wg >/dev/null; then
     opkg update
@@ -21,7 +24,7 @@ if ! uci -q get network.wgcoop >/dev/null; then
     uci set network.wgcoop=interface
     uci set network.wgcoop.proto=wireguard
     uci set network.wgcoop.private_key="$PRIV"
-    uci add_list network.wgcoop.addresses=10.77.0.2/24
+    uci add_list network.wgcoop.addresses=$ADDR/24
     uci set network.wgserver=wireguard_wgcoop
     uci set network.wgserver.description=site-server
     uci set network.wgserver.public_key="$SERVER_KEY"

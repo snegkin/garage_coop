@@ -93,3 +93,11 @@ restore_source_instance_dir: /home/sne/work/garage_coop/instance
 # Выключенные по умолчанию cron-задачи (список — cron_jobs в defaults.yml);
 # с dvr_snapshot сам ставится ffmpeg:
 cron_enable: [dvr_snapshot, poll_messengers, poll_ewelink]
+
+# VPN от сервера до роутера кооператива (схема территории видит камеры,
+# регистратор, щиты) — README.md «VPN до роутера кооператива»:
+# lan_vpn_peers:
+#   - name: link1-voshod
+#     public_key: "CzFsCwZsLXmhb165ZCqfj2sHmBOqWrG4/6Cu3wvs6QI="
+#     address: 10.77.0.2
+#     subnets: [192.168.2.0/24]

@@ -1,0 +1,61 @@
+# VPN (WireGuard) от сервера до роутеров кооперативов: схема территории
+# видит локальную сеть гаражей — кто из устройств в сети, настройка камер,
+# кадры с регистратора без проброса портов. Сервер — точка входа (UDP
+# lan_vpn_port), роутер сам подключается к нему, поэтому белый IP у
+# кооператива не нужен. Роутер — scripts/lan_vpn/openwrt.sh.
+#
+# Ключ сервера создаётся один раз и не уходит с сервера; конфиг
+# /etc/wireguard/wg-coop.conf целиком из lan_vpn_peers — роутеры,
+# добавленные руками (server.sh peer), перенесите в vars.yml.
+
+- name: WireGuard
+  ansible.builtin.apt:
+    name: wireguard-tools
+    install_recommends: false
+
+- name: Каталог /etc/wireguard
+  ansible.builtin.file:
+    path: /etc/wireguard
+    state: directory
+    mode: "0700"
+
+- name: Ключ сервера (один раз)
+  ansible.builtin.shell: umask 077 && wg genkey > /etc/wireguard/wg-coop.key
+  args:
+    creates: /etc/wireguard/wg-coop.key
+
+- name: Открытый ключ сервера
+  ansible.builtin.shell: wg pubkey < /etc/wireguard/wg-coop.key
+  register: lan_vpn_pubkey
+  changed_when: false
+  check_mode: false
+  failed_when: false
+
+- name: Конфиг wg-coop
+  ansible.builtin.template:
+    src: wg-coop.conf.j2
+    dest: /etc/wireguard/wg-coop.conf
+    mode: "0600"
+    backup: true
+  register: lan_vpn_conf
+
+- name: Файрвол — WireGuard
+  community.general.ufw:
+    rule: allow
+    port: "{{ lan_vpn_port }}"
+    proto: udp
+    comment: WireGuard wg-coop
+
+# Перезапуск рвёт туннель на пару секунд — только при смене конфига.
+- name: wg-coop запущен
+  ansible.builtin.systemd_service:
+    name: wg-quick@wg-coop
+    enabled: true
+    state: "{{ 'restarted' if lan_vpn_conf is changed else 'started' }}"
+
+- name: Подключение роутера
+  ansible.builtin.debug:
+    msg:
+      - "Ключ сервера: {{ lan_vpn_pubkey.stdout | default('(появится после прогона без --check)') }}"
+      - "На роутере OpenWrt: sh openwrt.sh {{ lan_vpn_pubkey.stdout | default('КЛЮЧ') }} {{ coop_domain or ansible_host | default(inventory_hostname) }}"
+      - "Ключ роутера, его адрес в туннеле и подсеть — в lan_vpn_peers (vars.yml), затем --tags vpn,app"

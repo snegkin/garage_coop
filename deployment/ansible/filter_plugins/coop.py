@@ -7,6 +7,9 @@ coop_instances — проверяет coop_extra_instances из vars.yml и до
 coop_landings — проверяет coop_landing_sites (лендинги на свободных
 доменах): punycode, не занят кооперативом, без повторов.
 
+coop_lan_vpn — проверяет lan_vpn_peers (WireGuard от сервера до роутеров
+кооперативов): ключи, адреса в туннеле, подсети без пересечений.
+
 cron_shift_minute — сдвигает поле «минута» строки cron, чтобы скрипты
 разных кооперативов не стартовали в одну и ту же минуту.
 
@@ -14,6 +17,8 @@ Ansible подгружает этот каталог сам (filter_plugins/ р�
 тесты — tests/test_ansible_filters.py.
 """
 
+import base64
+import ipaddress
 import re
 
 try:
@@ -202,7 +207,87 @@ def landing_links(domains, landing_domain):
     return sorted(links, key=lambda link: _natural_key(link["label"]))
 
 
+LAN_VPN_FIELDS = {"name", "public_key", "address", "subnets", "coop"}
+
+
+def coop_lan_vpn(peers, server_address, coops):
+    """peers — lan_vpn_peers [{name, public_key, address, subnets, coop?}];
+    server_address — адрес сервера в туннеле (10.77.0.1/24); coops — имена
+    дополнительных кооперативов ("" в coop — основной). Возвращает пиры с
+    allowed_ips для конфига сервера."""
+    if not peers:
+        return []
+    if not isinstance(peers, list):
+        raise AnsibleFilterError("lan_vpn_peers — список роутеров {name, public_key, address, subnets}")
+    try:
+        server = ipaddress.ip_interface(str(server_address))
+    except ValueError:
+        raise AnsibleFilterError(f"lan_vpn_address: {server_address} — адрес с маской, например 10.77.0.1/24") from None
+    coops = {str(c) for c in coops or []}
+    result, keys, addresses, nets = [], set(), {server.ip}, []
+    for index, raw in enumerate(peers, start=1):
+        if not isinstance(raw, dict):
+            raise AnsibleFilterError(f"lan_vpn_peers[{index}]: нужен словарь с name, public_key, address, subnets")
+        label = f"lan_vpn_peers: {raw.get('name') or f'№{index}'}"
+        missing = [key for key in ("name", "public_key", "address", "subnets") if not raw.get(key)]
+        if missing:
+            raise AnsibleFilterError(f"{label}: не заданы {', '.join(missing)}")
+        unknown = sorted(set(raw) - LAN_VPN_FIELDS)
+        if unknown:
+            raise AnsibleFilterError(f"{label}: неизвестные поля {', '.join(unknown)}")
+
+        key = str(raw["public_key"]).strip()
+        try:
+            valid_key = len(base64.b64decode(key, validate=True)) == 32
+        except ValueError:
+            valid_key = False
+        if not valid_key:
+            raise AnsibleFilterError(f"{label}: public_key — открытый ключ WireGuard роутера (44 символа base64)")
+        if key in keys:
+            raise AnsibleFilterError(f"{label}: этот public_key уже у другого роутера")
+        keys.add(key)
+
+        try:
+            address = ipaddress.ip_address(str(raw["address"]).split("/")[0])
+        except ValueError:
+            raise AnsibleFilterError(f"{label}: address — адрес роутера в туннеле, например 10.77.0.2") from None
+        if address not in server.network:
+            raise AnsibleFilterError(f"{label}: address {address} вне сети туннеля {server.network}")
+        if address in addresses:
+            raise AnsibleFilterError(f"{label}: address {address} уже занят (сервер или другой роутер)")
+        addresses.add(address)
+
+        subnets = raw["subnets"]
+        if isinstance(subnets, str):
+            subnets = [part for part in re.split(r"[,\s]+", subnets) if part]
+        if not isinstance(subnets, list):
+            raise AnsibleFilterError(f"{label}: subnets — список подсетей, например [192.168.2.0/24]")
+        parsed = []
+        for value in subnets:
+            try:
+                net = ipaddress.ip_network(str(value), strict=False)
+            except ValueError:
+                raise AnsibleFilterError(f"{label}: {value} — не подсеть") from None
+            if net.overlaps(server.network):
+                raise AnsibleFilterError(f"{label}: подсеть {net} пересекается с туннелем {server.network}")
+            for other, owner in nets:
+                if net.overlaps(other):
+                    raise AnsibleFilterError(
+                        f"{label}: подсеть {net} пересекается с {other} роутера «{owner}» — сервер не поймёт, "
+                        f"куда слать пакеты. Смените подсеть локальной сети на одном из роутеров")
+            nets.append((net, str(raw["name"])))
+            parsed.append(str(net))
+
+        coop = str(raw.get("coop") or "")
+        if coop and coop not in coops:
+            raise AnsibleFilterError(f"{label}: coop {coop} — нет такого в coop_extra_instances (пусто — основной)")
+        result.append({"name": str(raw["name"]), "public_key": key, "address": str(address),
+                       "subnets": parsed, "coop": coop,
+                       "allowed_ips": ", ".join([f"{address}/{address.max_prefixlen}"] + parsed)})
+    return result
+
+
 class FilterModule:
     def filters(self):
         return {"coop_instances": coop_instances, "cron_shift_minute": cron_shift_minute,
-                "coop_landings": coop_landings, "landing_links": landing_links}
+                "coop_landings": coop_landings, "coop_lan_vpn": coop_lan_vpn, "landing_links": landing_links}

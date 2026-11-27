@@ -130,3 +130,42 @@ def test_landing_links():
     assert [link["label"] for link in links] == ["2.автомотолюбитель.рф", "10.автомотолюбитель.рф"]
     assert links[0]["url"] == f"https://2.{land}"
     assert coop.landing_links([], land) == []
+
+
+# --- lan_vpn_peers: WireGuard от сервера до роутеров кооперативов
+
+KEY1 = "CzFsCwZsLXmhb165ZCqfj2sHmBOqWrG4/6Cu3wvs6QI="
+KEY2 = "6hZDIM+TPMNuKT6EvfSdsVtcHDI5UIo+VJAio9iN6Cg="
+
+
+def _peer(**kw):
+    base = {"name": "link1", "public_key": KEY1, "address": "10.77.0.2", "subnets": ["192.168.2.0/24"]}
+    base.update(kw)
+    return base
+
+
+def test_lan_vpn_peers_normalized():
+    assert coop.coop_lan_vpn([], "10.77.0.1/24", []) == []
+    [a, b] = coop.coop_lan_vpn(
+        [_peer(), _peer(name="r2", public_key=KEY2, address="10.77.0.3/32", subnets="10.20.0.0/24, 10.21.0.1/24",
+                        coop="coop2")],
+        "10.77.0.1/24", ["coop2"])
+    assert a["coop"] == "" and a["allowed_ips"] == "10.77.0.2/32, 192.168.2.0/24"
+    assert b["subnets"] == ["10.20.0.0/24", "10.21.0.0/24"] and b["coop"] == "coop2"
+
+
+@pytest.mark.parametrize("peers, error", [
+    ([_peer(public_key="xxx")], "public_key"),
+    ([_peer(), _peer(name="r2", address="10.77.0.3")], "уже у другого"),
+    ([_peer(address="10.77.0.1")], "уже занят"),
+    ([_peer(address="10.78.0.2")], "вне сети туннеля"),
+    ([_peer(subnets=["10.77.0.0/16"])], "пересекается с туннелем"),
+    ([_peer(), _peer(name="r2", public_key=KEY2, address="10.77.0.3", subnets=["192.168.2.128/25"])],
+     "пересекается с 192.168.2.0/24"),
+    ([_peer(coop="nope")], "нет такого"),
+    ([_peer(subnets=[])], "не заданы subnets"),
+    ([_peer(endpoint="x")], "неизвестные поля"),
+])
+def test_lan_vpn_peers_rejected(peers, error):
+    with pytest.raises(coop.AnsibleFilterError, match=error):
+        coop.coop_lan_vpn(peers, "10.77.0.1/24", [])

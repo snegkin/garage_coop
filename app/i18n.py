@@ -3112,6 +3112,17 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "К моим гаражам": "Back to my garages",
         "Собственник, доля": "Owner, share",
         "Лицо для связи": "Contact person",
+        # схема территории: множественное выделение
+        "Несколько сразу: Shift+щелчок или рамка мышью по пустому месту, Ctrl+A — всё видимое; тянуть за любой выделенный. Стрелки — сдвиг выделенного (Shift — крупнее), Delete — удалить, Esc — снять выделение.":
+            "Several at once: Shift+click or drag a frame over empty space, Ctrl+A selects everything visible; drag any selected item. Arrow keys move the selection (Shift for bigger steps), Delete removes it, Esc clears it.",
+        "Выделено": "Selected",
+        "фигур": "shapes",
+        "оборудования": "equipment",
+        "Тяните за любой выделенный или двигайте стрелками (Shift — крупнее). Shift+щелчок — добавить или убрать.":
+            "Drag any selected item or use the arrow keys (Shift for bigger steps). Shift+click adds or removes.",
+        "Снять выделение": "Clear selection",
+        "Удалить выделенное": "Delete selected",
+        "Удалить со схемы выделенное ({n})? Оборудование — вместе с фото.": "Delete the selected items ({n}) from the map? Equipment is deleted with its photos.",
         # подсказка на карточке человека: номер гаража в имени или комментарии
         "В имени или комментарии указан": "The name or comment mentions",
         "гараж №{n}": "garage No. {n}",

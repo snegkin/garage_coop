@@ -53,6 +53,7 @@
   #gmSvg .gm-cable-hit { fill: none; stroke: transparent; stroke-width: 14; vector-effect: non-scaling-stroke; pointer-events: stroke; cursor: pointer; }
   #gmSvg .gm-cable-hit.gm-selected { stroke: var(--bs-primary); stroke-opacity: .25; }
   .gm-phase-swatch { display: inline-block; width: 18px; height: 4px; border-radius: 2px; vertical-align: middle; }
+  #gmSvg .gm-boxsel { fill: var(--bs-primary); fill-opacity: .08; stroke: var(--bs-primary); stroke-width: 1.5; stroke-dasharray: 5 4; vector-effect: non-scaling-stroke; pointer-events: none; }
   #gmSvg .gm-snap { fill: none; stroke: var(--bs-danger); stroke-width: 2; vector-effect: non-scaling-stroke; pointer-events: none; }
 </style>
 
@@ -120,7 +121,8 @@
     <button type="button" class="btn btn-sm btn-outline-secondary" id="gmCancel">{{ _("Отменить правки") }}</button>
     <span id="gmDirty" class="text-warning d-none">{{ _("есть несохранённые изменения") }}</span>
   </div>
-  <div class="text-muted mt-1">{{ _("Тяните бокс за середину или за углы. Жирная линия — сторона ворот. Значки оборудования тоже перетаскиваются; новый появляется в центре видимой части схемы.") }} {{ _("Углы прилипают к соседним углам и сторонам (Alt — без прилипания). Ctrl+Z — отменить, Ctrl+Shift+Z — вернуть.") }}</div>
+  <div class="text-muted mt-1">{{ _("Тяните бокс за середину или за углы. Жирная линия — сторона ворот. Значки оборудования тоже перетаскиваются; новый появляется в центре видимой части схемы.") }} {{ _("Углы прилипают к соседним углам и сторонам (Alt — без прилипания). Ctrl+Z — отменить, Ctrl+Shift+Z — вернуть.") }}
+    {{ _("Несколько сразу: Shift+щелчок или рамка мышью по пустому месту, Ctrl+A — всё видимое; тянуть за любой выделенный. Стрелки — сдвиг выделенного (Shift — крупнее), Delete — удалить, Esc — снять выделение.") }}</div>
 </div>
 
 <div class="row g-3">
@@ -136,6 +138,15 @@
   <div class="col-lg-3">
     <div id="gmPanel">
       <div id="gmCard" class="text-muted small">{{ _("Нажмите на бокс, чтобы увидеть карточку гаража, или на значок оборудования.") }}</div>
+      <div id="gmMultiForm" class="d-none card card-body small">
+        <div class="fw-semibold mb-1">{{ _("Выделено") }}: <span id="gmMultiN"></span></div>
+        <div class="text-muted mb-2">{{ _("фигур") }} — <span id="gmMultiShapes"></span>, {{ _("оборудования") }} — <span id="gmMultiObjs"></span></div>
+        <div class="text-muted mb-2">{{ _("Тяните за любой выделенный или двигайте стрелками (Shift — крупнее). Shift+щелчок — добавить или убрать.") }}</div>
+        <div class="d-flex flex-wrap gap-2">
+          <button type="button" class="btn btn-sm btn-outline-secondary" id="gmMultiClear">{{ _("Снять выделение") }}</button>
+          <button type="button" class="btn btn-sm btn-outline-danger" id="gmMultiDelete">{{ _("Удалить выделенное") }}</button>
+        </div>
+      </div>
       <div id="gmShapeForm" class="d-none card card-body">
         <div class="mb-2">
           <label class="form-label small mb-1">{{ _("Что это") }}</label>
@@ -281,6 +292,7 @@
     leave: {{ _("Есть несохранённые изменения схемы. Уйти без сохранения?")|tojson }}, loading: {{ _("Загрузка…")|tojson }},
     confirmDelete: {{ _("Удалить эту фигуру со схемы?")|tojson }},
     confirmDeleteObject: {{ _("Удалить этот объект со схемы вместе с фото?")|tojson }},
+    confirmDeleteMany: {{ _("Удалить со схемы выделенное ({n})? Оборудование — вместе с фото.")|tojson }},
     confirmDeletePhoto: {{ _("Удалить это фото?")|tojson }}, confirmDeleteFile: {{ _("Удалить этот файл?")|tojson }},
     saveFirst: {{ _("Фото и бэкапы можно добавить после сохранения схемы.")|tojson }},
     offline: {{ _("не в сети")|tojson }}, online: {{ _("в сети")|tojson }}, netSummary: {{ _("в сети {up} из {total}")|tojson }},
@@ -322,6 +334,7 @@
   if (!MODES[mode]) mode = "territory";
   document.getElementById("gmMode").value = mode;
   var editing = false, dirty = false, selected = null, selectedObj = null, selVertex = null, tempId = 0;
+  var multi = [];  // множественное выделение: фигуры и объекты вперемешку (от двух штук)
   // --- слои: что показывать на схеме (запоминается в браузере)
   var LAYER_LIST = [
     ["garages", {{ _("Боксы")|tojson }}], ["labels", {{ _("Номера боксов")|tojson }}],
@@ -463,14 +476,14 @@
     var common = widths.length ? widths[Math.floor(widths.length / 2)] / 2.1 : 20;
     sorted.forEach(function (shape) {
       var pts = shape.points.map(view);
-      if (!layerOn(SHAPE_LAYER[shape.kind]) && shape !== selected) return;
+      if (!layerOn(SHAPE_LAYER[shape.kind]) && !isSel(shape)) return;
       if (shape.kind === "cable") {
         drawCable(shape, pts, phaseGap);
         return;
       }
       var cls = "gm-shape gm-" + shape.kind;
       if (shape.kind === "garage") cls += " s-" + stateOf(shape);
-      if (selected === shape) cls += " gm-selected";
+      if (isSel(shape)) cls += " gm-selected";
       var poly = el("polygon", { points: pts.map(function (p) { return p.join(","); }).join(" "), "class": cls }, svg);
       poly.__shape = shape;
       shape.__el = poly;
@@ -493,7 +506,7 @@
         el("polyline", { points: off.map(function (p) { return p.join(","); }).join(" "), "class": "gm-cable gm-cable-" + ph }, svg);
       });
       var hit = el("polyline", { points: pts.map(function (p) { return p.join(","); }).join(" "),
-        "class": "gm-cable-hit" + (selected === shape ? " gm-selected" : "") }, svg);
+        "class": "gm-cable-hit" + (isSel(shape) ? " gm-selected" : "") }, svg);
       hit.__shape = shape;
       shape.__el = hit;
       var tt = el("title", {}, hit);
@@ -533,7 +546,7 @@
     });
     {
       var R = Math.max(common * 0.5, 8);
-      var objVisible = function (o) { return o === selectedObj || layerOn(OBJ_LAYER[o.kind] || "marks"); };
+      var objVisible = function (o) { return isSel(o) || objShown(o); };
       if (layerOn("links")) objects.forEach(function (obj) {  // связи сети — пунктиром от устройства к тому, к чему подключено
         var up = obj.uplink_key && objectByKey(obj.uplink_key);
         if (!up || !objVisible(obj) || !objVisible(up)) return;
@@ -543,7 +556,7 @@
       objects.forEach(function (obj) {
         if (!objVisible(obj)) return;
         var v = view([obj.x, obj.y]);
-        var cls = "gm-obj gm-obj-" + obj.kind + (obj === selectedObj ? " gm-selected" : "") +
+        var cls = "gm-obj gm-obj-" + obj.kind + (isSel(obj) ? " gm-selected" : "") +
           (obj.id && netStatus[obj.id] === false ? " gm-offline" : "");
         var grp = el("g", { "class": cls }, svg);
         var c = el("circle", { cx: v[0], cy: v[1], r: R }, grp);
@@ -556,6 +569,10 @@
         c.__obj = obj; grp.__obj = obj;
         obj.__el = grp;
       });
+    }
+    if (editing && drag && drag.kind === "box" && drag.cur) {
+      el("rect", { x: Math.min(drag.start[0], drag.cur[0]), y: Math.min(drag.start[1], drag.cur[1]),
+        width: Math.abs(drag.cur[0] - drag.start[0]), height: Math.abs(drag.cur[1] - drag.start[1]), "class": "gm-boxsel" }, svg);
     }
     if (editing && drag && drag.snapAt) {
       var sv = view(drag.snapAt);
@@ -768,12 +785,14 @@
   }
   function restore(snap) {
     var selKey = selected && selected.__k, objKey = selectedObj && selectedObj.__k;
+    var multiKeys = multi.map(function (it) { return it.__k; });
     shapes = snap.shapes.map(cloneItem);
     objects = snap.objects.map(cloneItem);
     var s = selKey && shapes.filter(function (x) { return x.__k === selKey; })[0];
     var o = objKey && objects.filter(function (x) { return x.__k === objKey; })[0];
     selVertex = null;
     if (o) selectObject(o); else { selectObject(null); select(s || null); }
+    if (multiKeys.length) setMulti(shapes.concat(objects).filter(function (it) { return multiKeys.indexOf(it.__k) !== -1; }));
     markDirty();
     updateHistoryButtons();
   }
@@ -807,9 +826,9 @@
     return 10 * vw() / px;  // ~10 экранных пикселей в единицах схемы
   }
   function snapTargets(exclude) {
-    var verts = [], edges = [];
+    var verts = [], edges = [], ex = Array.isArray(exclude) ? exclude : [exclude];
     shapes.forEach(function (s) {
-      if (s === exclude) return;
+      if (ex.indexOf(s) !== -1) return;
       var p = s.points;
       p.forEach(function (q, i) {
         verts.push(q);
@@ -859,7 +878,20 @@
       else if (target.__shape && target.__shape.garage_id) showCard(target.__shape.garage_id);
       return;
     }
-    if (target.__obj) {
+    var additive = evt.shiftKey || evt.ctrlKey || evt.metaKey;
+    var item = target.__obj || (target.__vertex === undefined && target.__shape) || null;
+    if (item && additive) {  // Shift/Ctrl+щелчок — добавить к выделению или убрать из него
+      var cur = currentSelection(), at = cur.indexOf(item);
+      if (at === -1) cur.push(item); else cur.splice(at, 1);
+      setMulti(cur);
+      evt.preventDefault();
+      return;
+    }
+    if (item && multi.indexOf(item) !== -1) {  // тянем всю группу
+      drag = { kind: "group", item: item, start: svgPoint(evt), items: multi.slice(),
+        orig: multi.map(function (it) { return it.points ? it.points.map(function (p) { return p.slice(); }) : [it.x, it.y]; }),
+        targets: snapTargets(multi) };
+    } else if (target.__obj) {
       selectObject(target.__obj);
       drag = { kind: "obj", start: svgPoint(evt), orig: [selectedObj.x, selectedObj.y], targets: snapTargets(null) };
     } else if (target.__vertex !== undefined && selected) {
@@ -871,6 +903,10 @@
       select(target.__shape);
       drag = { kind: "move", start: svgPoint(evt), orig: selected.points.map(function (p) { return p.slice(); }),
         targets: snapTargets(selected) };
+    } else if (evt.pointerType !== "touch") {  // пустое место — рамка выделения (на телефоне — прокрутка)
+      var base = additive ? currentSelection() : [];
+      if (!additive) { selectObject(null); select(null); }
+      drag = { kind: "box", start: svgPoint(evt), base: base };
     } else {
       selectObject(null);
       select(null);
@@ -880,14 +916,27 @@
     evt.preventDefault();
   });
   svg.addEventListener("pointermove", function (evt) {
-    if (!drag || !(selected || selectedObj)) return;
+    if (!drag) return;
+    if (drag.kind === "box") { drag.cur = svgPoint(evt); render(); return; }
+    if (drag.kind !== "group" && !(selected || selectedObj)) return;
     var now = svgPoint(evt);
     var a = unview(drag.start), b = unview(now), dx = b[0] - a[0], dy = b[1] - a[1];
     if (!drag.moved && Math.abs(dx) + Math.abs(dy) < 0.5) return;
     if (!drag.moved) checkpoint();  // снимок до первого сдвига — одна отмена на всё перетаскивание
     var snap = snapEnabled(evt), thr = snapThreshold(), s;
     drag.snapAt = null;
-    if (drag.kind === "obj") {
+    if (drag.kind === "group") {
+      var all = [];
+      drag.items.forEach(function (it, i) {
+        if (it.points) drag.orig[i].forEach(function (p) { all.push([p[0] + dx, p[1] + dy]); });
+        else all.push([drag.orig[i][0] + dx, drag.orig[i][1] + dy]);
+      });
+      if (snap && (s = snapShift(all, drag.targets, thr))) { dx += s.dx; dy += s.dy; drag.snapAt = s.at; }
+      drag.items.forEach(function (it, i) {
+        if (it.points) it.points = drag.orig[i].map(function (p) { return [p[0] + dx, p[1] + dy]; });
+        else { it.x = Math.max(0, Math.min(W, drag.orig[i][0] + dx)); it.y = Math.max(0, Math.min(H, drag.orig[i][1] + dy)); }
+      });
+    } else if (drag.kind === "obj") {
       var q = [drag.orig[0] + dx, drag.orig[1] + dy];
       if (snap && (s = snapPoint(q, drag.targets, thr))) { q = s.p; drag.snapAt = s.p; }
       selectedObj.x = Math.max(0, Math.min(W, q[0]));
@@ -908,13 +957,106 @@
     render();
   });
   svg.addEventListener("pointerup", function () {
+    if (drag && drag.kind === "box") {
+      var box = drag;
+      drag = null;
+      if (box.cur && Math.abs(box.cur[0] - box.start[0]) + Math.abs(box.cur[1] - box.start[1]) > 2) {
+        var x0 = Math.min(box.start[0], box.cur[0]), x1 = Math.max(box.start[0], box.cur[0]);
+        var y0 = Math.min(box.start[1], box.cur[1]), y1 = Math.max(box.start[1], box.cur[1]);
+        var inside = function (p) { var v = view(p); return v[0] >= x0 && v[0] <= x1 && v[1] >= y0 && v[1] <= y1; };
+        // фигура — если в рамку попал её центр (ряды бывают наклонными, целиком в рамку не влезают)
+        var found = shapes.filter(function (sh) { return layerOn(SHAPE_LAYER[sh.kind]) && inside(centroid(sh.points)); })
+          .concat(objects.filter(function (o) { return objShown(o) && inside([o.x, o.y]); }));
+        setMulti(box.base.concat(found.filter(function (it) { return box.base.indexOf(it) === -1; })));
+      } else render();
+      return;
+    }
+    if (drag && drag.kind === "group" && !drag.moved) {  // щелчок без сдвига — выделить только этот
+      var only = drag.item;
+      drag = null;
+      setMulti([only]);
+      return;
+    }
     var wasSnapped = drag && drag.snapAt;
     if (drag && drag.moved) markDirty();
     drag = null;
     if (wasSnapped) render();  // убрать кружок прилипания
   });
 
+  // --- множественное выделение
+  function isSel(item) { return multi.length ? multi.indexOf(item) !== -1 : (item === selected || item === selectedObj); }
+  function objShown(o) { return layerOn(OBJ_LAYER[o.kind] || "marks"); }
+  function currentSelection() { return multi.length ? multi.slice() : selected ? [selected] : selectedObj ? [selectedObj] : []; }
+  function setMulti(items) {
+    items = items.filter(function (it, i) { return it && items.indexOf(it) === i; });
+    if (items.length < 2) {
+      selectObject(null); select(null);
+      if (items[0]) { if (items[0].points) select(items[0]); else selectObject(items[0]); }
+      return;
+    }
+    selectObject(null); select(null);
+    multi = items;
+    var nShapes = items.filter(function (it) { return it.points; }).length;
+    document.getElementById("gmMultiN").textContent = items.length;
+    document.getElementById("gmMultiShapes").textContent = nShapes;
+    document.getElementById("gmMultiObjs").textContent = items.length - nShapes;
+    document.getElementById("gmMultiForm").classList.remove("d-none");
+    document.getElementById("gmCard").classList.add("d-none");
+    render();
+  }
+  function clearMulti() {
+    multi = [];
+    document.getElementById("gmMultiForm").classList.add("d-none");
+  }
+  function deleteSelection() {
+    if (multi.length) {
+      if (!confirm(T.confirmDeleteMany.replace("{n}", multi.length))) return;
+      checkpoint();
+      shapes = shapes.filter(function (sh) { return multi.indexOf(sh) === -1; });
+      objects = objects.filter(function (o) { return multi.indexOf(o) === -1; });
+      markDirty(); setMulti([]);
+    } else if (selected) document.getElementById("gmFDelete").click();
+    else if (selectedObj) document.getElementById("gmODelete").click();
+  }
+  document.getElementById("gmMultiClear").addEventListener("click", function () { setMulti([]); });
+  document.getElementById("gmMultiDelete").addEventListener("click", deleteSelection);
+
+  // Клавиатура в правке: стрелки двигают выделенное (или выбранный угол), Shift — на 10 экранных
+  // пикселей; серия нажатий — одна отмена. Ctrl+A — всё видимое, Delete — удалить, Esc — снять.
+  var lastNudge = 0;
+  document.addEventListener("keydown", function (evt) {
+    if (!editing || evt.altKey) return;
+    var tag = (evt.target.tagName || "").toLowerCase();
+    if (tag === "input" || tag === "textarea" || tag === "select" || evt.target.isContentEditable) return;
+    var key = evt.key;
+    if (evt.ctrlKey || evt.metaKey) {
+      if (key.toLowerCase() === "a" || key.toLowerCase() === "ф") {
+        evt.preventDefault();
+        setMulti(shapes.filter(function (sh) { return layerOn(SHAPE_LAYER[sh.kind]); }).concat(objects.filter(objShown)));
+      }
+      return;
+    }
+    if (key === "Escape") { setMulti([]); return; }
+    if (key === "Delete") { evt.preventDefault(); deleteSelection(); return; }
+    var dir = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[key];
+    var items = currentSelection();
+    if (!dir || !items.length) return;
+    evt.preventDefault();
+    var px = (evt.shiftKey ? 10 : 1) * vw() / (parseFloat(svg.getAttribute("width")) || vw());
+    var o = unview([0, 0]), t = unview([dir[0] * px, dir[1] * px]), dx = t[0] - o[0], dy = t[1] - o[1];
+    if (Date.now() - lastNudge > 800) checkpoint();
+    lastNudge = Date.now();
+    if (!multi.length && selected && selVertex !== null) {
+      selected.points[selVertex] = [selected.points[selVertex][0] + dx, selected.points[selVertex][1] + dy];
+    } else items.forEach(function (it) {
+      if (it.points) it.points = it.points.map(function (p) { return [p[0] + dx, p[1] + dy]; });
+      else { it.x = Math.max(0, Math.min(W, it.x + dx)); it.y = Math.max(0, Math.min(H, it.y + dy)); }
+    });
+    markDirty(); render();
+  });
+
   function select(shape) {
+    if (multi.length) clearMulti();
     if (shape !== selected) selVertex = null;
     selected = shape;
     if (shape) { selectedObj = null; document.getElementById("gmObjectForm").classList.add("d-none"); }
@@ -1010,6 +1152,7 @@
     sel.value = obj.master ? "master" : (obj.control_meter_id ? String(obj.control_meter_id) : "");
   }
   function selectObject(obj) {
+    if (multi.length) clearMulti();
     if (selected) select(null);
     selectedObj = obj;
     var form = document.getElementById("gmObjectForm");

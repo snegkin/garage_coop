@@ -90,3 +90,37 @@ def test_no_baseline_prefers_biggest_digits():
     numbers = extract_numbers([tok("00873", (100, 100, 500, 220)), tok("1600", (100, 300, 200, 330))])
     options = reading_options(numbers)
     assert options[0].value == Decimal("873")
+
+
+# --- случаи с реальных фото счётчиков (Автомотолюбитель, 27.11.2026) ---
+
+def test_serial_with_year_suffix():
+    numbers = extract_numbers([tok("No 51964723-25", (0, 0, 300, 30)), tok("32530495-17", (0, 50, 300, 80))])
+    digits = {n.digits for n in numbers}
+    assert "51964723" in digits and "32530495" in digits
+
+
+def test_gost_lines_ignored():
+    numbers = extract_numbers([tok("ГОСТ Р 52320-2005", (0, 0, 300, 30)), tok("TOCT P52322-2005", (0, 40, 300, 70)),
+                               tok("FOCT 31818.11-2012", (0, 80, 300, 110))])
+    assert numbers == []
+
+
+def test_drum_digits_read_one_by_one_are_chained():
+    # Меркурий 201: «0 0 3 4 3» и красная десятая «3» — каждая цифра отдельно
+    drum = [tok(d, (500 + i * 45, 685, 535 + i * 45, 730)) for i, d in enumerate("003433")]
+    options = reading_options(extract_numbers(drum), baseline=Decimal("330"), days=30)
+    assert options[0].value == Decimal("343.3")
+
+
+def test_nameplate_numbers_are_not_readings():
+    frame = [tok("M 201", (400, 540, 630, 600)), tok("A=3200 imp/kWh", (670, 625, 780, 650)),
+             tok("230B 5(60)A", (670, 610, 780, 640)), tok("2308", (670, 700, 720, 720))]
+    assert reading_options(extract_numbers(frame)) == []
+
+
+def test_drum_window_edge_read_as_leading_one():
+    # «100019» — край окошка барабана прочитан как «1»; на деле 00019,8
+    numbers = extract_numbers([tok("100019", (380, 595, 607, 687))])
+    options = reading_options(numbers, baseline=Decimal("18"), days=30)
+    assert int(options[0].value) == 19

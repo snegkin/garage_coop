@@ -34,6 +34,14 @@ _CONFUSABLE_CHARS = {chr(k) for k in _CONFUSABLE}
 # Приставки номера: «№ 123», «No123», «N 123», «Зав. №»
 _NUMBER_PREFIX = re.compile(r"^(?:зав\.?)?(?:№|no\.?|n)", re.IGNORECASE)
 _NUMERIC = re.compile(r"^\d+(?:\.\d+)?$")
+# Строки ГОСТа на шильдике («ГОСТ Р 52320-2005», OCR: TOCT/FOCT/rOCT) —
+# номера стандартов, не показания и не номер прибора.
+_GOST = re.compile(r"(?:ГОСТ|[TFrR]OCT|\bOCT)", re.IGNORECASE)
+# Числа с шильдика, которые OCR находит на каждом снимке: модель
+# («Меркурий 201», «231», «230»), напряжение, ток, передаточное число
+# («3200 imp/kWh»), «230В», прочитанное как 2308. Показания барабана
+# начинаются с нулей («00343»), поэтому числа с ведущим нулём не отсеиваются.
+NAMEPLATE_VALUES = {50, 60, 201, 220, 230, 231, 236, 380, 400, 800, 1000, 1600, 2208, 2308, 3200, 6400, 32000}
 
 
 @dataclass
@@ -103,9 +111,13 @@ def extract_numbers(tokens: list[dict]) -> list[Number]:
     «012345.6». Повторы (второй проход OCR по контрастному кадру) убираются."""
     numbers: list[Number] = []
     for t in tokens:
+        if _GOST.search(str(t["text"])):
+            continue
         box = tuple(t["box"])
         height = max(1.0, box[3] - box[1])
-        for part in str(t["text"]).split():
+        # «16146698-13», «51964723-25» — номер и год выпуска через дефис
+        parts = [p for word in str(t["text"]).split() for p in re.split(r"(?<=\d)-(?=\d)", word)]
+        for part in parts:
             norm = _numeric_part(part)
             if norm is None:
                 continue
@@ -130,6 +142,7 @@ def extract_numbers(tokens: list[dict]) -> list[Number]:
                     has_point=True,
                 ))
     numbers += merged
+    numbers += _drum_chains([n for n in numbers if not n.has_point and len(n.digits) <= 3])
 
     unique: list[Number] = []
     for n in sorted(numbers, key=lambda n: -n.score):
@@ -137,6 +150,44 @@ def extract_numbers(tokens: list[dict]) -> list[Number]:
             continue
         unique.append(n)
     return unique
+
+
+def _drum_chains(short: list[Number]) -> list[Number]:
+    """Барабанный счётчик OCR часто читает по одной цифре на окошко
+    («0», «0», «3», «4», «3»): цепочки коротких чисел одной высоты в одну
+    строку, вплотную друг к другу, склеиваются в одно число («00343»)."""
+    short = sorted(short, key=lambda n: n.box[0])
+
+    def next_of(a):
+        best = None
+        for b in short:
+            if b is a:
+                continue
+            gap = b.box[0] - a.box[2]
+            overlap = min(a.box[3], b.box[3]) - max(a.box[1], b.box[1])
+            h = max(a.height, b.height)
+            if (-0.3 * h <= gap <= 1.5 * h and overlap > 0.5 * min(a.height, b.height)
+                    and 0.6 <= a.height / b.height <= 1.6 and (best is None or b.box[0] < best.box[0])):
+                best = b
+        return best
+
+    has_prev = {id(b) for a in short if (b := next_of(a)) is not None}
+    chains = []
+    for start in short:
+        if id(start) in has_prev:
+            continue
+        chain, cur = [start], next_of(start)
+        while cur is not None and cur not in chain and len(chain) < 9:
+            chain.append(cur)
+            cur = next_of(cur)
+        digits = "".join(n.digits for n in chain)
+        if len(chain) >= 2 and len(digits) >= 4:
+            chains.append(Number(
+                digits=digits, value=Decimal(digits), text=" ".join(n.text for n in chain),
+                height=max(n.height for n in chain), score=min(n.score for n in chain),
+                box=(chain[0].box[0], min(n.box[1] for n in chain), chain[-1].box[2], max(n.box[3] for n in chain)),
+            ))
+    return chains
 
 
 def _levenshtein(a: str, b: str) -> int:
@@ -218,7 +269,8 @@ def reading_options(
     решает расход относительно предыдущих показаний."""
     candidates = [
         n for n in numbers
-        if 3 <= len(n.digits.split(".")[0]) <= 9 and not _looks_like_year(n)
+        if 3 <= len(n.digits) <= 9 and not _looks_like_year(n)
+        and not (int(n.value) in NAMEPLATE_VALUES and not n.digits.startswith("0"))
         and not (serial_digits and len(n.digits) >= 5 and _number_similarity(n.digits, serial_digits) >= MATCH_MIN)
     ]
     if not candidates:
@@ -238,8 +290,16 @@ def reading_options(
     options: dict[Decimal, ReadingOption] = {}
     for n in candidates:
         variants = [(n.value, False)]
-        if not n.has_point and len(n.digits) >= 6:
-            variants.append(((Decimal(n.digits) / 10).quantize(Decimal("0.1")), True))
+        if not n.has_point:
+            digit_variants = [n.digits]
+            # Край окошка барабана слева OCR читает как «1»: «100019» —
+            # на деле «00019» (+ красная десятая).
+            if len(n.digits) >= 6 and n.digits.startswith("10"):
+                digit_variants.append(n.digits[1:])
+                variants.append((Decimal(n.digits[1:]), False))
+            for d in digit_variants:
+                if len(d) >= 5:
+                    variants.append(((Decimal(d) / 10).quantize(Decimal("0.1")), True))
         for value, tenths in variants:
             score = n.height / max_height + 0.3 * n.score
             warnings = []

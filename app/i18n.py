@@ -26,7 +26,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Определить по номеру счётчика": "Detect by meter number",
         "счётчик": "meter",
         "Сфотографировать счётчик": "Photograph the meter",
-        "Распознаём фото — до 10 секунд…": "Recognising the photo — up to 10 seconds…",
+        "Распознаём фото — до 20 секунд…": "Recognising the photo — up to 20 seconds…",
         "Фото счётчика": "Meter photo",
         "Что распознано на фото": "What was recognised in the photo",
         "Переснять": "Retake",

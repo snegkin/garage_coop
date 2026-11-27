@@ -591,7 +591,7 @@ def add_owner(garage_id):
         )
     database.db_session.commit()
     flash(_("Собственник добавлен/обновлён."), "success")
-    return redirect(url_for("garages.detail", garage_id=garage_id))
+    return _redirect_after_link(garage_id, person_id)
 
 
 @bp.route("/<int:garage_id>/owners/<int:ownership_id>/edit-share", methods=["POST"])
@@ -877,6 +877,14 @@ def add_contact(garage_id):
     )
     database.db_session.commit()
     flash(_("Контактное лицо добавлено."), "success")
+    return _redirect_after_link(garage_id, person_id)
+
+
+def _redirect_after_link(garage_id: int, person_id: int):
+    """Добавили человека в гараж с его карточки (подсказка «в имени указан
+    гараж», persons.garage_link_suggestions) — туда и возвращаемся."""
+    if request.form.get("return_to") == "person":
+        return redirect(url_for("persons.detail", person_id=person_id))
     return redirect(url_for("garages.detail", garage_id=garage_id))
 
 

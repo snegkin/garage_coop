@@ -1,4 +1,5 @@
 import json
+import re
 import datetime as dt
 from decimal import Decimal
 
@@ -18,7 +19,7 @@ from .models import garage_number_key, garage_sort_key
 from .models import (
     Person, Phone, User, RoleEnum, MemberAccount, PersonDataRevision, PersonDataRevisionStatus,
     GarageOwnership, GarageContact, PersonalAccount, Cooperative, Charge, FeeType, KeyRate, CourtSection,
-    WebPushSubscription,
+    WebPushSubscription, Garage,
 )
 from sqlalchemy.orm import joinedload
 from .accounting import balance
@@ -295,6 +296,57 @@ def _revision_diff_rows(revision, person):
     return rows
 
 
+# Номер гаража, записанный в имени или комментарии человека: «Назарова
+# (гараж 232)», «Макаров (гаражи 229, 230)», «Илья (141)», «гаражи 125, 126
+# и 183». Так заводят людей по тетрадям, когда фамилии/имени мало, —
+# карточка подсказывает привязать человека к этому гаражу.
+_GARAGE_NUM = r"\d+[а-яёa-z]?"
+_GARAGE_LIST = rf"{_GARAGE_NUM}(?:\s*(?:,|и)\s*{_GARAGE_NUM})*"
+_GARAGE_WORD_RE = re.compile(rf"гараж\w*\s*(?:№\s*)?({_GARAGE_LIST})", re.IGNORECASE)
+_GARAGE_PARENS_RE = re.compile(rf"\(\s*(?:№\s*)?({_GARAGE_LIST})\s*\)", re.IGNORECASE)
+
+
+def mentioned_garage_numbers(*texts: str | None) -> list[str]:
+    """Номера гаражей из текста — после слова «гараж(и)» или одни в скобках."""
+    found: list[str] = []
+    for text in texts:
+        if not text:
+            continue
+        for rx in (_GARAGE_WORD_RE, _GARAGE_PARENS_RE):
+            for m in rx.finditer(text):
+                for num in re.findall(_GARAGE_NUM, m.group(1), re.IGNORECASE):
+                    num = num.lower()
+                    if num not in found:
+                        found.append(num)
+    return found
+
+
+def garage_link_suggestions(person, linked_garage_ids: set[int]) -> list[dict]:
+    """Гаражи, указанные у человека в имени/комментарии, к которым он ещё
+    не привязан ни собственником, ни лицом для связи. Собственником
+    предлагаем, только если у гаража собственников нет — иначе это была бы
+    продажа или долевое владение, такое решают на странице гаража."""
+    if person.is_archived:
+        return []
+    numbers = mentioned_garage_numbers(person.full_name, person.comment)
+    if not numbers:
+        return []
+    garages = {
+        g_.number.lower(): g_
+        for g_ in database.db_session.query(Garage).filter(Garage.number.in_(
+            numbers + [n.upper() for n in numbers]
+        )).all()
+    }
+    result = []
+    for num in numbers:
+        garage = garages.get(num)
+        if garage is None or garage.id in linked_garage_ids:
+            continue
+        owners = database.db_session.query(GarageOwnership).filter_by(garage_id=garage.id).all()
+        result.append({"garage": garage, "owners": [o.person for o in owners]})
+    return result
+
+
 @bp.route("/<int:person_id>")
 @login_required
 def detail(person_id):
@@ -348,13 +400,17 @@ def detail(person_id):
          if c.garage_id not in owned_ids),
         key=lambda c: garage_sort_key(c.garage),
     )
+    garage_suggestions = (
+        garage_link_suggestions(person, owned_ids | {c.garage_id for c in contact_links})
+        if is_board() else []
+    )
     # Локальный импорт: applications тянет legal_docs, а тот — persons.
     from .applications import visible_applications
     from .documents import visible_documents
     return render_template(
         "persons/detail.html", person=person, account=account, member_accounts=member_accounts,
         has_unpaid_penalty=has_unpaid_penalty, ownerships=ownerships, contact_links=contact_links,
-        electricity_garages=electricity_garages,
+        electricity_garages=electricity_garages, garage_suggestions=garage_suggestions,
         revision_rows=revision_rows, revertable_revision_id=revertable_revision_id, court_sections=court_sections, today=dt.date.today(),
         applications=visible_applications(person_id=person.id),
         documents=visible_documents(person_id=person.id),

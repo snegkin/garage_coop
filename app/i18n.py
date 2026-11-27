@@ -2015,6 +2015,19 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Логин/пароль или API-ключ вводятся отдельно, кнопкой «Настроить API» на карточке контрагента после сохранения.":
             "The login/password or API key are entered separately, via the «Configure API» button on the vendor's page after saving.",
         "Баланс личного кабинета": "Personal-cabinet balance",
+        # иконка сайта и приложения (app_icon)
+        "Иконка сайта и приложения": "Site and app icon",
+        "Квадратное изображение (PNG с прозрачным фоном или JPG), лучше не меньше 512×512. Из него делаются значок вкладки браузера, иконка на экране телефона и иконка установленного приложения. Прозрачные поля по краям обрезаются, неквадратное изображение вписывается по центру.":
+            "A square image (PNG with a transparent background or JPG), preferably at least 512×512. It is used for the browser tab icon, the phone home-screen icon and the installed app icon. Transparent margins are trimmed; a non-square image is centred.",
+        "Приложение на Android": "Android app",
+        "Своя иконка загружена.": "A custom icon is uploaded.",
+        "Сейчас стандартная иконка.": "The default icon is in use.",
+        "Вернуть стандартную": "Restore default",
+        "Вернуть стандартную иконку?": "Restore the default icon?",
+        "Иконка сброшена на стандартную.": "The icon has been reset to the default.",
+        "Иконка сохранена. Установленное приложение подхватит её при следующем обновлении манифеста браузером.":
+            "Icon saved. The installed app will pick it up the next time the browser refreshes the manifest.",
+        "Не удалось сохранить — проверьте соединение.": "Couldn't save — check your connection.",
         # история баланса контрагента
         "История баланса": "Balance history",
         "История баланса расчётов": "Settlement balance history",

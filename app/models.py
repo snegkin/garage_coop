@@ -70,6 +70,11 @@ class Cooperative(Base):
     # Расположение печати на бланке — JSON {"dx","dy","size"} в мм
     # (app/facsimile.py: SEAL_LAYOUT), регулируется ползунками.
     seal_layout: Mapped[str | None] = mapped_column(String(200))
+    # Иконка сайта и PWA-приложения (app/app_icon.py) — квадратный PNG
+    # 512×512, все размеры нарезаются из него. Пусто — стандартные иконки
+    # из app/static/. updated_at — версия в адресе иконки (сброс кеша).
+    app_icon_png: Mapped[bytes | None] = mapped_column(LargeBinary, deferred=True)
+    app_icon_updated_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
 
     registration_date: Mapped[dt.date | None] = mapped_column(Date)
 

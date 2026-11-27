@@ -23,7 +23,7 @@
    атрибут hidden, и блок был виден всегда, а крестик его не скрывал. #}
 <div id="installApp" hidden>
 <div class="alert alert-info d-flex align-items-start gap-2">
-  <img src="{{ url_for('static', filename='icon-192.png') }}" alt="" width="40" height="40" class="rounded flex-shrink-0">
+  <img src="{{ app_icon_url('icon-192.png') }}" alt="" width="40" height="40" class="rounded flex-shrink-0">
   <div class="flex-grow-1">
     <div class="fw-semibold">{{ _("Приложение на телефон") }}</div>
     <div class="small" id="installAppPrompt" hidden>

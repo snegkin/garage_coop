@@ -51,7 +51,7 @@ self.addEventListener('push', function (event) {
   var title = data.title || 'Уведомление';
   event.waitUntil(self.registration.showNotification(title, {
     body: data.body || '',
-    icon: '/static/icon-192.png',
+    icon: '/app-icon/icon-192.png',
     data: { url: data.url || '/' }
   }));
 });
@@ -95,14 +95,15 @@ def web_manifest():
     приложение» (иконка на рабочем столе, без адресной строки), см. также
     кнопку установки (_install_app.html). Маршрут, а не файл в
     static: название — из карточки кооператива, у каждого кооператива с
-    одного кода своё. Иконки — знак из static/logo.png без надписи (на
-    размере иконки она не читается)."""
+    одного кода своё. Иконки — загруженная председателем (app/app_icon.py),
+    пока её нет — стандартные из static/."""
     from .models import Cooperative
 
     coop = database.db_session.query(Cooperative).first()
     name = app_display_name(coop and (coop.short_name or coop.full_name))
+    from .app_icon import app_icon_url
     icon = lambda filename, size, purpose: {  # noqa: E731
-        "src": url_for("static", filename=filename), "sizes": f"{size}x{size}", "type": "image/png", "purpose": purpose,
+        "src": app_icon_url(filename), "sizes": f"{size}x{size}", "type": "image/png", "purpose": purpose,
     }
     manifest = {
         "name": name,

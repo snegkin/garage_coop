@@ -149,6 +149,7 @@ def create_app(config_class=Config):
     _PASSWORD_CHANGE_ALLOWED_ENDPOINTS = {
         "auth.force_change_password", "auth.logout", "static",
         "main.web_manifest", "main.service_worker", "main.privacy", "main.pd_processing",
+        "app_icon.icon", "favicon",
     }
 
     @app.before_request
@@ -283,6 +284,7 @@ def create_app(config_class=Config):
     from .certificates import bp as certificates_bp
     from .documents import bp as documents_bp
     from .facsimile import bp as facsimile_bp
+    from .app_icon import bp as app_icon_bp
     from .news import bp as news_bp
     from .news_gallery import bp as news_gallery_bp
     from .bulletin import bp as bulletin_bp
@@ -333,6 +335,7 @@ def create_app(config_class=Config):
     app.register_blueprint(certificates_bp)
     app.register_blueprint(documents_bp)
     app.register_blueprint(facsimile_bp)
+    app.register_blueprint(app_icon_bp)
     app.register_blueprint(news_bp)
     app.register_blueprint(news_gallery_bp)
     app.register_blueprint(bulletin_bp)

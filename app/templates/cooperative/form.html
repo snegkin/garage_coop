@@ -147,6 +147,85 @@
   </div>
 </form>
 
+<div class="bg-body p-4 rounded border mt-4" id="appIcon">
+  <h5>{{ _("Иконка сайта и приложения") }}</h5>
+  <p class="text-muted small mb-3">{{ _("Квадратное изображение (PNG с прозрачным фоном или JPG), лучше не меньше 512×512. Из него делаются значок вкладки браузера, иконка на экране телефона и иконка установленного приложения. Прозрачные поля по краям обрезаются, неквадратное изображение вписывается по центру.") }}</p>
+  {% set checker = "background: #fff repeating-conic-gradient(#e9e9e9 0% 25%, transparent 0% 50%) 50% / 16px 16px;" %}
+  <div class="d-flex flex-wrap gap-4 align-items-start" data-app-icon-card>
+    <div class="text-center">
+      <div class="border rounded d-flex align-items-center justify-content-center mb-1" style="width: 7rem; height: 7rem; {{ checker }}">
+        <img data-app-icon-preview src="{{ app_icon_url('icon-192.png') }}" alt="" style="width: 6rem; height: 6rem;">
+      </div>
+      <div class="small text-muted">{{ _("Сайт") }}</div>
+    </div>
+    <div class="text-center">
+      <div class="d-flex align-items-center justify-content-center mb-1" style="width: 7rem; height: 7rem;">
+        <img data-app-icon-maskable src="{{ app_icon_url('icon-maskable-512.png') }}" alt="" class="rounded-circle border" style="width: 6rem; height: 6rem;">
+      </div>
+      <div class="small text-muted">{{ _("Приложение на Android") }}</div>
+    </div>
+    <div class="flex-grow-1" style="min-width: 16rem;">
+      <div class="small mb-2" data-app-icon-state>{{ _("Своя иконка загружена.") if coop.app_icon_updated_at else _("Сейчас стандартная иконка.") }}</div>
+      <form data-app-icon-form action="{{ url_for('app_icon.upload') }}" class="d-flex flex-wrap gap-2 align-items-center">
+        <input class="form-control form-control-sm" style="max-width: 20rem;" type="file" name="image" accept="image/png,image/jpeg,image/webp" required aria-label="{{ _('Файл с изображением') }}">
+        <button class="btn btn-sm btn-primary">{{ _("Загрузить") }}</button>
+        <button type="button" class="btn btn-sm btn-outline-danger{{ '' if coop.app_icon_updated_at else ' d-none' }}" data-app-icon-delete>{{ _("Вернуть стандартную") }}</button>
+      </form>
+      <div class="small mt-2 d-none" data-app-icon-message></div>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  var card = document.querySelector("[data-app-icon-card]");
+  if (!card) return;
+  var form = card.querySelector("[data-app-icon-form]");
+  var msg = card.querySelector("[data-app-icon-message]");
+  var delBtn = card.querySelector("[data-app-icon-delete]");
+  var csrf = document.querySelector('meta[name="csrf-token"]');
+  var LABEL_CUSTOM = {{ _("Своя иконка загружена.")|tojson }};
+  var LABEL_DEFAULT = {{ _("Сейчас стандартная иконка.")|tojson }};
+
+  function send(data) {
+    var buttons = form.querySelectorAll("button");
+    buttons.forEach(function (b) { b.disabled = true; });
+    fetch(form.action, {
+      method: "POST", body: data,
+      headers: csrf ? { "X-CSRFToken": csrf.getAttribute("content") } : {},
+    }).then(function (r) { return r.json(); }).then(function (res) {
+      msg.textContent = res.message;
+      msg.className = "small mt-2 " + (res.ok ? "text-success" : "text-danger");
+      if (!res.ok) return;
+      card.querySelector("[data-app-icon-preview]").src = res.preview;
+      card.querySelector("[data-app-icon-maskable]").src = res.maskable;
+      card.querySelector("[data-app-icon-state]").textContent = res.custom ? LABEL_CUSTOM : LABEL_DEFAULT;
+      delBtn.classList.toggle("d-none", !res.custom);
+      form.reset();
+      // значок текущей вкладки — сразу
+      document.querySelectorAll('link[rel="icon"]').forEach(function (l) {
+        l.href = l.href.split("?")[0] + "?v=" + Date.now();
+      });
+    }).catch(function () {
+      msg.textContent = {{ _("Не удалось сохранить — проверьте соединение.")|tojson }};
+      msg.className = "small mt-2 text-danger";
+    }).finally(function () {
+      buttons.forEach(function (b) { b.disabled = false; });
+    });
+  }
+
+  form.addEventListener("submit", function (e) {
+    e.preventDefault();
+    send(new FormData(form));
+  });
+  delBtn.addEventListener("click", function () {
+    if (!confirm({{ _("Вернуть стандартную иконку?")|tojson }})) return;
+    var data = new FormData();
+    data.append("delete", "1");
+    send(data);
+  });
+})();
+</script>
+
 <div class="bg-body p-4 rounded border mt-4" id="facsimile">
   <h5>{{ _("Печать и подпись для документов") }}</h5>
   <p class="text-muted small mb-3">{{ _("Скан или фото на белом листе (PNG, JPG). После выбора файла рядом появится результат очистки: бумага, тени и неравномерный свет убираются, фон становится прозрачным, поля обрезаются — подстройте ползунком и сохраните. В документы изображения вставляются только галочкой «Подпись и печать» рядом с кнопкой печати и только у председателя — без неё документ печатается под живую подпись. Каждый PDF с подписью и печатью записывается в журнал действий.") }}</p>

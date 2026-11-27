@@ -6,7 +6,8 @@ app/garage_map.py) из JSON-файла.
 Запуск:
     INSTANCE_DIR=/path/instance venv/bin/python scripts/import_garage_map.py LAYOUT.json [--replace] [--dry-run]
 
-LAYOUT.json:
+LAYOUT.json (раскладка конкретного кооператива — данные, а не код: хранится в
+каталоге экземпляра, INSTANCE_DIR/garage_map/, в репозиторий не кладётся):
     {"width": 1256, "height": 5976,
      "shapes": [
         {"kind": "road", "points": [[x, y], ...]},

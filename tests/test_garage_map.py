@@ -288,3 +288,17 @@ def test_dvr_and_cameras_on_map(db, client):
 
     bad = _save(client, [], objects=[{"kind": "camera", "x": 1, "y": 1, "dvr_camera_id": 999}])
     assert bad.status_code == 400
+
+
+def test_network_switch_as_uplink(db, client):
+    _board(db, client)
+    resp = _save(client, [], objects=[
+        {"kind": "wifi", "x": 1, "y": 1, "title": "Link1", "net_role": "bridge"},
+        {"kind": "netswitch", "x": 2, "y": 2, "title": "Свитч гараж 4", "uplink_index": 0, "net_role": "router"},
+        {"kind": "dvr", "x": 3, "y": 3, "uplink_index": 1},
+        {"kind": "wifi", "x": 4, "y": 4, "net_role": "hotspot", "uplink_index": 1},
+    ])
+    assert resp.get_json() == {"ok": True}
+    link, sw, dvr, hotspot = db.query(GarageMapObject).order_by(GarageMapObject.id).all()
+    assert sw.kind == "netswitch" and sw.uplink_id == link.id and sw.net_role is None
+    assert dvr.uplink_id == sw.id and hotspot.uplink_id == sw.id

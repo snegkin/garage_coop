@@ -19,12 +19,14 @@ LANGUAGE_FLAGS = {"ru": "🇷🇺", "en": "🇬🇧"}
 TRANSLATIONS: dict[str, dict[str, str]] = {
     "en": {
         # схема территории (garage_map)
+        "Коммутатор": "Network switch",
+        "Сетевой коммутатор (свитч)": "Network switch",
+        "Подключать можно только к Wi-Fi-устройству, коммутатору или видеорегистратору.": "Devices can only be connected to a Wi-Fi device, a network switch or a video recorder.",
         "Видеорегистратор": "Video recorder",
         "Видеорегистратор не найден.": "Video recorder not found.",
         "Камера": "Camera",
         "Камера в видеонаблюдении": "Camera in video surveillance",
         "Камера не найдена.": "Camera not found.",
-        "Подключать можно только к Wi-Fi-устройству или видеорегистратору.": "Devices can only be connected to a Wi-Fi device or a video recorder.",
         "Регистратор": "Recorder",
         "Регистратор в видеонаблюдении": "Recorder in video surveillance",
         "IP/маска": "IP/mask",

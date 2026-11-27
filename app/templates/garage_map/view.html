@@ -37,6 +37,7 @@
   #gmSvg .gm-obj-mark circle { fill: #6c757d; }
   #gmSvg .gm-obj-wifi circle { fill: #6f42c1; }
   #gmSvg .gm-obj-dvr circle { fill: #212529; }
+  #gmSvg .gm-obj-netswitch circle { fill: #495057; }
   #gmSvg .gm-obj-camera circle { fill: #198754; }
   #gmSvg .gm-link { stroke: #6f42c1; stroke-width: 2; stroke-dasharray: 6 4; vector-effect: non-scaling-stroke; pointer-events: none; opacity: .8; }
   #gmSvg .gm-obj.gm-selected circle { stroke: var(--bs-primary); stroke-width: 4; }
@@ -81,6 +82,7 @@
     <button type="button" class="btn btn-sm btn-outline-secondary gm-add-obj" data-kind="meter" title="{{ _('Счётчик') }}"><i class="bi bi-speedometer2 text-primary"></i> {{ _("Счётчик") }}</button>
     <button type="button" class="btn btn-sm btn-outline-secondary gm-add-obj" data-kind="switch" title="{{ _('Рубильник') }}"><i class="bi bi-toggle-on text-danger"></i> {{ _("Рубильник") }}</button>
     <button type="button" class="btn btn-sm btn-outline-secondary gm-add-obj" data-kind="wifi" title="{{ _('Wi-Fi: роутер, хотспот, мост') }}"><i class="bi bi-wifi" style="color: #6f42c1"></i> {{ _("Wi-Fi") }}</button>
+    <button type="button" class="btn btn-sm btn-outline-secondary gm-add-obj" data-kind="netswitch" title="{{ _('Сетевой коммутатор (свитч)') }}"><i class="bi bi-diagram-3-fill"></i> {{ _("Коммутатор") }}</button>
     <button type="button" class="btn btn-sm btn-outline-secondary gm-add-obj" data-kind="dvr" title="{{ _('Видеорегистратор') }}"><i class="bi bi-hdd-network-fill"></i> {{ _("Регистратор") }}</button>
     <button type="button" class="btn btn-sm btn-outline-secondary gm-add-obj" data-kind="camera" title="{{ _('Камера') }}"><i class="bi bi-camera-video-fill text-success"></i> {{ _("Камера") }}</button>
     <button type="button" class="btn btn-sm btn-outline-secondary gm-add-obj" data-kind="mark" title="{{ _('Отметка') }}"><i class="bi bi-geo-alt-fill text-secondary"></i> {{ _("Отметка") }}</button>
@@ -160,6 +162,7 @@
               <option value="meter">{{ _("Счётчик") }}</option>
               <option value="switch">{{ _("Рубильник") }}</option>
               <option value="wifi">{{ _("Wi-Fi") }}</option>
+              <option value="netswitch">{{ _("Коммутатор") }}</option>
               <option value="dvr">{{ _("Видеорегистратор") }}</option>
               <option value="camera">{{ _("Камера") }}</option>
               <option value="mark">{{ _("Отметка") }}</option>
@@ -257,19 +260,19 @@
     noMeter: {{ _("— не привязан —")|tojson }}, masterMeter: {{ _("Главный счётчик кооператива")|tojson }},
     controlGroup: {{ _("Контрольные счётчики")|tojson }}, photoError: {{ _("Не удалось загрузить фото.")|tojson }},
     kinds: { panel: {{ _("Электрощит")|tojson }}, lamp: {{ _("Фонарь")|tojson }}, meter: {{ _("Счётчик")|tojson }},
-      "switch": {{ _("Рубильник")|tojson }}, wifi: {{ _("Wi-Fi")|tojson }}, dvr: {{ _("Видеорегистратор")|tojson }},
+      "switch": {{ _("Рубильник")|tojson }}, wifi: {{ _("Wi-Fi")|tojson }}, netswitch: {{ _("Коммутатор")|tojson }}, dvr: {{ _("Видеорегистратор")|tojson }},
       camera: {{ _("Камера")|tojson }}, mark: {{ _("Отметка")|tojson }} }
   };
   var wikiPages = {{ wiki_json|safe }};
   var powerDevices = {{ power_json|safe }};
   var recorders = {{ dvr_json|safe }};
   var METER_KINDS = { panel: 1, meter: 1, "switch": 1 };
-  var NET_KINDS = { panel: 1, meter: 1, "switch": 1, wifi: 1, dvr: 1, camera: 1 };
-  var UPLINK_KINDS = { wifi: 1, dvr: 1 };
+  var NET_KINDS = { panel: 1, meter: 1, "switch": 1, wifi: 1, netswitch: 1, dvr: 1, camera: 1 };
+  var UPLINK_KINDS = { wifi: 1, netswitch: 1, dvr: 1 };
   var WIFI_GLYPH = { router: "\uf6eb", bridge: "\uf1d5" };
   var objects = {{ objects_json|safe }};
   var controlMeters = {{ meters_json|safe }};
-  var GLYPH = { panel: "\uf46c", lamp: "\uf468", meter: "\uf580", "switch": "\uf5d6", wifi: "\uf61c", dvr: "\uf40c", camera: "\uf21c", mark: "\uf3e7" };
+  var GLYPH = { panel: "\uf46c", lamp: "\uf468", meter: "\uf580", "switch": "\uf5d6", wifi: "\uf61c", netswitch: "\uf2ed", dvr: "\uf40c", camera: "\uf21c", mark: "\uf3e7" };
   var MODES = {
     territory: ["inside", "outside", "none"], debt: ["debt", "ok", "none"],
     power: ["fresh", "stale", "nometer", "none"], land: ["privatized", "notprivatized", "none"]

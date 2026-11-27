@@ -2400,7 +2400,7 @@ class GarageMapObject(Base):
     __tablename__ = "garage_map_object"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    kind: Mapped[str] = mapped_column(String(20), default="mark")  # panel / lamp / meter / switch / wifi / dvr / camera / mark
+    kind: Mapped[str] = mapped_column(String(20), default="mark")  # panel / lamp / meter / switch (рубильник) / wifi / netswitch (коммутатор) / dvr / camera / mark
     x: Mapped[float] = mapped_column(Float, default=0)
     y: Mapped[float] = mapped_column(Float, default=0)
     title: Mapped[str | None] = mapped_column(String(200))

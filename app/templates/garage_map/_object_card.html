@@ -1,4 +1,4 @@
-{% set kind_names = {"panel": _("Электрощит"), "lamp": _("Фонарь"), "meter": _("Счётчик"), "switch": _("Рубильник"), "wifi": _("Wi-Fi"), "dvr": _("Видеорегистратор"), "camera": _("Камера"), "mark": _("Отметка")} %}
+{% set kind_names = {"panel": _("Электрощит"), "lamp": _("Фонарь"), "meter": _("Счётчик"), "switch": _("Рубильник"), "wifi": _("Wi-Fi"), "netswitch": _("Коммутатор"), "dvr": _("Видеорегистратор"), "camera": _("Камера"), "mark": _("Отметка")} %}
 {% set role_names = {"router": _("Роутер"), "hotspot": _("Раздача Wi-Fi"), "bridge": _("Wi-Fi мост"), "repeater": _("Репитер")} %}
 {% macro obj_name(o) %}{{ o.title or (o.dvr_recorder.name if o.dvr_recorder else "") or (o.dvr_camera.label if o.dvr_camera else "") or o.hostname or o.ip_address or kind_names.get(o.kind, o.kind) }}{% endmacro %}
 <div class="card" id="gmObjectCard" data-object-id="{{ obj.id }}">

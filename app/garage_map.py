@@ -38,10 +38,11 @@ from .uploads import WIKI_ATTACHMENT_ALLOWED_EXT, save_upload
 bp = Blueprint("garage_map", __name__, url_prefix="/garages/map")
 
 SHAPE_KINDS = ("garage", "road", "building", "area")
-OBJECT_KINDS = ("panel", "lamp", "meter", "switch", "wifi", "dvr", "camera", "mark")
+# switch — рубильник; сетевой коммутатор — netswitch
+OBJECT_KINDS = ("panel", "lamp", "meter", "switch", "wifi", "netswitch", "dvr", "camera", "mark")
 METER_KINDS = ("panel", "meter", "switch")  # у них бывает привязка к счётчику в учёте
-NET_KINDS = ("panel", "meter", "switch", "wifi", "dvr", "camera")  # у них бывают IP/MAC и подключение к сети
-UPLINK_KINDS = ("wifi", "dvr")  # к чему можно подключить: сетевое устройство или регистратор (камеры)
+NET_KINDS = ("panel", "meter", "switch", "wifi", "netswitch", "dvr", "camera")  # у них бывают IP/MAC и подключение к сети
+UPLINK_KINDS = ("wifi", "netswitch", "dvr")  # к чему можно подключить: Wi-Fi, коммутатор, регистратор (камеры)
 # Назначение Wi-Fi-устройства: роутер, раздача Wi-Fi, Wi-Fi мост, репитер (подписи — в шаблонах).
 NET_ROLES = ("router", "hotspot", "bridge", "repeater")
 # Бэкапы настроек: форматы как у вложений вики плюс бинарные бэкапы прошивок.
@@ -462,7 +463,7 @@ def _clean_objects(items, valid_meter_ids: set[int], valid_wiki_ids: set[int], v
         current = data["uplink_index"]
         while current is not None:
             if cleaned[current]["kind"] not in UPLINK_KINDS:
-                return None, _("Подключать можно только к Wi-Fi-устройству или видеорегистратору.")
+                return None, _("Подключать можно только к Wi-Fi-устройству, коммутатору или видеорегистратору.")
             if current in seen:
                 return None, _("Подключения устройств замкнуты в кольцо.")
             seen.add(current)

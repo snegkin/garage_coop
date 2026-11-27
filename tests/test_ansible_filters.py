@@ -60,6 +60,7 @@ def test_derived_fields_and_defaults():
     ({"secret_key": "p" * 40}, "как у основного"),
     ({"cron_enable": ["nope"]}, "nope"),
     ({"typo_field": 1}, "неизвестные поля typo_field"),
+    ({"name": "garage-coop-auto-moto-4"}, "без «garage-coop-»"),
     ({"aliases": "second.example.ru"}, "aliases — список"),
     ({"aliases": ["второй.рф"]}, "punycode"),
     ({"aliases": ["main.example.ru"]}, "основного"),

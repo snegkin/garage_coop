@@ -384,9 +384,12 @@ class Editor:
 
     def ask_name(self):
         while True:
-            name = ask("Короткое имя латиницей (пользователь ОС, служба garage-coop-ИМЯ), например coop2")
+            prefix = self.taken.get("service_name", "garage-coop")
+            name = ask(f"Короткое имя латиницей (пользователь ОС, служба {prefix}-ИМЯ), например coop2")
             if not NAME_RE.match(name):
                 print("  Только строчная латиница, цифры и «-», с буквы, до 31 символа.")
+            elif name.startswith(f"{prefix}-"):
+                print(f"  Без «{prefix}-» в начале: служба и так будет {prefix}-ИМЯ.")
             elif name in self.taken["names"]:
                 print(f"  Имя {name} уже занято.")
             else:
@@ -662,6 +665,7 @@ def cmd_add(vars_path, defaults_path, inventory):
         "names": {app_user} | {str(i.get("name")) for i in others},
         "ports": {app_port} | {int(i["port"]) for i in others if str(i.get("port", "")).isdigit()},
         "domains": {config.get("coop_domain")} | set(config.get("coop_domain_aliases") or []),
+        "service_name": service_name,
     }
     for inst in others:
         taken["domains"] |= {inst.get("domain")} | set(inst.get("aliases") or [])

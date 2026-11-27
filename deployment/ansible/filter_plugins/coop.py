@@ -75,6 +75,9 @@ def coop_instances(instances, primary):
             raise AnsibleFilterError(f"{label}: name — латиница в нижнем регистре, цифры и «-», с буквы")
         if name == primary["app_user"]:
             raise AnsibleFilterError(f"{label}: name совпадает с app_user основного кооператива")
+        if name.startswith(f"{primary['service_name']}-"):
+            raise AnsibleFilterError(
+                f"{label}: name без «{primary['service_name']}-» в начале — служба и так {primary['service_name']}-ИМЯ")
 
         domain = str(raw["domain"])
         aliases = raw.get("aliases") or []

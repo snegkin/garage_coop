@@ -398,6 +398,7 @@ def detail(garage_id):
             "meter_number": r.meter.meter_number,
             "deduction": r.control_meter_deduction,
             "self_consumption": r.meter_self_consumption,
+            "photo_id": r.photo.id if r.photo else None,
         })
     for c in charges:
         if c.reading_id is not None:
@@ -1240,13 +1241,44 @@ def add_electricity_reading(garage_id):
             flash(_("Некорректная дата снятия показаний."), "danger")
             return redirect(url_for("garages.detail", garage_id=garage_id, tab="account"))
 
-    # предыдущее показание этого счётчика (по дате) — или начальные показания счётчика, если это первая запись
-    previous = (
+    try:
+        _reading, amount = record_electricity_reading(
+            garage, current, reading_value, reading_date, f.get("comment") or None,
+        )
+    except ReadingError as e:
+        flash(str(e), "danger")
+        return redirect(url_for("garages.detail", garage_id=garage_id, tab="account"))
+    database.db_session.commit()
+
+    if amount is None:
+        flash(_("Показания внесены. Сумма не рассчитана — задайте тариф на странице «Электроэнергия»."), "warning")
+    else:
+        flash(_("Показания внесены, начислено {amount} ₽.", amount=amount), "success")
+    return redirect(url_for("garages.detail", garage_id=garage_id, tab="account"))
+
+
+class ReadingError(ValueError):
+    """Показания не прошли проверку — текст уже переведён, для flash/JSON."""
+
+
+def latest_reading(meter: ElectricityMeter):
+    """Последнее (по дате) показание счётчика или None."""
+    return (
         database.db_session.query(ElectricityReading)
-        .filter_by(meter_id=current.id)
+        .filter_by(meter_id=meter.id)
         .order_by(ElectricityReading.reading_date.desc(), ElectricityReading.id.desc())
         .first()
     )
+
+
+def record_electricity_reading(garage, current, reading_value, reading_date, comment=None):
+    """Проверяет и вносит показания текущего счётчика гаража с начислением
+    (общая часть формы «Внести показания» и показаний по фото,
+    app/meter_photos.py). Возвращает (reading, amount); при ошибке проверки —
+    ReadingError. Не коммитит: коммит — за вызывающим (вместе со своими
+    изменениями, например привязкой фото)."""
+    # предыдущее показание этого счётчика (по дате) — или начальные показания счётчика, если это первая запись
+    previous = latest_reading(current)
     baseline = previous.reading if previous else current.initial_reading
 
     # Только ПОСЛЕ последнего показания: вставка в середину истории
@@ -1254,20 +1286,17 @@ def add_electricity_reading(garage_id):
     # оплаченное) начисление — такого пересчёта здесь нет.
     earliest = previous.reading_date if previous else current.installed_date
     if reading_date > dt.date.today():
-        flash(_("Дата снятия показаний не может быть в будущем."), "danger")
-        return redirect(url_for("garages.detail", garage_id=garage_id, tab="account"))
+        raise ReadingError(_("Дата снятия показаний не может быть в будущем."))
     if earliest is not None and reading_date < earliest:
-        flash(_(
+        raise ReadingError(_(
             "Дата снятия показаний не может быть раньше {date} — даты предыдущего показания (или установки счётчика).",
             date=audit.format_date(earliest),
-        ), "danger")
-        return redirect(url_for("garages.detail", garage_id=garage_id, tab="account"))
+        ))
     if baseline is not None and reading_value <= baseline:
-        flash(_(
+        raise ReadingError(_(
             "Показания не могут быть меньше предыдущих ({baseline}). Если счётчик был заменён, сначала внесите новый прибор учёта.",
             baseline=str(baseline.quantize(Decimal("0.01"))),
-        ), "danger")
-        return redirect(url_for("garages.detail", garage_id=garage_id, tab="account"))
+        ))
 
     # Локальный импорт — избегаем цикла garages<->control_meters (control_meters
     # сам импортирует _current_meter из garages, см. app/control_meters.py).
@@ -1278,7 +1307,6 @@ def add_electricity_reading(garage_id):
     self_kwh = Decimal("0")
     tariff = current_tariff(ElectricityTariffKind.MEMBER, reading_date)
     tariff_rate = garage_electricity_rate(garage, tariff)
-    comment = f.get("comment") or None
     if baseline is not None:
         delta = reading_value - baseline
         date_from = previous.reading_date if previous else current.installed_date
@@ -1335,13 +1363,7 @@ def add_electricity_reading(garage_id):
         + (f", начислено {audit.format_amount(amount)}" if amount is not None else ""),
         entity_type="garage", entity_id=garage.id,
     )
-    database.db_session.commit()
-
-    if amount is None:
-        flash(_("Показания внесены. Сумма не рассчитана — задайте тариф на странице «Электроэнергия»."), "warning")
-    else:
-        flash(_("Показания внесены, начислено {amount} ₽.", amount=amount), "success")
-    return redirect(url_for("garages.detail", garage_id=garage_id, tab="account"))
+    return reading, amount
 
 
 @bp.route("/<int:garage_id>/electricity/readings/last/edit", methods=["POST"])

@@ -116,6 +116,15 @@
     virtualenv_command: python3 -m venv
   become_user: "{{ app_user }}"
 
+- name: Модели распознавания показаний по фото (app/meter_ocr.py --warmup)
+  # Скачиваются от владельца venv: сайты кооперативов писать туда не могут.
+  ansible.builtin.command:
+    cmd: "{{ app_dir }}/venv/bin/python -I {{ app_dir }}/app/meter_ocr.py --warmup"
+  become_user: "{{ app_user }}"
+  register: meter_ocr_warmup
+  changed_when: false
+  failed_when: false
+
 - name: gunicorn в venv
   ansible.builtin.pip:
     name: gunicorn

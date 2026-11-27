@@ -2650,6 +2650,43 @@ class ElectricityReading(Base):
 
     meter: Mapped["ElectricityMeter"] = relationship(back_populates="readings")
     charge: Mapped["Charge | None"] = relationship(back_populates="reading", uselist=False)
+    photo: Mapped["MeterPhoto | None"] = relationship(back_populates="reading", uselist=False)
+
+
+class MeterPhoto(Base):
+    """Фото счётчика, по которому внесены показания (app/meter_photos.py).
+
+    Две роли: подтверждение показаний (фото видно в журнале показаний
+    гаража) и обучающий набор — подтверждённые человеком цифры к снимку
+    (scripts/export_meter_photos.py), чтобы позже дообучить распознавание
+    на своих счётчиках. Поэтому хранится и то, что предложило
+    распознавание (suggested_*), и сырые надписи OCR (ocr_tokens, JSON).
+
+    reading_id IS NULL — фото загружено, показания ещё не подтверждены;
+    такие старше суток удаляются при следующей загрузке того же человека."""
+    __tablename__ = "meter_photo"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.now, index=True)
+    uploaded_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("user.id", ondelete="SET NULL"), index=True)
+    file_path: Mapped[str] = mapped_column(String(500))
+    # Гараж/счётчик, к которому фото отнесено (узнан по номеру или выбран).
+    garage_id: Mapped[int | None] = mapped_column(ForeignKey("garage.id", ondelete="SET NULL"), index=True)
+    meter_id: Mapped[int | None] = mapped_column(ForeignKey("electricity_meter.id", ondelete="SET NULL"), index=True)
+    reading_id: Mapped[int | None] = mapped_column(
+        ForeignKey("electricity_reading.id", ondelete="SET NULL"), unique=True, index=True,
+    )
+    ocr_tokens: Mapped[str | None] = mapped_column(Text)
+    ocr_error: Mapped[str | None] = mapped_column(Text)
+    # Что нашло распознавание: номер счётчика (цифры с фото) и показания.
+    suggested_meter_number: Mapped[str | None] = mapped_column(String(50))
+    suggested_reading: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    # Дата съёмки из EXIF — подсказка даты снятия показаний правлению.
+    taken_date: Mapped[dt.date | None] = mapped_column(Date)
+
+    garage: Mapped["Garage | None"] = relationship()
+    meter: Mapped["ElectricityMeter | None"] = relationship()
+    reading: Mapped["ElectricityReading | None"] = relationship(back_populates="photo")
 
 
 class ElectricityTariffKind(str, enum.Enum):

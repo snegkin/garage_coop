@@ -1,0 +1,199 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Показания по фото") }}{% endblock %}
+{% block content %}
+<h3 class="mb-2">{{ _("Показания по фото") }}</h3>
+<p class="text-muted small mb-3">
+  {{ _("Сфотографируйте счётчик так, чтобы были видны показания и номер счётчика. Сайт найдёт гараж по номеру и подставит показания — проверьте их и внесите.") }}
+</p>
+
+{% if not garages %}
+<div class="alert alert-info">{{ _("У вас нет гаражей со счётчиком.") }}</div>
+{% else %}
+<div id="meterPhotoApp" style="max-width: 40rem">
+  <div class="mb-3">
+    <label class="form-label" for="mpGarageHint">{{ _("Гараж") }}</label>
+    <select class="form-select" id="mpGarageHint">
+      {% if garages|length > 1 %}<option value="">{{ _("Определить по номеру счётчика") }}</option>{% endif %}
+      {% for garage, meter in garages %}
+      <option value="{{ garage.id }}"{% if garage.id == preselected_garage_id %} selected{% endif %}>№{{ garage.number }} · {{ _("счётчик") }} {{ meter.meter_number }}</option>
+      {% endfor %}
+    </select>
+  </div>
+
+  <label class="btn btn-primary btn-lg w-100 mb-3" id="mpShoot">
+    <i class="bi bi-camera" aria-hidden="true"></i> <span id="mpShootText">{{ _("Сфотографировать счётчик") }}</span>
+    <input type="file" accept="image/*" capture="environment" id="mpFile" hidden>
+  </label>
+
+  <div id="mpBusy" class="text-center text-muted py-3" hidden>
+    <div class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></div>
+    {{ _("Распознаём фото — до 10 секунд…") }}
+  </div>
+  <div id="mpError" class="alert alert-danger" hidden></div>
+  {# hidden — на обёртке: у .d-flex display !important перебил бы атрибут #}
+  <div id="mpDone" hidden>
+    <div class="alert alert-success d-flex justify-content-between align-items-center gap-2 flex-wrap">
+      <span id="mpDoneText"></span>
+      <a id="mpDoneLink" class="alert-link" href="#">{{ _("Открыть гараж") }}</a>
+    </div>
+  </div>
+
+  <form id="mpResult" class="card card-body bg-body" hidden>
+    <div class="d-flex gap-3 flex-column flex-sm-row">
+      <a id="mpPhotoLink" href="#" target="_blank" class="flex-shrink-0">
+        <img id="mpPhoto" alt="{{ _('Фото счётчика') }}" class="rounded border" style="max-width: 100%; max-height: 14rem; object-fit: contain">
+      </a>
+      <div class="flex-grow-1">
+        <div class="mb-2">
+          <label class="form-label small mb-1" for="mpGarage">{{ _("Гараж") }}</label>
+          <select class="form-select form-select-sm" id="mpGarage" name="garage_id" required>
+            <option value="">{{ _("— выберите гараж —") }}</option>
+            {% for garage, meter in garages %}
+            <option value="{{ garage.id }}">№{{ garage.number }} · {{ _("счётчик") }} {{ meter.meter_number }}</option>
+            {% endfor %}
+          </select>
+          <div class="small mt-1" id="mpMeterStatus"></div>
+        </div>
+        <div class="small text-muted mb-2" id="mpBaseline"></div>
+      </div>
+    </div>
+
+    <ul class="small text-warning-emphasis mb-2 mt-2 ps-3" id="mpWarnings"></ul>
+
+    <label class="form-label mb-1" for="mpReading">{{ _("Показания, кВт·ч") }}</label>
+    <input class="form-control form-control-lg mb-1" id="mpReading" name="reading" inputmode="decimal" autocomplete="off" required>
+    <div class="small mb-2" id="mpDelta"></div>
+    <div class="d-flex flex-wrap gap-1 mb-2" id="mpOptions"></div>
+
+    {% if is_board() %}
+    <label class="form-label small mb-1" for="mpDate">{{ _("Дата снятия показаний") }}</label>
+    <input class="form-control form-control-sm mb-2" type="date" id="mpDate" name="reading_date" max="{{ today.isoformat() }}" style="max-width: 12rem">
+    {% endif %}
+
+    <details class="small text-muted mb-3">
+      <summary>{{ _("Что распознано на фото") }}</summary>
+      <span id="mpFound"></span>
+    </details>
+
+    <div class="d-flex gap-2">
+      <button type="submit" class="btn btn-success flex-grow-1" id="mpConfirm">{{ _("Внести показания") }}</button>
+      <button type="button" class="btn btn-outline-secondary" id="mpRetake">{{ _("Переснять") }}</button>
+    </div>
+  </form>
+</div>
+
+<script>
+(function () {
+  var T = {{ {
+    "matched": _("Номер счётчика на фото совпал"),
+    "similar": _("Номер счётчика на фото почти совпал (1–2 цифры) — проверьте"),
+    "previous": _("Предыдущие показания"),
+    "noPrevious": _("Предыдущих показаний нет"),
+    "consumption": _("Расход"),
+    "tenths": _("последняя цифра — десятые"),
+    "failed": _("Не удалось отправить фото. Проверьте связь и попробуйте ещё раз."),
+    "next": _("Следующий счётчик"),
+    "kwh": _("кВт·ч"),
+  }|tojson }};
+  var urls = {
+    recognize: {{ url_for("meter_photos.recognize")|tojson }},
+    base: {{ url_for("meter_photos.index")|tojson }}
+  };
+  var csrfMeta = document.querySelector('meta[name="csrf-token"]');
+  var headers = csrfMeta ? { "X-CSRFToken": csrfMeta.getAttribute("content"), "X-Requested-With": "XMLHttpRequest" } : {};
+  var $ = function (id) { return document.getElementById(id); };
+  var state = { photoId: null, baseline: null };
+
+  function show(el, on) { el.hidden = !on; }
+  function fmtDate(iso) { if (!iso) return ""; var p = iso.split("-"); return p[2] + "." + p[1] + "." + p[0]; }
+  function setError(msg) { $("mpError").textContent = msg || ""; show($("mpError"), !!msg); }
+
+  function updateDelta() {
+    var v = parseFloat(($("mpReading").value || "").replace(",", "."));
+    var el = $("mpDelta");
+    if (state.baseline === null || isNaN(v)) { el.textContent = ""; return; }
+    var d = v - state.baseline;
+    el.textContent = T.consumption + ": " + d.toFixed(1).replace(".", ",") + " " + T.kwh;
+    el.className = "small mb-2 " + (d <= 0 ? "text-danger" : "text-muted");
+  }
+
+  function render(data) {
+    state.photoId = data.photo_id;
+    state.baseline = data.baseline !== null ? parseFloat(data.baseline) : null;
+    $("mpPhoto").src = data.photo_url;
+    $("mpPhotoLink").href = data.photo_url;
+    $("mpGarage").value = data.garage_id || "";
+    var st = $("mpMeterStatus");
+    st.textContent = data.meter_status === "matched" ? "✓ " + T.matched : data.meter_status === "similar" ? "≈ " + T.similar : "";
+    st.className = "small mt-1 " + (data.meter_status === "matched" ? "text-success" : "text-warning-emphasis");
+    $("mpBaseline").textContent = data.garage_id
+      ? (data.baseline !== null ? T.previous + ": " + data.baseline.replace(".", ",") + (data.baseline_date ? " (" + fmtDate(data.baseline_date) + ")" : "") : T.noPrevious)
+      : "";
+    var w = $("mpWarnings"); w.innerHTML = "";
+    (data.warnings || []).forEach(function (text) { var li = document.createElement("li"); li.textContent = text; w.appendChild(li); });
+    var opts = $("mpOptions"); opts.innerHTML = "";
+    (data.options || []).forEach(function (o) {
+      var b = document.createElement("button");
+      b.type = "button";
+      b.className = "btn btn-sm " + (o.warnings.length ? "btn-outline-secondary" : "btn-outline-primary");
+      b.textContent = o.value.replace(".", ",") + (o.tenths ? " (" + T.tenths + ")" : "") + (o.warnings.length ? " — " + o.warnings.join(", ") : "");
+      b.addEventListener("click", function () { $("mpReading").value = o.value.replace(".", ","); updateDelta(); });
+      opts.appendChild(b);
+    });
+    if (data.suggestion !== null || !$("mpReading").value) {
+      $("mpReading").value = data.suggestion !== null ? data.suggestion.replace(".", ",") : "";
+    }
+    if ($("mpDate") && data.reading_date) $("mpDate").value = data.reading_date;
+    $("mpFound").textContent = data.found_text || "—";
+    updateDelta();
+    show($("mpResult"), true);
+  }
+
+  $("mpFile").addEventListener("change", function () {
+    var file = this.files && this.files[0];
+    if (!file) return;
+    setError(""); show($("mpDone"), false); show($("mpResult"), false); show($("mpBusy"), true);
+    $("mpReading").value = "";
+    var fd = new FormData();
+    fd.append("photo", file);
+    if ($("mpGarageHint").value) fd.append("garage_id", $("mpGarageHint").value);
+    fetch(urls.recognize, { method: "POST", body: fd, headers: headers, credentials: "same-origin" })
+      .then(function (r) { return r.json().catch(function () { return { ok: false, error: T.failed }; }); })
+      .then(function (data) { if (!data.ok) { setError(data.error); return; } render(data); })
+      .catch(function () { setError(T.failed); })
+      .finally(function () { show($("mpBusy"), false); $("mpFile").value = ""; });
+  });
+
+  $("mpGarage").addEventListener("change", function () {
+    if (!state.photoId) return;
+    fetch(urls.base + state.photoId + "/analyze?garage_id=" + encodeURIComponent(this.value), { headers: headers, credentials: "same-origin" })
+      .then(function (r) { return r.json(); })
+      .then(function (data) { if (data.ok) render(data); });
+  });
+  $("mpReading").addEventListener("input", updateDelta);
+  $("mpRetake").addEventListener("click", function () { $("mpFile").click(); });
+
+  $("mpResult").addEventListener("submit", function (e) {
+    e.preventDefault();
+    setError("");
+    var btn = $("mpConfirm"); btn.disabled = true;
+    fetch(urls.base + state.photoId + "/confirm", {
+      method: "POST", body: new FormData(this), headers: headers, credentials: "same-origin"
+    })
+      .then(function (r) { return r.json().catch(function () { return { ok: false, error: T.failed }; }); })
+      .then(function (data) {
+        if (!data.ok) { setError(data.error); return; }
+        show($("mpResult"), false);
+        $("mpDoneText").textContent = data.message;
+        $("mpDoneLink").href = data.garage_url;
+        show($("mpDone"), true);
+        state.photoId = null;
+        $("mpShootText").textContent = T.next;
+      })
+      .catch(function () { setError(T.failed); })
+      .finally(function () { btn.disabled = false; });
+  });
+})();
+</script>
+{% endif %}
+{% endblock %}

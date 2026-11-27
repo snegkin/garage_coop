@@ -305,6 +305,7 @@ def create_app(config_class=Config):
     from .year_report import bp as year_report_bp
     from . import budget_plan  # noqa: F401 — маршруты планирования сметы на том же blueprint
     from .system_logs import bp as system_logs_bp
+    from .meter_photos import bp as meter_photos_bp
     from .garage_map import bp as garage_map_bp
     from . import garage_map_devices  # noqa: F401 — связь с устройствами сети на том же blueprint
 
@@ -359,5 +360,6 @@ def create_app(config_class=Config):
     app.register_blueprint(annual_reports_bp)
     app.register_blueprint(year_report_bp)
     app.register_blueprint(system_logs_bp)
+    app.register_blueprint(meter_photos_bp)
 
     return app

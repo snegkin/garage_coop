@@ -312,6 +312,12 @@ if ! git_app diff --quiet "$OLD_HEAD" HEAD -- requirements.txt; then
     [ -n "$VENV_PIP" ] || { echo "Не найден venv в $APP_DIR" >&2; false; }
     log "requirements.txt изменился — pip install"
     as_app "$VENV_PIP" install -q -r "$APP_DIR/requirements.txt"
+    # Модели распознавания показаний по фото — заранее и от владельца venv:
+    # сами сайты писать в venv не могут (app/meter_ocr.py: warmup). Не
+    # скачались — не беда, фото примутся без распознавания.
+    log "Модели распознавания счётчиков"
+    as_app "$(dirname "$VENV_PIP")/python" -I "$APP_DIR/app/meter_ocr.py" --warmup >/dev/null \
+        || log "Модели распознавания не скачались — показания по фото будут без распознавания"
 fi
 
 log "Проверяю библиотеки фронтенда"

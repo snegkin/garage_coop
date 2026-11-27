@@ -189,6 +189,7 @@
             <li><h6 class="dropdown-header">{{ _("Электроэнергия") }}</h6></li>
             <li><a class="dropdown-item" href="{{ url_for('control_meters.list_tree') }}">{{ _("Контрольные счётчики") }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('power.view') }}">{{ _("Счётчик") }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('meter_photos.index') }}">{{ _("Показания по фото") }}</a></li>
             <li><hr class="dropdown-divider"></li>
             <li><h6 class="dropdown-header">{{ _("Реестры") }}</h6></li>
             <li><a class="dropdown-item" href="{{ url_for('garages.list_garages') }}">{{ _("Гаражи") }}</a></li>
@@ -263,6 +264,7 @@
           <ul class="dropdown-menu dropdown-menu-end">
             <li><a class="dropdown-item" href="{{ url_for('cabinet.profile') }}"><span class="dropdown-icon"><i class="bi bi-person" aria-hidden="true"></i></span>{{ _("Мой профиль") }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('cabinet.garages') }}"><span class="dropdown-icon"><i class="bi bi-house-door" aria-hidden="true"></i></span>{{ _("Мой гараж") }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('meter_photos.index') }}"><span class="dropdown-icon"><i class="bi bi-camera" aria-hidden="true"></i></span>{{ _("Показания по фото") }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('cabinet.candidacy') }}"><span class="dropdown-icon"><i class="bi bi-person-raised-hand" aria-hidden="true"></i></span>{{ _("Выдвижение на выборы") }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('pd4.select') }}"><span class="dropdown-icon"><i class="bi bi-receipt" aria-hidden="true"></i></span>{{ _("Квитанции (по форме ПД-4)") }}</a></li>
             <li><hr class="dropdown-divider"></li>

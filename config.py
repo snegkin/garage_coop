@@ -1,4 +1,5 @@
 import os
+import sys
 import warnings
 from datetime import timedelta
 
@@ -111,6 +112,13 @@ class Config:
         "DATABASE_URL", f"sqlite:///{os.path.join(INSTANCE_DIR, 'coop.db')}"
     )
     UPLOAD_FOLDER = os.environ.get("UPLOAD_FOLDER") or os.path.join(INSTANCE_DIR, "uploads")
+
+    # Показания по фото (app/meter_photos.py): Python, которым запускается
+    # распознавание app/meter_ocr.py (нужен пакет rapidocr). По умолчанию —
+    # тот же, что у сайта; можно указать отдельный venv. Пусто — фото
+    # принимаются без распознавания, показания вводятся вручную.
+    METER_OCR_PYTHON = os.environ.get("METER_OCR_PYTHON", sys.executable)
+    METER_OCR_TIMEOUT = int(os.environ.get("METER_OCR_TIMEOUT", "60"))
 
     # Каталог логов — тот же, куда пишут cron-обёртки (scripts/_common.sh:
     # $INSTANCE_DIR/logs); смотреть их можно на странице /system-logs/.

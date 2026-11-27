@@ -747,6 +747,7 @@
       {% endif %}
       <button class="btn btn-sm btn-primary text-nowrap">{{ _("Внести показания") }}</button>
     </form>
+    <a class="btn btn-sm btn-outline-primary mt-2" href="{{ url_for('meter_photos.index', garage_id=garage.id) }}"><i class="bi bi-camera" aria-hidden="true"></i> {{ _("Внести по фото счётчика") }}</a>
     {% endif %}
 
     {% if account and is_privileged() %}
@@ -802,6 +803,7 @@
           <td>{{ row.meter_number }}</td>
           <td data-sort-value="{{ row.reading if row.reading is not none else '' }}">
             {{ fmt2(row.reading) if row.reading is not none else "—" }}
+            {% if row.photo_id %}<a href="{{ url_for('meter_photos.photo_file', photo_id=row.photo_id) }}" target="_blank" class="ms-1" title="{{ _('Фото счётчика') }}"><i class="bi bi-camera" aria-hidden="true"></i></a>{% endif %}
             {% if row.deduction %}
             <br><span class="text-muted small" title="{{ _('Вычтено при начислении — потребление узлов, запитанных через этот гараж') }}">&minus;{{ fmt2(row.deduction) }} {{ _("кВт·ч (общий узел)") }}</span>
             {% endif %}

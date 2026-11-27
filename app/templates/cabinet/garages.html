@@ -43,7 +43,8 @@
             <td class="text-end {{ 'text-danger' if elec_balance < 0 else 'text-success' }}" onclick="window.location='{{ url_for('garages.detail', garage_id=garage.id, tab='account') }}'" style="cursor:pointer">
               {{ fmt2(elec_balance) }} ₽
             </td>
-            <td class="text-end">
+            <td class="text-end text-nowrap">
+              <a class="btn btn-sm btn-outline-primary" href="{{ url_for('meter_photos.index', garage_id=garage.id) }}" title="{{ _('Внести показания по фото') }}"><i class="bi bi-camera" aria-hidden="true"></i></a>
               {% if elec_balance < 0 %}
               <a class="btn btn-sm btn-outline-success" href="{{ url_for('pd4.print_slips', garage_id=garage.id) }}" title="{{ _('Оплатить') }}"><i class="bi bi-credit-card" aria-hidden="true"></i></a>
               {% endif %}

@@ -30,7 +30,7 @@ from .accounting import balance
 from .auth import roles_required
 from .i18n import translate as _
 from .models import (
-    ControlMeter, Garage, GarageMapObject, PowerPhaseDevice, PowerPhaseReading, GarageMapObjectFile, GarageMapObjectPhoto, GarageMapShape,
+    ControlMeter, DvrCamera, DvrRecorder, Garage, GarageMapObject, PowerPhaseDevice, PowerPhaseReading, GarageMapObjectFile, GarageMapObjectPhoto, GarageMapShape,
     GarageMapSettings, GarageOwnership, MasterMeterReading, MemberAccount, RoleEnum, WikiPage, garage_sort_key,
 )
 from .uploads import WIKI_ATTACHMENT_ALLOWED_EXT, save_upload
@@ -38,9 +38,10 @@ from .uploads import WIKI_ATTACHMENT_ALLOWED_EXT, save_upload
 bp = Blueprint("garage_map", __name__, url_prefix="/garages/map")
 
 SHAPE_KINDS = ("garage", "road", "building", "area")
-OBJECT_KINDS = ("panel", "lamp", "meter", "switch", "wifi", "mark")
+OBJECT_KINDS = ("panel", "lamp", "meter", "switch", "wifi", "dvr", "camera", "mark")
 METER_KINDS = ("panel", "meter", "switch")  # у них бывает привязка к счётчику в учёте
-NET_KINDS = ("panel", "meter", "switch", "wifi")  # у них бывают IP/MAC и подключение к сети
+NET_KINDS = ("panel", "meter", "switch", "wifi", "dvr", "camera")  # у них бывают IP/MAC и подключение к сети
+UPLINK_KINDS = ("wifi", "dvr")  # к чему можно подключить: сетевое устройство или регистратор (камеры)
 # Назначение Wi-Fi-устройства: роутер, раздача Wi-Fi, Wi-Fi мост, репитер (подписи — в шаблонах).
 NET_ROLES = ("router", "hotspot", "bridge", "repeater")
 # Бэкапы настроек: форматы как у вложений вики плюс бинарные бэкапы прошивок.
@@ -121,6 +122,7 @@ def _object_dict(obj: GarageMapObject) -> dict:
         "model": obj.model or "", "hostname": obj.hostname or "", "ip_address": obj.ip_address or "",
         "mac": obj.mac or "", "net_role": obj.net_role or "", "uplink_id": obj.uplink_id,
         "wiki_page_id": obj.wiki_page_id, "power_device_id": obj.power_device_id,
+        "dvr_recorder_id": obj.dvr_recorder_id, "dvr_camera_id": obj.dvr_camera_id,
     }
 
 
@@ -153,6 +155,12 @@ def view():
     control_meters = database.db_session.query(ControlMeter).order_by(ControlMeter.name).all()
     wiki_pages = database.db_session.query(WikiPage.id, WikiPage.title).order_by(WikiPage.title).all()
     power_devices = database.db_session.query(PowerPhaseDevice).order_by(PowerPhaseDevice.sort_order, PowerPhaseDevice.id).all()
+    recorders = (
+        database.db_session.query(DvrRecorder)
+        .options(joinedload(DvrRecorder.cameras))
+        .order_by(DvrRecorder.sort_order, DvrRecorder.id)
+        .all()
+    )
     placed = {s.garage_id for s in shapes if s.garage_id}
     unplaced = [g for g in garages if g.id not in placed]
     database.db_session.commit()  # get_settings мог завести строку настроек
@@ -165,6 +173,11 @@ def view():
         meters_json=json.dumps([{"id": m.id, "name": m.name} for m in control_meters], ensure_ascii=False),
         wiki_json=json.dumps([{"id": pid, "title": title} for pid, title in wiki_pages], ensure_ascii=False),
         power_json=json.dumps([{"id": d.id, "name": d.label} for d in power_devices], ensure_ascii=False),
+        dvr_json=json.dumps([
+            {"id": r.id, "name": r.name, "host": r.host,
+             "cameras": [{"id": c.id, "name": c.label} for c in sorted(r.cameras, key=lambda c: (c.sort_order, c.id))]}
+            for r in recorders
+        ], ensure_ascii=False),
         states_json=json.dumps(
             {g_id: {k: v for k, v in st.items() if k != "total"} for g_id, st in states.items()}, ensure_ascii=False,
         ),
@@ -228,6 +241,7 @@ def object_card(object_id):
         last_power=last_power,
         # показания POWCT пишутся в UTC — в карточке местное время сервера
         power_at=last_power.ts.replace(tzinfo=dt.timezone.utc).astimezone() if last_power else None,
+        snapshot_version=int(dt.datetime.now().timestamp()),  # кадр камеры перезаписывается — без кэша
     )
 
 
@@ -347,7 +361,19 @@ def _clean_mac(raw) -> tuple[str | None, bool]:
     return ":".join(digits[i:i + 2] for i in range(0, 12, 2)), True
 
 
-def _clean_objects(items, valid_meter_ids: set[int], valid_wiki_ids: set[int], valid_power_ids: set[int]):
+def _clean_ref(raw, valid_ids: set[int]) -> tuple[int | None, bool]:
+    """Необязательная ссылка на запись по id: (id или None, ok)."""
+    if raw in ("", None):
+        return None, True
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return None, False
+    return (value, True) if value in valid_ids else (None, False)
+
+
+def _clean_objects(items, valid_meter_ids: set[int], valid_wiki_ids: set[int], valid_power_ids: set[int],
+                   valid_dvr_ids: set[int] = frozenset(), valid_camera_ids: set[int] = frozenset()):
     """Проверяет присланные объекты; возвращает (список, ошибка).
     Подключение (uplink) приходит индексом в этом же списке — так можно
     связать и только что добавленные, ещё без id, устройства."""
@@ -374,7 +400,8 @@ def _clean_objects(items, valid_meter_ids: set[int], valid_wiki_ids: set[int], v
             if meter_id not in valid_meter_ids:
                 return None, _("Контрольный счётчик не найден.")
         net = {"model": None, "hostname": None, "ip_address": None, "mac": None, "net_role": None,
-               "uplink_index": None, "wiki_page_id": None, "power_device_id": None}
+               "uplink_index": None, "wiki_page_id": None, "power_device_id": None,
+               "dvr_recorder_id": None, "dvr_camera_id": None}
         if kind in NET_KINDS:
             title_hint = str(item.get("title") or "").strip() or str(item.get("ip_address") or "")
             ip, ok = _clean_ip(item.get("ip_address"))
@@ -408,7 +435,14 @@ def _clean_objects(items, valid_meter_ids: set[int], valid_wiki_ids: set[int], v
                     return None, _("Устройство мониторинга не найдено.")
             else:
                 power_id = None
+            dvr_id, ok = _clean_ref(item.get("dvr_recorder_id") if kind == "dvr" else None, valid_dvr_ids)
+            if not ok:
+                return None, _("Видеорегистратор не найден.")
+            camera_id, ok = _clean_ref(item.get("dvr_camera_id") if kind == "camera" else None, valid_camera_ids)
+            if not ok:
+                return None, _("Камера не найдена.")
             net = {
+                "dvr_recorder_id": dvr_id, "dvr_camera_id": camera_id,
                 "model": str(item.get("model") or "").strip()[:200] or None,
                 "hostname": str(item.get("hostname") or "").strip()[:100] or None,
                 "ip_address": ip, "mac": mac,
@@ -427,8 +461,8 @@ def _clean_objects(items, valid_meter_ids: set[int], valid_wiki_ids: set[int], v
         seen = {index}
         current = data["uplink_index"]
         while current is not None:
-            if cleaned[current]["kind"] != "wifi":
-                return None, _("Подключать можно только к Wi-Fi-устройству.")
+            if cleaned[current]["kind"] not in UPLINK_KINDS:
+                return None, _("Подключать можно только к Wi-Fi-устройству или видеорегистратору.")
             if current in seen:
                 return None, _("Подключения устройств замкнуты в кольцо.")
             seen.add(current)
@@ -520,7 +554,10 @@ def save():
         valid_meter_ids = {mid for (mid,) in database.db_session.query(ControlMeter.id).all()}
         valid_wiki_ids = {pid for (pid,) in database.db_session.query(WikiPage.id).all()}
         valid_power_ids = {did for (did,) in database.db_session.query(PowerPhaseDevice.id).all()}
-        objects, error = _clean_objects(payload.get("objects"), valid_meter_ids, valid_wiki_ids, valid_power_ids)
+        valid_dvr_ids = {rid for (rid,) in database.db_session.query(DvrRecorder.id).all()}
+        valid_camera_ids = {cid for (cid,) in database.db_session.query(DvrCamera.id).all()}
+        objects, error = _clean_objects(payload.get("objects"), valid_meter_ids, valid_wiki_ids, valid_power_ids,
+                                        valid_dvr_ids, valid_camera_ids)
         if error:
             database.db_session.rollback()
             return jsonify(ok=False, error=error), 400
@@ -541,7 +578,8 @@ def save():
                 obj = GarageMapObject()
                 database.db_session.add(obj)
             for field in ("kind", "x", "y", "title", "description", "master", "control_meter_id",
-                          "model", "hostname", "ip_address", "mac", "net_role", "wiki_page_id", "power_device_id"):
+                          "model", "hostname", "ip_address", "mac", "net_role", "wiki_page_id", "power_device_id",
+                          "dvr_recorder_id", "dvr_camera_id"):
                 setattr(obj, field, data[field])
             saved.append(obj)
         database.db_session.flush()

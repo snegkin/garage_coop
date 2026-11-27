@@ -6,7 +6,7 @@ import os
 from decimal import Decimal
 
 from app.models import (
-    ControlMeter, ControlMeterReading, GarageMapObject, GarageMapObjectFile, GarageMapObjectPhoto, GarageMapSettings,
+    ControlMeter, ControlMeterReading, DvrCamera, DvrRecorder, GarageMapObject, GarageMapObjectFile, GarageMapObjectPhoto, GarageMapSettings,
     GarageMapShape, PowerPhaseDevice, PowerPhaseReading, RoleEnum, WikiPage,
 )
 
@@ -259,3 +259,32 @@ def test_object_backup_files_and_network_card(db, client, app):
     path = os.path.join(app.config["UPLOAD_FOLDER"], item.file_path)
     assert client.post(f"/garages/map/object/files/{item.id}/remove").get_json() == {"ok": True}
     assert db.query(GarageMapObjectFile).count() == 0 and not os.path.exists(path)
+
+
+def test_dvr_and_cameras_on_map(db, client):
+    recorder = DvrRecorder(name="voshod45-recorder", host="192.168.2.50", port=554)
+    db.add(recorder)
+    db.flush()
+    camera = DvrCamera(recorder_id=recorder.id, label="cam1-1", channel=1)
+    db.add(camera)
+    db.flush()
+    _board(db, client)
+
+    resp = _save(client, [], objects=[
+        {"kind": "dvr", "x": 1, "y": 1, "title": "Регистратор", "dvr_recorder_id": recorder.id,
+         "ip_address": "192.168.2.50/24", "dvr_camera_id": camera.id},
+        {"kind": "camera", "x": 2, "y": 2, "title": "cam1-1", "dvr_camera_id": camera.id, "uplink_index": 0,
+         "ip_address": "192.168.2.71/24", "dvr_recorder_id": recorder.id},
+    ])
+    assert resp.get_json() == {"ok": True}
+    dvr_obj, cam_obj = db.query(GarageMapObject).order_by(GarageMapObject.id).all()
+    assert dvr_obj.dvr_recorder_id == recorder.id and dvr_obj.dvr_camera_id is None
+    assert cam_obj.dvr_camera_id == camera.id and cam_obj.dvr_recorder_id is None and cam_obj.uplink_id == dvr_obj.id
+
+    card = client.get(f"/garages/map/object/{dvr_obj.id}").get_data(as_text=True)
+    assert "192.168.2.50:554" in card and "cam1-1" in card
+    card = client.get(f"/garages/map/object/{cam_obj.id}").get_data(as_text=True)
+    assert f"/surveillance/cameras/{camera.id}/snapshot" in card and "канал" in card
+
+    bad = _save(client, [], objects=[{"kind": "camera", "x": 1, "y": 1, "dvr_camera_id": 999}])
+    assert bad.status_code == 400

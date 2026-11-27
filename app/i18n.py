@@ -19,6 +19,14 @@ LANGUAGE_FLAGS = {"ru": "🇷🇺", "en": "🇬🇧"}
 TRANSLATIONS: dict[str, dict[str, str]] = {
     "en": {
         # схема территории (garage_map)
+        "Видеорегистратор": "Video recorder",
+        "Видеорегистратор не найден.": "Video recorder not found.",
+        "Камера": "Camera",
+        "Камера в видеонаблюдении": "Camera in video surveillance",
+        "Камера не найдена.": "Camera not found.",
+        "Подключать можно только к Wi-Fi-устройству или видеорегистратору.": "Devices can only be connected to a Wi-Fi device or a video recorder.",
+        "Регистратор": "Recorder",
+        "Регистратор в видеонаблюдении": "Recorder in video surveillance",
         "IP/маска": "IP/mask",
         "Wi-Fi мост": "Wi-Fi bridge",
         "Wi-Fi: роутер, хотспот, мост": "Wi-Fi: router, hotspot, bridge",
@@ -34,7 +42,6 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "не в сети": "offline",
         "— нет —": "— none —",
         "— никуда / вне схемы —": "— nothing / off the map —",
-        "Подключать можно только к Wi-Fi-устройству.": "Devices can only be connected to a Wi-Fi device.",
         "Подключения устройств замкнуты в кольцо.": "Device connections form a loop.",
         "Подключён к": "Connected to",
         "Подключены": "Connected devices",

@@ -2400,7 +2400,7 @@ class GarageMapObject(Base):
     __tablename__ = "garage_map_object"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    kind: Mapped[str] = mapped_column(String(20), default="mark")  # panel / lamp / meter / switch / mark
+    kind: Mapped[str] = mapped_column(String(20), default="mark")  # panel / lamp / meter / switch / wifi / dvr / camera / mark
     x: Mapped[float] = mapped_column(Float, default=0)
     y: Mapped[float] = mapped_column(Float, default=0)
     title: Mapped[str | None] = mapped_column(String(200))
@@ -2424,8 +2424,14 @@ class GarageMapObject(Base):
         ForeignKey("power_phase_device.id", ondelete="SET NULL"), index=True,
     )
 
+    # Видеонаблюдение: регистратор (kind="dvr") и камера (kind="camera") из раздела «Видеонаблюдение».
+    dvr_recorder_id: Mapped[int | None] = mapped_column(ForeignKey("dvr_recorder.id", ondelete="SET NULL"), index=True)
+    dvr_camera_id: Mapped[int | None] = mapped_column(ForeignKey("dvr_camera.id", ondelete="SET NULL"), index=True)
+
     control_meter: Mapped["ControlMeter | None"] = relationship()
     power_device: Mapped["PowerPhaseDevice | None"] = relationship()
+    dvr_recorder: Mapped["DvrRecorder | None"] = relationship()
+    dvr_camera: Mapped["DvrCamera | None"] = relationship()
     uplink: Mapped["GarageMapObject | None"] = relationship(remote_side=[id], back_populates="downlinks")
     downlinks: Mapped[list["GarageMapObject"]] = relationship(back_populates="uplink", order_by="GarageMapObject.id")
     wiki_page: Mapped["WikiPage | None"] = relationship()

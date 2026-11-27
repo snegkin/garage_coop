@@ -36,6 +36,8 @@
   #gmSvg .gm-obj-switch circle { fill: #dc3545; }
   #gmSvg .gm-obj-mark circle { fill: #6c757d; }
   #gmSvg .gm-obj-wifi circle { fill: #6f42c1; }
+  #gmSvg .gm-obj-dvr circle { fill: #212529; }
+  #gmSvg .gm-obj-camera circle { fill: #198754; }
   #gmSvg .gm-link { stroke: #6f42c1; stroke-width: 2; stroke-dasharray: 6 4; vector-effect: non-scaling-stroke; pointer-events: none; opacity: .8; }
   #gmSvg .gm-obj.gm-selected circle { stroke: var(--bs-primary); stroke-width: 4; }
   #gmSvg .gm-obj.gm-hit circle { stroke: var(--bs-emphasis-color); stroke-width: 5; }
@@ -79,6 +81,8 @@
     <button type="button" class="btn btn-sm btn-outline-secondary gm-add-obj" data-kind="meter" title="{{ _('Счётчик') }}"><i class="bi bi-speedometer2 text-primary"></i> {{ _("Счётчик") }}</button>
     <button type="button" class="btn btn-sm btn-outline-secondary gm-add-obj" data-kind="switch" title="{{ _('Рубильник') }}"><i class="bi bi-toggle-on text-danger"></i> {{ _("Рубильник") }}</button>
     <button type="button" class="btn btn-sm btn-outline-secondary gm-add-obj" data-kind="wifi" title="{{ _('Wi-Fi: роутер, хотспот, мост') }}"><i class="bi bi-wifi" style="color: #6f42c1"></i> {{ _("Wi-Fi") }}</button>
+    <button type="button" class="btn btn-sm btn-outline-secondary gm-add-obj" data-kind="dvr" title="{{ _('Видеорегистратор') }}"><i class="bi bi-hdd-network-fill"></i> {{ _("Регистратор") }}</button>
+    <button type="button" class="btn btn-sm btn-outline-secondary gm-add-obj" data-kind="camera" title="{{ _('Камера') }}"><i class="bi bi-camera-video-fill text-success"></i> {{ _("Камера") }}</button>
     <button type="button" class="btn btn-sm btn-outline-secondary gm-add-obj" data-kind="mark" title="{{ _('Отметка') }}"><i class="bi bi-geo-alt-fill text-secondary"></i> {{ _("Отметка") }}</button>
     <span class="vr"></span>
     <label class="d-flex align-items-center gap-1 mb-0">{{ _("Подложка") }}
@@ -156,6 +160,8 @@
               <option value="meter">{{ _("Счётчик") }}</option>
               <option value="switch">{{ _("Рубильник") }}</option>
               <option value="wifi">{{ _("Wi-Fi") }}</option>
+              <option value="dvr">{{ _("Видеорегистратор") }}</option>
+              <option value="camera">{{ _("Камера") }}</option>
               <option value="mark">{{ _("Отметка") }}</option>
             </select>
           </div>
@@ -166,6 +172,14 @@
           <div class="mb-2">
             <label class="form-label small mb-1">{{ _("Описание: за что отвечает") }}</label>
             <textarea class="form-control form-control-sm" id="gmODescription" rows="4" maxlength="5000"></textarea>
+          </div>
+          <div class="mb-2 d-none" id="gmODvrRow">
+            <label class="form-label small mb-1">{{ _("Регистратор в видеонаблюдении") }}</label>
+            <select class="form-select form-select-sm" id="gmODvr"></select>
+          </div>
+          <div class="mb-2 d-none" id="gmOCameraRow">
+            <label class="form-label small mb-1">{{ _("Камера в видеонаблюдении") }}</label>
+            <select class="form-select form-select-sm" id="gmOCamera"></select>
           </div>
           <div class="mb-2 d-none" id="gmOPowerRow">
             <label class="form-label small mb-1">{{ _("Мониторинг (Sonoff POWCT)") }}</label>
@@ -243,16 +257,19 @@
     noMeter: {{ _("— не привязан —")|tojson }}, masterMeter: {{ _("Главный счётчик кооператива")|tojson }},
     controlGroup: {{ _("Контрольные счётчики")|tojson }}, photoError: {{ _("Не удалось загрузить фото.")|tojson }},
     kinds: { panel: {{ _("Электрощит")|tojson }}, lamp: {{ _("Фонарь")|tojson }}, meter: {{ _("Счётчик")|tojson }},
-      "switch": {{ _("Рубильник")|tojson }}, wifi: {{ _("Wi-Fi")|tojson }}, mark: {{ _("Отметка")|tojson }} }
+      "switch": {{ _("Рубильник")|tojson }}, wifi: {{ _("Wi-Fi")|tojson }}, dvr: {{ _("Видеорегистратор")|tojson }},
+      camera: {{ _("Камера")|tojson }}, mark: {{ _("Отметка")|tojson }} }
   };
   var wikiPages = {{ wiki_json|safe }};
   var powerDevices = {{ power_json|safe }};
+  var recorders = {{ dvr_json|safe }};
   var METER_KINDS = { panel: 1, meter: 1, "switch": 1 };
-  var NET_KINDS = { panel: 1, meter: 1, "switch": 1, wifi: 1 };
+  var NET_KINDS = { panel: 1, meter: 1, "switch": 1, wifi: 1, dvr: 1, camera: 1 };
+  var UPLINK_KINDS = { wifi: 1, dvr: 1 };
   var WIFI_GLYPH = { router: "\uf6eb", bridge: "\uf1d5" };
   var objects = {{ objects_json|safe }};
   var controlMeters = {{ meters_json|safe }};
-  var GLYPH = { panel: "\uf46c", lamp: "\uf468", meter: "\uf580", "switch": "\uf5d6", wifi: "\uf61c", mark: "\uf3e7" };
+  var GLYPH = { panel: "\uf46c", lamp: "\uf468", meter: "\uf580", "switch": "\uf5d6", wifi: "\uf61c", dvr: "\uf40c", camera: "\uf21c", mark: "\uf3e7" };
   var MODES = {
     territory: ["inside", "outside", "none"], debt: ["debt", "ok", "none"],
     power: ["fresh", "stale", "nometer", "none"], land: ["privatized", "notprivatized", "none"]
@@ -567,7 +584,7 @@
     field.addEventListener("focus", function () { field.__typed = false; });
     field.addEventListener("input", function () { if (!field.__typed) { field.__typed = true; checkpoint(); } }, true);
   });
-  ["gmFKind", "gmFGarage", "gmOKind", "gmOMeter", "gmONetRole", "gmOUplink", "gmOWiki", "gmOPower"].forEach(function (id) {
+  ["gmFKind", "gmFGarage", "gmOKind", "gmOMeter", "gmONetRole", "gmOUplink", "gmOWiki", "gmOPower", "gmODvr", "gmOCamera"].forEach(function (id) {
     // снимок до того, как обработчик change поменяет модель
     document.getElementById(id).addEventListener("change", function () { checkpoint(); }, true);
   });
@@ -804,7 +821,10 @@
 
   // --- Wi-Fi: сетевые поля, подключение к другому устройству, вики
   function objectByKey(key) { return objects.filter(function (o) { return o.__k === key; })[0]; }
-  function objectName(o) { return o.title || o.hostname || o.ip_address || T.kinds[o.kind]; }
+  function objectName(o) {
+    var rec = o.kind === "dvr" && recorders.filter(function (r) { return r.id === o.dvr_recorder_id; })[0];
+    return o.title || (rec && rec.name) || o.hostname || o.ip_address || T.kinds[o.kind];
+  }
   function fillNetFields(obj) {
     var isNet = !!NET_KINDS[obj.kind];
     document.getElementById("gmONetRow").classList.toggle("d-none", !isNet);
@@ -816,6 +836,21 @@
       var o = document.createElement("option"); o.value = d.id; o.textContent = d.name; power.appendChild(o);
     });
     power.value = obj.power_device_id ? String(obj.power_device_id) : "";
+    var dvr = document.getElementById("gmODvr"), cam = document.getElementById("gmOCamera");
+    document.getElementById("gmODvrRow").classList.toggle("d-none", obj.kind !== "dvr" || !recorders.length);
+    document.getElementById("gmOCameraRow").classList.toggle("d-none", obj.kind !== "camera" || !recorders.length);
+    dvr.innerHTML = ""; cam.innerHTML = "";
+    function add(sel, value, text, parent) { var o = document.createElement("option"); o.value = value; o.textContent = text; (parent || sel).appendChild(o); }
+    add(dvr, "", T.noWiki); add(cam, "", T.noWiki);
+    recorders.forEach(function (r) {
+      add(dvr, String(r.id), r.name + (r.host ? " — " + r.host : ""));
+      if (!r.cameras.length) return;
+      var grp = document.createElement("optgroup"); grp.label = r.name;
+      r.cameras.forEach(function (c) { add(cam, String(c.id), c.name, grp); });
+      cam.appendChild(grp);
+    });
+    dvr.value = obj.dvr_recorder_id ? String(obj.dvr_recorder_id) : "";
+    cam.value = obj.dvr_camera_id ? String(obj.dvr_camera_id) : "";
     if (!isNet) return;
     document.getElementById("gmONetRole").value = obj.net_role || "";
     document.getElementById("gmOModel").value = obj.model || "";
@@ -827,8 +862,9 @@
     function opt(sel, value, text) { var o = document.createElement("option"); o.value = value; o.textContent = text; sel.appendChild(o); }
     opt(up, "", T.noUplink);
     objects.forEach(function (o) {
-      if (o === obj || o.kind !== "wifi") return;
-      opt(up, String(keyOf(o)), objectName(o) + (o.ip_address ? " — " + o.ip_address : ""));
+      if (o === obj || !UPLINK_KINDS[o.kind]) return;
+      var name = objectName(o);
+      opt(up, String(keyOf(o)), name + (o.ip_address && o.ip_address !== name ? " — " + o.ip_address : ""));
     });
     up.value = obj.uplink_key ? String(obj.uplink_key) : "";
     var wiki = document.getElementById("gmOWiki");
@@ -849,6 +885,22 @@
   document.getElementById("gmOUplink").addEventListener("change", function () {
     if (!selectedObj) return;
     selectedObj.uplink_key = this.value ? parseInt(this.value, 10) : null;
+    markDirty(); render();
+  });
+  document.getElementById("gmODvr").addEventListener("change", function () {
+    if (!selectedObj) return;
+    selectedObj.dvr_recorder_id = this.value ? parseInt(this.value, 10) : null;
+    var rec = recorders.filter(function (r) { return r.id === selectedObj.dvr_recorder_id; })[0];
+    if (rec && !selectedObj.title) { selectedObj.title = rec.name; document.getElementById("gmOTitle").value = rec.name; }
+    markDirty(); render();
+  });
+  document.getElementById("gmOCamera").addEventListener("change", function () {
+    if (!selectedObj) return;
+    selectedObj.dvr_camera_id = this.value ? parseInt(this.value, 10) : null;
+    if (selectedObj.dvr_camera_id && !selectedObj.title) {  // название — по камере, если своего нет
+      var name = this.options[this.selectedIndex].textContent;
+      selectedObj.title = name; document.getElementById("gmOTitle").value = name;
+    }
     markDirty(); render();
   });
   document.getElementById("gmOPower").addEventListener("change", function () {
@@ -891,7 +943,8 @@
       var c = viewCenter();
       var obj = { id: null, kind: btn.getAttribute("data-kind"), x: c[0], y: c[1], title: "", description: "",
         master: false, control_meter_id: null, photos: 0, model: "", hostname: "", ip_address: "", mac: "",
-        net_role: "", uplink_key: null, wiki_page_id: null, power_device_id: null };
+        net_role: "", uplink_key: null, wiki_page_id: null, power_device_id: null,
+        dvr_recorder_id: null, dvr_camera_id: null };
       objects.push(obj);
       markDirty(); selectObject(obj);
     });
@@ -960,7 +1013,8 @@
         return { id: o.id, kind: o.kind, x: o.x, y: o.y, title: o.title, description: o.description,
           master: o.master, control_meter_id: o.control_meter_id,
           model: o.model, hostname: o.hostname, ip_address: o.ip_address, mac: o.mac, net_role: o.net_role,
-          uplink_index: upIndex >= 0 ? upIndex : null, wiki_page_id: o.wiki_page_id, power_device_id: o.power_device_id };
+          uplink_index: upIndex >= 0 ? upIndex : null, wiki_page_id: o.wiki_page_id, power_device_id: o.power_device_id,
+          dvr_recorder_id: o.dvr_recorder_id, dvr_camera_id: o.dvr_camera_id };
       })
     };
     var headers = { "Content-Type": "application/json" };

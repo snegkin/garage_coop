@@ -1,6 +1,6 @@
-{% set kind_names = {"panel": _("Электрощит"), "lamp": _("Фонарь"), "meter": _("Счётчик"), "switch": _("Рубильник"), "wifi": _("Wi-Fi"), "mark": _("Отметка")} %}
+{% set kind_names = {"panel": _("Электрощит"), "lamp": _("Фонарь"), "meter": _("Счётчик"), "switch": _("Рубильник"), "wifi": _("Wi-Fi"), "dvr": _("Видеорегистратор"), "camera": _("Камера"), "mark": _("Отметка")} %}
 {% set role_names = {"router": _("Роутер"), "hotspot": _("Раздача Wi-Fi"), "bridge": _("Wi-Fi мост"), "repeater": _("Репитер")} %}
-{% macro obj_name(o) %}{{ o.title or o.hostname or o.ip_address or kind_names.get(o.kind, o.kind) }}{% endmacro %}
+{% macro obj_name(o) %}{{ o.title or (o.dvr_recorder.name if o.dvr_recorder else "") or (o.dvr_camera.label if o.dvr_camera else "") or o.hostname or o.ip_address or kind_names.get(o.kind, o.kind) }}{% endmacro %}
 <div class="card" id="gmObjectCard" data-object-id="{{ obj.id }}">
   <div class="card-body">
     <div class="small text-muted">{{ kind_names.get(obj.kind, obj.kind) }}{% if obj.net_role %} · {{ role_names.get(obj.net_role) }}{% endif %}</div>
@@ -14,13 +14,30 @@
       {% if obj.ip_address %}<tr><th class="fw-normal text-muted">{{ _("IP/маска") }}</th><td><code>{{ obj.ip_address }}</code></td></tr>{% endif %}
       {% if obj.mac %}<tr><th class="fw-normal text-muted">MAC</th><td><code>{{ obj.mac }}</code></td></tr>{% endif %}
       {% if obj.uplink %}<tr><th class="fw-normal text-muted">{{ _("Подключён к") }}</th>
-        <td><a href="#" class="gm-object-link" data-object-id="{{ obj.uplink.id }}">{{ obj_name(obj.uplink) }}</a>{% if obj.uplink.ip_address %} <span class="text-muted">{{ obj.uplink.ip_address }}</span>{% endif %}</td></tr>{% endif %}
+        <td><a href="#" class="gm-object-link" data-object-id="{{ obj.uplink.id }}">{{ obj_name(obj.uplink) }}</a>{% if obj.uplink.ip_address and obj_name(obj.uplink) != obj.uplink.ip_address %} <span class="text-muted">{{ obj.uplink.ip_address }}</span>{% endif %}</td></tr>{% endif %}
       {% if obj.downlinks %}<tr><th class="fw-normal text-muted">{{ _("Подключены") }}</th>
         <td>{% for d in obj.downlinks %}<a href="#" class="gm-object-link" data-object-id="{{ d.id }}">{{ obj_name(d) }}</a>{% if not loop.last %}, {% endif %}{% endfor %}</td></tr>{% endif %}
     </table>
     {% endif %}
     {% if obj.wiki_page %}
     <div class="small mb-2"><i class="bi bi-journal-text"></i> <a href="{{ url_for('wiki.view', slug=obj.wiki_page.slug) }}" target="_blank" rel="noopener">{{ obj.wiki_page.title }}</a></div>
+    {% endif %}
+
+    {% if obj.dvr_camera %}
+    <a href="{{ url_for('surveillance.view') }}" class="d-block mb-1">
+      <img src="{{ url_for('surveillance.snapshot', camera_id=obj.dvr_camera.id, t=snapshot_version) }}" alt="{{ obj.dvr_camera.label }}"
+           class="img-fluid rounded border" onerror="this.parentNode.classList.add('d-none')">
+    </a>
+    <div class="small mb-2"><i class="bi bi-camera-video"></i> {{ obj.dvr_camera.label }}
+      <span class="text-muted">· {{ obj.dvr_camera.recorder.name }}, {{ _("канал") }} {{ obj.dvr_camera.channel }}</span></div>
+    {% endif %}
+    {% if obj.dvr_recorder %}
+    <div class="small mb-2">
+      <i class="bi bi-hdd-network"></i> {{ obj.dvr_recorder.name }} <span class="text-muted">{{ obj.dvr_recorder.host }}:{{ obj.dvr_recorder.port }}</span>
+      {% if obj.dvr_recorder.cameras %}<br><span class="text-muted">{{ _("Камеры") }}:</span>
+        {% for c in obj.dvr_recorder.cameras|sort(attribute="sort_order") %}{{ c.label }}{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}
+      <br><a href="{{ url_for('surveillance.view') }}">{{ _("Видеонаблюдение") }}</a>
+    </div>
     {% endif %}
 
     {% if obj.power_device %}

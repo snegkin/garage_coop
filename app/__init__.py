@@ -237,8 +237,13 @@ def create_app(config_class=Config):
             webpush_public_key = _webpush.get_or_create_settings().public_key
             webpush_prompt = True
 
+        # Вышли из учётной записи — стереть оффлайн-слепок на устройстве
+        # (флаг ставит auth.logout, база стирается скриптом в base.html).
+        offline_wipe = session.pop("offline_wipe", False) if user is None else False
+
         return {
             "current_user": user, "coop_name": coop_name, "balance": _balance,
+            "offline_wipe": offline_wipe,
             "is_board": is_board, "is_chairman": is_chairman, "is_privileged": is_privileged,
             "pending_pd_count": attention_counts["pd"],
             "pending_votes_count": attention_counts["votes"],
@@ -306,6 +311,7 @@ def create_app(config_class=Config):
     from . import budget_plan  # noqa: F401 — маршруты планирования сметы на том же blueprint
     from .system_logs import bp as system_logs_bp
     from .meter_photos import bp as meter_photos_bp
+    from .offline import bp as offline_bp
     from .garage_map import bp as garage_map_bp
     from . import garage_map_devices  # noqa: F401 — связь с устройствами сети на том же blueprint
 
@@ -361,5 +367,6 @@ def create_app(config_class=Config):
     app.register_blueprint(year_report_bp)
     app.register_blueprint(system_logs_bp)
     app.register_blueprint(meter_photos_bp)
+    app.register_blueprint(offline_bp)
 
     return app

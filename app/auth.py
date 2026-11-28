@@ -664,4 +664,7 @@ def force_change_password():
 @bp.route("/logout")
 def logout():
     session.clear()
+    # Оффлайн-слепок базы (app/offline.py) на этом устройстве стирается на
+    # следующей же странице (base.html) — там есть персональные данные.
+    session["offline_wipe"] = True
     return redirect(url_for("auth.login"))

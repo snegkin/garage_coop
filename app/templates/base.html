@@ -195,6 +195,7 @@
             <li><a class="dropdown-item" href="{{ url_for('garages.list_garages') }}">{{ _("Гаражи") }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('garage_map.view') }}">{{ _("Схема территории") }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('persons.list_persons') }}">{{ _("Люди") }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('offline.app_shell') }}">{{ _("Без сети: данные на телефоне") }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('counterparties.list_counterparties') }}">{{ _("Контрагенты") }}</a></li>
             <li><hr class="dropdown-divider"></li>
             <li><h6 class="dropdown-header">{{ _("Финансы") }}</h6></li>
@@ -4331,6 +4332,20 @@ document.addEventListener("click", function (e) {
   });
 })();
 </script>
+{% endif %}
+{% if current_user and is_board() %}
+{# Оффлайн-режим правления (app/offline.py): service worker кеширует
+   оффлайн-страницу, слепок базы обновляется в фоне не чаще раза в 10 минут. #}
+<script src="{{ url_for('static', filename='offline/store.js') }}"></script>
+<script>
+(function () {
+  if ("serviceWorker" in navigator) navigator.serviceWorker.register("/service-worker.js").catch(function () {});
+  if (window.coopOffline) window.coopOffline.refresh();
+})();
+</script>
+{% elif offline_wipe %}
+<script src="{{ url_for('static', filename='offline/store.js') }}"></script>
+<script>if (window.coopOffline) window.coopOffline.wipe();</script>
 {% endif %}
 </body>
 </html>

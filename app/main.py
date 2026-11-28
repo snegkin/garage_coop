@@ -98,6 +98,109 @@ self.addEventListener('notificationclick', function (event) {
 """
 
 
+# Оффлайн-режим правления (app/offline.py): при установке worker кеширует
+# оффлайн-страницу и её статику; когда сайт недоступен (на территории ГСК —
+# только белые списки), переход на страницу сайта показывает её вместо
+# ошибки браузера. Для запуска приложения с ярлыка (start_url «/») ждём
+# сеть не дольше LAUNCH_TIMEOUT_MS — при белых списках запрос часто не
+# падает, а просто висит; на остальных страницах — только при настоящей
+# ошибке сети (долгий отчёт или PDF не должен подменяться оффлайн-страницей).
+# Версия кеша — хеш содержимого: поменялась страница или скрипт — меняется
+# и текст worker'а, браузер ставит его заново и перекачивает кеш.
+_OFFLINE_SERVICE_WORKER_JS = """
+var OFFLINE_CACHE = 'coop-offline-%(version)s';
+var OFFLINE_URL = %(offline_url)s;
+var PRECACHE = %(precache)s;
+var LAUNCH_TIMEOUT_MS = 8000;
+
+self.addEventListener('install', function (event) {
+  event.waitUntil(caches.open(OFFLINE_CACHE).then(function (cache) {
+    return cache.addAll(PRECACHE);
+  }).then(function () { return self.skipWaiting(); }));
+});
+
+self.addEventListener('activate', function (event) {
+  event.waitUntil(caches.keys().then(function (keys) {
+    return Promise.all(keys.filter(function (k) {
+      return k.indexOf('coop-offline-') === 0 && k !== OFFLINE_CACHE;
+    }).map(function (k) { return caches.delete(k); }));
+  }).then(function () { return self.clients.claim(); }));
+});
+
+function offlinePage() {
+  return caches.open(OFFLINE_CACHE).then(function (cache) { return cache.match(OFFLINE_URL); });
+}
+
+function networkOrOffline(request, timeoutMs) {
+  return new Promise(function (resolve, reject) {
+    var settled = false;
+    function finish(response) { if (!settled) { settled = true; resolve(response); } }
+    fetch(request).then(finish, function (err) {
+      offlinePage().then(function (page) {
+        if (page) finish(page);
+        else if (!settled) { settled = true; reject(err); }
+      });
+    });
+    if (timeoutMs) setTimeout(function () {
+      if (!settled) offlinePage().then(function (page) { if (page) finish(page); });
+    }, timeoutMs);
+  });
+}
+
+self.addEventListener('fetch', function (event) {
+  var request = event.request;
+  if (request.method !== 'GET') return;
+  var url = new URL(request.url);
+  if (url.origin !== self.location.origin) return;
+  if (request.mode === 'navigate') {
+    if (url.pathname === OFFLINE_URL) {
+      event.respondWith(offlinePage().then(function (page) { return page || fetch(request); }));
+    } else {
+      event.respondWith(networkOrOffline(request, url.pathname === '/' ? LAUNCH_TIMEOUT_MS : 0));
+    }
+    return;
+  }
+  if (PRECACHE.indexOf(url.pathname) !== -1) {
+    // Статика с версией в пути (vendor) и скрипты оффлайн-страницы — из кеша
+    // (?хеш у шрифтов иконок в CSS не учитываем).
+    event.respondWith(caches.open(OFFLINE_CACHE).then(function (cache) {
+      return cache.match(request, { ignoreSearch: true });
+    }).then(function (cached) { return cached || fetch(request); }));
+  }
+});
+"""
+
+
+def _offline_precache() -> list[str]:
+    vendor_url = current_app.jinja_env.globals["vendor_url"]
+    return [
+        url_for("offline.app_shell"),
+        url_for("static", filename="offline/store.js"),
+        url_for("static", filename="offline/app.js"),
+        url_for("static", filename="favicon-32x32.png"),
+        vendor_url("bootstrap", "bootstrap.min.css"),
+        vendor_url("bootstrap-icons", "bootstrap-icons.min.css"),
+        vendor_url("bootstrap-icons", "fonts/bootstrap-icons.woff2"),
+        vendor_url("bootstrap-icons", "fonts/bootstrap-icons.woff"),
+    ]
+
+
+def _offline_service_worker_js() -> str:
+    import hashlib
+
+    precache = _offline_precache()
+    digest = hashlib.sha256(json.dumps(precache).encode())
+    digest.update(render_template("offline/app.html").encode())
+    for name in ("store.js", "app.js"):
+        with open(os.path.join(current_app.static_folder, "offline", name), "rb") as f:
+            digest.update(f.read())
+    return _OFFLINE_SERVICE_WORKER_JS % {
+        "version": digest.hexdigest()[:16],
+        "offline_url": json.dumps(url_for("offline.app_shell")),
+        "precache": json.dumps(precache),
+    }
+
+
 @bp.route("/service-worker.js")
 def service_worker():
     # Открыли адрес скрипта как страницу (вручную, из истории вкладки) —
@@ -105,7 +208,7 @@ def service_worker():
     # worker, шлёт Sec-Fetch-Dest: serviceworker, его это не касается.
     if request.headers.get("Sec-Fetch-Dest") == "document":
         return redirect(url_for("main.index"))
-    resp = Response(_SERVICE_WORKER_JS, mimetype="application/javascript")
+    resp = Response(_SERVICE_WORKER_JS + _offline_service_worker_js(), mimetype="application/javascript")
     resp.headers["Cache-Control"] = "no-cache"
     return resp
 

@@ -4522,6 +4522,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Остальное": "Other",
         "Оплачено не через банк": "Paid not via the bank",
         "по отчёту {amount} ₽": "per report {amount} ₽",
+        "Без сети: данные на телефоне": "Offline: data on this phone",
     }
 }
 

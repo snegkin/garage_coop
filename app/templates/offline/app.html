@@ -1,0 +1,59 @@
+<!doctype html>
+{# Оффлайн-страница правления (app/offline.py). Оболочка без данных: всё
+   берётся из IndexedDB (static/offline/store.js), страницу и её статику
+   заранее кеширует service worker (main.py) — она открывается и без сети,
+   в том числе вместо страницы сайта, когда сайт недоступен. Тексты — без
+   _(): закешированная оболочка не переключается вместе с языком сайта. #}
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0d6efd">
+  <title>Без сети · {{ coop_name }}</title>
+  <link rel="icon" href="{{ url_for('static', filename='favicon-32x32.png') }}">
+  <link href="{{ vendor_url('bootstrap', 'bootstrap.min.css') }}" rel="stylesheet">
+  <link href="{{ vendor_url('bootstrap-icons', 'bootstrap-icons.min.css') }}" rel="stylesheet">
+  <script>
+    (function () {
+      var dark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+      document.documentElement.setAttribute("data-bs-theme", dark ? "dark" : "light");
+    })();
+  </script>
+  <style>
+    body { padding-bottom: env(safe-area-inset-bottom); }
+    .navbar { padding-top: calc(.5rem + env(safe-area-inset-top)); }
+    .ol-debt { color: var(--bs-danger-text-emphasis); font-weight: 600; }
+    .ol-over { color: var(--bs-success-text-emphasis); }
+    .ol-list .list-group-item { padding-top: .65rem; padding-bottom: .65rem; }
+    .ol-tel { white-space: nowrap; }
+    .ol-search { font-size: 1.15rem; }
+    .ol-tree-1 { padding-left: 1.75rem !important; }
+    .ol-tree-2 { padding-left: 2.75rem !important; }
+    .ol-tree-3 { padding-left: 3.75rem !important; }
+  </style>
+</head>
+<body class="bg-body-tertiary">
+  <nav class="navbar bg-primary sticky-top" data-bs-theme="dark">
+    <div class="container d-flex flex-nowrap gap-2">
+      <a class="navbar-brand text-truncate me-0" href="#">{{ coop_name }}</a>
+      <div class="d-flex align-items-center gap-2 flex-shrink-0">
+        <small id="olStamp" class="text-white-50"></small>
+        <button id="olRefresh" type="button" class="btn btn-sm btn-light" title="Обновить данные с сайта" aria-label="Обновить данные с сайта">
+          <i class="bi bi-arrow-clockwise" aria-hidden="true"></i>
+        </button>
+      </div>
+    </div>
+  </nav>
+  <main class="container py-3" style="max-width: 760px;">
+    <div id="olBanner"></div>
+    <ul class="nav nav-pills nav-fill mb-3" id="olTabs">
+      <li class="nav-item"><a class="nav-link" data-tab="search" href="#">Поиск</a></li>
+      <li class="nav-item"><a class="nav-link" data-tab="debtors" href="#debtors">Должники</a></li>
+      <li class="nav-item"><a class="nav-link" data-tab="control" href="#control">Контрольные</a></li>
+    </ul>
+    <div id="olView"></div>
+  </main>
+  <script src="{{ url_for('static', filename='offline/store.js') }}"></script>
+  <script src="{{ url_for('static', filename='offline/app.js') }}"></script>
+</body>
+</html>

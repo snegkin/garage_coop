@@ -24,7 +24,7 @@ from . import database, audit
 from . import notifications
 from . import progress as progress_ui
 from .i18n import translate as _
-from .auth import roles_required
+from .auth import roles_required, grant_required
 from .models import (
     RoleEnum, BankAccount, BankApiCredential, BankApiProvider, BankStatementLine,
     PaymentRegistryEntry, BankRegistryFormat, ChargeRegistryFile, Cooperative, Counterparty,
@@ -196,7 +196,7 @@ def registry_format_settings(account_id):
 
 
 @bp.route("/registry/format/charges", methods=["POST"])
-@roles_required(RoleEnum.CHAIRMAN)
+@grant_required("accounts_bank")
 def save_charge_registry_format(account_id):
     account = _get_account(account_id)
     columns = _parse_registry_format_form(registry_file.CHARGE_FIELD_CATALOG)
@@ -218,7 +218,7 @@ def save_charge_registry_format(account_id):
 
 
 @bp.route("/registry/format/payments", methods=["POST"])
-@roles_required(RoleEnum.CHAIRMAN)
+@grant_required("accounts_bank")
 def save_payment_registry_format(account_id):
     account = _get_account(account_id)
     columns = _parse_registry_format_form(registry_file.PAYMENT_FIELD_CATALOG)
@@ -244,7 +244,7 @@ def save_payment_registry_format(account_id):
 # ---------------------------------------------------------------------------
 
 @bp.route("/api-settings", methods=["POST"])
-@roles_required(RoleEnum.CHAIRMAN)
+@grant_required("accounts_bank")
 def save_api_settings(account_id):
     account = _get_account(account_id)
     f = request.form
@@ -355,7 +355,7 @@ def sync_account_balance(account: BankAccount, progress=progress_ui.NULL) -> tup
 
 
 @bp.route("/sync-balance", methods=["POST"])
-@roles_required(RoleEnum.CHAIRMAN)
+@grant_required("accounts_bank")
 def sync_balance(account_id):
     _get_account(account_id)  # 404 — сразу, а не в окне
     back = url_for("finance.bank_accounts")
@@ -580,7 +580,7 @@ def _save_fetched_statement(account: BankAccount, fetched, date_from: dt.date, d
 
 
 @bp.route("/sync-statement", methods=["POST"])
-@roles_required(RoleEnum.CHAIRMAN)
+@grant_required("accounts_bank")
 def sync_statement(account_id):
     _get_account(account_id)  # 404 — сразу, а не в окне
     f = request.form

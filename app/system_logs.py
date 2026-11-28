@@ -31,7 +31,7 @@ from collections import deque
 
 from flask import Blueprint, render_template, request, abort, current_app, send_file
 
-from .auth import roles_required
+from .auth import roles_required, grant_required
 from .models import RoleEnum
 
 bp = Blueprint("system_logs", __name__, url_prefix="/logs")
@@ -257,7 +257,7 @@ def line_level(line: str) -> str | None:
 
 
 @bp.route("/<section>/")
-@roles_required(RoleEnum.CHAIRMAN)
+@grant_required("equipment")
 def index(section):
     sec = _get_section(section)
     return render_template(
@@ -266,7 +266,7 @@ def index(section):
 
 
 @bp.route("/<section>/<name>")
-@roles_required(RoleEnum.CHAIRMAN)
+@grant_required("equipment")
 def view(section, name):
     sec = _get_section(section)
     path = _resolve(section, name)
@@ -304,7 +304,7 @@ def view(section, name):
 
 
 @bp.route("/<section>/<name>/download")
-@roles_required(RoleEnum.CHAIRMAN)
+@grant_required("equipment")
 def download(section, name):
     _get_section(section)
     mimetype = "application/gzip" if name.endswith(".gz") else "text/plain"

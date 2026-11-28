@@ -12,7 +12,7 @@ from . import database
 from . import progress as progress_ui
 from . import audit
 from .i18n import translate as _
-from .auth import roles_required
+from .auth import roles_required, grant_required
 from .models import RoleEnum, MessengerOutbox, TelegramSettings
 from .bank_api import crypto
 from . import telegram_bot
@@ -32,7 +32,7 @@ def _get_or_create_settings() -> TelegramSettings:
 
 
 @bp.route("/")
-@roles_required(RoleEnum.CHAIRMAN)
+@grant_required("messengers")
 def view():
     settings = _get_or_create_settings()
     return render_template(
@@ -50,7 +50,7 @@ _OUTBOX_ACTIONS = {
 
 
 @bp.route("/outbox/<int:item_id>/<action>", methods=["POST"])
-@roles_required(RoleEnum.CHAIRMAN)
+@grant_required("messengers")
 def outbox_action(item_id, action):
     if action not in _OUTBOX_ACTIONS:
         abort(404)
@@ -66,7 +66,7 @@ def outbox_action(item_id, action):
 
 
 @bp.route("/settings", methods=["POST"])
-@roles_required(RoleEnum.CHAIRMAN)
+@grant_required("messengers")
 def save_settings():
     """Пустое поле токена оставляет прежнее значение — тот же приём, что
     у API-ключа SMS Aero/пароля почты/client_secret банка."""
@@ -107,7 +107,7 @@ def save_settings():
 
 
 @bp.route("/test-connection", methods=["POST"])
-@roles_required(RoleEnum.CHAIRMAN)
+@grant_required("messengers")
 def test_connection():
     settings = _get_or_create_settings()
     if not telegram_bot.is_configured(settings):

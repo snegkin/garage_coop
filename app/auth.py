@@ -179,6 +179,22 @@ def roles_required(*roles: RoleEnum):
     return decorator
 
 
+def grant_required(code: str):
+    """Раздел председателя, который он может доверить члену правления
+    (app/permissions.py: GRANTS, can)."""
+    def decorator(view):
+        @wraps(view)
+        @login_required
+        def wrapped(*args, **kwargs):
+            from .permissions import can
+            if not can(code):
+                flash(_("Недостаточно прав для этого действия."), "danger")
+                return redirect(url_for("main.dashboard"))
+            return view(*args, **kwargs)
+        return wrapped
+    return decorator
+
+
 def _login_form_choices() -> dict:
     """Галочки формы входа (auth/_login_form.html) — те же поля передаются
     скрытыми через страницу кода СМС при регистрации по телефону."""

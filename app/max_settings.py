@@ -14,7 +14,7 @@ from . import database
 from . import max_bot
 from . import messenger_outbox
 from . import progress as progress_ui
-from .auth import roles_required
+from .auth import roles_required, grant_required
 from .bank_api import crypto
 from .i18n import translate as _
 from .max_bot import MaxError
@@ -35,7 +35,7 @@ def _get_or_create_settings() -> MaxSettings:
 
 
 @bp.route("/")
-@roles_required(RoleEnum.CHAIRMAN)
+@grant_required("messengers")
 def view():
     settings = _get_or_create_settings()
     return render_template(
@@ -55,7 +55,7 @@ _OUTBOX_ACTIONS = {
 
 
 @bp.route("/outbox/<int:item_id>/<action>", methods=["POST"])
-@roles_required(RoleEnum.CHAIRMAN)
+@grant_required("messengers")
 def outbox_action(item_id, action):
     if action not in _OUTBOX_ACTIONS:
         abort(404)
@@ -71,7 +71,7 @@ def outbox_action(item_id, action):
 
 
 @bp.route("/settings", methods=["POST"])
-@roles_required(RoleEnum.CHAIRMAN)
+@grant_required("messengers")
 def save_settings():
     """Пустое поле токена оставляет прежнее значение (как у Telegram)."""
     settings = _get_or_create_settings()
@@ -108,7 +108,7 @@ def save_settings():
 
 
 @bp.route("/test-connection", methods=["POST"])
-@roles_required(RoleEnum.CHAIRMAN)
+@grant_required("messengers")
 def test_connection():
     settings = _get_or_create_settings()
     if not max_bot.is_configured(settings):
@@ -150,7 +150,7 @@ def test_connection():
 
 
 @bp.route("/refresh-chats", methods=["POST"])
-@roles_required(RoleEnum.CHAIRMAN)
+@grant_required("messengers")
 def refresh_chats():
     """Запросить апдейты сейчас, не дожидаясь cron, — сразу после того, как
     бота добавили в канал."""

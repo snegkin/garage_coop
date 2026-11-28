@@ -8,7 +8,7 @@
     {% if is_configured %}
     <a class="btn btn-primary" href="{{ url_for('mailbox.compose') }}">+ {{ _("Написать письмо") }}</a>
     {% endif %}
-    {% if is_chairman() %}
+    {% if can("mail_login") %}
     {% if is_configured %}
     {# Без JS — обычный POST и итог во flash; с JS — окно с шагами (base.html, #progressModal). #}
     <form method="post" action="{{ url_for('mailbox.test_connection') }}" class="d-inline" data-progress="{{ _("Проверка подключения к почте") }}" data-progress-retry>
@@ -23,7 +23,7 @@
 {% if not is_configured %}
 <div class="alert alert-warning">
   {{ _("Почта ещё не настроена.") }}
-  {% if is_chairman() %}
+  {% if can("mail_login") %}
   {{ _("Заполните параметры подключения в «Настройках почты» выше.") }}
   {% else %}
   {{ _("Обратитесь к председателю.") }}
@@ -32,7 +32,7 @@
 {% elif settings.last_error and page is none %}
 <div class="alert alert-danger">
   {{ _("Не удалось подключиться к почте.") }}
-  {% if is_chairman() %}{{ settings.last_error }}{% endif %}
+  {% if can("mail_login") %}{{ settings.last_error }}{% endif %}
 </div>
 {% endif %}
 
@@ -157,7 +157,7 @@
 </nav>
 {% endif %}
 
-{% if is_chairman() %}
+{% if can("mail_login") %}
 <div class="modal fade" id="mailSettingsModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg">
     <div class="modal-content">

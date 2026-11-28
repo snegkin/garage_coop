@@ -39,6 +39,36 @@ def is_privileged() -> bool:
     return g.user is not None and g.user.role in (RoleEnum.CHAIRMAN, RoleEnum.ACCOUNTANT)
 
 
+# Технические разделы, которые председатель может доверить члену правления
+# («Учётные записи» → права; председатель не всегда технически подкован, а
+# кто-то из правления — да). Решения председателя (финансы, голосования,
+# состав правления, реквизиты, мастер настройки — он назначает председателя)
+# сюда не входят и остаются только за ним.
+GRANTS = {
+    "messengers": "СМС и мессенджеры (Telegram, MAX)",
+    "mail_login": "Почта правления и вход через Яндекс/VK",
+    "equipment": "Оборудование и сервер (видеонаблюдение, eWeLink, журналы сервера)",
+    "accounts_bank": "Учётные записи и подключение банка (API, выписка, форматы реестров)",
+}
+
+
+def user_grants(user) -> set[str]:
+    if user is None or not user.grants:
+        return set()
+    return {code for code in user.grants.split(",") if code in GRANTS}
+
+
+def can(code: str) -> bool:
+    """Председатель — всегда; член правления (бухгалтер) — если председатель
+    доверил ему этот раздел (User.grants). Рядовой член — никогда."""
+    user = g.get("user")
+    if user is None:
+        return False
+    if user.role == RoleEnum.CHAIRMAN:
+        return True
+    return ROLE_LEVEL[user.role] >= ROLE_LEVEL[RoleEnum.BOARD] and code in user_grants(user)
+
+
 def is_owner_or_board(garage) -> bool:
     """Правление/бухгалтер/председатель — любой гараж; рядовой член — свой
     (по владению) ИЛИ гараж, где он указан лицом для связи (GarageContact

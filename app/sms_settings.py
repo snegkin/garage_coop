@@ -21,7 +21,7 @@ from . import database
 from . import progress as progress_ui
 from . import audit
 from .i18n import translate as _
-from .auth import roles_required
+from .auth import roles_required, grant_required
 from .models import RoleEnum, SmsSettings, Counterparty, CounterpartyApiProvider, SmsLog, Cooperative
 from .sms import get_sms_client, SmsError, sms_site_identifier, SMS_CAPABLE_PROVIDERS
 
@@ -51,7 +51,7 @@ def _get_or_create_settings() -> SmsSettings:
 
 
 @bp.route("/")
-@roles_required(RoleEnum.CHAIRMAN)
+@grant_required("messengers")
 def view():
     """
     Одна страница — журнал отправленных СМС (см. models.SmsLog, app/sms/
@@ -83,7 +83,7 @@ def view():
 
 
 @bp.route("/settings", methods=["POST"])
-@roles_required(RoleEnum.CHAIRMAN)
+@grant_required("messengers")
 def save_settings():
     """Сами email/api_key здесь больше не задаются — только выбор
     контрагента, который их предоставляет (см. докстринг модуля).
@@ -98,7 +98,7 @@ def save_settings():
 
 
 @bp.route("/test", methods=["POST"])
-@roles_required(RoleEnum.CHAIRMAN)
+@grant_required("messengers")
 def send_test():
     settings = _get_or_create_settings()
     client = get_sms_client()

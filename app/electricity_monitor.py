@@ -34,7 +34,7 @@ from sqlalchemy import func, or_
 from . import database
 from . import progress as progress_ui
 from .i18n import translate as _
-from .auth import login_required, roles_required
+from .auth import login_required, roles_required, grant_required
 from .models import RoleEnum, EWeLinkAccount, PowerPhaseDevice, PowerPhaseReading
 from .bank_api import crypto
 from .ewelink import EWeLinkClient, EWeLinkTokens, EWeLinkApiError, EWeLinkAuthError
@@ -538,7 +538,7 @@ def history_data():
 
 
 @bp.route("/settings", methods=["POST"])
-@roles_required(RoleEnum.CHAIRMAN)
+@grant_required("equipment")
 def save_settings():
     """
     App Secret шифруется перед сохранением. Пустое поле в форме оставляет
@@ -576,7 +576,7 @@ def save_settings():
 
 
 @bp.route("/ewelink/authorize")
-@roles_required(RoleEnum.CHAIRMAN)
+@grant_required("equipment")
 def start_oauth():
     """Перенаправляет председателя на страницу авторизации eWeLink. State —
     случайная строка в сессии, сверяется в oauth_callback — защита от
@@ -593,7 +593,7 @@ def start_oauth():
 
 
 @bp.route("/ewelink/callback")
-@roles_required(RoleEnum.CHAIRMAN)
+@grant_required("equipment")
 def oauth_callback():
     """Точка возврата из браузерной авторизации eWeLink — см. предупреждение
     в app/ewelink/client.py о том, что точный формат этой страницы/её
@@ -636,7 +636,7 @@ def oauth_callback():
 
 
 @bp.route("/ewelink/family", methods=["POST"])
-@roles_required(RoleEnum.CHAIRMAN)
+@grant_required("equipment")
 def save_family():
     account = _get_or_create_account()
     family_id = request.form.get("family_id", "").strip()
@@ -650,7 +650,7 @@ def save_family():
 
 
 @bp.route("/ewelink/unbind", methods=["POST"])
-@roles_required(RoleEnum.CHAIRMAN)
+@grant_required("equipment")
 def unbind():
     """Полный сброс подключения — отвязывает приложение от аккаунта eWeLink
     (DELETE /v2/user/oauth/token) и очищает токены/family_id локально.
@@ -689,7 +689,7 @@ def _parse_watts(value: str | None, allow_negative: bool) -> Decimal | None:
 
 
 @bp.route("/devices", methods=["POST"])
-@roles_required(RoleEnum.CHAIRMAN)
+@grant_required("equipment")
 def save_devices():
     """
     Сохраняет привязку ровно 3 устройств к фазам A/B/C одной формой (проще
@@ -725,7 +725,7 @@ def save_devices():
 
 
 @bp.route("/test-connection", methods=["POST"])
-@roles_required(RoleEnum.CHAIRMAN)
+@grant_required("equipment")
 def test_connection():
     """Ручная проверка подключения прямо со страницы — обновляет токен, если
     нужно, и один раз запрашивает список устройств выбранного дома, не

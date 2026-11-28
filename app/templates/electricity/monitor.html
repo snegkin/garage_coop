@@ -3,7 +3,7 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h3 class="mb-0">{{ _("Мониторинг электроэнергии по фазам") }}</h3>
-  {% if is_chairman() %}
+  {% if can("equipment") %}
   <div>
     <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#devicesModal">{{ _("Устройства") }}</button>
     <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#settingsModal">{{ _("Подключение к eWeLink") }}</button>
@@ -15,7 +15,7 @@
 {% if not is_configured %}
 <div class="alert alert-warning">
   {{ _("Подключение к eWeLink ещё не настроено.") }}
-  {% if is_chairman() %}
+  {% if can("equipment") %}
   {{ _("Заполните данные в разделе «Подключение к eWeLink» выше.") }}
   {% else %}
   {{ _("Обратитесь к председателю.") }}
@@ -23,7 +23,7 @@
 </div>
 {% endif %}
 
-{% if is_chairman() and account.access_token_encrypted and not account.family_id %}
+{% if can("equipment") and account.access_token_encrypted and not account.family_id %}
 <div class="alert alert-info">
   <p class="mb-2">{{ _("Авторизация в eWeLink пройдена. Осталось выбрать дом (family):") }}</p>
   {% if families_error %}
@@ -209,7 +209,7 @@
 </div>
 {% endif %}
 
-{% if is_chairman() %}
+{% if can("equipment") %}
 <!-- Модалка: устройства по фазам -->
 <div class="modal fade" id="devicesModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg">

@@ -13,7 +13,7 @@
   <div class="col-md-6">
     <div class="d-flex justify-content-between align-items-center">
       <h5 class="mb-0">{{ _("Реестр начислений (исходящий файл)") }}</h5>
-      {% if is_chairman() %}
+      {% if can("accounts_bank") %}
       <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#chargeFormatModal">{{ _("Настроить") }}</button>
       {% endif %}
     </div>
@@ -29,7 +29,7 @@
   <div class="col-md-6">
     <div class="d-flex justify-content-between align-items-center">
       <h5 class="mb-0">{{ _("Реестр платежей (входящий файл)") }}</h5>
-      {% if is_chairman() %}
+      {% if can("accounts_bank") %}
       <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#paymentFormatModal">{{ _("Настроить") }}</button>
       {% endif %}
     </div>

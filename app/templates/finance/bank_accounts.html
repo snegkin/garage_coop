@@ -53,7 +53,7 @@
             <li><a class="dropdown-item" href="{{ url_for('bank_sync.charge_registry', account_id=account.id) }}">{{ _("Реестр начислений") }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('bank_sync.payment_registry', account_id=account.id) }}">{{ _("Реестр платежей") }}</a></li>
             {% endif %}
-            {% if is_chairman() and account.api_provider.value != "none" and not account.is_archived %}
+            {% if can("accounts_bank") and account.api_provider.value != "none" and not account.is_archived %}
             <li><hr class="dropdown-divider"></li>
             <li>
               <form method="post" action="{{ url_for('bank_sync.sync_balance', account_id=account.id) }}" class="d-inline" data-progress="{{ _("Остаток по счёту из банка") }}">
@@ -139,7 +139,9 @@
   </div>
 </div>
 {% endfor %}
+{% endif %}
 
+{% if can("accounts_bank") %}
 {% for account in bank_accounts %}
 {% if account.api_provider.value != "none" %}
 <div class="modal fade" id="bankApiSettingsModal{{ account.id }}" tabindex="-1" aria-hidden="true">

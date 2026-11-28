@@ -45,7 +45,7 @@ from . import audit
 from . import database
 from .auth import (
     _complete_login, _login_form_choices, _normalize_phone_digits, _person_by_phone_digits,
-    initial_role, is_safe_next_url, login_required, roles_required,
+    grant_required, initial_role, is_safe_next_url, login_required, roles_required,
 )
 from .bank_api import crypto
 from .i18n import translate as _
@@ -467,7 +467,7 @@ def identities_for(user: User) -> dict[str, ExternalIdentity]:
 # --- Настройки (председатель) -----------------------------------------------
 
 @bp.route("/settings", methods=["GET", "POST"])
-@roles_required(RoleEnum.CHAIRMAN)
+@grant_required("mail_login")
 def settings_page():
     """Пустое поле секрета оставляет прежнее значение (как у токенов ботов)."""
     settings = get_settings()

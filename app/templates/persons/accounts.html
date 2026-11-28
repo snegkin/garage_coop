@@ -3,13 +3,16 @@
 {% block content %}
 <h3 class="mb-3">{{ _("Учётные записи") }}</h3>
 <p class="text-muted small">{{ _("Здесь можно привязать существующую учётную запись к другому человеку или отвязать её (например, служебную запись «chairman»).") }}</p>
+{% if is_chairman() %}
+<p class="text-muted small">{{ _("Технические разделы (мессенджеры, почта, оборудование, учётные записи и банк) председатель может доверить члену правления или бухгалтеру — галочки в колонке «Доверенные разделы». Решения председателя (финансы, голосования, состав правления) не передаются.") }}</p>
+{% endif %}
 
 <div class="mb-3">
   <input class="form-control" id="accountFilterInput" placeholder="{{ _('Поиск по логину, ФИО, роли...') }}">
 </div>
 
 <table class="table bg-body sortable" id="accountTable">
-  <thead><tr><th>{{ _("Логин") }}</th><th>{{ _("Роль") }}</th><th>{{ _("Человек") }}</th><th>{{ _("Статус") }}</th><th class="no-sort text-end">{{ _("Привязка") }}</th></tr></thead>
+  <thead><tr><th>{{ _("Логин") }}</th><th>{{ _("Роль") }}</th><th>{{ _("Человек") }}</th><th>{{ _("Статус") }}</th>{% if is_chairman() %}<th class="no-sort">{{ _("Доверенные разделы") }}</th>{% endif %}<th class="no-sort text-end">{{ _("Привязка") }}</th></tr></thead>
   <tbody>
     {% for user in users %}
     <tr data-filter-text="{{ (user.username ~ ' ' ~ (user.person.full_name if user.person else '') ~ ' ' ~ (user.role.value|lower) ~ ' ' ~ ('активна' if user.is_active else 'отключена'))|lower }}">
@@ -32,6 +35,25 @@
           </form>
         </div>
       </td>
+      {% if is_chairman() %}
+      <td>
+        {% if user.role.value in ("board", "accountant") %}
+        {% set mine = user_grants(user) %}
+        <form method="post" action="{{ url_for('persons.save_grants', user_id=user.id) }}" data-ajax class="small">
+          {% for code, label in GRANTS.items() %}
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="grant_{{ code }}" value="1" id="g{{ user.id }}_{{ code }}" {{ 'checked' if code in mine }} onchange="this.form.requestSubmit()">
+            <label class="form-check-label" for="g{{ user.id }}_{{ code }}">{{ _(label) }}</label>
+          </div>
+          {% endfor %}
+        </form>
+        {% elif user.role.value == "chairman" %}
+        <span class="text-muted small">{{ _("все") }}</span>
+        {% else %}
+        <span class="text-muted small">—</span>
+        {% endif %}
+      </td>
+      {% endif %}
       <td class="text-end">
         {% if user.person %}
         <form method="post" action="{{ url_for('persons.unlink_account', user_id=user.id) }}" onsubmit="return confirm('{{ _("Отвязать эту учётную запись от человека?") }}')">
@@ -49,7 +71,7 @@
       </td>
     </tr>
     {% else %}
-    <tr><td colspan="5" class="text-muted">{{ _("Учётных записей пока нет.") }}</td></tr>
+    <tr><td colspan="6" class="text-muted">{{ _("Учётных записей пока нет.") }}</td></tr>
     {% endfor %}
   </tbody>
 </table>

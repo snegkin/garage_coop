@@ -43,7 +43,7 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 
 from . import database
 from .i18n import translate as _
-from .auth import roles_required
+from .auth import roles_required, grant_required
 from .models import RoleEnum, DvrRecorder, DvrCamera
 from .bank_api import crypto
 
@@ -218,7 +218,7 @@ def combined_history_frame(recorder_id, filename):
 
 
 @bp.route("/recorders/new", methods=["POST"])
-@roles_required(RoleEnum.CHAIRMAN)
+@grant_required("equipment")
 def create_recorder():
     f = request.form
     name = f.get("name", "").strip()
@@ -274,7 +274,7 @@ def create_recorder():
 
 
 @bp.route("/recorders/<int:recorder_id>/edit", methods=["POST"])
-@roles_required(RoleEnum.CHAIRMAN)
+@grant_required("equipment")
 def edit_recorder(recorder_id):
     """
     Правит и сам регистратор, и список его камер разом (та же форма, что и
@@ -363,7 +363,7 @@ def edit_recorder(recorder_id):
 
 
 @bp.route("/recorders/<int:recorder_id>/delete", methods=["POST"])
-@roles_required(RoleEnum.CHAIRMAN)
+@grant_required("equipment")
 def delete_recorder(recorder_id):
     recorder = database.db_session.get(DvrRecorder, recorder_id)
     if recorder is None:

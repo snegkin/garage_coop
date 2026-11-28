@@ -28,7 +28,7 @@ from . import database
 from . import audit
 from . import notifications
 from .i18n import translate as _
-from .auth import roles_required, ROLE_LEVEL
+from .auth import roles_required, ROLE_LEVEL, grant_required
 from .models import RoleEnum, MailboxSettings, MailProtocol, MailEncryption, MailboxPop3MessageState, User
 from . import mail_client
 from . import mail_diagnostics
@@ -849,7 +849,7 @@ def compose_preview():
 
 
 @bp.route("/settings", methods=["POST"])
-@roles_required(RoleEnum.CHAIRMAN)
+@grant_required("mail_login")
 def save_settings():
     """Пустое поле пароля в форме = не менять (как в bank_sync.save_api_settings/
     electricity_monitor.save_settings) — иначе председателю пришлось бы
@@ -913,7 +913,7 @@ def _save_check_result(settings: MailboxSettings, errors: list[str]) -> None:
 
 
 @bp.route("/settings/test-connection", methods=["POST"])
-@roles_required(RoleEnum.CHAIRMAN)
+@grant_required("mail_login")
 def test_connection():
     """Пошаговая проверка (app/mail_diagnostics.py). Окно на странице почты
     шлёт Accept: application/x-ndjson и получает шаги по мере выполнения —

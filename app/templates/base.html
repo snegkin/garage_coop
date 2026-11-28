@@ -220,19 +220,19 @@
             <li><hr class="dropdown-divider"></li>
             <li><h6 class="dropdown-header">{{ _("Коммуникации") }}</h6></li>
             <li><a class="dropdown-item d-flex justify-content-between align-items-center" href="{{ url_for('mailbox.inbox') }}">{{ _("Почта") }}<span class="badge bg-primary rounded-pill {{ 'd-none' if not mailbox_unread_count }}" data-mailbox-unread>{{ mailbox_unread_count }}</span></a></li>
-            {% if is_chairman() %}{# настройки СМС, Telegram, MAX — только председателю (sms_settings, telegram_settings, max_settings) #}
+            {% if can("messengers") %}{# настройки СМС, Telegram, MAX — председателю и тому, кому он доверил (permissions.GRANTS) #}
             <li><a class="dropdown-item" href="{{ url_for('sms_settings.view') }}">{{ _("СМС и мессенджеры") }}</a></li>
             {% endif %}
             <li><a class="dropdown-item" href="{{ url_for('notification_groups.view') }}">{{ _("Группы уведомлений") }}</a></li>
             {% endif %}
 
-            {% if is_chairman() %}
+            {% if is_chairman() or can("accounts_bank") or can("mail_login") or can("equipment") %}
             <li><hr class="dropdown-divider"></li>
             <li><h6 class="dropdown-header">{{ _("Администрирование") }}</h6></li>
-            <li><a class="dropdown-item" href="{{ url_for('persons.accounts_list') }}">{{ _("Учётные записи") }}</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('external_login.settings_page') }}">{{ _("Вход через Яндекс и VK") }}</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('setup_wizard.index') }}">{{ _("Мастер первоначальной настройки") }}</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('system_logs.index', section='server') }}">{{ _("Сервер") }}</a></li>
+            {% if can("accounts_bank") %}<li><a class="dropdown-item" href="{{ url_for('persons.accounts_list') }}">{{ _("Учётные записи") }}</a></li>{% endif %}
+            {% if can("mail_login") %}<li><a class="dropdown-item" href="{{ url_for('external_login.settings_page') }}">{{ _("Вход через Яндекс и VK") }}</a></li>{% endif %}
+            {% if is_chairman() %}<li><a class="dropdown-item" href="{{ url_for('setup_wizard.index') }}">{{ _("Мастер первоначальной настройки") }}</a></li>{% endif %}
+            {% if can("equipment") %}<li><a class="dropdown-item" href="{{ url_for('system_logs.index', section='server') }}">{{ _("Сервер") }}</a></li>{% endif %}
             {% endif %}
           </ul>
         </li>

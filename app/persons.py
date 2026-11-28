@@ -12,9 +12,9 @@ from . import audit
 from . import notifications
 from . import person_revisions
 from .i18n import translate as _
-from .auth import login_required, roles_required, is_safe_next_url, login_taken
+from .auth import login_required, roles_required, is_safe_next_url, login_taken, grant_required
 from .login_generation import generate_password, generate_unique_login
-from .permissions import is_board, is_chairman, sync_user_role
+from .permissions import GRANTS, is_board, is_chairman, sync_user_role, user_grants
 from .models import garage_number_key, garage_sort_key
 from .models import (
     Person, Phone, User, RoleEnum, MemberAccount, PersonDataRevision, PersonDataRevisionStatus,
@@ -835,6 +835,23 @@ def create_account(person_id):
     return redirect(url_for("persons.detail", person_id=person.id))
 
 
+def _account_forbidden(user: User | None, person: Person | None = None) -> str | None:
+    """Что из учётных записей нельзя не-председателю (правление сбрасывает
+    пароли, а учётные записи и банк председатель может доверить члену
+    правления, permissions.GRANTS): учётные записи председателя и
+    бухгалтера и привязка к их карточкам — иначе можно войти под ними или
+    получить их роль; свою учётную запись — тоже только председатель."""
+    if is_chairman():
+        return None
+    privileged = (RoleEnum.CHAIRMAN, RoleEnum.ACCOUNTANT)
+    if (user is not None and user.role in privileged) or (
+            person is not None and (person.is_chairman or person.is_accountant)):
+        return _("Учётные записи председателя и бухгалтера меняет только председатель.")
+    if user is not None and user.id == g.user.id:
+        return _("Свою учётную запись меняет председатель.")
+    return None
+
+
 @bp.route("/<int:person_id>/account/reset-password", methods=["POST"])
 @roles_required(RoleEnum.BOARD)
 def reset_password(person_id):
@@ -844,6 +861,10 @@ def reset_password(person_id):
     user = database.db_session.query(User).filter_by(person_id=person.id).first()
     if user is None:
         abort(404)
+    problem = _account_forbidden(user, person)
+    if problem:
+        flash(problem, "danger")
+        return redirect(url_for("persons.detail", person_id=person.id))
 
     # Пустое поле — случайный пароль. Обычно его генерирует JS на карточке
     # (data-random-password в base.html), чтобы скопировать в буфер прямо в
@@ -882,6 +903,10 @@ def change_username(person_id):
     user = database.db_session.query(User).filter_by(person_id=person.id).first()
     if user is None:
         abort(404)
+    problem = _account_forbidden(user, person)
+    if problem:
+        flash(problem, "danger")
+        return redirect(url_for("persons.detail", person_id=person.id))
 
     new_username = request.form["username"].strip()
     if not new_username:
@@ -927,6 +952,10 @@ def toggle_active(person_id):
     user = database.db_session.query(User).filter_by(person_id=person.id).first()
     if user is None:
         abort(404)
+    problem = _account_forbidden(user, person)
+    if problem:
+        flash(problem, "danger")
+        return redirect(url_for("persons.detail", person_id=person.id))
 
     _toggle_user_active(user)
     database.db_session.commit()
@@ -939,7 +968,7 @@ def toggle_active(person_id):
 # ---------------------------------------------------------------------------
 
 @bp.route("/accounts")
-@roles_required(RoleEnum.CHAIRMAN)
+@grant_required("accounts_bank")
 def accounts_list():
     users = database.db_session.query(User).order_by(User.username).all()
     unlinked_persons = (
@@ -949,11 +978,12 @@ def accounts_list():
         .order_by(Person.full_name)
         .all()
     )
-    return render_template("persons/accounts.html", users=users, unlinked_persons=unlinked_persons)
+    return render_template("persons/accounts.html", users=users, unlinked_persons=unlinked_persons,
+                           GRANTS=GRANTS, user_grants=user_grants)
 
 
 @bp.route("/accounts/<int:user_id>/link", methods=["POST"])
-@roles_required(RoleEnum.CHAIRMAN)
+@grant_required("accounts_bank")
 def link_account(user_id):
     user = database.db_session.get(User, user_id)
     if user is None:
@@ -972,6 +1002,10 @@ def link_account(user_id):
     if existing:
         flash(_("У этого человека уже есть другая учётная запись."), "warning")
         return redirect(url_for("persons.accounts_list"))
+    problem = _account_forbidden(user, person)
+    if problem:
+        flash(problem, "danger")
+        return redirect(url_for("persons.accounts_list"))
 
     user.person_id = person.id
     database.db_session.flush()
@@ -986,11 +1020,15 @@ def link_account(user_id):
 
 
 @bp.route("/accounts/<int:user_id>/unlink", methods=["POST"])
-@roles_required(RoleEnum.CHAIRMAN)
+@grant_required("accounts_bank")
 def unlink_account(user_id):
     user = database.db_session.get(User, user_id)
     if user is None:
         abort(404)
+    problem = _account_forbidden(user, user.person)
+    if problem:
+        flash(problem, "danger")
+        return redirect(url_for("persons.accounts_list"))
     linked_person_name = user.person.full_name if user.person else None
     user.person_id = None
     audit.record(
@@ -1003,15 +1041,47 @@ def unlink_account(user_id):
 
 
 @bp.route("/accounts/<int:user_id>/toggle-active", methods=["POST"])
-@roles_required(RoleEnum.CHAIRMAN)
+@grant_required("accounts_bank")
 def toggle_account_active(user_id):
     user = database.db_session.get(User, user_id)
     if user is None:
         abort(404)
+    problem = _account_forbidden(user, user.person)
+    if problem:
+        flash(problem, "danger")
+        return redirect(url_for("persons.accounts_list"))
 
     _toggle_user_active(user)
     database.db_session.commit()
     flash(_("Доступ включён.") if user.is_active else _("Доступ отключён."), "success")
+    return redirect(url_for("persons.accounts_list"))
+
+
+@bp.route("/accounts/<int:user_id>/grants", methods=["POST"])
+@roles_required(RoleEnum.CHAIRMAN)
+def save_grants(user_id):
+    """Какие технические разделы председатель доверяет этому члену правления
+    (permissions.GRANTS). Выдаёт только председатель."""
+    user = database.db_session.get(User, user_id)
+    if user is None:
+        abort(404)
+    if user.role not in (RoleEnum.BOARD, RoleEnum.ACCOUNTANT):
+        flash(_("Разделы доверяются только членам правления и бухгалтеру."), "warning")
+        return redirect(url_for("persons.accounts_list"))
+    chosen = [code for code in GRANTS if request.form.get(f"grant_{code}") == "1"]
+    before = user_grants(user)
+    user.grants = ",".join(chosen) or None
+    if set(chosen) != before:
+        added = [GRANTS[c] for c in chosen if c not in before]
+        removed = [GRANTS[c] for c in before if c not in chosen]
+        audit.record(
+            "account.grants", entity_type="user", entity_id=user.id,
+            summary=f"Доверенные разделы «{user.username}»"
+                    + (f": выданы — {'; '.join(added)}" if added else "")
+                    + (f"; сняты — {'; '.join(removed)}" if removed else ""),
+        )
+    database.db_session.commit()
+    flash(_("Доступ к разделам сохранён."), "success")
     return redirect(url_for("persons.accounts_list"))
 
 

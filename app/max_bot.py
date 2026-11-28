@@ -334,6 +334,10 @@ def _link_account(settings: MaxSettings, update: dict) -> bool:
     username = (update.get("user") or {}).get("username")
     if username and not person.max_messenger:
         person.max_messenger = f"@{username}"
+    # autoflush выключен (app/database.py): без flush следующее сообщение
+    # того же человека в той же пачке апдейтов (команда боту сразу после
+    # «Начать») не нашло бы привязку.
+    database.db_session.flush()
     try:
         send_notification(settings, user_id, "Готово! Теперь вы будете получать здесь уведомления с сайта "
                                              "кооператива (если включите их в настройках профиля).")

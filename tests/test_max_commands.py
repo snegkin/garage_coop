@@ -190,3 +190,16 @@ def test_multi_coop_choice_and_tagged_callbacks(app, db, monkeypatch):
         bot.say("кооператив")
         assert "С каким работаем" in bot.last_text()
     assert db.query(ElectricityReading).order_by(ElectricityReading.id.desc()).first().reading == Decimal("1100")
+
+
+def test_command_right_after_linking_in_same_batch(app, db, monkeypatch):
+    _world(db)
+    newbie = make_person(db, "Новый Правленец")
+    newbie.max_link_token = "tok-new"
+    make_user(db, "newboard", "pw", RoleEnum.BOARD, person=newbie)
+    db.commit()
+    bot = Bot(monkeypatch)
+    bot.batch["updates"].append({"update_type": "bot_started", "payload": "tok-new", "user": {"user_id": 7777}})
+    with app.app_context():
+        bot.say("15", user=7777)  # в той же пачке, что и «Начать»
+    assert "Гараж №15" in bot.last_text()

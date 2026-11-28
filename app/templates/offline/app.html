@@ -30,6 +30,67 @@
     .ol-tree-1 { padding-left: 1.75rem !important; }
     .ol-tree-2 { padding-left: 2.75rem !important; }
     .ol-tree-3 { padding-left: 3.75rem !important; }
+
+    #gmWrap { overflow: auto; max-height: 72vh; border: 1px solid var(--bs-border-color); border-radius: .5rem; background: var(--bs-body-bg); }
+    #gmSvg { display: block; flex: none; margin: auto; user-select: none; }
+    #gmSvg .gm-shape { stroke: var(--bs-border-color); stroke-width: 2; vector-effect: non-scaling-stroke; }
+    #gmSvg .gm-road { fill: var(--bs-tertiary-bg); stroke: none; }
+    #gmSvg .gm-building { fill: var(--bs-secondary-bg); stroke: var(--bs-secondary-color); stroke-dasharray: 4 3; }
+    #gmSvg .gm-area { fill: none; stroke: var(--bs-secondary-color); stroke-width: 2; stroke-dasharray: 10 6; pointer-events: none; }
+    #gmSvg .gm-garage { cursor: pointer; fill: var(--bs-secondary-bg); }
+    #gmSvg .gm-garage:hover { stroke: var(--bs-emphasis-color); stroke-width: 3; }
+    #gmSvg .gm-gate { stroke: var(--bs-emphasis-color); stroke-width: 2.5; vector-effect: non-scaling-stroke; stroke-linecap: round; pointer-events: none; }
+    #gmSvg .gm-label { fill: var(--bs-emphasis-color); font-family: var(--bs-body-font-family); font-weight: 600; text-anchor: middle; dominant-baseline: central; pointer-events: none; paint-order: stroke; stroke: var(--bs-body-bg); stroke-width: 3px; stroke-linejoin: round; }
+    #gmSvg .gm-label-muted { fill: var(--bs-secondary-color); font-weight: 400; }
+    #gmSvg .s-inside { fill: var(--bs-primary-bg-subtle); stroke: var(--bs-primary-border-subtle); }
+    #gmSvg .s-outside { fill: var(--bs-warning-bg-subtle); stroke: var(--bs-warning-border-subtle); }
+    #gmSvg .s-none { fill: var(--bs-body-bg); stroke: var(--bs-secondary-color); stroke-dasharray: 5 4; }
+    #gmSvg .s-debt { fill: var(--bs-danger-bg-subtle); stroke: var(--bs-danger-border-subtle); }
+    #gmSvg .s-ok, #gmSvg .s-fresh, #gmSvg .s-privatized { fill: var(--bs-success-bg-subtle); stroke: var(--bs-success-border-subtle); }
+    #gmSvg .s-stale { fill: var(--bs-warning-bg-subtle); stroke: var(--bs-warning-border-subtle); }
+    #gmSvg .s-nometer, #gmSvg .s-notprivatized { fill: var(--bs-secondary-bg); stroke: var(--bs-border-color); }
+    #gmSvg .gm-hit { stroke: var(--bs-emphasis-color) !important; stroke-width: 5 !important; }
+    #gmSvg .gm-selected { stroke: var(--bs-primary) !important; stroke-width: 4 !important; }
+    #gmSvg .gm-obj { cursor: pointer; }
+    #gmSvg .gm-obj circle { stroke: var(--bs-body-bg); stroke-width: 2; vector-effect: non-scaling-stroke; }
+    #gmSvg .gm-obj text { font-family: "bootstrap-icons"; fill: #fff; text-anchor: middle; dominant-baseline: central; pointer-events: none; }
+    #gmSvg .gm-obj-panel circle { fill: #d39e00; }
+    #gmSvg .gm-obj-lamp circle { fill: #0aa2c0; }
+    #gmSvg .gm-obj-meter circle { fill: #0d6efd; }
+    #gmSvg .gm-obj-switch circle { fill: #dc3545; }
+    #gmSvg .gm-obj-mark circle { fill: #6c757d; }
+    #gmSvg .gm-obj-wifi circle { fill: #6f42c1; }
+    #gmSvg .gm-obj-dvr circle { fill: #212529; }
+    #gmSvg .gm-obj-netswitch circle { fill: #495057; }
+    #gmSvg .gm-obj-camera circle { fill: #198754; }
+    #gmSvg .gm-link { stroke: #6f42c1; stroke-width: 2; stroke-dasharray: 6 4; vector-effect: non-scaling-stroke; pointer-events: none; opacity: .8; }
+    #gmSvg .gm-obj.gm-selected circle { stroke: var(--bs-primary); stroke-width: 4; }
+    #gmSvg .gm-obj.gm-hit circle { stroke: var(--bs-emphasis-color); stroke-width: 5; }
+    #gmSvg .gm-cable { fill: none; stroke-width: 3; vector-effect: non-scaling-stroke; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
+    #gmSvg .gm-cable-A { stroke: #e0b000; }
+    #gmSvg .gm-cable-B { stroke: #2e9e44; }
+    #gmSvg .gm-cable-C { stroke: #d93025; }
+    #gmSvg .gm-cable-none { stroke: var(--bs-secondary-color); stroke-dasharray: 6 4; }
+    .gm-legend-swatch { display: inline-block; width: 14px; height: 14px; border-radius: 3px; border: 1px solid; vertical-align: -2px; }
+    .gm-sw-inside { background: var(--bs-primary-bg-subtle); border-color: var(--bs-primary-border-subtle); }
+    .gm-sw-outside, .gm-sw-stale { background: var(--bs-warning-bg-subtle); border-color: var(--bs-warning-border-subtle); }
+    .gm-sw-none { background: var(--bs-body-bg); border-color: var(--bs-secondary-color); border-style: dashed; }
+    .gm-sw-debt { background: var(--bs-danger-bg-subtle); border-color: var(--bs-danger-border-subtle); }
+    .gm-sw-ok, .gm-sw-fresh, .gm-sw-privatized { background: var(--bs-success-bg-subtle); border-color: var(--bs-success-border-subtle); }
+    .gm-sw-nometer, .gm-sw-notprivatized { background: var(--bs-secondary-bg); border-color: var(--bs-border-color); }
+    .gm-phase-swatch { display: inline-block; width: 18px; height: 4px; border-radius: 2px; vertical-align: middle; }
+    .gm-ph-A { background: #e0b000; } .gm-ph-B { background: #2e9e44; } .gm-ph-C { background: #d93025; }
+    #olTabs .nav-link { padding: .35rem .2rem; font-size: .8rem; line-height: 1.15; }
+    #olTabs .nav-link .bi { display: block; font-size: 1.15rem; }
+    .ol-wiki img { max-width: 100%; height: auto; border-radius: .375rem; }
+    .ol-wiki pre { white-space: pre-wrap; word-break: break-word; background: var(--bs-tertiary-bg); padding: .5rem; border-radius: .375rem; }
+    .ol-wiki table { width: 100%; } .ol-wiki td, .ol-wiki th { border: 1px solid var(--bs-border-color); padding: .25rem .4rem; }
+    .ol-wiki .wiki-copy-btn { display: none; }
+    .wiki-spoiler { background-color: #6c757d; color: #6c757d; border-radius: .25rem; padding: 0 .3em; cursor: pointer; user-select: none; }
+    .wiki-spoiler.revealed { background-color: transparent; color: inherit; user-select: text; }
+    .ol-thumbs img { height: 110px; max-width: 100%; object-fit: cover; border-radius: .375rem; cursor: zoom-in; }
+    #olLightbox { position: fixed; inset: 0; z-index: 2000; background: rgba(0,0,0,.92); display: flex; align-items: center; justify-content: center; }
+    #olLightbox img { max-width: 100%; max-height: 100%; object-fit: contain; }
   </style>
 </head>
 <body class="bg-body-tertiary">
@@ -46,14 +107,17 @@
   </nav>
   <main class="container py-3" style="max-width: 760px;">
     <div id="olBanner"></div>
-    <ul class="nav nav-pills nav-fill mb-3" id="olTabs">
-      <li class="nav-item"><a class="nav-link" data-tab="search" href="#">Поиск</a></li>
-      <li class="nav-item"><a class="nav-link" data-tab="debtors" href="#debtors">Должники</a></li>
-      <li class="nav-item"><a class="nav-link" data-tab="control" href="#control">Контрольные</a></li>
+    <ul class="nav nav-pills nav-fill mb-3 flex-nowrap" id="olTabs">
+      <li class="nav-item"><a class="nav-link" data-tab="search" href="#"><i class="bi bi-search" aria-hidden="true"></i>Поиск</a></li>
+      <li class="nav-item"><a class="nav-link" data-tab="debtors" href="#debtors"><i class="bi bi-cash-coin" aria-hidden="true"></i>Должники</a></li>
+      <li class="nav-item"><a class="nav-link" data-tab="map" href="#map"><i class="bi bi-map" aria-hidden="true"></i>Схема</a></li>
+      <li class="nav-item"><a class="nav-link" data-tab="wiki" href="#wiki"><i class="bi bi-book" aria-hidden="true"></i>Вики</a></li>
+      <li class="nav-item"><a class="nav-link" data-tab="control" href="#control"><i class="bi bi-speedometer2" aria-hidden="true"></i>Контроль</a></li>
     </ul>
     <div id="olView"></div>
   </main>
   <script src="{{ url_for('static', filename='offline/store.js') }}"></script>
+  <script src="{{ url_for('static', filename='offline/map.js') }}"></script>
   <script src="{{ url_for('static', filename='offline/app.js') }}"></script>
 </body>
 </html>

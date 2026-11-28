@@ -112,6 +112,10 @@ var OFFLINE_CACHE = 'coop-offline-%(version)s';
 var OFFLINE_URL = %(offline_url)s;
 var PRECACHE = %(precache)s;
 var LAUNCH_TIMEOUT_MS = 8000;
+// Картинки оффлайн-слепка (static/offline/store.js: MEDIA_CACHE) — у каждой
+// неизменный адрес, поэтому из кеша, если есть, и на страницах сайта тоже.
+var MEDIA_CACHE = 'coop-media';
+var MEDIA_PREFIXES = %(media_prefixes)s;
 
 self.addEventListener('install', function (event) {
   event.waitUntil(caches.open(OFFLINE_CACHE).then(function (cache) {
@@ -152,6 +156,13 @@ self.addEventListener('fetch', function (event) {
   if (request.method !== 'GET') return;
   var url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
+  if (MEDIA_PREFIXES.some(function (p) { return url.pathname.indexOf(p) === 0; })) {
+    // Картинка или вложение вики (в том числе открытое как страница) — из кеша.
+    event.respondWith(caches.open(MEDIA_CACHE).then(function (cache) {
+      return cache.match(request);
+    }).then(function (cached) { return cached || fetch(request); }));
+    return;
+  }
   if (request.mode === 'navigate') {
     if (url.pathname === OFFLINE_URL) {
       event.respondWith(offlinePage().then(function (page) { return page || fetch(request); }));
@@ -176,6 +187,7 @@ def _offline_precache() -> list[str]:
     return [
         url_for("offline.app_shell"),
         url_for("static", filename="offline/store.js"),
+        url_for("static", filename="offline/map.js"),
         url_for("static", filename="offline/app.js"),
         url_for("static", filename="favicon-32x32.png"),
         vendor_url("bootstrap", "bootstrap.min.css"),
@@ -191,13 +203,16 @@ def _offline_service_worker_js() -> str:
     precache = _offline_precache()
     digest = hashlib.sha256(json.dumps(precache).encode())
     digest.update(render_template("offline/app.html").encode())
-    for name in ("store.js", "app.js"):
+    for name in ("store.js", "map.js", "app.js"):
         with open(os.path.join(current_app.static_folder, "offline", name), "rb") as f:
             digest.update(f.read())
     return _OFFLINE_SERVICE_WORKER_JS % {
         "version": digest.hexdigest()[:16],
         "offline_url": json.dumps(url_for("offline.app_shell")),
         "precache": json.dumps(precache),
+        "media_prefixes": json.dumps([
+            "/garages/map/object/photos/", url_for("garage_map.background_file"), "/wiki/attachments/",
+        ]),
     }
 
 

@@ -8,7 +8,17 @@
 Слепок — только то, что нужно на территории: гаражи с собственниками и
 контактами, телефоны, долги (электричество по гаражу, взносы по лицевым
 счетам членов), текущий счётчик с последним показанием, контрольные
-счётчики. Без паспортов, адресов и прочего, что в поле не нужно.
+счётчики. Без паспортов, адресов и прочего, что в поле не нужно. Плюс
+справочное: схема территории (контуры, линии, оборудование с описаниями,
+фото и сетевыми адресами — без логинов и паролей устройств) и вики
+(страницы готовым HTML, подстановки живых данных — на момент слепка;
+из вложений на телефон — только картинки и PDF/TXT, не архивы и бэкапы
+настроек устройств).
+
+Картинки (подложка схемы, фото оборудования, картинки и вложения вики)
+слепок перечисляет в media — store.js скачивает их в отдельный кеш
+(MEDIA_CACHE), service worker отдаёт их оттуда; у каждой картинки свой
+неизменный адрес (у подложки — с ?v= от имени файла).
 
 Обновляет слепок сам сайт: base.html для правления подключает
 static/offline/store.js — при открытии страницы, не чаще раза в
@@ -24,15 +34,19 @@ CHECK_INTERVAL, запрос с If-None-Match; сервер отвечает 304
 import datetime as dt
 import hashlib
 import json
+import os
 from decimal import Decimal
 
-from flask import Blueprint, Response, g, render_template, request
+import re
+
+from flask import Blueprint, Response, g, render_template, request, url_for
 from sqlalchemy import func
 
 from . import database
 from .models import (
     Charge, ControlMeter, ControlMeterReading, Cooperative, ElectricityMeter, ElectricityReading,
-    FeeType, Garage, GarageContact, GarageOwnership, MemberAccount, Payment, Person,
+    FeeType, Garage, GarageContact, GarageMapObject, GarageMapShape, GarageOwnership, MasterMeterReading,
+    MemberAccount, Payment, Person, WikiPage,
 )
 from .permissions import is_board, is_privileged
 
@@ -40,7 +54,7 @@ bp = Blueprint("offline", __name__, url_prefix="/offline")
 
 # Версия формата слепка: оффлайн-страница не показывает слепок другой
 # версии (после обновления сайта он перекачается при первой же проверке).
-SNAPSHOT_FORMAT = 1
+SNAPSHOT_FORMAT = 2
 
 
 def _money(value) -> str:
@@ -133,6 +147,7 @@ def build_snapshot() -> dict:
             "id": garage.id,
             "number": garage.number,
             "outside": bool(garage.outside_territory),
+            "land_privatized": bool(garage.land_privatized),
             "comment": garage.comment,
             "owners": ownerships.get(garage.id, []),
             "contacts": contacts.get(garage.id, []),
@@ -182,6 +197,10 @@ def build_snapshot() -> dict:
             "last_date": last[1].isoformat() if last else None,
         })
 
+    media: list[str] = []
+    garage_map = _map_snapshot(media)
+    wiki = _wiki_snapshot(media)
+
     return {
         "format": SNAPSHOT_FORMAT,
         "coop": {"name": (coop.short_name or coop.full_name) if coop else None},
@@ -191,7 +210,101 @@ def build_snapshot() -> dict:
         "persons": persons,
         "accounts": accounts,
         "control_meters": control_meters,
+        "map": garage_map,
+        "wiki": wiki,
+        "media": list(dict.fromkeys(media)),
     }
+
+
+def _map_snapshot(media: list[str]) -> dict | None:
+    """Схема территории: то же, что рисует garage_map.view, без режима
+    правки. Пароли и логины устройств (device_*) не попадают никогда."""
+    from .garage_map import get_settings
+
+    session = database.db_session
+    shapes = session.query(GarageMapShape).order_by(GarageMapShape.sort_order, GarageMapShape.id).all()
+    objects = session.query(GarageMapObject).order_by(GarageMapObject.id).all()
+    if not shapes and not objects:
+        return None
+    settings = get_settings()
+    background = None
+    if settings.background_file:
+        version = hashlib.sha256(settings.background_file.encode()).hexdigest()[:12]
+        background = url_for("garage_map.background_file", v=version)
+        media.append(background)
+    master = None
+    if any(o.master for o in objects):
+        last = (
+            session.query(MasterMeterReading)
+            .order_by(MasterMeterReading.reading_date.desc(), MasterMeterReading.id.desc())
+            .first()
+        )
+        if last is not None:
+            master = {"reading": _reading(last.reading), "date": last.reading_date.isoformat()}
+    items = []
+    for o in objects:
+        photos = []
+        for ph in sorted(o.photos, key=lambda x: x.id):
+            url = url_for("garage_map.object_photo_file", photo_id=ph.id)
+            media.append(url)
+            photos.append({"url": url, "caption": ph.caption})
+        items.append({
+            "id": o.id, "kind": o.kind, "x": o.x, "y": o.y, "title": o.title, "description": o.description,
+            "master": bool(o.master), "control_meter_id": o.control_meter_id, "wiki_page_id": o.wiki_page_id,
+            "model": o.model, "hostname": o.hostname, "ip_address": o.ip_address, "mac": o.mac,
+            "net_role": o.net_role, "uplink_id": o.uplink_id, "photos": photos,
+        })
+    return {
+        "width": settings.width, "height": settings.height,
+        "background": background, "background_opacity": settings.background_opacity,
+        "shapes": [
+            {"kind": sh.kind, "garage_id": sh.garage_id, "label": sh.label, "points": sh.point_list(),
+             "phases": sh.phases}
+            for sh in shapes
+        ],
+        "objects": items,
+        "master_meter": master,
+    }
+
+
+# Картинки в тексте страницы (src=) — на телефон всегда; файлы-вложения —
+# только документы для чтения: архивы и бэкапы настроек устройств (там
+# пароли) на телефон не попадают, открываются только с сетью.
+_WIKI_ATTACHMENT_SRC = re.compile(r'src="(/wiki/attachments/[^"]+)"')
+OFFLINE_FILE_EXT = {".pdf", ".txt"}
+
+
+def _wiki_snapshot(media: list[str]) -> list[dict]:
+    """Страницы вики готовым HTML (тот же рендер, что на сайте, без
+    сворачивания длинных листингов — на оффлайн-странице нет его скрипта).
+    Внутренние страницы — тоже: слепок только для правления."""
+    from . import news_format, wiki_vars
+
+    ctx = wiki_vars.Context()
+    pages = []
+    for page in database.db_session.query(WikiPage).order_by(WikiPage.title, WikiPage.id):
+        html = str(news_format.render_html(wiki_vars.substitute(page.body or "", ctx)))
+        media.extend(m.replace("&amp;", "&") for m in _WIKI_ATTACHMENT_SRC.findall(html))
+        images, files = [], []
+        for att in page.attachments:
+            if att.is_inline:
+                continue
+            url = url_for("wiki.attachment", attachment_id=att.id, original_filename=att.original_filename)
+            if att.is_image:
+                media.append(url)
+                images.append({"url": url, "name": att.original_filename})
+            else:
+                offline = os.path.splitext(att.original_filename)[1].lower() in OFFLINE_FILE_EXT
+                if offline:
+                    media.append(url)
+                files.append({"url": url, "name": att.original_filename, "offline": offline})
+        updated = page.updated_at or page.created_at
+        pages.append({
+            "id": page.id, "title": page.title, "slug": page.slug, "parent_id": page.parent_id,
+            "internal": bool(page.is_internal), "updated": updated.date().isoformat() if updated else None,
+            "html": html, "images": images, "files": files,
+        })
+    return pages
 
 
 def _json_error(status: int, message: str) -> Response:

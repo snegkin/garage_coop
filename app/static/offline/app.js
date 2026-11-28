@@ -1,8 +1,11 @@
 /*
  * Оффлайн-страница правления (/offline/, app/templates/offline/app.html):
  * поиск гаража / человека / счётчика, карточки, должники, контрольные
- * счётчики — по слепку из IndexedDB (static/offline/store.js). Навигация —
- * по #адресу, чтобы «Назад» на телефоне работал как обычно.
+ * счётчики, схема территории (static/offline/map.js) с карточками
+ * оборудования, вики — по слепку из IndexedDB (static/offline/store.js).
+ * Навигация — по #адресу, чтобы «Назад» на телефоне работал как обычно:
+ * #g/<id> гараж, #p/<id> человек, #o/<id> оборудование, #w/<id> страница вики,
+ * #map, #map/g/<id>, #map/o/<id> — схема с выделенным гаражом/объектом.
  */
 (function () {
   "use strict";
@@ -51,7 +54,8 @@
 
   // --------------------------------------------------------------- индексы
   function buildIndex(data) {
-    var i = { garage: {}, person: {}, feeType: {}, control: {}, personGarages: {}, accountsByPerson: {}, accountsByGarage: {} };
+    var i = { garage: {}, person: {}, feeType: {}, control: {}, personGarages: {}, accountsByPerson: {}, accountsByGarage: {},
+      object: {}, onMap: {}, wiki: {}, wikiBySlug: {}, wikiChildren: {}, garageState: {} };
     data.fee_types.forEach(function (f) { i.feeType[f.id] = f; });
     data.persons.forEach(function (p) { i.person[p.id] = p; });
     data.garages.forEach(function (g) {
@@ -68,6 +72,16 @@
       if (a.garage_id != null) (i.accountsByGarage[a.garage_id] = i.accountsByGarage[a.garage_id] || []).push(a);
     });
     data.control_meters.forEach(function (c) { i.control[c.id] = c; });
+    if (data.map) {
+      data.map.objects.forEach(function (o) { i.object[o.id] = o; });
+      data.map.shapes.forEach(function (s) { if (s.garage_id) i.onMap[s.garage_id] = true; });
+    }
+    (data.wiki || []).forEach(function (w) {
+      i.wiki[w.id] = w;
+      i.wikiBySlug[w.slug] = w;
+      var k = w.parent_id == null ? "root" : w.parent_id;
+      (i.wikiChildren[k] = i.wikiChildren[k] || []).push(w);
+    });
     return i;
   }
 
@@ -91,6 +105,26 @@
     });
     return { total: total, parts: parts };
   }
+  // Окраска бокса на схеме — как garage_map._garage_states.
+  var STALE_READING_DAYS = 62;
+  function garageState(id) {
+    if (id in idx.garageState) return idx.garageState[id];
+    var g = idx.garage[id];
+    if (!g) return (idx.garageState[id] = null);
+    var total = g.electricity_balance == null ? 0 : cents(g.electricity_balance);
+    (idx.accountsByGarage[id] || []).forEach(function (a) { total += cents(a.balance); });
+    var power = "nometer";
+    if (g.meter) {
+      var last = g.meter.last_date ? new Date(g.meter.last_date + "T00:00:00") : null;
+      power = last && (Date.now() - last.getTime()) / 86400000 <= STALE_READING_DAYS ? "fresh" : "stale";
+    }
+    var owners = g.owners.map(function (o) { var p = idx.person[o.person_id]; return p ? p.name : ""; }).filter(Boolean);
+    return (idx.garageState[id] = {
+      territory: g.outside ? "outside" : "inside", debt: total < 0 ? "debt" : "ok", power: power,
+      land: g.land_privatized ? "privatized" : "notprivatized", owners: owners.join(", ")
+    });
+  }
+
   function partLabel(key) {
     if (key === "electricity") return "электричество";
     var f = idx.feeType[parseInt(key.slice(4), 10)];
@@ -151,7 +185,7 @@
   // ----------------------------------------------------------------- поиск
   function search(q) {
     var nq = norm(q), dq = digits(q);
-    if (!nq) return { garages: [], persons: [] };
+    if (!nq) return { garages: [], persons: [], objects: [], wiki: [] };
     var garages = [], persons = [], seenG = {}, seenP = {};
     var data = rec.data;
     data.garages.forEach(function (g) {
@@ -172,7 +206,12 @@
       }
       if (hit) { persons.push(p); seenP[p.id] = true; }
     });
-    return { garages: garages.slice(0, 50), persons: persons.slice(0, 50) };
+    var objects = data.map ? data.map.objects.filter(function (o) {
+      return norm(o.title).indexOf(nq) !== -1 || norm(offlineMap.KINDS[o.kind]).indexOf(nq) === 0 ||
+        (o.ip_address && o.ip_address.indexOf(q.trim()) === 0);
+    }) : [];
+    var wiki = (data.wiki || []).filter(function (w) { return norm(w.title).indexOf(nq) !== -1; });
+    return { garages: garages.slice(0, 50), persons: persons.slice(0, 50), objects: objects.slice(0, 30), wiki: wiki.slice(0, 30) };
   }
 
   function garageRow(g) {
@@ -209,13 +248,17 @@
           ", людей: " + rec.data.persons.length + ".</p>";
         return;
       }
-      if (!r.garages.length && !r.persons.length) {
+      if (!r.garages.length && !r.persons.length && !r.objects.length && !r.wiki.length) {
         results.innerHTML = '<p class="text-body-secondary">Ничего не найдено.</p>';
         return;
       }
       var html = "";
       if (r.garages.length) html += '<div class="list-group ol-list mb-3">' + r.garages.map(garageRow).join("") + "</div>";
       if (r.persons.length) html += '<div class="list-group ol-list mb-3">' + r.persons.map(personRow).join("") + "</div>";
+      if (r.objects.length) html += '<div class="list-group ol-list mb-3">' + r.objects.map(objectRow).join("") + "</div>";
+      if (r.wiki.length) html += '<div class="list-group ol-list mb-3">' + r.wiki.map(function (w) {
+        return '<a class="list-group-item list-group-item-action" href="#w/' + w.id + '"><i class="bi bi-book me-1" aria-hidden="true"></i>' + esc(w.title) + "</a>";
+      }).join("") + "</div>";
       results.innerHTML = html;
     }
     input.addEventListener("input", update);
@@ -296,6 +339,7 @@
       html += '<div class="card mb-3"><div class="card-header">Взносы по гаражу</div>' + accountsTable(accounts, true) + "</div>";
     }
     if (g.comment) html += '<div class="card mb-3"><div class="card-body small" style="white-space:pre-line">' + esc(g.comment) + "</div></div>";
+    if (idx.onMap[g.id]) html += '<a class="btn btn-outline-primary btn-sm me-2" href="#map/g/' + g.id + '"><i class="bi bi-map" aria-hidden="true"></i> На схеме</a>';
     html += '<a class="btn btn-outline-secondary btn-sm" href="/garages/' + g.id + '">Открыть на сайте</a>';
     view.innerHTML = html;
   }
@@ -369,6 +413,143 @@
     });
   }
 
+  // --------------------------------------------------------- фото на весь экран
+  function openLightbox(src) {
+    var box = document.createElement("div");
+    box.id = "olLightbox";
+    box.innerHTML = '<img alt="" src="' + esc(src) + '">';
+    box.addEventListener("click", function () { box.remove(); });
+    document.body.appendChild(box);
+  }
+  view.addEventListener("click", function (evt) {
+    var t = evt.target;
+    if (t.tagName === "IMG" && (t.closest(".ol-thumbs") || t.closest(".ol-wiki"))) {
+      evt.preventDefault();
+      openLightbox(t.getAttribute("src"));
+      return;
+    }
+    if (t.classList && t.classList.contains("wiki-spoiler")) { t.classList.toggle("revealed"); return; }
+    // Ссылки вики на другие страницы вики — на их оффлайн-копию.
+    var a = t.closest && t.closest(".ol-wiki a[href]");
+    if (a) {
+      var url = new URL(a.getAttribute("href"), location.origin);
+      var m = url.origin === location.origin && /^\/wiki\/([^\/]+)\/?$/.exec(url.pathname);
+      if (m) {
+        var key = decodeURIComponent(m[1]);
+        var page = idx.wikiBySlug[key] || (/^\d+$/.test(key) ? idx.wiki[parseInt(key, 10)] : null);
+        if (page) { evt.preventDefault(); location.hash = "w/" + page.id; }
+      }
+    }
+  });
+  function photosHtml(photos) {
+    if (!photos.length) return "";
+    return '<div class="d-flex flex-wrap gap-2 ol-thumbs mb-3">' + photos.map(function (ph) {
+      return '<figure class="mb-0"><img loading="lazy" alt="" src="' + esc(ph.url) + '">' +
+        (ph.caption ? '<figcaption class="small text-body-secondary">' + esc(ph.caption) + "</figcaption>" : "") + "</figure>";
+    }).join("") + "</div>";
+  }
+
+  // ----------------------------------------------------------------- схема
+  function renderMap(focus) {
+    if (!rec.data.map) { view.innerHTML = '<p class="text-body-secondary">Схема территории не заведена.</p>'; return; }
+    offlineMap.render(view, rec.data.map, {
+      state: garageState,
+      number: function (id) { return idx.garage[id] ? idx.garage[id].number : ""; },
+      focus: focus
+    });
+  }
+
+  var NET_ROLES = { router: "роутер", hotspot: "точка доступа", bridge: "мост", repeater: "повторитель" };
+  function objectRow(o) {
+    return '<a class="list-group-item list-group-item-action" href="#o/' + o.id + '">' +
+      '<span class="text-body-secondary">' + esc(offlineMap.KINDS[o.kind] || "") + "</span> " + esc(o.title || "") +
+      (o.ip_address ? ' <small class="text-body-secondary">' + esc(o.ip_address) + "</small>" : "") + "</a>";
+  }
+  function row(label, value) {
+    return '<li class="list-group-item d-flex justify-content-between gap-2"><span>' + label + '</span><span class="text-end">' + value + "</span></li>";
+  }
+  function renderObject(id) {
+    var o = idx.object[id];
+    if (!o) { view.innerHTML = '<p class="text-body-secondary">Объект не найден.</p>'; return; }
+    var html = '<div class="text-body-secondary small">' + esc(offlineMap.KINDS[o.kind] || "") + "</div>" +
+      '<h4 class="mb-3">' + esc(o.title || offlineMap.KINDS[o.kind] || "Объект") + "</h4>";
+    if (o.description) html += '<div class="card mb-3"><div class="card-body" style="white-space:pre-line">' + esc(o.description) + "</div></div>";
+    html += photosHtml(o.photos);
+    var rows = [];
+    if (o.master) {
+      var mm = rec.data.map.master_meter;
+      rows.push(row("Главный счётчик кооператива", mm ? "<strong>" + esc(mm.reading) + "</strong> от " + date(mm.date) : "нет показаний"));
+    } else if (o.control_meter_id && idx.control[o.control_meter_id]) {
+      var c = idx.control[o.control_meter_id];
+      rows.push(row('<a href="#control">' + esc(c.name) + "</a>",
+        c.last_reading != null ? "<strong>" + esc(c.last_reading) + "</strong> от " + date(c.last_date) : "нет показаний"));
+    }
+    if (o.model) rows.push(row("Модель", esc(o.model)));
+    if (o.net_role) rows.push(row("Роль", esc(NET_ROLES[o.net_role] || o.net_role)));
+    if (o.hostname) rows.push(row("Имя", esc(o.hostname)));
+    if (o.ip_address) rows.push(row("IP", esc(o.ip_address)));
+    if (o.mac) rows.push(row("MAC", esc(o.mac)));
+    var up = o.uplink_id && idx.object[o.uplink_id];
+    if (up) rows.push(row("Подключено к", '<a href="#o/' + up.id + '">' + esc(up.title || offlineMap.KINDS[up.kind]) + "</a>"));
+    var down = rec.data.map.objects.filter(function (x) { return x.uplink_id === o.id; });
+    if (down.length) rows.push(row("К нему подключены", down.map(function (x) {
+      return '<a href="#o/' + x.id + '">' + esc(x.title || offlineMap.KINDS[x.kind]) + "</a>";
+    }).join("<br>")));
+    if (o.wiki_page_id && idx.wiki[o.wiki_page_id]) {
+      rows.push(row("Вики", '<a href="#w/' + o.wiki_page_id + '">' + esc(idx.wiki[o.wiki_page_id].title) + "</a>"));
+    }
+    if (rows.length) html += '<ul class="list-group mb-3">' + rows.join("") + "</ul>";
+    html += '<a class="btn btn-outline-primary btn-sm" href="#map/o/' + o.id + '"><i class="bi bi-map" aria-hidden="true"></i> На схеме</a>';
+    view.innerHTML = html;
+  }
+
+  // ------------------------------------------------------------------ вики
+  function renderWikiList() {
+    var pages = rec.data.wiki || [];
+    if (!pages.length) { view.innerHTML = '<p class="text-body-secondary">Страниц вики нет.</p>'; return; }
+    var html = '<div class="list-group ol-list">';
+    function walk(key, depth) {
+      (idx.wikiChildren[key] || []).forEach(function (w) {
+        html += '<a class="list-group-item list-group-item-action ol-tree-' + Math.min(depth, 3) + '" href="#w/' + w.id + '">' + esc(w.title) +
+          (w.internal ? ' <span class="badge text-bg-secondary">внутренняя</span>' : "") + "</a>";
+        walk(w.id, depth + 1);
+      });
+    }
+    walk("root", 0);
+    // Страницы, чей родитель не попал в слепок, — в корень.
+    pages.forEach(function (w) {
+      if (w.parent_id != null && !idx.wiki[w.parent_id]) {
+        html += '<a class="list-group-item list-group-item-action" href="#w/' + w.id + '">' + esc(w.title) + "</a>";
+      }
+    });
+    view.innerHTML = html + "</div>";
+  }
+  function renderWikiPage(id) {
+    var w = idx.wiki[id];
+    if (!w) { view.innerHTML = '<p class="text-body-secondary">Страница не найдена.</p>'; return; }
+    var crumbs = [], cur = w.parent_id != null ? idx.wiki[w.parent_id] : null;
+    while (cur) { crumbs.unshift(cur); cur = cur.parent_id != null ? idx.wiki[cur.parent_id] : null; }
+    var html = '<nav class="small mb-2"><a href="#wiki">Вики</a>' + crumbs.map(function (c) {
+      return ' / <a href="#w/' + c.id + '">' + esc(c.title) + "</a>";
+    }).join("") + "</nav>";
+    html += '<div class="card"><div class="card-body">' +
+      '<h4 class="card-title">' + esc(w.title) + (w.internal ? ' <span class="badge text-bg-secondary align-middle">внутренняя</span>' : "") + "</h4>" +
+      (w.updated ? '<div class="small text-body-secondary mb-3">обновлено ' + date(w.updated) + "</div>" : "") +
+      '<div class="ol-wiki">' + w.html + "</div>";
+    if (w.images.length) html += '<div class="mt-3">' + photosHtml(w.images.map(function (i) { return { url: i.url }; })) + "</div>";
+    if (w.files.length) {
+      html += '<div class="mt-3"><h6>Файлы</h6>' + w.files.map(function (f) {
+        return '<div class="mb-2"><a class="btn btn-sm btn-outline-secondary" href="' + esc(f.url) + '">' + esc(f.name) + "</a>" +
+          (f.offline ? "" : ' <small class="text-body-secondary">только при интернете</small>') + "</div>";
+      }).join("") + "</div>";
+    }
+    var sub = idx.wikiChildren[w.id] || [];
+    if (sub.length) html += '<div class="mt-3"><h6>Подразделы</h6><div class="list-group">' + sub.map(function (c) {
+      return '<a class="list-group-item list-group-item-action" href="#w/' + c.id + '">' + esc(c.title) + "</a>";
+    }).join("") + "</div></div>";
+    view.innerHTML = html + "</div></div>";
+  }
+
   // ------------------------------------------------- контрольные счётчики
   function renderControl() {
     var list = rec.data.control_meters;
@@ -398,17 +579,25 @@
     var tab = "search";
     if (h === "debtors") tab = "debtors";
     else if (h === "control") tab = "control";
+    else if (h === "map" || /^map\//.test(h)) tab = "map";
+    else if (h === "wiki" || /^w\//.test(h)) tab = "wiki";
+    var card = /^[gpo]\//.test(h);
     tabs.querySelectorAll(".nav-link").forEach(function (a) {
-      a.classList.toggle("active", a.getAttribute("data-tab") === tab && !/^[gp]\//.test(h));
+      a.classList.toggle("active", a.getAttribute("data-tab") === tab && !card);
     });
     if (!rec) return;
     var m;
     if ((m = /^g\/(\d+)$/.exec(h))) renderGarage(parseInt(m[1], 10));
     else if ((m = /^p\/(\d+)$/.exec(h))) renderPerson(parseInt(m[1], 10));
+    else if ((m = /^o\/(\d+)$/.exec(h))) renderObject(parseInt(m[1], 10));
+    else if ((m = /^w\/(\d+)$/.exec(h))) renderWikiPage(parseInt(m[1], 10));
+    else if ((m = /^map\/([go])\/(\d+)$/.exec(h))) renderMap({ kind: m[1], id: parseInt(m[2], 10) });
+    else if (tab === "map") renderMap(null);
+    else if (tab === "wiki") renderWikiList();
     else if (tab === "debtors") renderDebtors();
     else if (tab === "control") renderControl();
     else renderSearch();
-    if (/^[gp]\//.test(h)) window.scrollTo(0, 0);
+    if (card || /^w\//.test(h)) window.scrollTo(0, 0);
   }
   window.addEventListener("hashchange", route);
 
@@ -435,6 +624,14 @@
       renderStamp();
       renderBanner(note);
       if (!rec) { renderEmpty(); return; }
+      coopOffline.mediaStatus().then(function (st) {
+        if (st.saved >= st.total) return;
+        var div = document.createElement("div");
+        div.className = "alert alert-secondary py-2 small";
+        div.textContent = "Фото и картинки сохранены не все: " + st.saved + " из " + st.total +
+          ". Остальные докачаются, когда сайт будет открыт с интернетом.";
+        banner.appendChild(div);
+      });
       tabs.classList.remove("d-none");
       route();
     });

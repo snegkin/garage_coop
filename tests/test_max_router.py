@@ -130,3 +130,16 @@ def test_link_without_bot_name_warns(app, client, db):
     login(client, "nobotname", "pw")
     html = client.post("/cabinet/profile/max/link", follow_redirects=True).get_data(as_text=True)
     assert "сайт не знает имя бота" in html
+
+
+def test_messenger_settings_menu_only_for_chairman(client, db):
+    from tests.conftest import login, make_user
+    from app.models import RoleEnum
+    make_user(db, "boardonly", "pw", RoleEnum.BOARD)
+    make_user(db, "chaironly", "pw", RoleEnum.CHAIRMAN)
+    db.commit()
+    login(client, "boardonly", "pw")
+    assert "СМС и мессенджеры" not in client.get("/dashboard", follow_redirects=True).get_data(as_text=True)
+    client.get("/auth/logout")
+    login(client, "chaironly", "pw")
+    assert "СМС и мессенджеры" in client.get("/dashboard", follow_redirects=True).get_data(as_text=True)

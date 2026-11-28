@@ -78,6 +78,12 @@ app_env_extra:
 #     port: 8001
 #     secret_key: "<openssl rand -hex 32>"
 #     bank_api_encryption_key: "<openssl rand -hex 32>"
+#
+# Один бот MAX на все кооперативы сервера (бота создаёт только организация с
+# юрлицом): основной принимает сообщения MAX и пересылает остальным их
+# сообщения. Токен бота в «Настройках MAX» каждого кооператива — тот же.
+# Подробнее — defaults.yml и docs/deployment.md, раздел «MAX».
+# max_route_secret: "<openssl rand -hex 32>"
 
 # Лендинг «такой же сайт для вашего кооператива» на свободном домене —
 # поля в defaults.yml (coop_landing_sites), README.md «Лендинг»:

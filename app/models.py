@@ -4185,3 +4185,21 @@ class FieldEntry(Base):
 
     user: Mapped["User | None"] = relationship(foreign_keys=[user_id])
     resolved_by: Mapped["User | None"] = relationship(foreign_keys=[resolved_by_user_id])
+
+
+class MaxUserRoute(Base):
+    """Один бот MAX на все кооперативы сервера (app/max_router.py): в каком
+    кооперативе привязан этот аккаунт MAX. Ведёт основной кооператив (он
+    принимает апдейты и пересылает их остальным) — запись появляется, когда
+    другой кооператив ответил «привязал». coop_code — MAX_COOP_CODE того
+    кооператива; selected — с каким кооперативом человек сейчас работает
+    в диалоге с ботом, если привязан в нескольких."""
+    __tablename__ = "max_user_route"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    max_user_id: Mapped[int] = mapped_column(BigInteger, index=True)
+    coop_code: Mapped[str] = mapped_column(String(64))
+    selected: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    linked_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.now)
+
+    __table_args__ = (UniqueConstraint("max_user_id", "coop_code", name="uq_max_user_route"),)

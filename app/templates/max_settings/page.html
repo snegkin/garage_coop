@@ -11,6 +11,12 @@
 <div class="alert alert-warning">{{ _("Нажмите «Проверить подключение»: сайт узнает имя бота — без него в профилях не появится ссылка для привязки MAX.") }}</div>
 {% endif %}
 
+{% if route_mode == "forwarded" %}
+<div class="alert alert-info">{{ _("Бот общий с основным кооперативом сервера: укажите здесь тот же токен. Сообщения в MAX принимает основной кооператив и передаёт сюда то, что относится к этому кооперативу; отсюда бот только отправляет.") }}</div>
+{% elif route_mode == "router" %}
+<div class="alert alert-info">{{ _("Этот бот общий для кооперативов сервера: сообщения в MAX принимает этот сайт и передаёт остальным ({peers}) то, что относится к ним. У них в настройках MAX — тот же токен.", peers=", ".join(route_peers)) }}</div>
+{% endif %}
+
 {% if settings.last_error %}
 <div class="alert alert-danger">{{ settings.last_error }}</div>
 {% endif %}

@@ -314,7 +314,8 @@ def link_url(settings: MaxSettings | None, token: str) -> str | None:
     """Диплинк привязки; имени бота ещё нет (не проверяли подключение) — None."""
     if not settings or not settings.bot_username:
         return None
-    return f"https://max.ru/{settings.bot_username}?start={token}"
+    from . import max_router
+    return f"https://max.ru/{settings.bot_username}?start={max_router.link_payload(token)}"
 
 
 def _link_account(settings: MaxSettings, update: dict) -> bool:
@@ -415,7 +416,15 @@ def poll_updates() -> tuple[int, int]:
     """GET /updates (без ожидания — cron раз в минуту): привязывает аккаунты
     (bot_started с токеном), запоминает чаты и каналы, куда бота добавили
     (bot_added) или где он увидел сообщение, и забывает те, откуда убрали.
-    -> (число апдейтов, привязано аккаунтов). Бот не настроен — (0, 0)."""
+    -> (число апдейтов, привязано аккаунтов). Бот не настроен — (0, 0).
+
+    Один бот на несколько кооперативов сервера (app/max_router.py): опрашивает
+    только основной кооператив и пересылает остальным их апдейты; у них
+    (MAX_RECEIVE=forwarded) опроса нет — апдейты приходят в handle_updates."""
+    from . import max_router
+
+    if max_router.receives_forwarded():
+        return 0, 0
     settings = get_settings()
     if not is_configured(settings):
         return 0, 0
@@ -429,12 +438,29 @@ def poll_updates() -> tuple[int, int]:
         database.db_session.commit()
         raise
     updates = data.get("updates") or []
+    local = max_router.dispatch(updates)
+    linked = len(handle_updates(settings, local))
+    if data.get("marker") is not None:
+        settings.last_marker = data["marker"]
+    settings.last_error = None
+    settings.last_polled_at = dt.datetime.utcnow()
+    database.db_session.commit()
+    return len(updates), linked
+
+
+def handle_updates(settings: MaxSettings, updates: list[dict]) -> list:
+    """Разобрать апдейты этого кооператива (свои из опроса или пересланные
+    основным кооперативом). -> user_id привязанных аккаунтов. Не коммитит."""
+    from . import max_router
+
     seen = {str(c.get("chat_id")) for c in known_chats(settings)}
-    linked = 0
+    linked = []
     for update in updates:
         kind = update.get("update_type")
         if kind == "bot_started":
-            linked += _link_account(settings, update)
+            update = dict(update, payload=max_router.strip_payload(update.get("payload")))
+            if _link_account(settings, update):
+                linked.append((update.get("user") or {}).get("user_id"))
         elif kind == "bot_added" and update.get("chat_id") is not None:
             _remember_chat(settings, update["chat_id"], update.get("is_channel", False))
             seen.add(str(update["chat_id"]))
@@ -451,12 +477,7 @@ def poll_updates() -> tuple[int, int]:
                 _ingest_board_chat(update["message"])
         elif kind == "message_edited" and update.get("message"):
             _ingest_board_chat(update["message"], edited=True)
-    if data.get("marker") is not None:
-        settings.last_marker = data["marker"]
-    settings.last_error = None
-    settings.last_polled_at = dt.datetime.utcnow()
-    database.db_session.commit()
-    return len(updates), linked
+    return linked
 
 
 # ---------------------------------------------------------------------------

@@ -8,6 +8,7 @@ import re
 
 from flask import Blueprint, render_template, request, redirect, url_for, flash, abort
 
+from . import max_router
 from . import audit
 from . import database
 from . import max_bot
@@ -42,6 +43,7 @@ def view():
         is_configured=max_bot.is_configured(settings),
         known_chats=max_bot.known_chats(settings),
         outbox=messenger_outbox.problems(messenger_outbox.CHANNEL_MAX),
+        route_mode=max_router.describe(), route_peers=sorted(max_router.peers()),
     )
 
 

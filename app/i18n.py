@@ -4528,6 +4528,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Запись отклонена.": "Entry rejected.",
         "Запись отмечена сделанной.": "Entry marked as done.",
         "Записи без сети ждут решения": "Offline entries awaiting decision",
+        "Ссылку для привязки MAX пока не составить: сайт не знает имя бота. Председателю — «Настройки MAX» → «Проверить подключение», потом нажмите «Привязать MAX» ещё раз.": "The MAX link cannot be made yet: the site does not know the bot name. Chairman: “MAX settings” → “Test connection”, then press “Link MAX” again.",
         "Бот общий с основным кооперативом сервера: укажите здесь тот же токен. Сообщения в MAX принимает основной кооператив и передаёт сюда то, что относится к этому кооперативу; отсюда бот только отправляет.": "The bot is shared with the server's main cooperative: enter the same token here. The main cooperative receives MAX messages and passes on those for this cooperative; from here the bot only sends.",
         "Этот бот общий для кооперативов сервера: сообщения в MAX принимает этот сайт и передаёт остальным ({peers}) то, что относится к ним. У них в настройках MAX — тот же токен.": "This bot is shared by the server's cooperatives: this site receives MAX messages and passes on to the others ({peers}) what concerns them. They use the same token in their MAX settings.",
         "Записи без сети": "Offline entries",

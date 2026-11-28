@@ -469,6 +469,11 @@ def max_link_start():
         return redirect(url_for("cabinet.profile"))
     person.max_link_token = secrets.token_hex(16)
     database.db_session.commit()
+    if max_bot.link_url(max_bot.get_settings(), person.max_link_token) is None:
+        # Имя бота сайт узнаёт при «Проверить подключение» — без него ссылки
+        # нет, и кнопка молча оставалась бы прежней.
+        flash(_("Ссылку для привязки MAX пока не составить: сайт не знает имя бота. Председателю — "
+                "«Настройки MAX» → «Проверить подключение», потом нажмите «Привязать MAX» ещё раз."), "warning")
     return redirect(url_for("cabinet.profile"))
 
 

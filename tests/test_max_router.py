@@ -118,3 +118,15 @@ def test_peer_route_endpoint(peer_coop, client, db, monkeypatch):
 def test_route_endpoint_closed_on_main(main_coop, client, db):
     resp = client.post("/max/route", json={"updates": []}, headers={max_router.SECRET_HEADER: SECRET})
     assert resp.status_code == 403
+
+
+def test_link_without_bot_name_warns(app, client, db):
+    from tests.conftest import login, make_user
+    from app.models import RoleEnum
+    db.add(MaxSettings(bot_token_encrypted=crypto.encrypt("max-token")))  # «Проверить подключение» не нажимали
+    person = make_person(db, "Без Имени Бота")
+    make_user(db, "nobotname", "pw", RoleEnum.MEMBER, person=person)
+    db.commit()
+    login(client, "nobotname", "pw")
+    html = client.post("/cabinet/profile/max/link", follow_redirects=True).get_data(as_text=True)
+    assert "сайт не знает имя бота" in html

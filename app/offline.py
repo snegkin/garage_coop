@@ -340,6 +340,15 @@ def snapshot():
     return resp
 
 
+@bp.route("/ping")
+def ping():
+    """Жив ли сервер — для service worker (зависшая страница: сервер есть,
+    просто долго, или его нет) и плашки «Сайт недоступен» в base.html."""
+    resp = Response(status=204)
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
 @bp.route("/")
 def app_shell():
     """Оффлайн-страница — оболочка без данных (всё из IndexedDB), поэтому

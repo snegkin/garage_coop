@@ -4339,10 +4339,37 @@ document.addEventListener("click", function (e) {
 {# Оффлайн-режим правления (app/offline.py): service worker кеширует
    оффлайн-страницу, слепок базы обновляется в фоне не чаще раза в 10 минут. #}
 <script src="{{ url_for('static', filename='offline/store.js') }}"></script>
+<div id="offlineBanner" class="alert alert-warning shadow d-none position-fixed bottom-0 start-50 translate-middle-x mb-3 py-2 px-3 d-flex align-items-center gap-3" style="z-index: 1080; max-width: calc(100% - 2rem);" role="status">
+  <span>{{ _("Сайт недоступен.") }}</span>
+  <a class="btn btn-sm btn-warning text-nowrap" href="{{ url_for('offline.app_shell') }}"><i class="bi bi-phone" aria-hidden="true"></i> {{ _("Данные без сети") }}</a>
+</div>
 <script>
 (function () {
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("/service-worker.js").catch(function () {});
   if (window.coopOffline) window.coopOffline.refresh();
+
+  // Связь пропала, а страница открыта (на территории — белые списки):
+  // плашка со ссылкой на данные без сети. Проверка — маленький запрос к
+  // /offline/ping раз в минуту, пока вкладка видна, и сразу по событию offline.
+  var banner = document.getElementById("offlineBanner");
+  var PING = {{ url_for('offline.ping')|tojson }};
+  var fails = 0;
+  function show(down) {
+    banner.classList.toggle("d-none", !down);
+  }
+  function check() {
+    if (document.visibilityState !== "visible") return;
+    if (navigator.onLine === false) { show(true); return; }
+    var ctrl = window.AbortController ? new AbortController() : null;
+    var timer = setTimeout(function () { if (ctrl) ctrl.abort(); }, 5000);
+    fetch(PING, { cache: "no-store", credentials: "same-origin", signal: ctrl && ctrl.signal })
+      .then(function (r) { fails = r.ok ? 0 : fails + 1; }, function () { fails += 1; })
+      .finally(function () { clearTimeout(timer); show(fails >= 2); });
+  }
+  window.addEventListener("offline", function () { show(true); });
+  window.addEventListener("online", function () { fails = 0; check(); });
+  document.addEventListener("visibilitychange", check);
+  setInterval(check, 60000);
 })();
 </script>
 {% elif offline_wipe %}

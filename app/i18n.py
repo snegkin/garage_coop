@@ -4528,6 +4528,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "Запись отклонена.": "Entry rejected.",
         "Запись отмечена сделанной.": "Entry marked as done.",
         "Записи без сети ждут решения": "Offline entries awaiting decision",
+        "Сайт недоступен.": "The site is unreachable.",
+        "Данные без сети": "Offline data",
         "Учётные записи председателя и бухгалтера меняет только председатель.": "Only the chairman can change the chairman’s and accountant’s accounts.",
         "Свою учётную запись меняет председатель.": "Your own account is changed by the chairman.",
         "Разделы доверяются только членам правления и бухгалтеру.": "Sections can be entrusted only to board members and the accountant.",

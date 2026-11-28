@@ -101,17 +101,20 @@ self.addEventListener('notificationclick', function (event) {
 # Оффлайн-режим правления (app/offline.py): при установке worker кеширует
 # оффлайн-страницу и её статику; когда сайт недоступен (на территории ГСК —
 # только белые списки), переход на страницу сайта показывает её вместо
-# ошибки браузера. Для запуска приложения с ярлыка (start_url «/») ждём
-# сеть не дольше LAUNCH_TIMEOUT_MS — при белых списках запрос часто не
-# падает, а просто висит; на остальных страницах — только при настоящей
-# ошибке сети (долгий отчёт или PDF не должен подменяться оффлайн-страницей).
+# ошибки браузера. При белых списках запрос часто не падает, а просто
+# висит: страница не ответила за SLOW_MS — worker коротко проверяет, жив ли
+# сервер (/offline/ping, PING_TIMEOUT_MS): не отвечает — оффлайн-страница,
+# отвечает — ждём саму страницу дальше (долгий отчёт или PDF не должен
+# подменяться оффлайн-страницей).
 # Версия кеша — хеш содержимого: поменялась страница или скрипт — меняется
 # и текст worker'а, браузер ставит его заново и перекачивает кеш.
 _OFFLINE_SERVICE_WORKER_JS = """
 var OFFLINE_CACHE = 'coop-offline-%(version)s';
 var OFFLINE_URL = %(offline_url)s;
 var PRECACHE = %(precache)s;
-var LAUNCH_TIMEOUT_MS = 8000;
+var SLOW_MS = 8000;
+var PING_TIMEOUT_MS = 4000;
+var PING_URL = %(ping_url)s;
 // Картинки оффлайн-слепка (static/offline/store.js: MEDIA_CACHE) — у каждой
 // неизменный адрес, поэтому из кеша, если есть, и на страницах сайта тоже.
 var MEDIA_CACHE = 'coop-media';
@@ -135,7 +138,16 @@ function offlinePage() {
   return caches.open(OFFLINE_CACHE).then(function (cache) { return cache.match(OFFLINE_URL); });
 }
 
-function networkOrOffline(request, timeoutMs) {
+// Жив ли сервер: маленький запрос с коротким тайм-аутом.
+function serverAlive() {
+  var ctrl = new AbortController();
+  var timer = setTimeout(function () { ctrl.abort(); }, PING_TIMEOUT_MS);
+  return fetch(PING_URL, { cache: 'no-store', signal: ctrl.signal })
+    .then(function (r) { return r.ok; }, function () { return false; })
+    .finally(function () { clearTimeout(timer); });
+}
+
+function networkOrOffline(request) {
   return new Promise(function (resolve, reject) {
     var settled = false;
     function finish(response) { if (!settled) { settled = true; resolve(response); } }
@@ -145,9 +157,13 @@ function networkOrOffline(request, timeoutMs) {
         else if (!settled) { settled = true; reject(err); }
       });
     });
-    if (timeoutMs) setTimeout(function () {
-      if (!settled) offlinePage().then(function (page) { if (page) finish(page); });
-    }, timeoutMs);
+    setTimeout(function () {
+      if (settled) return;
+      serverAlive().then(function (alive) {
+        if (alive || settled) return;  // сервер есть — страница просто долгая, ждём
+        offlinePage().then(function (page) { if (page) finish(page); });
+      });
+    }, SLOW_MS);
   });
 }
 
@@ -167,7 +183,7 @@ self.addEventListener('fetch', function (event) {
     if (url.pathname === OFFLINE_URL) {
       event.respondWith(offlinePage().then(function (page) { return page || fetch(request); }));
     } else {
-      event.respondWith(networkOrOffline(request, url.pathname === '/' ? LAUNCH_TIMEOUT_MS : 0));
+      event.respondWith(networkOrOffline(request));
     }
     return;
   }
@@ -209,6 +225,7 @@ def _offline_service_worker_js() -> str:
     return _OFFLINE_SERVICE_WORKER_JS % {
         "version": digest.hexdigest()[:16],
         "offline_url": json.dumps(url_for("offline.app_shell")),
+        "ping_url": json.dumps(url_for("offline.ping")),
         "precache": json.dumps(precache),
         "media_prefixes": json.dumps([
             "/garages/map/object/photos/", url_for("garage_map.background_file"), "/wiki/attachments/",

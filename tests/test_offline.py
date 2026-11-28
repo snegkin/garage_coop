@@ -238,3 +238,18 @@ def test_service_worker_serves_media_from_cache(client):
     assert "var MEDIA_CACHE = 'coop-media'" in js
     assert "/garages/map/object/photos/" in js and "/wiki/attachments/" in js
     assert "/static/offline/map.js" in js
+
+
+def test_ping_and_hanging_page_fallback(client, db):
+    resp = client.get("/offline/ping")
+    assert resp.status_code == 204 and resp.headers["Cache-Control"] == "no-store"
+    js = client.get("/service-worker.js").get_data(as_text=True)
+    assert 'var PING_URL = "/offline/ping"' in js and "serverAlive()" in js
+
+
+def test_board_pages_have_unreachable_banner(client, db):
+    make_user(db, "board", "pw", RoleEnum.BOARD)
+    db.commit()
+    login(client, "board", "pw")
+    html = client.get("/dashboard", follow_redirects=True).get_data(as_text=True)
+    assert 'id="offlineBanner"' in html and "Данные без сети" in html

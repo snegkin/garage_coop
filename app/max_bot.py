@@ -438,7 +438,7 @@ def poll_updates() -> tuple[int, int]:
         database.db_session.commit()
         raise
     updates = data.get("updates") or []
-    local = max_router.dispatch(updates)
+    local = max_router.dispatch(updates, settings)
     linked = len(handle_updates(settings, local))
     if data.get("marker") is not None:
         settings.last_marker = data["marker"]
@@ -475,6 +475,12 @@ def handle_updates(settings: MaxSettings, updates: list[dict]) -> list:
                 seen.add(str(chat_id))
             if chat_type == "chat":
                 _ingest_board_chat(update["message"])
+            elif chat_type == "dialog":
+                from . import max_commands
+                max_commands.handle_message(settings, update)
+        elif kind == "message_callback":
+            from . import max_commands
+            max_commands.handle_callback(settings, update)
         elif kind == "message_edited" and update.get("message"):
             _ingest_board_chat(update["message"], edited=True)
     return linked

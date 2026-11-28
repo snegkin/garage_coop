@@ -130,10 +130,22 @@ def _who(entry: FieldEntry) -> str:
     return sender
 
 
+def _upper_first(text: str) -> str:
+    return text[:1].upper() + text[1:]
+
+
+def _via_max(entry: FieldEntry) -> bool:
+    try:
+        return json.loads(entry.payload).get("source") == "max"
+    except ValueError:
+        return False
+
+
 def _field_note(entry: FieldEntry, day: dt.date | None = None) -> str:
     """Пометка в комментарии: откуда запись и когда сделана."""
     when = (day or entry.captured_at.date()).strftime("%d.%m.%Y")
-    return f"внесено без сети ({_who(entry)}, {when})"
+    how = "через MAX" if _via_max(entry) else "без сети"
+    return f"внесено {how} ({_who(entry)}, {when})"
 
 
 # ---------------------------------------------------------------------------
@@ -155,7 +167,7 @@ def _apply_reading(entry: FieldEntry, p: dict) -> tuple[str, int, str]:
     value = _decimal(p.get("value"), "показания")
     day = _date(p.get("date"), "дата снятия")
     comment = (p.get("comment") or "").strip()
-    comment = f"{comment} ({_field_note(entry, day)})" if comment else _field_note(entry, day).capitalize()
+    comment = f"{comment} ({_field_note(entry, day)})" if comment else _upper_first(_field_note(entry, day))
     try:
         reading, amount = record_electricity_reading(garage, meter, value, day, comment)
     except ReadingError as e:
@@ -191,7 +203,7 @@ def _apply_control_reading(entry: FieldEntry, p: dict) -> tuple[str, int, str]:
     comment = (p.get("comment") or "").strip()
     reading = ControlMeterReading(
         control_meter_id=node.id, reading=value, reading_date=day,
-        comment=f"{comment} ({_field_note(entry, day)})" if comment else _field_note(entry, day).capitalize(),
+        comment=f"{comment} ({_field_note(entry, day)})" if comment else _upper_first(_field_note(entry, day)),
     )
     database.db_session.add(reading)
     database.db_session.flush()
@@ -225,7 +237,7 @@ def _apply_meter(entry: FieldEntry, p: dict) -> tuple[str, int, str]:
         initial_reading=_decimal(p["initial_reading"], "начальные показания") if p.get("initial_reading") not in (None, "") else None,
         meter_seal_number=(p.get("meter_seal_number") or "").strip() or None,
         breaker_seal_number=(p.get("breaker_seal_number") or "").strip() or None,
-        comment=f"{comment} ({_field_note(entry)})" if comment else _field_note(entry).capitalize(),
+        comment=f"{comment} ({_field_note(entry)})" if comment else _upper_first(_field_note(entry)),
     )
     database.db_session.add(meter)
     database.db_session.flush()
@@ -238,7 +250,7 @@ def _apply_meter(entry: FieldEntry, p: dict) -> tuple[str, int, str]:
 
 def _payment_comment(entry: FieldEntry, p: dict) -> str:
     parts = [f"Наличные, квитанция №{entry.receipt_number}" if entry.receipt_number else "Наличные"]
-    parts.append(f"принял {_who(entry)} без сети")
+    parts.append(f"принял {_who(entry)} " + ("через MAX" if _via_max(entry) else "без сети"))
     if p.get("payer_name"):
         parts.append(f"плательщик {p['payer_name']}")
     text = ", ".join(parts)
@@ -377,7 +389,7 @@ def _apply_person_create(entry: FieldEntry, p: dict) -> tuple[str, int, str]:
             if not value:
                 continue
             setattr(person, key, _date(value, key) if key in DATE_FIELDS else value)
-        note = _field_note(entry).capitalize()
+        note = _upper_first(_field_note(entry))
         person.comment = f"{person.comment}\n{note}" if person.comment else note
         database.db_session.add(person)
         database.db_session.flush()

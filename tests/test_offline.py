@@ -80,13 +80,15 @@ def test_snapshot_content_for_board(client, db):
     assert g["contacts"][0]["relation"] == "супруга"
 
     names = {p["name"] for p in data["persons"]}
-    assert names == {"Иванов Иван Иванович", "Иванова Мария"}  # без счетов и гаражей — не нужен
+    # у «постороннего» есть лицевой счёт (нулевой) — на него можно принять оплату
+    assert names == {"Иванов Иван Иванович", "Иванова Мария", "Посторонний Человек"}
     person = next(p for p in data["persons"] if p["id"] == owner.id)
     assert person["phones"] == [{"number": "+7 900 111-22-33", "label": "мобильный"}]
     assert "passport_number" not in person
 
     # Пеня рядовому члену правления не видна — как на сайте.
-    assert [a["balance"] for a in data["accounts"]] == ["-3000.00"]
+    assert sorted(a["balance"] for a in data["accounts"]) == ["-3000.00", "0.00"]
+    assert data["user"]["can_post_payments"] is False and data["user"]["receipt_seq"] == 0
     assert all(not f["penalty"] for f in data["fee_types"])
 
     assert data["control_meters"] == [{
@@ -101,7 +103,8 @@ def test_snapshot_penalty_for_chairman(client, db):
     db.commit()
     login(client, "chair", "pw")
     data = client.get("/offline/snapshot.json").get_json()
-    assert sorted(a["balance"] for a in data["accounts"]) == ["-3000.00", "-50.00"]
+    assert sorted(a["balance"] for a in data["accounts"]) == ["-3000.00", "-50.00", "0.00"]
+    assert data["user"]["can_post_payments"] is True
 
 
 def test_snapshot_etag_not_modified(client, db):

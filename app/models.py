@@ -4150,3 +4150,38 @@ class FailureNotification(Base):
     # прогона) — для порога по длительности (notify_failure: min_duration).
     failing_since: Mapped[dt.datetime | None] = mapped_column(DateTime)
     notified_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
+
+
+class FieldEntry(Base):
+    """Запись, сделанная правлением на территории без сети (оффлайн-страница,
+    app/offline_sync.py): показания, контрольные показания, новый счётчик,
+    принятая оплата, новый человек, правка карточки, привязка к гаражу.
+
+    uuid — от телефона: повторная отправка той же записи (оборвалась связь
+    на середине) не создаёт дубль. payload — JSON того, что ввели в поле.
+    status: applied — внесено в учёт; pending — ждёт подтверждения (оплату,
+    принятую рядовым членом правления, проводит председатель или
+    бухгалтер); review — не прошла проверку или есть расхождение, решает
+    правление (/offline/entries); rejected — отклонена; done — сделано
+    вручную на сайте. entity_type/entity_id — что получилось (показание,
+    платёж, человек). captured_at — время на телефоне в момент записи."""
+    __tablename__ = "field_entry"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str] = mapped_column(String(36), unique=True, index=True)
+    kind: Mapped[str] = mapped_column(String(30))
+    status: Mapped[str] = mapped_column(String(20), index=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("user.id", ondelete="SET NULL"), index=True)
+    captured_at: Mapped[dt.datetime] = mapped_column(DateTime)
+    received_at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.now, index=True)
+    payload: Mapped[str] = mapped_column(Text)
+    photo_path: Mapped[str | None] = mapped_column(String(500))
+    receipt_number: Mapped[str | None] = mapped_column(String(30), index=True)
+    message: Mapped[str | None] = mapped_column(Text)
+    entity_type: Mapped[str | None] = mapped_column(String(30))
+    entity_id: Mapped[int | None] = mapped_column(Integer)
+    resolved_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("user.id", ondelete="SET NULL"))
+    resolved_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
+
+    user: Mapped["User | None"] = relationship(foreign_keys=[user_id])
+    resolved_by: Mapped["User | None"] = relationship(foreign_keys=[resolved_by_user_id])

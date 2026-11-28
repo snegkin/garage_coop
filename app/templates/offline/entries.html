@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Записи без сети") }}{% endblock %}
+{% block content %}
+<h3 class="mb-2">{{ _("Записи без сети") }}</h3>
+<p class="text-muted small">{{ _("То, что правление внесло на территории без интернета и отправило, когда связь появилась. Прошедшее проверку внесено в учёт само; здесь — то, что не прошло проверку, и оплата, принятая членом правления: её проводят председатель или бухгалтер.") }}</p>
+<ul class="nav nav-pills mb-3">
+  <li class="nav-item"><a class="nav-link{% if not show_all %} active{% endif %}" href="{{ url_for('offline_sync.entries') }}">{{ _("Ждут решения") }}</a></li>
+  <li class="nav-item"><a class="nav-link{% if show_all %} active{% endif %}" href="{{ url_for('offline_sync.entries', all=1) }}">{{ _("Все за 60 дней") }}</a></li>
+</ul>
+{% if not rows %}
+<p class="text-muted">{{ _("Записей нет.") }}</p>
+{% endif %}
+{% for e in rows %}
+<div class="card bg-body mb-3">
+  <div class="card-body">
+    <div class="d-flex flex-wrap justify-content-between gap-2">
+      <div>
+        <strong>{{ _(kind_labels.get(e.kind, e.kind)) }}</strong>
+        <span class="badge {{ {'applied': 'text-bg-success', 'pending': 'text-bg-warning', 'review': 'text-bg-danger', 'rejected': 'text-bg-secondary', 'done': 'text-bg-info'}.get(e.status, 'text-bg-secondary') }}">{{ _(status_labels.get(e.status, e.status)) }}</span>
+        <div>{{ describe(e) }}</div>
+      </div>
+      <div class="small text-muted text-end">
+        {{ e.user.username if e.user else "—" }}<br>
+        {{ _("записано") }} {{ e.captured_at.strftime("%d.%m.%Y %H:%M") }}<br>
+        {{ _("получено") }} {{ e.received_at.strftime("%d.%m.%Y %H:%M") }}
+        {% if e.resolved_by %}<br>{{ _("решил") }} {{ e.resolved_by.username }}{% endif %}
+      </div>
+    </div>
+    {% if e.message %}<div class="mt-2 small" style="white-space: pre-line">{{ e.message }}</div>{% endif %}
+    {% if e.photo_path and e.kind == "reading" and e.status != "applied" %}
+    <div class="mt-2 small text-muted">{{ _("К записи приложено фото счётчика — оно появится в журнале показаний, когда запись будет внесена.") }}</div>
+    {% endif %}
+    {% if e.status in ("review", "pending") %}
+    <div class="d-flex flex-wrap gap-2 mt-3 align-items-start">
+      {% if e.kind != "payment" or is_privileged() %}
+      <form method="post" action="{{ url_for('offline_sync.entry_action', entry_id=e.id, action='retry') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn btn-sm btn-primary">{{ _("Провести") if e.status == "pending" else _("Повторить") }}</button>
+      </form>
+      {% endif %}
+      {% if e.status == "review" and e.kind in ("person_edit", "person_create") %}
+      <form method="post" action="{{ url_for('offline_sync.entry_action', entry_id=e.id, action='force') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn btn-sm btn-outline-primary">{{ _("Применить мои") if e.kind == "person_edit" else _("Повторить всё равно") }}</button>
+      </form>
+      {% endif %}
+      {% if e.kind != "payment" or is_privileged() %}
+      <form method="post" action="{{ url_for('offline_sync.entry_action', entry_id=e.id, action='done') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn btn-sm btn-outline-secondary">{{ _("Сделано на сайте") }}</button>
+      </form>
+      <form method="post" action="{{ url_for('offline_sync.entry_action', entry_id=e.id, action='reject') }}" class="d-flex gap-2">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input class="form-control form-control-sm" name="reason" placeholder="{{ _('Причина') }}" style="max-width: 14rem">
+        <button class="btn btn-sm btn-outline-danger">{{ _("Отклонить") }}</button>
+      </form>
+      {% endif %}
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endfor %}
+{% endblock %}

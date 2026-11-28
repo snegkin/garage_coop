@@ -30,7 +30,7 @@ from .permissions import is_board
 def counts(user) -> dict[str, int]:
     """Счётчики по видам; ключи есть всегда (0, если пользователю вид не
     положен) — контекст-процессор отдаёт их шаблонам как pending_*_count."""
-    result = {"pd": 0, "votes": 0, "proposals": 0, "applications": 0, "mail": 0, "owed": 0}
+    result = {"pd": 0, "votes": 0, "proposals": 0, "applications": 0, "mail": 0, "owed": 0, "field": 0}
     if not user:
         return result
     session = database.db_session
@@ -80,6 +80,10 @@ def counts(user) -> dict[str, int]:
             Application.status == ApplicationStatus.SUBMITTED,
         ).count()
 
+        # записи, сделанные без сети и ждущие решения (app/offline_sync.py)
+        from .offline_sync import open_count
+        result["field"] = open_count()
+
         # Непрочитанные во «Входящих» почты правления — кэш, который
         # обновляют scripts/poll_mailbox.py и mailbox (см.
         # MailboxSettings.unread_count). IMAP — общий счётчик (серверные
@@ -109,6 +113,7 @@ def items(user, by_key: dict[str, int] | None = None) -> list[dict]:
         ("applications", "file-earmark-text", _("Заявления ждут решения"),
          url_for("applications.list_applications", status="submitted")),
         ("owed", "cash-coin", _("К выплате людям (оплата труда, возмещение)"), url_for("year_report.view") + "#owed"),
+        ("field", "phone", _("Записи без сети ждут решения"), url_for("offline_sync.entries")),
     ]
     result = [
         {"key": key, "icon": icon, "label": label, "url": url, "count": c[key]}

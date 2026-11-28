@@ -48,13 +48,14 @@ from .models import (
     FeeType, Garage, GarageContact, GarageMapObject, GarageMapShape, GarageOwnership, MasterMeterReading,
     MemberAccount, Payment, Person, WikiPage,
 )
+from .offline_sync import last_receipt_seq
 from .permissions import is_board, is_privileged
 
 bp = Blueprint("offline", __name__, url_prefix="/offline")
 
 # Версия формата слепка: оффлайн-страница не показывает слепок другой
 # версии (после обновления сайта он перекачается при первой же проверке).
-SNAPSHOT_FORMAT = 2
+SNAPSHOT_FORMAT = 3
 
 
 def _money(value) -> str:
@@ -113,10 +114,9 @@ def build_snapshot() -> dict:
         if ma.fee_type_id not in fee_type_ids:
             continue
         bal = Decimal(account_paid.get(ma.id) or 0) - Decimal(account_charged.get(ma.id) or 0)
-        if bal == 0:
-            continue
+        # Нулевые — тоже: на них можно принять оплату (взнос вперёд).
         accounts.append({
-            "person_id": ma.person_id, "garage_id": ma.garage_id, "fee_type_id": ma.fee_type_id,
+            "id": ma.id, "person_id": ma.person_id, "garage_id": ma.garage_id, "fee_type_id": ma.fee_type_id,
             "number": ma.account_number, "balance": _money(bal),
         })
 
@@ -204,7 +204,12 @@ def build_snapshot() -> dict:
     return {
         "format": SNAPSHOT_FORMAT,
         "coop": {"name": (coop.short_name or coop.full_name) if coop else None},
-        "user": {"id": g.user.id, "username": g.user.username},
+        "user": {
+            "id": g.user.id, "username": g.user.username,
+            # оплату председатель и бухгалтер проводят сразу, остальные — к подтверждению
+            "can_post_payments": is_privileged(),
+            "receipt_seq": last_receipt_seq(g.user.id),
+        },
         "fee_types": [{"id": f.id, "name": f.name, "penalty": bool(f.is_penalty)} for f in fee_types],
         "garages": garages,
         "persons": persons,

@@ -538,22 +538,10 @@ def edit(garage_id):
     return render_template("garages/form.html", garage=garage, all_persons=[], preselect_person_id=None)
 
 
-@bp.route("/<int:garage_id>/owners/add", methods=["POST"])
-@roles_required(RoleEnum.BOARD)
-def add_owner(garage_id):
-    garage = database.db_session.get(Garage, garage_id)
-    person_id = int(request.form["person_id"])
-    comment = (request.form.get("comment") or "").strip() or None
-    try:
-        share = parse_decimal(request.form["share"] or "1")
-    except InvalidOperation:
-        flash(_("Доля должна быть числом (например 0.5)."), "danger")
-        return redirect(url_for("garages.detail", garage_id=garage_id))
-
-    if not (0 < share <= 1):
-        flash(_("Доля должна быть в диапазоне от 0 (не включая) до 1."), "danger")
-        return redirect(url_for("garages.detail", garage_id=garage_id))
-
+def add_garage_owner(garage: Garage, person_id: int, share: Decimal, comment: str | None, user_id: int | None) -> None:
+    """Добавить собственника гаража (или изменить долю, если он уже
+    собственник) — общая часть формы на карточке гаража и записей, внесённых
+    без сети (app/offline_sync.py). Не коммитит."""
     existing = (
         database.db_session.query(GarageOwnership)
         .filter_by(garage_id=garage.id, person_id=person_id)
@@ -563,7 +551,7 @@ def add_owner(garage_id):
         existing.share = share
         database.db_session.add(GarageOwnershipEvent(
             garage_id=garage.id, person_id=person_id, event_type=GarageOwnershipEventType.SHARE_CHANGED,
-            share=share, comment=comment, created_by_user_id=g.user.id,
+            share=share, comment=comment, created_by_user_id=user_id,
         ))
         audit.record(
             "garage_owner.share_change", f"Изменена доля собственника гаража №{garage.number}: {existing.person.full_name} — {share}",
@@ -583,13 +571,44 @@ def add_owner(garage_id):
         ensure_personal_member_accounts(person_id)
         database.db_session.add(GarageOwnershipEvent(
             garage_id=garage.id, person_id=person_id, event_type=GarageOwnershipEventType.ADDED,
-            share=share, comment=comment, created_by_user_id=g.user.id,
+            share=share, comment=comment, created_by_user_id=user_id,
         ))
         person = database.db_session.get(Person, person_id)
         audit.record(
             "garage_owner.add", f"{person.full_name} добавлен(а) в собственники гаража №{garage.number}, доля {share}",
             entity_type="person", entity_id=person_id,
         )
+
+
+def add_garage_contact(garage: Garage, person_id: int, relation: str | None, is_tenant: bool) -> None:
+    """Лицо для связи по гаражу — форма на карточке гаража и записи без сети. Не коммитит."""
+    database.db_session.add(GarageContact(garage_id=garage.id, person_id=person_id, relation=relation,
+                                          is_tenant=is_tenant))
+    person = database.db_session.get(Person, person_id)
+    audit.record(
+        "garage_contact.add", entity_type="garage", entity_id=garage.id,
+        summary=f"Гараж №{garage.number}: добавлено лицо для связи {person.full_name if person else person_id}"
+                + (" (арендатор)" if is_tenant else ""),
+    )
+
+
+@bp.route("/<int:garage_id>/owners/add", methods=["POST"])
+@roles_required(RoleEnum.BOARD)
+def add_owner(garage_id):
+    garage = database.db_session.get(Garage, garage_id)
+    person_id = int(request.form["person_id"])
+    comment = (request.form.get("comment") or "").strip() or None
+    try:
+        share = parse_decimal(request.form["share"] or "1")
+    except InvalidOperation:
+        flash(_("Доля должна быть числом (например 0.5)."), "danger")
+        return redirect(url_for("garages.detail", garage_id=garage_id))
+
+    if not (0 < share <= 1):
+        flash(_("Доля должна быть в диапазоне от 0 (не включая) до 1."), "danger")
+        return redirect(url_for("garages.detail", garage_id=garage_id))
+
+    add_garage_owner(garage, person_id, share, comment, g.user.id)
     database.db_session.commit()
     flash(_("Собственник добавлен/обновлён."), "success")
     return _redirect_after_link(garage_id, person_id)
@@ -868,14 +887,7 @@ def add_contact(garage_id):
     person_id = int(request.form["person_id"])
     relation = request.form.get("relation") or None
     is_tenant = request.form.get("is_tenant") == "1"
-    database.db_session.add(GarageContact(garage_id=garage_id, person_id=person_id, relation=relation,
-                                          is_tenant=is_tenant))
-    person = database.db_session.get(Person, person_id)
-    audit.record(
-        "garage_contact.add", entity_type="garage", entity_id=garage.id,
-        summary=f"Гараж №{garage.number}: добавлено лицо для связи {person.full_name if person else person_id}"
-                + (" (арендатор)" if is_tenant else ""),
-    )
+    add_garage_contact(garage, person_id, relation, is_tenant)
     database.db_session.commit()
     flash(_("Контактное лицо добавлено."), "success")
     return _redirect_after_link(garage_id, person_id)

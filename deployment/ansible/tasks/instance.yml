@@ -64,6 +64,26 @@
 - name: "[{{ inst.name }}] Перенос БД и файлов"
   ansible.builtin.import_tasks: restore.yml
 
+# Корни УЦ (НУЦ Минцифры — MAX и Модульбанк, Сбер) deploy.sh кладёт только в
+# instance/bundles/ основного, а его instance/ дополнительному не читается —
+# копия своя (публичные сертификаты, не секрет). Новые доезжают при прогоне
+# плейбука (--tags instances).
+- name: "[{{ inst.name }}] Есть ли сертификаты УЦ у основного"
+  ansible.builtin.stat:
+    path: "{{ shared_instance_dir }}/bundles"
+  register: shared_bundles
+
+- name: "[{{ inst.name }}] Сертификаты УЦ — как у основного"
+  ansible.builtin.copy:
+    src: "{{ shared_instance_dir }}/bundles/"
+    dest: "{{ app_instance_dir }}/bundles/"
+    remote_src: true
+    owner: "{{ app_user }}"
+    group: "{{ app_user }}"
+    mode: "0644"
+    directory_mode: "0755"
+  when: shared_bundles.stat.isdir | default(false)
+
 # --- nginx и сертификат --------------------------------------------------------
 
 - name: "[{{ inst.name }}] Есть ли сертификат"

@@ -84,14 +84,14 @@ class Config:
     # MAX (app/max_bot.py): platform-api2.max.ru — сертификат НУЦ Минцифры,
     # тот же корень, что у Модульбанка. Добавляется к certifi (адреса
     # загрузки файлов MAX могут быть на других хостах с обычными УЦ).
+    MAX_API_CA_BUNDLE = os.environ.get("MAX_API_CA_BUNDLE") or os.path.join(
+        BANK_CA_BUNDLES_FOLDER, "russian_trusted_root_ca.pem")
     # Один бот MAX на все кооперативы сервера (app/max_router.py). Ставит
     # ansible (max_route_secret в vars.yml); без них — кооператив сам себе бот.
     MAX_COOP_CODE = os.environ.get("MAX_COOP_CODE", "")
     MAX_RECEIVE = os.environ.get("MAX_RECEIVE", "")            # forwarded — апдейты пересылает основной
     MAX_ROUTE_PEERS = os.environ.get("MAX_ROUTE_PEERS", "")    # у основного: код=http://127.0.0.1:порт,…
     MAX_ROUTE_SECRET = os.environ.get("MAX_ROUTE_SECRET", "")
-    MAX_API_CA_BUNDLE = os.environ.get("MAX_API_CA_BUNDLE") or os.path.join(
-        BANK_CA_BUNDLES_FOLDER, "russian_trusted_root_ca.pem")
 
     # Google reCAPTCHA v2 (чекбокс «Я не робот») на странице восстановления
     # пароля (см. app/recaptcha.py, app/auth.py: forgot_password) — ключи

@@ -8,6 +8,9 @@
   vars:
     env_https: "{{ https_enabled }}"
   notify: restart app
+  # И при добавлении кооператива (add-coop.sh — --tags instances): у
+  # основного в .env список кооперативов общего бота MAX (MAX_ROUTE_PEERS).
+  tags: [instances]
 
 # Яндекс.Диск для внешнего бэкапа (restic → rclone, docs/deployment.md,
 # «Внешний бэкап»). force: false — rclone сам продлевает токен и пишет
